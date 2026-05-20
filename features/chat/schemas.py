@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class ChatRequest(BaseModel):
@@ -43,16 +43,24 @@ class ChatStreamChunk(BaseModel):
 
 
 class OAIChatMessage(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     role: str
     content: str | None = None
+    name: str | None = None
 
 
 class OAIChatCompletionRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     model: str | None = None
     messages: list[OAIChatMessage]
     stream: bool = False
     max_tokens: int | None = None
     temperature: float | None = None
+    top_p: float | None = None
+    stop: list[str] | str | None = None
+    frequency_penalty: float | None = None
+    presence_penalty: float | None = None
+    user: str | None = None
 
 
 class OAIChoice(BaseModel):

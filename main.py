@@ -28,30 +28,34 @@ app = FastAPI(
 app.add_middleware(MetricsMiddleware)
 
 sec_cfg = _load_security_cfg()
-cors_origins = _config.cors.allow_origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=_config.cors.allow_credentials,
-    allow_methods=_config.cors.allow_methods,
-    allow_headers=_config.cors.allow_headers,
-)
+
+
+# === CORS: always allow any origin, any method, any header ===
+@app.middleware("http")
+async def cors_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = await call_next(request)
+    else:
+        response = await call_next(request)
+    # Always set CORS headers — works for browser extensions (null origin)
+    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = request.headers.get("access-control-request-headers", "*")
+    return response
+
+
 app.add_middleware(LimitMiddleware)
 if sec_cfg.get("allowed_hosts") and not _config.debug:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=sec_cfg["allowed_hosts"])
 
-
 @app.get("/")
 async def root() -> dict[str, str]:
-    """Root health endpoint."""
     return {"status": "ok", "service": "ai-assistant"}
-
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    """Global health endpoint."""
     return {"status": "ok", "service": "ai-assistant"}
-
 
 async def _safe_get_state(request: Request) -> AppState | None:
     app = request.app
@@ -63,24 +67,18 @@ async def _safe_get_state(request: Request) -> AppState | None:
     except RuntimeError:
         return None
 
-
 @app.get("/info")
 async def get_info(state: AppState | None = Depends(_safe_get_state)) -> dict[str, str]:
-    """Return current model info for UI badge. Reads ONLY from config.yaml."""
     if state is None:
         return {"provider": "unknown", "model": "unknown"}
-
     provider = state.config.llm.provider
-
     if provider == "mock":
         model = "mock"
     elif provider == "openai_compatible":
         model = getattr(state.config.llm, "model", None) or "unknown"
     else:
         model = provider
-
     return {"provider": provider, "model": model}
-
 
 for router in assemble_routers():
     app.include_router(router)
