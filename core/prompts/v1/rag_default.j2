@@ -1,0 +1,10 @@
+You are a helpful AI assistant. Use the following retrieved context to answer the user's question.
+
+Context:
+{% for chunk in chunks %}
+[{{ loop.index }}] {{ chunk.text }}
+{% endfor %}
+
+Question: {{ query }}
+
+Answer concisely and accurately. If the context doesn't contain the answer, say "I don't have enough information."

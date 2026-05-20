@@ -1,0 +1,232 @@
+================================================================================
+ПРОМПТ ДЛЯ ПОИСКА КРИТИЧЕСКИХ ОШИБОК
+================================================================================
+
+Ты — Senior Python-архитектор. Проведи ревью кода по предоставленному контексту.
+
+ЗАДАНИЕ: Выдай ТОП-5 по критичности. Укажи: [Приоритет: High/Med/Low] + [Риск изменения: высокий/низкий]
+ПРАВИЛА:
+- Критерии: High = краш/блок билда/потеря данных; Med = неверная логика/замедление; Low = стиль/некритичные edge-case.
+- Нумеруй строго 1–N по убыванию критичности. Если найдено <5 — выводи только реальные.
+- Выведи строго список. Без вводных фраз, итогов и комментариев.
+- Если не уверен в строке или код неполный — спроси, не гадай
+ФОРМАТ ОТВЕТА:
+- [Краткое название задачи]
+Задача: <что исправить и зачем>
+Файлы: <пути через запятую>
+
+================================================================================
+ПРОМПТ ДЛЯ ИСПРАВЛЕНИЯ КРИТИЧЕСКИХ ОШИБОК
+================================================================================
+Ты - Senior Python-архитектор. Исправь строго одну ошибку:
+
+[ЗАДАЧА].
+
+Актуальный код предоставлен в context_build.md. Игнорируй другие дефекты.
+
+Если нужного кода нет — не гадай, сразу запроси файлы:
+❓ Нужен файл: <путь> (каждый с -новой строки)
+
+Когда код доступен и точные строки найдены, ответь строго так:
+📝 Контекст: <как изменения связаны>
+📍 Файл: <путь>
+🔍 Найди: <2-3 строки символ-в-символ>
+
+✅ Замени на:
+```python
+<готовый код>
+```
+(повторить блок для каждого файла)
+
+ПРАВИЛА:
+- Если затронуты core/, core/pipeline.py, core/registry.py, api/router.py — перед ответом напиши: «Sacred Core. Требуется согласование.»
+- Генерируй код, совместимый с pytest/ruff/mypy без дополнительных правок.
+- Меняй ТОЛЬКО строки, вызывающие ошибку; не трогай соседний код, импорты добавляй только если код без них не валиден.
+- Ответ только в формате блоков. Без приветствий, пояснений и текста вне структуры.
+- Если не уверен в строке или код неполный — спроси, не гадай
+
+
+
+================================================================================
+ПРОМПТ ДЛЯ ИСПРАВЛЕНИЯ ТЕСТОВЫХ ОШИБОК
+================================================================================
+❌ ЗАПРЕЩЕНО: менять код проекта, чтобы пройти тест, если тест проверяет магические строки или implementation details.
+
+
+✅ ОБЯЗАТЕЛЬНО: при падении теста сначала запустить `python scripts/mutation_test_add.py --quick`.
+   - Если мутации KILLED → тест валиден, фиксить код.
+   - Если мутации SURVIVED → тест слабый, помечать # WEAK_TEST: ..., фиксить тест отдельно.
+🔒 Контрактные тесты (schemas.py, SSE, autospec) — IMMUTABLE. Править только через PR с описанием breaking change.
+
+
+Исправь проблему:
+[ЗАДАЧА]
+Контекст прилагаю context_build.md. Требования: pytest проходит, ruff/mypy чисто, Sacred Core не трогать.
+
+================================================================================
+TODO:
+================================================================================
+
+
+================================================================================
+================================================================================
+
+### Промпт 1
+Задача: заменить облачный tiktoken (tokenizer_model: "gpt-4o") на локальный подсчет токенов для GGUF-моделей.
+Нужно:
+1. В core/utils.py заменить get_tokenizer/count_tokens на использование HuggingFace AutoTokenizer, загружаемого по пути из config.llm.model_path (или отдельного config.tokenizer.model_path). Fallback на len(text)//4, если библиотека/модель недоступны.
+2. Добавить в config.yaml секцию tokenizer: {provider: huggingface, model_path: ...}.
+3. Обновить features/chat/manager.py, чтобы он использовал новый токенизатор (через core.utils.count_tokens).
+4. Добавить/обновить тесты в tests/ для проверки подсчета токенов локальной модели.
+5. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 2
+Задача: устранить уязвимость CORS (сейчас allow_origins: ["*"]).
+Нужно:
+1. В config.yaml заменить cors.allow_origins на строгий белый список (пример: ["chrome-extension://YOUR_EXT_ID", "http://localhost:8000"]).
+2. В main.py добавить runtime-проверку: если debug=false и security.api_key задан, а в CORS остался "*", raise ValueError при старте.
+3. Добавить тесты на CORS middleware: блокировка постороннего origin, разрешение корректного.
+4. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 3
+Задача: добавить поддержку Ollama как внешнего LLM-сервера, чтобы не запускать llama-server через самописный менеджер процессов.
+Нужно:
+1. Создать adapters/llm_ollama.py на базе OpenAI-compatible API (http://localhost:11434/v1) с @register("llm", "ollama"). Поддержать complete и stream.
+2. В api/lifespan.py добавить условие: не запускать LlamaServerManager, если llm.provider == "ollama".
+3. В config.yaml добавить пример блока llm с provider: ollama, api_base, model.
+4. Добавить тесты с mock httpx для ollama-адаптера.
+5. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+### Промпт 4
+Задача: добавить GPU-оптимизированный адаптер через vLLM (OpenAI-compatible API).
+Нужно:
+1. Создать adapters/llm_vllm.py с @register("llm", "vllm"), использующий api_base (по умолчанию http://localhost:8000/v1).
+2. Поддержать: complete, stream, max_tokens, temperature, stop. Добавить обработку 503 "model loading".
+3. В config.yaml добавить пример конфигурации vllm.
+4. Добавить тесты с mock streaming-ответами.
+5. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 5
+Задача: добавить дисковое векторное хранилище, чтобы индексы не занимали RAM целиком.
+Нужно:
+1. Создать adapters/vector_store_chroma.py с полной реализацией IVectorStore и @register("vector_store", "chromadb"). Использовать ChromaDB с persist_directory.
+2. Реализовать namespace через collection names (или префиксы).
+3. Поддержать: add, search (с relevance_threshold), delete, save/load (persist), list_by_filter, list_namespaces.
+4. В config.yaml добавить пример: vector_store.provider: chromadb, vector_store.persist_directory: ./data/chroma.
+5. Добавить тесты: persist/load, namespace isolation, delete, фильтрация.
+6. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 6
+Задача: заменить хрупкий ручной SSE-парсинг в ui/index.html на современный фреймворк.
+Нужно:
+1. Переписать ui/index.html на React (или Vue/Svelte) с нормальной обработкой EventSource для /v1/chat/completions streaming.
+2. Сохранить совместимость со всеми текущими эндпоинтами: /v1/models, /v1/chat/completions, /rag/*, /admin/*.
+3. Использовать либо CDN-версию (без сборки), либо добавить package.json + vite (сборка в ui/dist). Если сборка — дать инструкцию.
+4. Обновить main.py: StaticFiles должен указывать на новую папку (ui/dist или ui).
+5. Добавить базовые frontend-тесты (опционально) или хотя бы проверку типов.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 7
+Задача: создать адаптер для Ollama, который не запускает процессы, а только шлет HTTP-запросы на стандартный OpenAI-compatible endpoint Ollama (http://localhost:11434/v1).
+Нужно:
+1. Создать adapters/llm_ollama.py с классом OllamaLLM, реализующим ILLM, и декоратором @register("llm", "ollama"). Поведение:
+   - complete(): POST /v1/chat/completions, извлечь message.content.
+   - stream(): POST /v1/chat/completions с stream=true, парсинг SSE data: {...} и yield content из delta.
+   - Параметры: model (из config.model или "llama3"), api_base (из config.api_base или "http://localhost:11434/v1"), timeout.
+   - Обработка tool_calls из ответа, если есть.
+   - Fallback на пустой ответ при недоступности сервера.
+2. В api/lifespan.py добавить условие: не инициализировать и не запускать LlamaServerManager, если llm.provider == "ollama".
+3. В config.yaml добавить пример блока llm с provider: ollama, api_base: http://localhost:11434/v1, model: llama3.
+4. Добавить тесты в tests/ для OllamaLLM: mock httpx для complete, stream, tool_calls, timeout-fallback. Использовать pytest-asyncio.
+5. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 8
+Задача: OpenAI-compatible streaming endpoint (/v1/chat/completions) не обрабатывает tool_calls из LLM-ответа. При stream=true модель может вернуть tool_calls в финальном чанке, но текущий код просто yield'ит текст из delta.content.
+Нужно:
+1. В features/chat/handlers.py, функция openai_chat_completions, event_generator:
+   - Собирать tool_calls из delta (если delta.tool_calls присутствует) во время стриминга.
+   - В финальном чанке (перед [DONE]) отправить полный ответ с tool_calls в формате OpenAI.
+   - Если инструмент вызван — не yield'ить [DONE], а yield финальный JSON с finish_reason="tool_calls".
+2. Обновить features/chat/schemas.py: добавить tool_calls в OAIDeltaChunk/OAIChoice.
+3. Добавить тесты в tests/test_api_e2e.py: mock LLM.stream возвращает чанки с tool_calls, проверить формат SSE.
+4. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 9
+Задача: MetricsLogger.worker глотает исключения через bare `except Exception: pass` (строки 42, 65). Это скрывает ошибки записи метрик.
+Нужно:
+1. В core/metrics.py:
+   - Заменить `except Exception: pass` в _worker на логирование через core.logger.get_logger.
+   - Заменить `except Exception: pass` в stop на логирование.
+   - Добавить счетчик dropped_messages при QueueFull.
+2. Обновить тесты в tests/test_metrics.py:
+   - Проверить, что при ошибке записи логгер вызывается.
+   - Проверить счетчик dropped_messages.
+3. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+### Промпт 10
+Задача: features/rag/handlers.py строка 229 использует `Path(__file__).parent.parent.parent / "scripts" / "index_documents.py"`. При рефакторинге структуры путь сломается.
+Нужно:
+1. В config.yaml добавить `scripts_path: ./scripts` (или использовать существующий ui.static_path как шаблон).
+2. В features/rag/handlers.py:
+   - Заменить hardcoded Path на `Path(state.config.app_root or ".") / state.config.scripts_path / "index_documents.py"`.
+   - Добавить fallback: если скрипт не найден — вернуть 500 с понятным сообщением.
+3. В core/config.py добавить `app_root: str = "."` и `scripts_path: str = "./scripts"` в AppConfig.
+4. Обновить тесты в tests/test_api_e2e.py: проверить fallback при отсутствии скрипта.
+5. Код соответствует pytest, ruff, mypy.
+Ответ только в формате: полный код с возможностью копировать\вставить
+
+
+================================================================================
+ПЛАН РАЗВИТИЯ
+================================================================================
+Правило роста:
+Новая фича = новые файлы в `adapters/` или `features/`
+Sacred Core меняется только в окнах стабилизации (1 день каждые 2 недели).
+
+
+Стабилизация (5 дней)
+- Исправить критические баги
+- Зафиксировать проект при правльном прохождении тестов
+
+Инструменты (2–3 недели)
+- MCP адаптер — `adapters/llm_mcp.py` (Claude Desktop, Cursor)
+- Code Interpreter — `features/code_interpreter/` (sandbox Python)
+- Улучшить calculator → полноценный math + unit conversion
+
+Мультимодальность (2–3 недели)
+- Vision — `adapters/vision_*.py` (CLIP, local LLaVA)
+- Voice — `adapters/voice_*.py` (Whisper, Piper TTS)
+- Image analysis — доработать stub в `features/image_analysis/`
+
+Агенты и память (3–4 недели)
+- Long-term memory — доработать `adapters/memory_sqlite.py` (суммаризация, консолидация)
+- Tool loop — автономный выбор инструментов без жёсткого `range(3)`
+- Agents — `features/agents/` (планирование, делегирование, self-correction)
+
+Масштабирование (ongoing)
+- Новые vector stores — Qdrant, Chroma, pgvector
+- Distributed — `api/` на несколько воркеров, shared state через Redis/Postgres
+- Remote access — `features/remote_access/` (WebRTC, WebSocket streaming)
+
+
+
+
+
+
+

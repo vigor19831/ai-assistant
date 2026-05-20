@@ -1,0 +1,124 @@
+# ═══════════════════════════════════════════════════════════════
+# AI Assistant — Портативная Windows-конфигурация
+# Переменные окружения с префиксом AI_* переопределяют значения ниже
+# ═══════════════════════════════════════════════════════════════
+
+# ── Приложение ──
+app_name: ai-assistant
+debug: false
+host: 0.0.0.0
+port: 8000
+config_version: "2.0.0"
+
+# ── CORS ──
+cors:
+  allow_origins: ["*"]
+  allow_credentials: true
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+
+# ── Chat ──
+chat:
+  history_limit: 10
+  max_context_tokens: 4096
+  tokenizer_model: "gpt-4o"
+
+# ── Chunker ──
+chunker:
+  provider: simple
+  chunk_size: 512
+  chunk_overlap: 50
+
+# ── Embedder: локальная Ollama (портативная) ──
+embedder:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:11434/v1
+  api_key: ollama
+  model: gemma-embed
+  dim: 768
+  timeout: 60.0
+
+# ── LLM: локальная Ollama (портативная), дефолт gemma-4 ──
+llm:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:11434/v1
+  api_key: ollama
+  model: gemma-4
+  available_models:
+    - gemma-4
+    - phi-4-mini
+    - qwen3.5-4b
+  max_tokens: 4096
+  temperature: 0.7
+  top_p: 0.95
+  top_k: 40
+  min_p: 0.05
+  repeat_penalty: 1.1
+  presence_penalty: 0.0
+  frequency_penalty: 0.0
+  stop_sequences: []
+  timeout: 300.0
+  system_message: |
+    Пиши на языке пользователя.
+    Соблюдай правописание, делай правильную разметку.
+    Краткость и правда без фантазии - твоя основа.
+
+# ── Vector Store ──
+vector_store:
+  provider: memory
+  index_path: ./data/indices
+  metric: l2
+  dim: 768                # ← ОБЯЗАТЕЛЬНО равно embedder.dim
+  relevance_threshold: 0.3
+
+# ── Storage ──
+storage:
+  provider: sqlite
+  db_path: ./data/storage.db
+
+# ── Voice ──
+voice:
+  enabled: false
+  recognizer_provider: whisper_local
+  synthesizer_provider: piper
+
+# ── Vision ──
+vision:
+  enabled: false
+  provider: clip_local
+
+# ── Reranker ──
+reranker:
+  provider: dummy
+  model: rerank-multilingual-v3.0
+  api_base: https://api.cohere.com
+  api_key: null
+  timeout: 30.0
+  threshold: 0.3
+
+# ── RAG ──
+rag:
+  steps:
+    - embed_query
+    - retrieve
+    - rerank
+    - build_context
+    - generate
+  prompt_version: v1
+  prompt_name: rag_strict
+  top_k: 5
+  default_namespace: "default"
+  relevance_threshold: 0.3
+
+# ── Безопасность ──
+security:
+  api_key: null
+  rate_limit: "100/minute"
+  max_body_size: 10485760
+  allowed_hosts: ["localhost", "127.0.0.1"]
+
+# ── Ollama (читается только start.py) ──
+ollama:
+  exe_path: "./vendor/ollama.exe"
+  models_dir: "vendor/ollama/models"
+  auto_register: true

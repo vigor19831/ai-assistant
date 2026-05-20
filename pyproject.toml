@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-assistant"
+version = "1.0.0"
+description = "Модульный AI-фреймворк с неизменяемым ядром"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "numpy>=1.26.0",
+    "httpx>=0.27.0",
+    "aiofiles>=23.2.1",
+    "tiktoken>=0.7.0",
+    "jinja2>=3.1.3",
+    "sqlmodel>=0.0.18",
+    "sqlalchemy[asyncio]>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "respx>=0.21.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "types-PyYAML>=6.0.12",
+    "types-aiofiles>=23.2.0",
+    "pre-commit>=3.7.0",
+    "pytest-timeout>=2.3.0",
+    "mutmut>=2.4.0",
+    "hypothesis>=6.100.0",
+    "vulture>=2.11",
+]
+faiss = [
+    "faiss-cpu>=1.8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "adapters*", "features*", "pipeline*", "api*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+extend-exclude = ["scripts/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "ASYNC"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true
+exclude = ["tests/", "scripts/"]
+
+# ── FastAPI DI false positives ──
+warn_return_any = false
+
+# ── Registry / dynamic code ──
+disallow_untyped_calls = false
+disallow_untyped_defs = false
+
+# ── False positives для Any ──
+warn_no_return = false
+
+# ── Игнорировать известные проблемные модули ──
+[[tool.mypy.overrides]]
+module = [
+    "api.deps",
+    "api.security",
+    "pipeline.steps",
+    "features.chat.manager",
+    "features.image_analysis.manager",
+    "adapters.*",
+]
+warn_return_any = false
+disallow_untyped_defs = false
+disallow_untyped_calls = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+timeout = 240
+addopts = "-m 'not online'"
+
+[tool.mutmut]
+paths_to_mutate = ["core/", "adapters/", "features/", "api/", "pipeline/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+backup = false

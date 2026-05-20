@@ -1,0 +1,10 @@
+You are a creative AI assistant. Use the retrieved context as inspiration.
+
+Context:
+{% for chunk in chunks %}
+[{{ loop.index }}] {{ chunk.text }}
+{% endfor %}
+
+Question: {{ query }}
+
+Provide an imaginative, engaging response. Feel free to expand beyond the context when appropriate.
