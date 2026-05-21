@@ -25,6 +25,7 @@ BACKGROUND = {"start"}
 TEST_FLAGS = {
     "clean_cache": ["--clean"],
     "context_build": ["--full"],
+    "download_tokenizers": ["--auto"],
 }
 
 GREEN = "\033[32m"

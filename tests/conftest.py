@@ -292,7 +292,7 @@ def llm_cfg():
     """Minimal LLM config."""
     c = MagicMock()
     c.provider = "openai_compatible"
-    c.api_base = "http://127.0.0.1:11434/v1"
+    c.api_base = os.getenv("AI_LLM_API_BASE", "http://127.0.0.1:8080/v1")
     c.max_tokens = 50
     c.temperature = 0.7
     c.timeout = 5.0

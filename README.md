@@ -65,8 +65,20 @@ python main.py
 
 > 💡 Совет: убедись, что модель загружена в память/VRAM перед первым запросом, иначе первый ответ будет медленным.
 
--------------------------------------------------------------------------------
 
+-------------------------------------------------------------------------------
+## Оффлайн токенайзеры
+tiktoken используется для OpenAI-моделей (GPT-4/4o/3.5) — работает офлайн после pip install, интернет не нужен.
+Для остальных моделей (Qwen, Llama, Gemma, Phi, Mistral, DeepSeek) скачайте токенизатор один раз:
+
+```bash
+# Автоопределение из config.yaml
+python scripts/download_tokenizers.py --auto
+
+# Или вручную по имени модели
+python scripts/download_tokenizers.py --model gemma-3-4b-it
+python scripts/download_tokenizers.py --model microsoft/Phi-4-mini-instruct
+```
 ## RAG
 - Индексация: `python scripts/index_documents.py --folder <personal|work|other>`
 - Префикс в чате: `[p] запрос` — ищет только в personal namespace
