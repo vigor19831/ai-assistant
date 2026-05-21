@@ -15,24 +15,27 @@ from main import app
 
 @pytest.mark.asyncio
 async def test_concurrent_chat_requests(mock_state):
+    original_overrides = app.dependency_overrides.copy()
     app.dependency_overrides[get_state] = lambda: mock_state
     mock_state.llm.complete = AsyncMock(
         return_value=MagicMock(text="ok", tool_calls=[], metadata={})
     )
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://localhost"
-    ) as ac:
-        tasks = [
-            ac.post(
-                "/chat", json={"message": f"stress {i}", "conversation_id": f"conv-{i}"}
-            )
-            for i in range(50)
-        ]
-        responses = await asyncio.gather(*tasks)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost"
+        ) as ac:
+            tasks = [
+                ac.post(
+                    "/chat", json={"message": f"stress {i}", "conversation_id": f"conv-{i}"}
+                )
+                for i in range(50)
+            ]
+            responses = await asyncio.gather(*tasks)
 
-    assert all(r.status_code == 200 for r in responses)
-    app.dependency_overrides.clear()
+        assert all(r.status_code == 200 for r in responses)
+    finally:
+        app.dependency_overrides = original_overrides
 
 
 @pytest.mark.asyncio

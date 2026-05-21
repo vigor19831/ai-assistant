@@ -234,12 +234,16 @@ class TestPipelineSteps:
 
         data = PipelineData(query=UserMessage(text="q"))
         # Create many chunks to exceed context limit
-        data.chunks = [Chunk(id=f"c{i}", text="word " * 50) for i in range(20)]
+        original_chunks = 20
+        data.chunks = [Chunk(id=f"c{i}", text="word " * 50) for i in range(original_chunks)]
         data.metadata["prompt_version"] = "v1"
         data.metadata["prompt_name"] = "rag_default"
         result = await generate(data, llm=FakeLLM())
         # Should still produce a response, possibly with fewer chunks
         assert result.response is not None
+        assert len(data.chunks) < original_chunks, (
+            f"Truncation should remove chunks: {len(data.chunks)} >= {original_chunks}"
+        )
 
 
 # ── Full Pipeline Integration ──

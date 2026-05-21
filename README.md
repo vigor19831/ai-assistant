@@ -1,4 +1,3 @@
-```markdown
 # AI Assistant — Модульный фреймворк для локальных LLM
 -------------------------------------------------------------------------------
 
@@ -34,10 +33,10 @@
 
 ## БЫСТРЫЙ СТАРТ
 
-```bash
 # 1. Подготовь LLM-сервер с OpenAI-compatible API
 #    Варианты:
-#    • llama-server:  llama-server.exe -m model.gguf --port 8080
+#    • llama-server:  llama-server.exe -m model.gguf --port 8080  (Windows)
+#                     ./llama-server -m model.gguf --port 8080      (Linux/macOS)
 #    • Ollama:        ollama serve  (порт 11434)
 #    • vLLM:          python -m vllm.entrypoints.openai.api_server --model ...
 #    • OpenAI:        https://api.openai.com/v1 (api_key нужен)
@@ -52,18 +51,21 @@
 pip install -e .[dev]
 
 # 4. Запусти сервер
-python main.py
-# или через uvicorn напрямую:
+python scripts/start.py
+# или через uvicorn напрямую (без авто-запуска llama-server):
 # uvicorn main:app --host 0.0.0.0 --port 8000
 
 # 5. UI: браузерное расширение с OpenAI-compatible API → http://localhost:8000
-```
+
+-------------------------------------------------------------------------------
 
 ## Рекомендуемые модели
 - **LLM:** `gemma-3-4b-it`, `qwen2.5-7b-instruct`, `llama-3.2-3b-instruct` — быстрые, качественные, мультиязычные
-- **Embedder:** `nomic-embed-text-v1.5`, `mxbai-embed-large-v1` — проверь размерность выходного вектора!
+- **Embedder:** `nomic-embed-text-v1.5`, `mxbai-embed-large-v1`, `bge-m3` — проверь размерность выходного вектора!
 
 > 💡 Совет: убедись, что модель загружена в память/VRAM перед первым запросом, иначе первый ответ будет медленным.
+
+> 💡 Для embedding-моделей через llama-server используй флаг `--embeddings` и укажи `--pooling mean` (или `cls`).
 
 
 -------------------------------------------------------------------------------
@@ -71,19 +73,51 @@ python main.py
 tiktoken используется для OpenAI-моделей (GPT-4/4o/3.5) — работает офлайн после pip install, интернет не нужен.
 Для остальных моделей (Qwen, Llama, Gemma, Phi, Mistral, DeepSeek) скачайте токенизатор один раз:
 
-```bash
 # Автоопределение из config.yaml
 python scripts/download_tokenizers.py --auto
 
 # Или вручную по имени модели
 python scripts/download_tokenizers.py --model gemma-3-4b-it
 python scripts/download_tokenizers.py --model microsoft/Phi-4-mini-instruct
-```
+
+
 ## RAG
 - Индексация: `python scripts/index_documents.py --folder <personal|work|other>`
 - Префикс в чате: `[p] запрос` — ищет только в personal namespace
 - API переиндексации: POST /rag/reindex {folder, clear}
 
+-------------------------------------------------------------------------------
+## Структура каталогов для llama-server (локальный запуск)
+
+project-root/
+├── vendor/
+│   ├── llama/
+│   │   └── llama-server.exe        # Windows
+│   │   └── llama-server            # Linux/macOS
+│   └── models/
+│       ├── gemma-3-4b-it.gguf    # основная LLM
+│       └── nomic-embed-text-v1.5.gguf  # эмбеддинг модель (опционально)
+└── scripts/start.py                # авто-запускает оба сервера
+
+
+`scripts/start.py` автоматически:
+1. Ищет `llama-server` в `vendor/llama/`, `vendor/llama.cpp/build/bin/`, PATH
+2. Ищет `.gguf` модели в `vendor/models/`, `models/`
+3. Запускает LLM-сервер (порт из `config.yaml → llm.api_base`)
+4. Запускает embedding-сервер (порт из `config.yaml → embedder.api_base`)
+5. Запускает uvicorn (порт из `config.yaml → port`)
+6. При `Ctrl+C` корректно останавливает все процессы
+
+Для ручного запуска серверов (без авто-старта):
+
+# Терминал 1 — LLM
+llama-server.exe -m gemma-3-4b-it.gguf --port 8080 -ngl 99 -c 4096
+
+# Терминал 2 — Embedder
+llama-server.exe -m nomic-embed-text-v1.5.gguf --port 8081 --embeddings --pooling mean -ngl 0
+
+# Терминал 3 — Framework (без авто-запуска)
+uvicorn main:app --host 0.0.0.0 --port 8000
 -------------------------------------------------------------------------------
 
 ## ВОРОТА КАЧЕСТВА (ОБЯЗАТЕЛЬНЫ ДЛЯ ЛЮБЫХ ИЗМЕНЕНИЙ)
@@ -115,6 +149,8 @@ python scripts/check_mypy.py              # типы чисто
 
 ## ТРАБЛШУТИНГ
 - LLM не отвечает → проверь, что сервер запущен и `AI_LLM_API_BASE` / `config.yaml → llm.api_base` указывают на правильный порт
+- `scripts/start.py` не находит llama-server → проверь путь: `vendor/llama/llama-server.exe` (Win) или `vendor/llama/llama-server` (Linux/macOS). Или добавь в PATH
+- `scripts/start.py` не находит модели → положи `.gguf` файлы в `vendor/models/` или `models/`
 - 401 Unauthorized → в config.yaml пропиши `api_key: sk-...` (если сервер требует ключ; локальные серверы обычно игнорируют любую строку)
 - FAISS не ставится → vector_store.provider: memory в config.yaml
 - Индекс не грузится → проверь права на data/indices/ и index_path в конфиге
@@ -152,4 +188,4 @@ Copyright (c) 2026 [МОЕ ИМЯ ИЛИ НИК]
 - `api/lifespan.py`: shutdown таргетит только PID, никогда process group
 - `core/ports/`, `core/registry.py`, `core/pipeline.py`: immutable
 - `features/*/`: новые фичи только через новые директории, существующие handlers не трогать
-```
+- `scripts/start.py`: авто-запуск llama-server — только для локальных endpoint (127.0.0.1/localhost), никогда для внешних API

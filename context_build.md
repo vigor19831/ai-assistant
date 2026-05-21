@@ -1,7 +1,7 @@
 # Project Context
-**Generated:** 2026-05-21T12:45:47.891979
+**Generated:** 2026-05-21T16:33:07.267348
 **Project:** ai
-**Files:** 81
+**Files:** 111
 ---
 # AI Assistant — A modular, cross-platform framework for local LLMs — 10+ years of evolution
 
@@ -239,13 +239,45 @@ python scripts/check_mypy.py              # типы чисто
 │   ├── __init__.py
 │   ├── decorators.py
 │   └── steps.py
-└── pyproject.toml
+├── pyproject.toml
+├── scripts
+│   ├── __init__.py
+│   ├── check_llm.py
+│   ├── check_mutations.py
+│   ├── check_mypy.py
+│   ├── check_ruff.py
+│   ├── check_smoke.py
+│   ├── check_vulture.py
+│   ├── clean_cache.py
+│   ├── download_tokenizers.py
+│   ├── index_documents.py
+│   ├── setup_venv_requirements.py
+│   ├── start.py
+│   ├── stop.py
+│   └── structure.py
+└── tests
+    ├── __init__.py
+    ├── config.test.yaml
+    ├── conftest.py
+    ├── test_adapters_integration.py
+    ├── test_api_deps.py
+    ├── test_api_e2e.py
+    ├── test_chat_manager_direct.py
+    ├── test_contracts.py
+    ├── test_core_critical.py
+    ├── test_fuzz.py
+    ├── test_lifespan.py
+    ├── test_malformed_sse.py
+    ├── test_metrics.py
+    ├── test_rag_pipeline.py
+    ├── test_stress.py
+    └── test_tokenizer.py
 ```
 ---
 ## File Index
 
-1. `LICENSE` — 553 B, 14 lines · 2026-05-21 08:38
-2. `README.md` — 9.0 KB, 155 lines · 2026-05-21 11:43 [CRIT]
+1. `LICENSE` — 553 B, 14 lines · 2026-05-21 13:18
+2. `README.md` — 9.2 KB, 155 lines · 2026-05-21 13:18 [CRIT]
 3. `adapters/__init__.py` — 869 B, 43 lines · 2026-05-20 13:45
 4. `adapters/chunker_simple.py` — 1.6 KB, 57 lines · 2026-05-14 16:58 [CRIT]
 5. `adapters/embedder_mock.py` — 687 B, 26 lines · 2026-05-16 21:41 [CRIT]
@@ -267,12 +299,12 @@ python scripts/check_mypy.py              # типы чисто
 21. `api/__init__.py` — 44 B, 1 lines · 2026-05-10 22:01
 22. `api/admin.py` — 767 B, 29 lines · 2026-05-20 13:49 [CRIT]
 23. `api/deps.py` — 7.6 KB, 224 lines · 2026-05-20 14:54
-24. `api/lifespan.py` — 2.1 KB, 63 lines · 2026-05-20 13:47
+24. `api/lifespan.py` — 2.5 KB, 75 lines · 2026-05-21 16:02
 25. `api/router.py` — 1.5 KB, 48 lines · 2026-05-19 13:09
 26. `api/security.py` — 2.9 KB, 87 lines · 2026-05-19 00:13
-27. `config.yaml` — 3.8 KB, 137 lines · 2026-05-21 12:43
+27. `config.yaml` — 3.7 KB, 132 lines · 2026-05-21 16:21
 28. `core/__init__.py` — 290 B, 15 lines · 2026-05-14 16:58
-29. `core/config.py` — 6.7 KB, 203 lines · 2026-05-21 09:51
+29. `core/config.py` — 6.9 KB, 203 lines · 2026-05-21 13:18
 30. `core/domain/__init__.py` — 600 B, 27 lines · 2026-05-16 21:41
 31. `core/domain/documents.py` — 715 B, 32 lines · 2026-05-18 10:24
 32. `core/domain/errors.py` — 277 B, 19 lines · 2026-05-13 08:35
@@ -280,7 +312,7 @@ python scripts/check_mypy.py              # типы чисто
 34. `core/domain/pipeline.py` — 514 B, 19 lines · 2026-05-14 16:58
 35. `core/io_utils.py` — 857 B, 29 lines · 2026-05-19 00:24
 36. `core/logger.py` — 1.1 KB, 41 lines · 2026-05-16 21:41
-37. `core/metrics.py` — 3.0 KB, 101 lines · 2026-05-19 00:24
+37. `core/metrics.py` — 3.3 KB, 106 lines · 2026-05-21 13:30
 38. `core/pipeline.py` — 597 B, 22 lines · 2026-05-16 21:41
 39. `core/ports/__init__.py` — 701 B, 28 lines · 2026-05-16 21:41
 40. `core/ports/chunker.py` — 441 B, 20 lines · 2026-05-16 21:41
@@ -305,7 +337,7 @@ python scripts/check_mypy.py              # типы чисто
 59. `core/registry.py` — 1.4 KB, 52 lines · 2026-05-17 10:37
 60. `core/retry.py` — 2.2 KB, 72 lines · 2026-05-16 21:41
 61. `core/tool_registry.py` — 1.5 KB, 48 lines · 2026-05-16 21:38
-62. `core/utils.py` — 3.2 KB, 109 lines · 2026-05-21 11:26
+62. `core/utils.py` — 3.7 KB, 120 lines · 2026-05-21 13:18
 63. `features/__init__.py` — 53 B, 1 lines · 2026-05-10 22:01
 64. `features/chat/__init__.py` — 46 B, 1 lines · 2026-05-10 22:01
 65. `features/chat/handlers.py` — 5.2 KB, 171 lines · 2026-05-20 22:10 [CRIT]
@@ -319,14 +351,44 @@ python scripts/check_mypy.py              # типы чисто
 73. `features/rag/handlers.py` — 9.3 KB, 292 lines · 2026-05-19 10:41 [CRIT]
 74. `features/rag/manager.py` — 6.0 KB, 200 lines · 2026-05-16 21:41
 75. `features/rag/schemas.py` — 1.8 KB, 76 lines · 2026-05-16 21:41
-76. `launcher.py` — 8.7 KB, 319 lines · 2026-05-21 12:23
+76. `launcher.py` — 8.7 KB, 319 lines · 2026-05-21 13:18
 77. `main.py` — 2.5 KB, 87 lines · 2026-05-21 00:13 [CRIT]
 78. `pipeline/__init__.py` — 231 B, 6 lines · 2026-05-14 16:58
 79. `pipeline/decorators.py` — 990 B, 44 lines · 2026-05-16 21:41
 80. `pipeline/steps.py` — 8.1 KB, 237 lines · 2026-05-18 23:46 [CRIT]
-81. `pyproject.toml` — 2.2 KB, 97 lines · 2026-05-21 09:50
+81. `pyproject.toml` — 2.1 KB, 92 lines · 2026-05-21 13:18
+82. `scripts/__init__.py` — 21 B, 1 lines · 2026-05-10 22:01
+83. `scripts/check_llm.py` — 2.1 KB, 70 lines · 2026-05-21 13:18
+84. `scripts/check_mutations.py` — 3.3 KB, 113 lines · 2026-05-19 00:27
+85. `scripts/check_mypy.py` — 1.4 KB, 54 lines · 2026-05-20 09:39
+86. `scripts/check_ruff.py` — 1.8 KB, 57 lines · 2026-05-20 09:39
+87. `scripts/check_smoke.py` — 13.3 KB, 391 lines · 2026-05-20 16:16
+88. `scripts/check_vulture.py` — 4.0 KB, 165 lines · 2026-05-19 07:53
+89. `scripts/clean_cache.py` — 6.6 KB, 220 lines · 2026-05-21 13:18
+90. `scripts/download_tokenizers.py` — 9.9 KB, 302 lines · 2026-05-21 13:18
+91. `scripts/index_documents.py` — 6.6 KB, 198 lines · 2026-05-21 15:18
+92. `scripts/setup_venv_requirements.py` — 3.3 KB, 105 lines · 2026-05-21 13:18
+93. `scripts/start.py` — 2.9 KB, 99 lines · 2026-05-21 16:01
+94. `scripts/stop.py` — 4.2 KB, 136 lines · 2026-05-21 16:03
+95. `scripts/structure.py` — 5.4 KB, 161 lines · 2026-05-21 15:18
+96. `tests/__init__.py` — 59 B, 1 lines · 2026-05-16 22:29
+97. `tests/config.test.yaml` — 1.2 KB, 78 lines · 2026-05-18 08:56
+98. `tests/conftest.py` — 8.9 KB, 332 lines · 2026-05-21 14:56
+99. `tests/test_adapters_integration.py` — 21.8 KB, 625 lines · 2026-05-20 14:45
+100. `tests/test_api_deps.py` — 11.7 KB, 308 lines · 2026-05-21 14:56
+101. `tests/test_api_e2e.py` — 21.9 KB, 615 lines · 2026-05-20 22:05
+102. `tests/test_chat_manager_direct.py` — 13.4 KB, 365 lines · 2026-05-20 14:45
+103. `tests/test_contracts.py` — 2.6 KB, 73 lines · 2026-05-19 00:13
+104. `tests/test_core_critical.py` — 8.4 KB, 283 lines · 2026-05-19 00:13 [CRIT]
+105. `tests/test_fuzz.py` — 7.2 KB, 223 lines · 2026-05-19 00:13
+106. `tests/test_lifespan.py` — 6.0 KB, 159 lines · 2026-05-20 15:53
+107. `tests/test_malformed_sse.py` — 2.8 KB, 85 lines · 2026-05-20 16:10
+108. `tests/test_metrics.py` — 3.8 KB, 130 lines · 2026-05-21 13:37
+109. `tests/test_rag_pipeline.py` — 18.1 KB, 491 lines · 2026-05-21 15:04
+110. `tests/test_stress.py` — 2.0 KB, 67 lines · 2026-05-21 14:56
+111. `tests/test_tokenizer.py` — 3.3 KB, 85 lines · 2026-05-21 13:18
 
-**Total:** 183.8 KB
+**Total:** 383.3 KB
 
 ---
 ## File Contents
@@ -524,7 +586,7 @@ app_name: ai-assistant
 debug: false
 host: 0.0.0.0
 port: 8000
-config_version: "2.0.0"
+config_version: "0.0.5"
 
 # ── CORS ──
 cors:
@@ -552,12 +614,11 @@ chunker:
 # ── Embedder ──
 embedder:
   provider: openai_compatible
-  api_base: http://127.0.0.1:8080/v1
-  api_key: null
+  api_base: http://127.0.0.1:8081/v1
+  api_key: "sk-local"
   model: embeddinggemma-300m-q8_0
   dim: 768
   timeout: 60.0
-  # === GPU/CPU offload ===
   n_gpu_layers: 0        # -1 = все слои на GPU, 0 = только CPU, 10 = 10 слоёв на GPU
   n_batch: 512            # размер батча для обработки
   n_ubatch: 64            # микро-батч
@@ -568,7 +629,7 @@ embedder:
 llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
-  api_key: null
+  api_key: "sk-local"
   model: gemma-4-e2b-it
   available_models:
     - gemma-4-e2b-it
@@ -584,16 +645,12 @@ llm:
   frequency_penalty: 0.0
   stop_sequences: []
   timeout: 300.0
-  # === GPU/CPU offload ===
   n_gpu_layers: 99        # -1 = все на GPU, 0 = CPU only, N = N слоёв на GPU
   n_batch: 512
   n_ubatch: 64
   mmap: true
   mlock: false
-  # === Sampling (уже есть выше) ===
-  # === Context ===
   server_context_size: 4096
-  # === Performance ===
   num_threads: 0          # 0 = авто (все ядра), N = N потоков
   flash_attn: false       # Flash Attention (ускорение, требует поддержки)
 
@@ -1113,18 +1170,12 @@ python_version = "3.13"
 strict = true
 ignore_missing_imports = true
 exclude = ["tests/", "scripts/"]
-
-# ── FastAPI DI false positives ──
 warn_return_any = false
-
-# ── Registry / dynamic code ──
 disallow_untyped_calls = false
 disallow_untyped_defs = false
-
-# ── False positives для Any ──
 warn_no_return = false
+warn_unused_ignores = false
 
-# ── Игнорировать известные проблемные модули ──
 [[tool.mypy.overrides]]
 module = [
     "api.deps",
@@ -1133,6 +1184,7 @@ module = [
     "features.chat.manager",
     "features.image_analysis.manager",
     "adapters.*",
+    "core.utils",
 ]
 warn_return_any = false
 disallow_untyped_defs = false
@@ -3061,9 +3113,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Сохраняем state в app для доступа через request.app.state
     app.state.app_state = state
 
+    # Write PID file for stop.py
+    import os
+    from pathlib import Path
+    pid_file = Path("data/server.pid")
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
     yield
 
     state = getattr(app.state, "app_state", state)
+
+    # Clean up PID file
+    pid_file = Path("data/server.pid")
+    if pid_file.exists():
+        pid_file.unlink(missing_ok=True)
 
     await get_metrics_logger().stop()
 
@@ -3086,8 +3150,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 namespaces = await state.vector_store.list_namespaces(index_path)
                 for ns in namespaces:
                     await state.vector_store.save(index_path, namespace=ns)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Index save failed: %s", exc)
     except RuntimeError:
         pass
 ```
@@ -3534,10 +3598,13 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+from core.logger import get_logger
+
 class MetricsLogger:
     """Non-blocking JSONL metrics logger using asyncio queue + background task."""
 
     def __init__(self, path: str = "./data/metrics.jsonl") -> None:
+        self._logger = get_logger("metrics")
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._queue: asyncio.Queue[dict[str, Any] | None] | None = None
@@ -3565,8 +3632,8 @@ class MetricsLogger:
             try:
                 line = json.dumps(item, ensure_ascii=False, default=str) + "\n"
                 await asyncio.to_thread(self._append_line, line)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._logger.warning("Metrics write failed: %s", exc)
 
     def log(self, data: dict[str, Any]) -> None:
         """Enqueue metric record (non-blocking)."""
@@ -3588,8 +3655,10 @@ class MetricsLogger:
         if self._task and not self._task.done():
             try:
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except Exception:
-                pass
+            except asyncio.TimeoutError:
+                self._logger.warning("Metrics worker stop timed out")
+            except Exception as exc:
+                self._logger.warning("Metrics worker stop failed: %s", exc)
         self._queue = None
         self._task = None
 
@@ -3875,14 +3944,25 @@ def resolve_api_key(config_value: str | None, env_var: str = "OPENAI_API_KEY") -
 def _resolve_tokenizer_dir(model: str, local_dir: str) -> Path | None:
     """Map model name to local tokenizer directory."""
     base = Path(local_dir)
-    if (base / model / "tokenizer.json").exists():
-        return base / model
-    family = _MODEL_TO_TOKENIZER.get(model.lower())
-    if family and (base / family / "tokenizer.json").exists():
-        return base / family
-    for key, val in _MODEL_TO_TOKENIZER.items():
-        if key in model.lower() and (base / val / "tokenizer.json").exists():
-            return base / val
+    # Normalize: underscores ↔ dashes, lowercase
+    normalized = model.lower().strip().replace("_", "-")
+
+    # Exact match after normalization
+    for entry in base.iterdir():
+        if entry.is_dir():
+            entry_norm = entry.name.lower().replace("_", "-")
+            if entry_norm == normalized:
+                if (entry / "tokenizer.json").exists():
+                    return entry
+
+    # Partial match (e.g. qwen2.5-7b-instruct -> qwen2.5)
+    for entry in base.iterdir():
+        if entry.is_dir():
+            entry_norm = entry.name.lower().replace("_", "-")
+            if entry_norm in normalized or normalized.startswith(entry_norm + "-"):
+                if (entry / "tokenizer.json").exists():
+                    return entry
+
     return None
 
 def get_tokenizer(
@@ -6362,4 +6442,5969 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
     )
     record_metric("output_tokens", _estimate_tokens(data.response.text or ""))
     return data
+```
+
+### `scripts/`
+
+#### `scripts/__init__.py`
+
+```py
+"""Setup scripts."""
+```
+
+#### `scripts/check_llm.py`
+
+```py
+#!/usr/bin/env python3
+"""Check LLM server — universal, works with any OpenAI-compatible API."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import httpx
+
+root = Path(__file__).parent.parent
+cfg_path = root / "config.yaml"
+
+print(f"Config exists: {cfg_path.exists()}")
+
+llm = {}
+
+try:
+    import yaml
+
+    with open(cfg_path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    llm = cfg.get("llm", {})
+    print(f"Provider: {llm.get('provider')}")
+    print(f"API base: {llm.get('api_base')}")
+    print(f"Model: {llm.get('model')}")
+except Exception as e:
+    print(f"Config error: {e}")
+
+# Priority: env var → config → localhost default
+api_base = os.getenv("AI_LLM_API_BASE", llm.get("api_base", "http://127.0.0.1:8080/v1")).rstrip("/")
+model = llm.get("model", "unknown")
+
+print(f"\nChecking LLM API at {api_base}...")
+
+# 1. Check /v1/models
+try:
+    resp = httpx.get(f"{api_base}/models", timeout=5.0)
+    reachable = resp.status_code < 500
+    print(f"API reachable: {reachable} (status {resp.status_code})")
+except Exception as e:
+    print(f"API not reachable: {e}")
+    reachable = False
+
+# 2. Check model response via /v1/chat/completions
+if reachable:
+    try:
+        resp = httpx.post(
+            f"{api_base}/chat/completions",
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 10,
+            },
+            timeout=30.0,
+        )
+        ok = resp.status_code == 200
+        print(f"Model '{model}' responds: {ok}")
+        if not ok:
+            print(f"Response: {resp.text[:200]}")
+    except Exception as e:
+        print(f"Model check failed: {e}")
+else:
+    print("Skipping model check — API not reachable")
+
+print("\nTroubleshooting:")
+print("  1. Ensure your LLM server is running")
+print("  2. Check config.yaml → llm.api_base or set AI_LLM_API_BASE env var")
+print("  3. Verify the model name matches what the server expects")
+print("  4. Check server logs for errors")
+```
+
+#### `scripts/check_mutations.py`
+
+```py
+#!/usr/bin/env python3
+"""Mutation testing wrapper — uses mutmut (industrial standard).
+
+Usage:
+    python scripts/check_mutations.py              # full project mutation test
+    python scripts/check_mutations.py --quick      # sacred core only (fast)
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+MUTATION_SCORE_THRESHOLD = 80.0
+
+def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    print(f">> {' '.join(cmd)}")
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+
+def _parse_score(output: str) -> float | None:
+    """Extract mutation score from mutmut results output."""
+    for line in output.splitlines():
+        if "Mutation score" in line or "score" in line.lower():
+            parts = line.split()
+            for part in parts:
+                try:
+                    if "%" in part:
+                        return float(part.replace("%", "").replace(":", ""))
+                except ValueError:
+                    continue
+    return None
+
+def main() -> int:
+    # mutmut не поддерживает Windows нативно
+    if sys.platform == "win32":
+        print("=" * 55)
+        print("MUTATION TESTING — Skipped")
+        print("=" * 55)
+        print(">> mutmut requires WSL on Windows")
+        print("   See: https://github.com/boxed/mutmut/issues/397")
+        print(
+            "   Run in WSL: wsl -e bash -c "
+            "'cd /mnt/d/ai && python scripts/check_mutations.py'"
+        )
+        return 0
+
+    parser = argparse.ArgumentParser(description="Mutation testing via mutmut")
+    parser.add_argument("--quick", action="store_true", help="Sacred core only")
+    args = parser.parse_args()
+
+    project_root = Path(__file__).resolve().parent.parent
+
+    # Determine paths to mutate
+    if args.quick:
+        paths = ["core/"]
+        print("=" * 55)
+        print("MUTATION TESTING — Sacred Core only")
+        print("=" * 55)
+    else:
+        paths = ["core/", "adapters/", "features/", "api/", "pipeline/"]
+        print("=" * 55)
+        print("MUTATION TESTING — Full project")
+        print("=" * 55)
+
+    # Run mutmut
+    cmd = [
+        sys.executable,
+        "-m",
+        "mutmut",
+        "run",
+        "--paths-to-mutate",
+        ",".join(paths),
+    ]
+    result = _run(cmd, project_root)
+
+    if result.returncode != 0 and result.returncode != 2:
+        # returncode 2 = some mutants survived (expected, we check score)
+        print(result.stdout)
+        print(result.stderr, file=sys.stderr)
+        print("ERROR: mutmut run failed")
+        return 1
+
+    print(result.stdout)
+
+    # Get results
+    results_cmd = [sys.executable, "-m", "mutmut", "results"]
+    results = _run(results_cmd, project_root)
+    print(results.stdout)
+
+    # Parse and check score
+    score = _parse_score(results.stdout)
+    if score is None:
+        print("WARNING: Could not parse mutation score")
+        return 0  # Don't fail CI on parse issues
+
+    print(f"\nMutation score: {score:.1f}% (threshold: {MUTATION_SCORE_THRESHOLD}%)")
+
+    if score >= MUTATION_SCORE_THRESHOLD:
+        print(f"PASS: Score >= {MUTATION_SCORE_THRESHOLD}%")
+        return 0
+    else:
+        print(f"FAIL: Score < {MUTATION_SCORE_THRESHOLD}%")
+        print("Run 'mutmut show <id>' to inspect surviving mutants")
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/check_mypy.py`
+
+```py
+#!/usr/bin/env python3
+"""Run mypy static type checker for the project (excludes .venv).
+
+Usage:
+    python scripts/check_mypy.py                 # default check
+    python scripts/check_mypy.py --strict        # additional mypy flags
+    python scripts/check_mypy.py core/adapters   # check specific package
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+def main() -> int:
+    project_root = Path(__file__).resolve().parent.parent
+
+    # Базовые исключения, чтобы не лезть в виртуальное окружение
+    exclude_patterns = [
+        ".venv",
+        "venv",
+        "__pycache__",
+        "data",
+        "logs",
+        "tmp",
+        "temp",
+        "vendor",
+        "scripts",
+        "tests",  # tests проверяем отдельно через pytest
+    ]
+    exclude_str = "|".join(r"/" + p for p in exclude_patterns)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "mypy",
+        str(project_root),
+        "--exclude",
+        exclude_str,
+    ]
+
+    # Проброс дополнительных аргументов (например, --strict, --config-file=...)
+    if len(sys.argv) > 1:
+        cmd.extend(sys.argv[1:])
+
+    print(f"Running: {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=project_root)
+    return result.returncode
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/check_ruff.py`
+
+```py
+#!/usr/bin/env python3
+"""Run ruff linter and formatter – auto-fix by default (excludes .venv).
+
+Usage:
+    python scripts/check_ruff.py            # auto-fix lint + format
+    python scripts/check_ruff.py --check    # only check, no auto-fix
+    python scripts/check_ruff.py --watch    # additional ruff arguments
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+def run_ruff(command: list[str], cwd: Path) -> int:
+    print(f"Running: {' '.join(command)}")
+    result = subprocess.run(command, cwd=cwd)
+    return result.returncode
+
+def main() -> int:
+    project_root = Path(__file__).resolve().parent.parent
+
+    # Определяем режим: если есть --check, то только проверка
+    args = sys.argv[1:]
+    check_mode = "--check" in args
+    # Убираем --check из аргументов, чтобы не передавать его ruff
+    extra_args = [a for a in args if a != "--check"]
+
+    exit_code = 0
+
+    # 1. Lint
+    lint_cmd = [sys.executable, "-m", "ruff", "check"]
+    if check_mode:
+        # просто проверка без исправлений
+        lint_cmd.append("--check")
+    else:
+        lint_cmd.append("--fix")
+    lint_cmd.append(str(project_root))
+    lint_cmd.extend(extra_args)
+    exit_code |= run_ruff(lint_cmd, project_root)
+
+    # 2. Format
+    format_cmd = [sys.executable, "-m", "ruff", "format"]
+    if check_mode:
+        format_cmd.append("--check")
+    format_cmd.append(str(project_root))
+    format_cmd.extend(extra_args)  # не все флаги подходят, но пусть пробрасывает
+    exit_code |= run_ruff(format_cmd, project_root)
+
+    return exit_code
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/check_smoke.py`
+
+```py
+#!/usr/bin/env python3
+"""Unified smoke check — imports, config, state, HTTP, RAG, chat,
+tools, security, lifespan."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+import traceback
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import adapters.chunker_simple  # noqa
+
+# ── Windows: force UTF-8 output ─────────────────────────────────────────────
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except AttributeError:
+        import io
+
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+@dataclass
+class CheckResult:
+    name: str
+    status: str
+    details: str = ""
+    error: str = ""
+
+results: list[CheckResult] = []
+
+def run_check(name: str, fn) -> None:
+    try:
+        detail = fn()
+        results.append(
+            CheckResult(
+                name=name, status="PASS", details=str(detail) if detail else "OK"
+            )
+        )
+    except Exception as e:
+        results.append(
+            CheckResult(
+                name=name,
+                status="FAIL",
+                error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            )
+        )
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+def make_mock_state():
+    from unittest.mock import MagicMock
+
+    mock = MagicMock()
+    mock.config.llm.provider = "mock"
+    mock.config.llm.model = "gpt-4o-mini"
+    mock.config.chat.history_limit = 10
+    mock.config.chat.tokenizer_model = "gpt-4o"
+    mock.config.rag.default_namespace = "default"
+    mock.config.rag.top_k = 3
+    mock.config.vector_store.provider = "memory"
+    mock.config.vector_store.dim = 384
+    mock.config.storage.provider = "sqlite"
+    mock.config.storage.db_path = "./data/test_storage.db"
+    mock.config.voice.enabled = False
+    mock.config.vision.enabled = False
+    mock.llm = MagicMock()
+    mock.llm.complete = lambda msgs: MagicMock(text="ok", metadata={}, tool_calls=[])
+    mock.llm.stream = lambda msgs: (yield "ok")
+    mock.embedder = MagicMock()
+    mock.embedder.embed = lambda texts: [[0.1] * 384]
+    mock.embedder.dimension = 384
+    mock.vector_store = MagicMock()
+    mock.vector_store.add = lambda *a, **k: None
+    mock.vector_store.search = lambda *a, **k: []
+    mock.chunker = MagicMock()
+    mock.chunker.chunk = lambda doc: []
+    mock.reranker = None
+    mock.pipeline = MagicMock()
+    mock.pipeline.run = lambda data: MagicMock(
+        chunks=[], response=MagicMock(text="answer"), errors=[]
+    )
+    mock.storage = MagicMock()
+    mock.storage.get_history = lambda *a, **k: []
+    mock.storage.save_message = lambda *a, **k: None
+    mock.vision = None
+    mock.voice_recognizer = None
+    mock.voice_synthesizer = None
+    mock.tool_registry = MagicMock()
+    mock.tool_registry.register = lambda t: None
+    mock.tool_registry.list_tools = lambda: []
+    mock.tool_registry.execute = lambda c: MagicMock(output="tool", is_error=False)
+    return mock
+
+# ── Checks ───────────────────────────────────────────────────────────────────
+def check_imports_registry() -> str:
+    from core.registry import create, list_adapters
+
+    assert isinstance(list_adapters(), dict)
+    try:
+        create("llm", "__nonexistent__", {})
+        raise AssertionError("Should fail on invalid adapter")
+    except ValueError:
+        pass
+    return "imports OK, registry works, invalid adapter blocked"
+
+def check_config() -> str:
+    from core.config import AppConfig, load_config
+
+    cfg = load_config(str(PROJECT_ROOT / "tests" / "config.test.yaml"))
+    assert isinstance(cfg, AppConfig)
+    assert cfg.embedder.dim == cfg.vector_store.dim
+    return f"config parsed, dim={cfg.embedder.dim}, steps={len(cfg.rag.steps)}"
+
+def check_file_structure() -> str:
+    required = ["core/ports", "adapters", "features", "pipeline", "api", "config.yaml"]
+    missing = [p for p in required if not (PROJECT_ROOT / p).exists()]
+    if missing:
+        raise FileNotFoundError(f"Missing critical paths: {missing}")
+    return f"all {len(required)} core dirs/files present"
+
+def check_app_state() -> str:
+    import asyncio
+
+    from api.deps import init_adapters
+    from core.config import load_config
+
+    cfg = load_config(str(PROJECT_ROOT / "tests" / "config.test.yaml"))
+    state = asyncio.run(init_adapters(cfg))
+    state2 = asyncio.run(init_adapters(cfg))
+    assert state is state2, "init_adapters not idempotent"
+    return json.dumps(
+        {
+            "llm": type(state.llm).__name__,
+            "embedder": type(state.embedder).__name__,
+            "pipeline_steps": len(state.pipeline.steps),
+            "tool_registry": type(state.tool_registry).__name__,
+        }
+    )
+
+def check_http_endpoints() -> str:
+    from fastapi.testclient import TestClient
+
+    from api.deps import get_state
+    from main import app
+
+    mock = make_mock_state()
+    app.state.app_state = mock
+    app.dependency_overrides[get_state] = lambda: mock
+    client = TestClient(app)
+    r1 = client.get("/health")
+    r2 = client.get("/info")
+    r3 = client.post("/chat", json={"message": "hi", "conversation_id": "t1"})
+    r4 = client.post(
+        "/chat", json={"message": "hi"}, headers={"Authorization": "Bearer test"}
+    )
+    r5 = client.get("/v1/models")
+    r6 = client.post("/rag/query", json={"query": "test"})
+    r7 = client.post("/chat", json={"bad": "field"})  # 422 validation
+    return (
+        f"health={r1.status_code}, info={r2.status_code}, "
+        f"chat_no_auth={r3.status_code}, chat_auth={r4.status_code}, "
+        f"models={r5.status_code}, rag={r6.status_code}, bad_req={r7.status_code}"
+    )
+
+def check_sse_format() -> str:
+
+    from fastapi.testclient import TestClient
+
+    from api.deps import get_state
+    from main import app
+
+    async def fake_stream(*a, **k):
+        yield "Hello"
+        yield " world"
+
+    mock = make_mock_state()
+    mock.llm.stream = fake_stream
+    app.state.app_state = mock
+    app.dependency_overrides[get_state] = lambda: mock
+    client = TestClient(app)
+    r = client.post("/chat/stream", json={"message": "hi", "conversation_id": "t1"})
+    lines = [line for line in r.text.strip().split("\n") if line.strip()]
+    has_data = all(line.startswith("data: ") for line in lines)
+    has_done = "data: [DONE]" in r.text
+    return f"status={r.status_code}, sse_ok={has_data}, done_ok={has_done}"
+
+def check_rag_pipeline() -> str:
+    from dataclasses import replace
+
+    from adapters.chunker_simple import SimpleChunker
+    from adapters.embedder_mock import MockEmbedder
+    from adapters.vector_store_memory import MemoryVectorStore
+    from core.domain.documents import Document
+
+    async def run():
+        chunker = SimpleChunker(
+            type("C", (), {"chunk_size": 100, "chunk_overlap": 5})()
+        )
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+        )
+        doc = Document(id="d1", content="Paris is capital. France has Eiffel Tower.")
+        chunks = await chunker.chunk(doc)
+        embs = await embedder.embed([c.text for c in chunks])
+        await store.add(
+            [replace(c, embedding=embs[i]) for i, c in enumerate(chunks)],
+            namespace="test",
+        )
+        qemb = await embedder.embed(["capital?"])
+        found = await store.search(qemb[0], top_k=3, namespace="test")
+        return (
+            f"chunks={len(chunks)}, found={len(found)}, "
+            f"Paris={'Paris' in found[0].text if found else False}"
+        )
+
+    return asyncio.run(run())
+
+def check_chat_manager() -> str:
+    from dataclasses import replace
+
+    from adapters.embedder_mock import MockEmbedder
+    from adapters.llm_mock import MockLLM
+    from adapters.vector_store_memory import MemoryVectorStore
+    from core.domain.documents import Chunk
+    from features.chat.manager import ChatManager
+
+    async def run():
+        llm = MockLLM({})
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+        )
+        await store.add(
+            [replace(Chunk(id="c1", text="Paris is capital."), embedding=[0.1] * 3)],
+            namespace="personal",
+        )
+        mgr = ChatManager(
+            llm=llm, embedder=embedder, vector_store=store, history_limit=10
+        )
+        r1 = await mgr.chat("Hello", "c1")
+        r2 = await mgr.chat("[p] capital?", "c2")
+        return f"no_rag='{r1.text[:30]}...', rag='{r2.text[:40]}...'"
+
+    return asyncio.run(run())
+
+def check_tools() -> str:
+    from adapters.tools_calculator import CalculatorTool
+
+    async def run():
+        tool = CalculatorTool()
+        ok = await tool.execute({"operation": "add", "a": 2, "b": 3})
+        err = await tool.execute({"operation": "divide", "a": 1, "b": 0})
+        return f"add_ok={ok.is_error is False}, div0_err={err.is_error is True}"
+
+    return asyncio.run(run())
+
+def check_security() -> str:
+    from api.security import SecurityLimiter, get_expected_api_key
+
+    limiter = SecurityLimiter()
+    ip = "127.0.0.1"
+    allowed = sum(1 for _ in range(110) if limiter.is_allowed(ip))
+    os.environ["AI_API_KEY"] = "test-smoke"
+    key = get_expected_api_key()
+    return f"allowed={allowed}/110, key_resolved={key is not None}"
+
+def check_lifespan() -> str:
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from api.lifespan import lifespan
+
+    async def run():
+        class MinimalApp:
+            def __init__(self):
+                self.state = MinimalState()
+
+        class MinimalState:
+            pass
+
+        class MinimalLLM:
+            shutdown = AsyncMock()
+
+        class MinimalVS:
+            save = AsyncMock()
+            list_namespaces = AsyncMock(return_value=[])
+
+        app = MinimalApp()
+
+        st = MinimalState()
+        st.llm = MinimalLLM()
+        st.embedder = None
+        st.vector_store = MinimalVS()
+        st.llm_server_manager = None
+
+        with patch("api.lifespan._load_config") as mock_cfg:
+            cfg = type(
+                "C",
+                (),
+                {
+                    "debug": False,
+                    "llm": type(
+                        "LLM",
+                        (),
+                        {
+                            "server_bin": None,
+                            "model_path": None,
+                            "server_context_size": 4096,
+                            "n_gpu_layers": 0,
+                        },
+                    )(),
+                    "vector_store": type("VS", (), {"index_path": None})(),
+                },
+            )()
+            mock_cfg.return_value = cfg
+
+            with patch(
+                "api.lifespan.init_adapters", new_callable=AsyncMock
+            ) as mock_init:
+                mock_init.return_value = st
+
+                with patch("api.lifespan.get_metrics_logger") as mock_met:
+                    mock_met.return_value.start = MagicMock()
+                    mock_met.return_value.stop = AsyncMock()
+
+                    async with lifespan(app) as _:
+                        pass
+
+        return f"shutdown_called={MinimalLLM.shutdown.await_count}"
+
+    return asyncio.run(run())
+
+# ── Runner ───────────────────────────────────────────────────────────────────
+def main() -> int:
+    print("\n" + "=" * 60)
+    print("  U N I F I E D   S M O K E   C H E C K")
+    print("=" * 60)
+
+    run_check("imports_registry", check_imports_registry)
+    run_check("file_structure", check_file_structure)
+    run_check("config_parse", check_config)
+    run_check("app_state", check_app_state)
+    run_check("http_endpoints", check_http_endpoints)
+    run_check("sse_format", check_sse_format)
+    run_check("rag_pipeline", check_rag_pipeline)
+    run_check("chat_manager", check_chat_manager)
+    run_check("tools_exec", check_tools)
+    run_check("security_rate", check_security)
+    run_check("lifespan_shutdown", check_lifespan)
+
+    passed = sum(1 for r in results if r.status == "PASS")
+    failed = sum(1 for r in results if r.status == "FAIL")
+
+    print()
+    for r in results:
+        icon = "✓" if r.status == "PASS" else "✗"
+        print(f"  {icon} {r.name:<20} {r.status}")
+        if r.details:
+            print(f"      {r.details}")
+        if r.error:
+            print(f"      ERROR: {r.error.split(chr(10))[0]}")
+
+    print("-" * 60)
+    print(f"  Total: {passed} passed, {failed} failed")
+    return 0 if failed == 0 else 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/check_vulture.py`
+
+```py
+#!/usr/bin/env python3
+"""Run vulture dead code checker for the project.
+
+Usage:
+    python scripts/check_vulture.py              # default check (70% confidence)
+    python scripts/check_vulture.py --min-confidence 80  # stricter
+    python scripts/check_vulture.py --exclude tests,scripts  # custom exclude
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+# ── Absolute project root ──
+SCRIPT_PATH = Path(__file__).resolve()
+PROJECT_ROOT = SCRIPT_PATH.parent.parent
+
+# ── Default configuration ──
+DEFAULT_PATHS = [
+    str(PROJECT_ROOT / "core"),
+    str(PROJECT_ROOT / "adapters"),
+    str(PROJECT_ROOT / "features"),
+    str(PROJECT_ROOT / "api"),
+    str(PROJECT_ROOT / "pipeline"),
+]
+
+DEFAULT_EXCLUDE = [
+    ".venv",
+    "venv",
+    "__pycache__",
+    "tests",
+    "scripts",
+    "data",
+    "logs",
+    "tmp",
+    "temp",
+    "vendor",
+    "ui",
+]
+
+DEFAULT_IGNORE_NAMES = [
+    "handler",
+    "entry",
+    "user_id",
+    "entry_id",
+    "session_id",
+    "event",
+    "details",
+    "token",
+]
+
+def run_vulture(
+    paths: list[str],
+    exclude: list[str],
+    min_confidence: int,
+    sort_by_size: bool,
+    ignore_names: list[str],
+) -> int:
+    """Execute vulture with given parameters."""
+    # Filter out non-existent directories
+    existing_paths = [p for p in paths if Path(p).exists()]
+    missing = [p for p in paths if not Path(p).exists()]
+
+    for m in missing:
+        print(f"Warning: skipping missing directory: {m}")
+
+    if not existing_paths:
+        print("Error: no valid directories to check")
+        return 1
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "vulture",
+    ]
+
+    cmd.extend(existing_paths)
+
+    if exclude:
+        cmd.extend(["--exclude", ",".join(exclude)])
+
+    cmd.extend(["--min-confidence", str(min_confidence)])
+
+    if sort_by_size:
+        cmd.append("--sort-by-size")
+
+    if ignore_names:
+        cmd.extend(["--ignore-names", ",".join(ignore_names)])
+
+    print(f"Running: {' '.join(cmd)}")
+    print(f"Project root: {PROJECT_ROOT}")
+    print("-" * 55)
+
+    result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+    return result.returncode
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Dead code checker — vulture wrapper",
+    )
+    parser.add_argument(
+        "--min-confidence",
+        type=int,
+        default=70,
+        help="Minimum confidence level (0-100). Default: 70",
+    )
+    parser.add_argument(
+        "--exclude",
+        type=str,
+        default=",".join(DEFAULT_EXCLUDE),
+        help=(
+            f"Comma-separated exclude patterns. Default: {','.join(DEFAULT_EXCLUDE)}"
+        ),
+    )
+    parser.add_argument(
+        "--ignore-names",
+        type=str,
+        default=",".join(DEFAULT_IGNORE_NAMES),
+        help=(
+            "Comma-separated names to ignore. "
+            f"Default: {','.join(DEFAULT_IGNORE_NAMES)}"
+        ),
+    )
+    parser.add_argument(
+        "--no-sort-by-size",
+        action="store_true",
+        help="Disable sort-by-size output",
+    )
+    parser.add_argument(
+        "--no-ignore-defaults",
+        action="store_true",
+        help="Disable default ignore-names",
+    )
+    parser.add_argument(
+        "paths",
+        nargs="*",
+        help="Custom paths to check (default: core, adapters, features, api, pipeline)",
+    )
+
+    args = parser.parse_args()
+
+    paths = args.paths if args.paths else DEFAULT_PATHS
+    exclude = [e.strip() for e in args.exclude.split(",") if e.strip()]
+
+    if args.no_ignore_defaults:
+        ignore_names = []
+    else:
+        ignore_names = [n.strip() for n in args.ignore_names.split(",") if n.strip()]
+
+    return run_vulture(
+        paths=paths,
+        exclude=exclude,
+        min_confidence=args.min_confidence,
+        sort_by_size=not args.no_sort_by_size,
+        ignore_names=ignore_names,
+    )
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/clean_cache.py`
+
+```py
+#!/usr/bin/env python3
+"""
+Очистка проекта от кэша, временных файлов и артефактов сборки.
+
+Использование:
+    python scripts/clean_cache.py              # сухой прогон
+    python scripts/clean_cache.py --clean      # реально удалить
+"""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+# ── Конфигурация ──
+
+# Удаляем всегда (безопасно)
+SAFE_PATTERNS: list[str] = [
+    "__pycache__",
+    "*.py[cod]",
+    "*$py.class",
+    "*.egg-info",
+    ".eggs",
+    "*.egg",
+    "build",
+    "dist",
+    ".pytest_cache",
+    ".pytest-xdist",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".hypothesis",
+    ".coverage",
+    ".coverage.*",
+    "htmlcov",
+    ".tox",
+    ".nox",
+    ".dmypy",
+    ".dmypy.json",
+    ".ipynb_checkpoints",
+    "*.log",
+    "*.tmp",
+    "*.bak",
+    "*.orig",
+    "pip-wheel-metadata",
+]
+
+# Не трогать никогда
+NEVER_TOUCH: set[str] = {
+    ".git",
+    ".venv",
+    "vendor",
+    "config.yaml",
+    "pyproject.toml",
+    "README.md",
+}
+
+# Системный Temp: только наши артефакты (pytest/tempfile)
+SYSTEM_TEMP_PATTERNS: list[str] = ["tmp_*", "test.db", "pytest-*"]
+
+# ── Логика ──
+
+def find_targets(root: Path, patterns: list[str]) -> list[Path]:
+    """Найти все пути в проекте, соответствующие паттернам."""
+    targets: set[Path] = set()
+
+    for pattern in patterns:
+        for p in root.rglob(pattern):
+            if p.name in NEVER_TOUCH:
+                continue
+            try:
+                if ".venv" in p.relative_to(root).parts:
+                    continue
+            except ValueError:
+                continue
+            targets.add(p.resolve())
+
+    return sorted(targets)
+
+def find_system_temp_targets() -> list[Path]:
+    """Найти артефакты тестов в системном Temp (кроссплатформенно)."""
+    temp_dir = Path(tempfile.gettempdir())
+    targets: set[Path] = set()
+
+    # Ищем tmp_* папки и pytest-* папки
+    for pattern in SYSTEM_TEMP_PATTERNS:
+        for p in temp_dir.glob(pattern):
+            targets.add(p.resolve())
+
+    # Ищем test.db внутри tmp_* папок (глубже первого уровня)
+    for p in temp_dir.glob("tmp_*"):
+        if p.is_dir():
+            for db in p.rglob("test.db"):
+                targets.add(db.resolve())
+            # И любые другие .db артефакты тестов
+            for db in p.rglob("*.db"):
+                targets.add(db.resolve())
+
+    return sorted(targets)
+
+def format_size(path: Path | int) -> str:
+    """Форматировать размер файла/директории или число байт."""
+    if isinstance(path, int):
+        size = float(path)
+    elif isinstance(path, Path):
+        if path.is_file():
+            size = float(path.stat().st_size)
+        elif path.is_dir():
+            size = float(sum(f.stat().st_size for f in path.rglob("*") if f.is_file()))
+        else:
+            return "?"
+    else:
+        return "?"
+
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            if unit == "B" and size == int(size):
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+def delete_target(path: Path) -> bool:
+    """Удалить файл или директорию."""
+    try:
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        return True
+    except Exception as e:
+        print(f"  [ERROR] {path}: {e}")
+        return False
+
+def print_section(title: str, targets: list[Path], root: Path | None = None) -> None:
+    """Красивый вывод секции."""
+    if not targets:
+        return
+
+    dirs = [t for t in targets if t.is_dir()]
+    files = [t for t in targets if t.is_file()]
+
+    print(f"\n{'─' * 60}")
+    print(f"  {title}")
+    print(f"{'─' * 60}")
+
+    for d in dirs:
+        rel = str(d.relative_to(root)) if root and d.is_relative_to(root) else str(d)
+        print(f"  [DIR]  {rel:<50} {format_size(d):>10}")
+    for f in files:
+        rel = str(f.relative_to(root)) if root and f.is_relative_to(root) else str(f)
+        print(f"  [FILE] {rel:<50} {format_size(f):>10}")
+
+    total = sum(
+        sum(x.stat().st_size for x in t.rglob("*") if x.is_file()) if t.is_dir() else t.stat().st_size
+        for t in targets
+    )
+    print(f"{'─' * 60}")
+    print(f"  Всего: {len(dirs)} директорий, {len(files)} файлов  ({format_size(total)})")
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Clean project cache and artifacts")
+    parser.add_argument(
+        "--clean", "-c", action="store_true", help="Actually delete (default: dry run)"
+    )
+    args = parser.parse_args()
+
+    root = Path(__file__).parent.parent.resolve()
+    all_targets: list[Path] = []
+
+    # ── 1. Проект ──
+    project_targets = find_targets(root, SAFE_PATTERNS)
+    if project_targets:
+        print_section("Проект", project_targets, root)
+        all_targets.extend(project_targets)
+
+    # ── 2. Системный Temp (кроссплатформенно) ──
+    system_targets = find_system_temp_targets()
+    if system_targets:
+        print_section(f"Системный Temp  ({tempfile.gettempdir()})", system_targets)
+        all_targets.extend(system_targets)
+
+    if not all_targets:
+        print("Нечего удалять — всё чисто.")
+        return 0
+
+    if not args.clean:
+        print(f"\n{'=' * 60}")
+        print("Сухой прогон. Для удаления добавьте флаг --clean")
+        print("Команда: python scripts/clean_cache.py --clean")
+        return 0
+
+    print(f"\n{'=' * 60}")
+    print("Удаление...")
+    deleted = 0
+    failed = 0
+    for target in all_targets:
+        if delete_target(target):
+            rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
+            print(f"  [OK]   {rel}")
+            deleted += 1
+        else:
+            failed += 1
+
+    print(f"{'=' * 60}")
+    print(f"Удалено: {deleted}, ошибок: {failed}")
+    return 0 if failed == 0 else 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/download_tokenizers.py`
+
+```py
+#!/usr/bin/env python3
+"""Download offline tokenizer files from HuggingFace."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+from urllib.request import Request, urlopen
+
+BASE_URL = "https://huggingface.co/{}/resolve/main/tokenizer.json"
+DEFAULT_DIR = Path("data/tokenizers")
+
+# Preset models (name_in_config -> HF repo)
+PRESETS: dict[str, str | None] = {
+    # OpenAI — tiktoken handles these
+    "gpt-4o": None,
+    "gpt-4": None,
+    "gpt-4-turbo": None,
+    "gpt-3.5-turbo": None,
+    "gpt-4o-mini": None,
+    # Qwen
+    "qwen": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen2.5": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen2.5-7b-instruct": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen2.5-14b-instruct": "Qwen/Qwen2.5-14B-Instruct",
+    "qwen3": "Qwen/Qwen3-8B",
+    "qwen3.5": "Qwen/Qwen3.5-4B",
+    # Llama
+    "llama": "meta-llama/Llama-3.2-3B-Instruct",
+    "llama-3.2": "meta-llama/Llama-3.2-3B-Instruct",
+    "llama-3.2-3b-instruct": "meta-llama/Llama-3.2-3B-Instruct",
+    "llama-3.1": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "llama-3.1-8b-instruct": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "llama-3": "meta-llama/Meta-Llama-3-8B-Instruct",
+    # Gemma
+    "gemma": "google/gemma-3-4b-it",
+    "gemma-3": "google/gemma-3-4b-it",
+    "gemma-3-4b-it": "google/gemma-3-4b-it",
+    "gemma-3-27b-it": "google/gemma-3-27b-it",
+    "gemma-2": "google/gemma-2-9b-it",
+    "gemma-4": "google/gemma-3-4b-it",  # fallback
+    # Phi
+    "phi": "microsoft/Phi-4-mini-instruct",
+    "phi-4": "microsoft/Phi-4-mini-instruct",
+    "phi-4-mini-instruct": "microsoft/Phi-4-mini-instruct",
+    "phi-4-mini-reasoning": "microsoft/Phi-4-mini-instruct",
+    "phi-3": "microsoft/Phi-3-mini-4k-instruct",
+    # Mistral
+    "mistral": "mistralai/Mistral-7B-Instruct-v0.3",
+    "mistral-7b-instruct": "mistralai/Mistral-7B-Instruct-v0.3",
+    "mistral-small": "mistralai/Mistral-Small-24B-Instruct-2501",
+    # DeepSeek
+    "deepseek": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "deepseek-r1": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "deepseek-v3": "deepseek-ai/DeepSeek-V3",
+    # Yi
+    "yi": "01-ai/Yi-1.5-9B-Chat",
+    "yi-1.5": "01-ai/Yi-1.5-9B-Chat",
+    # Falcon
+    "falcon": "tiiuae/Falcon3-7B-Instruct",
+    "falcon-3": "tiiuae/Falcon3-7B-Instruct",
+    # StableLM
+    "stablelm": "stabilityai/stablelm-3b-4e1t",
+    # Command R
+    "command-r": "CohereForAI/c4ai-command-r7b-12-2024",
+    "cohere": "CohereForAI/c4ai-command-r7b-12-2024",
+    # Granite (IBM)
+    "granite": "ibm-granite/granite-3.1-8b-instruct",
+    "granite-3": "ibm-granite/granite-3.1-8b-instruct",
+    # SmolLM (HuggingFace)
+    "smollm": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    "smollm2": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    # OLMO (AI2)
+    "olmo": "allenai/OLMo-2-1124-7B-Instruct",
+    "olmo-2": "allenai/OLMo-2-1124-7B-Instruct",
+    # Nemotron (NVIDIA)
+    "nemotron": "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+    "nemotron-70b": "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+    # Exaone (LG)
+    "exaone": "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct",
+    # InternLM
+    "internlm": "internlm/internlm3-8b-instruct",
+    "internlm3": "internlm/internlm3-8b-instruct",
+}
+
+# Vendor prefixes for unknown models
+VENDOR_MAP: dict[str, str] = {
+    "gemma": "google",
+    "phi": "microsoft",
+    "qwen": "Qwen",
+    "llama": "meta-llama",
+    "mistral": "mistralai",
+    "deepseek": "deepseek-ai",
+    "yi": "01-ai",
+    "falcon": "tiiuae",
+    "stablelm": "stabilityai",
+    "command": "CohereForAI",
+    "cohere": "CohereForAI",
+    "granite": "ibm-granite",
+    "smollm": "HuggingFaceTB",
+    "olmo": "allenai",
+    "nemotron": "nvidia",
+    "exaone": "LGAI-EXAONE",
+    "internlm": "internlm",
+    "mixtral": "mistralai",
+    "codestral": "mistralai",
+    "ministral": "mistralai",
+}
+
+# Mirror prefixes for gated repos
+MIRRORS: dict[str, str] = {
+    "meta-llama/": "unsloth/",
+    "google/": "unsloth/",
+    "microsoft/": "unsloth/",
+    "mistralai/": "unsloth/",
+    "deepseek-ai/": "unsloth/",
+    "nvidia/": "unsloth/",
+}
+
+def _try_mirror(repo: str) -> str | None:
+    for prefix, mirror in MIRRORS.items():
+        if repo.startswith(prefix):
+            return mirror + repo[len(prefix):]
+    return None
+
+def _guess_vendor(name: str) -> str | None:
+    """Map model prefix to HF vendor: gemma-4 -> google/gemma-4."""
+    clean = name.lower().replace("_", "-")
+    for prefix, vendor in VENDOR_MAP.items():
+        if clean.startswith(prefix):
+            return f"{vendor}/{name}"
+    return None
+
+def _remove_quant_suffix(name: str) -> str:
+    """Remove GGUF quantization suffixes."""
+    suffixes = [
+        "-q4-k-m", "-q4-0", "-q8-0", "-iq4-xs", "-iq4-xxs",
+        "-q6-k", "-q5-k-m", "-f16", "-bf16", "-q4-k",
+        "-q4-k-s", "-q5-0", "-q5-1", "-q3-k-m", "-q3-k-s",
+        "-q2-k", "-iq3-xs", "-iq3-xxs", "-q4-1", "-q5-k-s",
+    ]
+    for suffix in suffixes:
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+def _resolve_preset(model_name: str) -> str | None:
+    """Find HF repo for any model name."""
+    name = model_name.lower().strip()
+
+    # Exact match
+    if name in PRESETS:
+        return PRESETS[name]
+
+    # Partial match
+    for key, repo in PRESETS.items():
+        if key in name:
+            return repo
+
+    # Parse GGUF-style: vendor_model-name-q4 -> vendor/model-name
+    if "_" in name:
+        parts = name.split("_", 1)
+        vendor = parts[0]
+        model_part = parts[1].replace("_", "-")
+        clean = _remove_quant_suffix(model_part)
+        return f"{vendor}/{clean}"
+
+    # Vendor map for clean names
+    vendor_repo = _guess_vendor(name)
+    if vendor_repo:
+        return vendor_repo
+
+    # Direct repo ID
+    if "/" in name:
+        return name
+
+    # Last resort
+    return f"unsloth/{name}"
+
+def download(repo: str, dest: Path, token: str | None) -> bool:
+    if repo is None:
+        return True  # tiktoken handles this
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / "tokenizer.json"
+    if out.exists():
+        print(f"  already exists ({out})")
+        return True
+
+    url = BASE_URL.format(repo)
+    print(f"  downloading {url} ...")
+    try:
+        req = Request(url, headers={"User-Agent": "ai-assistant/1.0"})
+        if token:
+            req.add_header("Authorization", f"Bearer {token}")
+        with urlopen(req, timeout=30) as resp:  # noqa: S310
+            if resp.status != 200:
+                print(f"  HTTP {resp.status}")
+                return False
+            data = resp.read()
+        out.write_bytes(data)
+        print(f"  saved {len(data)} bytes")
+        return True
+    except Exception as e:
+        print(f"  FAILED — {e}")
+        return False
+
+def _read_models_from_config() -> list[str]:
+    """Read all models from config.yaml: llm.model + available_models."""
+    try:
+        import yaml
+        path = Path("config.yaml")
+        if not path.exists():
+            return []
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        llm = data.get("llm", {})
+        models = [llm.get("model")]
+        available = llm.get("available_models", [])
+        models.extend(available)
+        seen: set[str] = set()
+        result: list[str] = []
+        for m in models:
+            if m and m not in seen:
+                seen.add(m)
+                result.append(m)
+        return result
+    except Exception:
+        return []
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Download offline tokenizers")
+    parser.add_argument("--dir", type=Path, default=DEFAULT_DIR)
+    parser.add_argument("--hf-token", type=str, default=os.getenv("HF_TOKEN"))
+    parser.add_argument("--auto", action="store_true", help="Read models from config.yaml")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing tokenizers")
+    parser.add_argument("--model", type=str, default=None, help="Single model to download")
+    args = parser.parse_args(argv)
+
+    models: list[str] = []
+    if args.model:
+        models = [args.model]
+    elif args.auto or len(sys.argv) <= 1:
+        models = _read_models_from_config()
+        if models:
+            print(f"Auto-detected models from config.yaml: {', '.join(models)}")
+
+    if not models:
+        print("Usage: --auto (read config.yaml) or --model <name>")
+        print("Known presets (examples):")
+        examples = ["gemma-3-4b-it", "qwen2.5-7b-instruct", "llama-3.2-3b-instruct",
+                    "phi-4-mini-instruct", "mistral-7b-instruct", "deepseek-r1"]
+        for ex in examples:
+            repo = _resolve_preset(ex)
+            print(f"  {ex} -> {repo}")
+        return 1
+
+    print(f"\nTarget directory: {args.dir.resolve()}")
+    ok = 0
+    skipped = 0
+    for model in models:
+        repo = _resolve_preset(model)
+        if repo is None:
+            print(f"\n[{model}] -> tiktoken (OpenAI), skip")
+            continue
+
+        name = model.split("/")[-1].replace("_", "-")[:30]
+        dest = args.dir / name
+        out = dest / "tokenizer.json"
+
+        if out.exists() and not args.force:
+            print(f"\n[{name}] -> already exists, skip (use --force to overwrite)")
+            skipped += 1
+            continue
+
+        print(f"\n[{name}] -> {repo}")
+        if download(repo, dest, args.hf_token):
+            ok += 1
+            continue
+        mirror = _try_mirror(repo)
+        if mirror:
+            print(f"  trying mirror {mirror} ...")
+            if download(mirror, dest, args.hf_token):
+                ok += 1
+                continue
+        print(f"  [{name}] FAILED")
+
+    total = ok + skipped
+    print(f"\nDone: {ok} downloaded, {skipped} skipped, {len(models) - total} failed")
+    return 0 if ok + skipped == len(models) else 1
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/index_documents.py`
+
+```py
+#!/usr/bin/env python3
+"""Index documents from folders into RAG namespaces.
+
+Usage:
+    python scripts/index_documents.py                    # Index all folders
+    python scripts/index_documents.py --folder personal  # Index only personal
+    python scripts/index_documents.py --clear            # Clear and reindex
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+# ── Windows: force UTF-8 output ─────────────────────────────────────────────
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except AttributeError:
+        import io
+
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import httpx
+
+API_BASE = "http://localhost:8000"
+DOCUMENTS_ROOT = Path(__file__).parent.parent / "documents"
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
+CHUNK_SIZE = 100000  # Max chars per document chunk
+
+def read_file(path: Path) -> str:
+    """Read text file with encoding fallback."""
+    encodings = ["utf-8", "utf-8-sig", "cp1251", "cp1252", "latin-1"]
+    for enc in encodings:
+        try:
+            return path.read_text(encoding=enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return ""
+
+def discover_documents(folder: str | None = None) -> dict[str, list[dict]]:
+    """Discover documents in folders. Returns {namespace: [docs]}."""
+    result: dict[str, list[dict]] = {}
+
+    if folder:
+        folders = [DOCUMENTS_ROOT / folder]
+    else:
+        folders = [d for d in DOCUMENTS_ROOT.iterdir() if d.is_dir()]
+
+    for folder_path in folders:
+        namespace = folder_path.name
+        docs = []
+
+        for file_path in folder_path.rglob("*"):
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                continue
+
+            content = read_file(file_path)
+            if not content.strip():
+                continue
+
+            # Split large files into chunks
+            if len(content) > CHUNK_SIZE:
+                for i, start in enumerate(range(0, len(content), CHUNK_SIZE)):
+                    chunk = content[start : start + CHUNK_SIZE]
+                    docs.append(
+                        {
+                            "id": f"{file_path.stem}_chunk{i}",
+                            "content": chunk,
+                            "metadata": {
+                                "source": str(file_path.relative_to(DOCUMENTS_ROOT)),
+                                "folder": namespace,
+                                "chunk": i,
+                            },
+                        }
+                    )
+            else:
+                docs.append(
+                    {
+                        "id": file_path.stem,
+                        "content": content,
+                        "metadata": {
+                            "source": str(file_path.relative_to(DOCUMENTS_ROOT)),
+                            "folder": namespace,
+                        },
+                    }
+                )
+
+        if docs:
+            result[namespace] = docs
+
+    return result
+
+async def index_namespace(
+    namespace: str, docs: list[dict], clear: bool = False, api_base: str = None
+) -> dict:
+    """Index documents into a namespace."""
+    base = api_base or API_BASE
+    async with httpx.AsyncClient() as client:
+        # Clear existing if requested
+        if clear:
+            try:
+                await client.post(
+                    f"{base}/rag/delete",
+                    json={"document_ids": [], "chunk_ids": [], "namespace": namespace},
+                    timeout=30.0,
+                )
+                print(f"  Cleared namespace: {namespace}")
+            except Exception as e:
+                print(f"  Warning: could not clear {namespace}: {e}")
+
+        # Index in batches of 10
+        total_indexed = 0
+        total_chunks = 0
+
+        for i in range(0, len(docs), 10):
+            batch = docs[i : i + 10]
+            try:
+                resp = await client.post(
+                    f"{base}/rag/index",
+                    json={"documents": batch, "namespace": namespace},
+                    timeout=60.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                total_indexed += data.get("indexed_count", 0)
+                total_chunks += data.get("chunk_count", 0)
+
+                if data.get("errors"):
+                    for err in data["errors"]:
+                        print(f"  Error: {err}")
+
+            except Exception as e:
+                print(f"  Failed to index batch {i}: {e}")
+
+        return {
+            "namespace": namespace,
+            "indexed": total_indexed,
+            "chunks": total_chunks,
+        }
+
+async def main() -> int:
+    parser = argparse.ArgumentParser(description="Index documents into RAG")
+    parser.add_argument("--folder", "-f", help="Index only specific folder")
+    parser.add_argument(
+        "--clear", "-c", action="store_true", help="Clear before indexing"
+    )
+    parser.add_argument("--api", "-a", default=API_BASE, help="API base URL")
+    args = parser.parse_args()
+
+    api_base = args.api
+
+    # Check API is running
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{api_base}/health")
+            resp.raise_for_status()
+    except Exception:
+        print(f"ERROR: API not available at {api_base}")
+        print("Start the server first: python scripts/start.py")
+        return 1
+
+    # Discover documents
+    docs_by_ns = discover_documents(args.folder)
+
+    if not docs_by_ns:
+        print(f"No documents found in {DOCUMENTS_ROOT}")
+        print("Create folders: documents/personal, documents/work, documents/other")
+        return 1
+
+    print("Found documents:")
+    for ns, docs in docs_by_ns.items():
+        print(f"  [{ns}]: {len(docs)} items")
+
+    # Index each namespace
+    print("\nIndexing...")
+    for namespace, docs in docs_by_ns.items():
+        print(f"\n[{namespace}] {len(docs)} documents...")
+        result = await index_namespace(namespace, docs, args.clear, api_base)
+        print(f"  Done: {result['indexed']} docs, {result['chunks']} chunks")
+
+    print("\n[OK] Indexing complete!")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
+```
+
+#### `scripts/setup_venv_requirements.py`
+
+```py
+#!/usr/bin/env python3
+"""Setup virtual environment and install requirements."""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from pathlib import Path
+
+def run(cmd: list[str], cwd: Path | None = None) -> int:
+    print(f">> {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=cwd)
+    return result.returncode
+
+def ask(question: str, default: bool = True) -> bool:
+    """Ask yes/no question in interactive terminal."""
+    if not sys.stdin.isatty():
+        return default
+    hint = "Y/n" if default else "y/N"
+    try:
+        ans = input(f"{question} [{hint}]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return default
+    if not ans:
+        return default
+    return ans in ("y", "yes")
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Setup virtual environment")
+    parser.add_argument("--dev", action="store_true", help="Install dev dependencies")
+    parser.add_argument("--no-dev", action="store_true", help="Skip dev dependencies")
+    parser.add_argument("--with-faiss", action="store_true", help="Install FAISS")
+    args = parser.parse_args()
+
+    project_root = Path(__file__).parent.parent.resolve()
+    venv_path = project_root / ".venv"
+
+    # Verify Python version
+    if sys.version_info < (3, 13):
+        py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+        print(f"WARNING: Python {py_ver} detected.")
+        print("This project requires Python 3.13+")
+        print("Please install Python 3.13 from https://python.org/downloads/")
+        return 1
+
+    venv_created = False
+    if not venv_path.exists():
+        print("Creating virtual environment...")
+        if run([sys.executable, "-m", "venv", str(venv_path)]) != 0:
+            return 1
+        venv_created = True
+
+    if sys.platform == "win32":
+        python = venv_path / "Scripts" / "python.exe"
+        pip = venv_path / "Scripts" / "pip.exe"
+    else:
+        python = venv_path / "bin" / "python"
+        pip = venv_path / "bin" / "pip"
+
+    print("Upgrading pip...")
+    if run([str(python), "-m", "pip", "install", "--upgrade", "pip"]) != 0:
+        return 1
+
+    # Determine extras
+    extras = []
+    if args.with_faiss:
+        extras.append("faiss")
+
+    # Determine dev mode
+    if args.dev:
+        install_dev = True
+    elif args.no_dev:
+        install_dev = False
+    elif venv_created:
+        # Fresh venv: default to dev, but ask if interactive
+        install_dev = ask("Install dev dependencies (pytest, ruff, mypy, etc.)?", default=True)
+    else:
+        # Existing venv: ask, default no
+        install_dev = ask("Install dev dependencies (pytest, ruff, mypy, etc.)?", default=False)
+
+    if install_dev:
+        extras.append("dev")
+        print("Including dev dependencies")
+
+    # Install
+    if extras:
+        extra_str = ",".join(extras)
+        print(f"Installing with extras: [{extra_str}]...")
+        if run([str(pip), "install", "-e", f"{project_root}[{extra_str}]"]) != 0:
+            return 1
+    else:
+        print("Installing core dependencies...")
+        if run([str(pip), "install", "-e", str(project_root)]) != 0:
+            return 1
+
+    print("Done.")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/start.py`
+
+```py
+#!/usr/bin/env python3
+"""Start server — uvicorn + LLM API health check."""
+
+from __future__ import annotations
+
+import os
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+import httpx
+import yaml
+
+def is_port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+def get_config() -> dict:
+    project_root = Path(__file__).parent.parent
+    config_path = project_root / "config.yaml"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+def get_python_exe(project_root: Path | None = None) -> str:
+    if project_root is None:
+        project_root = Path(__file__).parent.parent
+    venv = project_root / ".venv"
+    if sys.platform == "win32":
+        candidate = venv / "Scripts" / "python.exe"
+    else:
+        candidate = venv / "bin" / "python"
+    return str(candidate) if candidate.exists() else sys.executable
+
+def _check_llm_server(config: dict) -> None:
+    """Check if LLM API is reachable — works with any OpenAI-compatible backend."""
+    llm = config.get("llm", {})
+    api_base = os.getenv(
+        "AI_LLM_API_BASE",
+        llm.get("api_base", "http://127.0.0.1:8080/v1")
+    ).rstrip("/")
+
+    print(f"[start] Checking LLM API at {api_base}...")
+    try:
+        resp = httpx.get(f"{api_base}/models", timeout=5.0)
+        if resp.status_code < 500:
+            print(f"[start] LLM API reachable")
+            return
+    except Exception as e:
+        print(f"[start] LLM API not reachable: {e}")
+
+    print(f"[start] WARNING: No LLM server detected at {api_base}")
+    print("[start] Start your LLM server manually:")
+    print("    llama-server:  llama-server.exe -m model.gguf --port 8080")
+    print("    Ollama:        ollama serve")
+    print("    vLLM:          python -m vllm.entrypoints.openai.api_server ...")
+    print("[start] Or set AI_LLM_API_BASE env var to change the endpoint")
+
+def main() -> int:
+    project_root = Path(__file__).parent.parent.resolve()
+    (project_root / "data").mkdir(parents=True, exist_ok=True)
+
+    config = get_config()
+    port = config.get("port", 8000)
+    host = config.get("host", "127.0.0.1")
+
+    _check_llm_server(config)
+
+    if is_port_in_use(port):
+        print(f"WARNING: Port {port} is already in use!")
+        return 1
+
+    python = get_python_exe(project_root)
+
+    print(f"[start] Starting uvicorn on {host}:{port}")
+    return subprocess.run(
+        [
+            python,
+            "-m",
+            "uvicorn",
+            "main:app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        cwd=project_root,
+    ).returncode
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/stop.py`
+
+```py
+#!/usr/bin/env python3
+"""Stop the AI Assistant server and cleanup processes."""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+def is_running(pid: int) -> bool:
+    """Check if a process with given PID exists."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            synchronize = 0x00100000
+            handle = kernel32.OpenProcess(synchronize, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except (OSError, ProcessLookupError):
+            return False
+
+def find_pid_by_port(port: int) -> int | None:
+    """Find PID listening on given port (fallback)."""
+    if os.name == "nt":
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, text=True, shell=False
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.strip().split()
+                if parts:
+                    try:
+                        return int(parts[-1])
+                    except ValueError:
+                        continue
+    else:
+        result = subprocess.run(
+            ["lsof", "-i", f":{port}", "-t"],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            try:
+                return int(result.stdout.strip().split()[0])
+            except ValueError:
+                pass
+    return None
+
+def main() -> int:
+    project_root = Path(__file__).resolve().parent.parent
+    pid_file = project_root / "data" / "server.pid"
+
+    if not pid_file.exists():
+        print("No PID file found. Server may not be running.")
+        return 0
+
+    try:
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
+    except ValueError:
+        print("Invalid PID file. Removing.")
+        pid_file.unlink()
+        return 0
+
+    # Check if process is actually alive before trying to kill
+    if not is_running(pid):
+        print(f"Process {pid} from PID file is already gone.")
+        # Fallback: try to find by port
+        port_pid = find_pid_by_port(8000)
+        if port_pid:
+            print(f"Found process {port_pid} on port 8000, using it.")
+            pid = port_pid
+        else:
+            print("No process found on port 8000.")
+            pid_file.unlink(missing_ok=True)
+            return 0
+
+    print(f"Stopping server (PID {pid})...")
+
+    if os.name == "nt":
+        # Windows: taskkill /F /T kills the process tree
+        result = subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+        )
+        # Return code 128 = "process not found" (already dead) — also fine
+        if result.returncode == 0 or result.returncode == 128:
+            print("Server stopped.")
+        else:
+            print(f"taskkill warning: {result.stderr.strip()}")
+            # If process disappeared during taskkill, that's still success
+            if not is_running(pid):
+                print("Process is gone anyway.")
+            else:
+                return 1
+    else:
+        # Unix: try graceful SIGTERM first, then SIGKILL
+        try:
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(50):  # wait up to 5 sec
+                time.sleep(0.1)
+                if not is_running(pid):
+                    break
+            else:
+                print("Graceful shutdown timed out, forcing...")
+                try:
+                    if hasattr(signal, "SIGKILL"):
+                        os.kill(pid, signal.SIGKILL)
+                except (OSError, ProcessLookupError):
+                    pass
+                time.sleep(0.3)
+            print("Server stopped.")
+        except (OSError, ProcessLookupError):
+            print("Process already gone.")
+
+    pid_file.unlink(missing_ok=True)
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+#### `scripts/structure.py`
+
+```py
+#!/usr/bin/env python3
+"""structure.py — project tree with .gitignore support, metrics, and human-readable sizes."""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import os
+from datetime import datetime
+from pathlib import Path
+
+# Hard exclusions — never traversed
+HARD_EXCLUDE = {
+    ".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache", ".hypothesis", ".tox", "node_modules", "dist", "build",
+    ".eggs", "*.egg-info", "htmlcov",
+}
+
+def load_patterns(root: Path, filename: str) -> list[str]:
+    """Load ignore patterns from a file (e.g. .gitignore, .structureignore)."""
+    path = root / filename
+    if not path.exists():
+        return []
+    patterns: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            patterns.append(line)
+    return patterns
+
+def is_ignored(path: Path, root: Path, patterns: list[str]) -> bool:
+    """Check if path matches any ignore pattern."""
+    rel = path.relative_to(root).as_posix()
+    name = path.name
+    for pat in patterns:
+        # Directory pattern
+        if pat.endswith("/") and path.is_dir():
+            if fnmatch.fnmatch(rel + "/", pat) or fnmatch.fnmatch(name + "/", pat):
+                return True
+        # File or wildcard pattern
+        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(name, pat):
+            return True
+    return False
+
+def hard_excluded(path: Path, root: Path) -> bool:
+    """Check against hard-coded exclusions."""
+    for part in path.relative_to(root).parts:
+        if part in HARD_EXCLUDE:
+            return True
+        if part.endswith(".egg-info"):
+            return True
+    if path.is_file() and path.suffix.lower() in {".pyc", ".pyo", ".so", ".dll", ".exe", ".dylib"}:
+        return True
+    return False
+
+def fmt_size(n: int) -> str:
+    """Human-readable size."""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}" if unit != "B" and n != int(n) else f"{int(n)} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
+
+def count_lines(path: Path) -> int:
+    """Count lines in a text file."""
+    try:
+        return len(path.read_text(encoding="utf-8").splitlines())
+    except Exception:
+        return 0
+
+def build(root: Path, use_color: bool = False) -> str:
+    """Generate markdown tree with metrics."""
+    patterns = load_patterns(root, ".gitignore") + load_patterns(root, ".structureignore")
+
+    # Collect valid entries
+    entries: list[Path] = []
+    for p in sorted(root.rglob("*")):
+        if p.is_symlink() or hard_excluded(p, root) or is_ignored(p, root, patterns):
+            continue
+        entries.append(p)
+
+    # Metrics
+    files = [e for e in entries if e.is_file()]
+    py_files = [e for e in files if e.suffix == ".py"]
+    total_size = sum(f.stat().st_size for f in files)
+    py_loc = sum(count_lines(f) for f in py_files)
+
+    # Tree rendering: directories first, then files, both alphabetically
+    tree: dict[str, dict] = {}
+    for e in entries:
+        node = tree
+        for part in e.relative_to(root).parts:
+            node = node.setdefault(part, {})
+
+    def render(node: dict[str, dict], prefix: str = "") -> list[str]:
+        # Separate dirs and files: dirs have non-empty dict values
+        dirs = sorted(k for k, v in node.items() if v)
+        files_only = sorted(k for k, v in node.items() if not v)
+        items = dirs + files_only
+        out: list[str] = []
+        for i, k in enumerate(items):
+            is_last = i == len(items) - 1
+            branch = "└── " if is_last else "├── "
+            out.append(f"{prefix}{branch}{k}")
+            if node[k]:  # recurse into directory
+                ext = "    " if is_last else "│   "
+                out.extend(render(node[k], prefix + ext))
+        return out
+
+    # ANSI colors
+    G = "\033[32m" if use_color else ""
+    Y = "\033[33m" if use_color else ""
+    R = "\033[0m" if use_color else ""
+
+    lines = [
+        f"{G}# Project Structure{R}",
+        f"**Generated:** {datetime.now().isoformat()}",
+        f"**Root:** `{root}`",
+        "",
+        "## Summary",
+        f"| Metric | Value |",
+        f"|--------|-------|",
+        f"| Total files | {len(files)} |",
+        f"| Python files | {len(py_files)} |",
+        f"| Python LOC | {py_loc:,} |",
+        f"| Total size | {fmt_size(total_size)} |",
+        "",
+        "```",
+    ]
+    lines.extend(render(tree))
+    lines.append("```")
+
+    return "\n".join(lines)
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Generate project structure file")
+    ap.add_argument("--root", "-r", type=Path, default=Path(__file__).parent.parent.resolve())
+    ap.add_argument("--output", "-o", type=Path, default=None, help="Output file (default: structure.txt)")
+    ap.add_argument("--stdout", "-s", action="store_true", help="Print to stdout instead of file")
+    ap.add_argument("--color", "-c", action="store_true", help="Colorize terminal output")
+    args = ap.parse_args()
+
+    text = build(args.root, use_color=args.color and not args.stdout)
+
+    if args.stdout:
+        print(text)
+    else:
+        out = args.output or args.root / "structure.txt"
+        out.write_text(text, encoding="utf-8")
+        print(f"✅ {out}")
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+### `tests/`
+
+#### `tests/__init__.py`
+
+```py
+"""Tests package — maximally effective, consolidated."""
+```
+
+#### `tests/config.test.yaml`
+
+```yaml
+app_name: ai-assistant-test
+debug: false
+host: 127.0.0.1
+port: 9999
+
+cors:
+  allow_origins: ["*"]
+  allow_credentials: true
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+
+ui:
+  static_path: "./ui"
+
+chat:
+  history_limit: 10
+
+chunker:
+  provider: simple
+  chunk_size: 512
+  chunk_overlap: 50
+
+embedder:
+  provider: mock
+  api_base: http://127.0.0.1:9991
+  dim: 384
+  timeout: 5.0
+
+llm:
+  provider: mock
+  api_base: http://127.0.0.1:9990
+  max_tokens: 128
+  temperature: 0.7
+  timeout: 5.0
+  server_startup_delay: 1
+  server_shutdown_timeout: 1
+  server_context_size: 2048
+  system_message: "Test system message."
+  stop_sequences: []
+
+vector_store:
+  provider: memory
+  index_path: ./data/indices/test
+  metric: l2
+  dim: 384
+
+storage:
+  provider: sqlite
+  db_path: ./data/test_storage.db
+
+voice:
+  enabled: false
+  recognizer_provider: whispercpp
+  synthesizer_provider: piper
+
+vision:
+  enabled: false
+  provider: clip_local
+
+reranker:
+  provider: dummy
+  model: test-model
+  api_base: http://127.0.0.1:9992
+  timeout: 5.0
+  threshold: 0.3
+
+rag:
+  steps:
+    - embed_query
+    - retrieve
+    - rerank
+    - build_context
+    - generate
+  prompt_version: v1
+  prompt_name: rag_strict
+  top_k: 3
+  default_namespace: "test_default"
+  relevance_threshold: 0.3
+```
+
+#### `tests/conftest.py`
+
+```py
+"""tests/conftest.py"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import socket
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+# ── Optional hypothesis integration ──
+try:
+    from hypothesis import settings
+
+    settings.register_profile("default", max_examples=100, deadline=5000)
+    settings.load_profile("default")
+except ModuleNotFoundError:
+    pass  # hypothesis not installed, fuzz tests skipped gracefully
+
+# ── Force test config BEFORE any project imports ──
+TEST_CONFIG_PATH = str(Path(__file__).parent / "config.test.yaml")
+os.environ["AI_CONFIG_PATH"] = TEST_CONFIG_PATH
+
+"""Global test configuration — auto-detects server, provides shared fixtures.
+
+Design principles:
+- AUTO_DETECT_SERVER: checks if localhost:8000 is alive
+- OFFLINE_MODE: all tests work without server (mocks, TestClient)
+- ONLINE_MODE: when server detected, runs integration tests too
+- All fixtures are deterministic and reusable
+"""
+
+# ── Auto-detect server ──
+def _is_server_running(
+    host: str = "127.0.0.1", port: int = 8000, timeout: float = 0.5
+) -> bool:
+    """Check if server is accepting connections."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (OSError, ConnectionRefusedError):
+        return False
+
+SERVER_AVAILABLE = _is_server_running()
+
+# ── Pytest markers ──
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line("markers", "online: requires running server")
+    config.addinivalue_line("markers", "offline: works without server")
+    config.addinivalue_line("markers", "slow: takes >1s")
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Auto-skip online tests if server not available."""
+    if not SERVER_AVAILABLE:
+        skip_online = pytest.mark.skip(
+            reason="Server not available (run: python scripts/start.py)"
+        )
+        for item in items:
+            if "online" in item.keywords:
+                item.add_marker(skip_online)
+
+# ── Core fixtures ──
+
+@pytest.fixture(autouse=True)
+def reset_global_state():
+    """Reset singleton state before every test to prevent cross-test pollution."""
+    from api import deps
+    from core.metrics import _request_metrics
+
+    deps._init_event.clear()
+    deps._state = None
+    deps._initializing = False
+    _request_metrics.set({})
+    yield
+    deps._init_event.clear()
+    deps._state = None
+    deps._initializing = False
+    _request_metrics.set({})
+
+@pytest.fixture(autouse=True)
+def cleanup_test_artifacts():
+    """Remove test DBs and indices after tests."""
+    yield
+    for path in [
+        "./data/test_storage.db",
+        "./data/test_memory.db",
+        "./data/indices/test",
+    ]:
+        p = Path(path)
+        if p.exists():
+            try:
+                if p.is_file():
+                    p.unlink()
+                else:
+                    import shutil
+
+                    shutil.rmtree(p)
+            except PermissionError:
+                pass
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Consistent event loop for async tests."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+# ── Deterministic mock fixtures ──
+
+@pytest.fixture
+def mock_llm():
+    """LLM mock with complete streaming and completion support."""
+    m = MagicMock()
+    m.complete = AsyncMock(
+        return_value=MagicMock(
+            text="Mocked AI response",
+            metadata={},
+            tool_calls=[],
+        )
+    )
+
+    async def _stream(*args, **kwargs):
+        for chunk in ["Mocked", " streaming", " response"]:
+            yield chunk
+
+    m.stream = _stream
+    return m
+
+@pytest.fixture
+def mock_embedder():
+    """Embedder mock — deterministic 384-dim vectors."""
+    m = MagicMock()
+    m.embed = AsyncMock(return_value=[[0.1] * 384])
+    m.dimension = 384
+    return m
+
+@pytest.fixture
+def mock_reranker():
+    """Reranker mock — transparent pass-through."""
+    from core.ports.reranker import RerankResult
+
+    m = MagicMock()
+
+    async def _rerank(query, chunks, top_k=None):
+        results = [RerankResult(chunk=c, score=1.0) for c in chunks]
+        return results[:top_k] if top_k else results
+
+    m.rerank = AsyncMock(side_effect=_rerank)
+    return m
+
+@pytest.fixture
+def mock_vector_store():
+    """Vector store mock with namespace support."""
+    m = MagicMock()
+    m.add = AsyncMock(return_value=None)
+    m.search = AsyncMock(return_value=[])
+    m.delete = AsyncMock(return_value=None)
+    m.save = AsyncMock(return_value=None)
+    m.load = AsyncMock(return_value=None)
+    m.list_by_filter = AsyncMock(return_value=[])
+    m.list_namespaces = AsyncMock(return_value=["test_default"])
+    return m
+
+@pytest.fixture
+def mock_storage():
+    """Storage mock with history tracking."""
+    m = MagicMock()
+    m.get_history = AsyncMock(return_value=[])
+    m.save_message = AsyncMock(return_value=None)
+    m.get = AsyncMock(return_value=None)
+    m.set = AsyncMock(return_value=None)
+    return m
+
+@pytest.fixture
+def mock_chunker():
+    """Chunker mock — single chunk output."""
+    from core.domain.documents import Chunk, ChunkMetadata
+
+    m = MagicMock()
+    m.chunk = AsyncMock(
+        return_value=[
+            Chunk(
+                id="chunk-1",
+                text="mocked chunk text",
+                metadata=ChunkMetadata(source="doc-1", index=0, total_chunks=1),
+            )
+        ]
+    )
+    return m
+
+@pytest.fixture
+def mock_tool_registry():
+    """Tool registry mock."""
+    m = MagicMock()
+    m.register = MagicMock(return_value=None)
+    m.list_tools = MagicMock(return_value=[])
+    m.get_tool = MagicMock(return_value=None)
+    m.execute = AsyncMock(return_value=MagicMock(output="tool result", is_error=False))
+    return m
+
+@pytest.fixture
+def mock_state(
+    mock_llm,
+    mock_embedder,
+    mock_vector_store,
+    mock_storage,
+    mock_reranker,
+    mock_chunker,
+    mock_tool_registry,
+):
+    """Pre-built AppState with REAL instance for app.state compatibility."""
+    from api.deps import AppState
+    from core.config import load_config
+
+    config = load_config(TEST_CONFIG_PATH)
+
+    # Создаём реальный AppState, а не autospec — иначе hasattr/app.state ломается
+    state = AppState(config=config)
+    state.llm = mock_llm
+    state.embedder = mock_embedder
+    state.vector_store = mock_vector_store
+    state.reranker = mock_reranker
+    state.chunker = mock_chunker
+    state.storage = mock_storage
+    state.pipeline = MagicMock()
+    state.pipeline.run = AsyncMock(
+        return_value=MagicMock(
+            chunks=[], response=MagicMock(text="RAG answer"), errors=[]
+        )
+    )
+    state.voice_recognizer = None
+    state.voice_synthesizer = None
+    state.vision = None
+    state.tool_registry = mock_tool_registry
+    state.long_term_memory = None
+    return state
+
+@pytest.fixture
+def client(mock_state):
+    """FastAPI TestClient with fully mocked state — 100% offline."""
+    from fastapi.testclient import TestClient
+
+    from api.deps import get_state
+    from main import app
+
+    # Устанавливаем state НАПРЯМУЮ в app.state, а не только через override
+    # Это нужно для get_state(), который читает request.app.state.app_state
+    app.state.app_state = mock_state
+    app.dependency_overrides[get_state] = lambda: mock_state
+
+    with TestClient(app, base_url="http://localhost") as c:
+        yield c
+
+    app.dependency_overrides.clear()
+    if hasattr(app.state, "app_state"):
+        delattr(app.state, "app_state")
+
+@pytest.fixture
+def httpx_client():
+    """Real HTTP client for online tests."""
+    import httpx
+
+    with httpx.Client(base_url="http://127.0.0.1:8000", timeout=10.0) as c:
+        yield c
+
+# ── Config fixtures for adapter tests ──
+
+@pytest.fixture
+def llm_cfg():
+    """Minimal LLM config."""
+    c = MagicMock()
+    c.provider = "openai_compatible"
+    c.api_base = os.getenv("AI_LLM_API_BASE", "http://127.0.0.1:8080/v1")
+    c.max_tokens = 50
+    c.temperature = 0.7
+    c.timeout = 5.0
+    c.stop_sequences = []
+    return c
+
+@pytest.fixture
+def embedder_cfg():
+    """Minimal embedder config."""
+    c = MagicMock()
+    c.provider = "mock"
+    c.dim = 384
+    c.timeout = 5.0
+    return c
+
+@pytest.fixture
+def vs_cfg():
+    """Minimal vector store config."""
+    c = MagicMock()
+    c.dim = 384
+    c.metric = "l2"
+    c.relevance_threshold = 0.3
+    return c
+
+@pytest.fixture
+def chunker_cfg():
+    """Minimal chunker config."""
+    c = MagicMock()
+    c.chunk_size = 512
+    c.chunk_overlap = 50
+    return c
+```
+
+#### `tests/test_adapters_integration.py`
+
+```py
+"""Consolidated adapter tests — all implementations, parametrized.
+
+Covers: chunker, embedder (2 types), LLM (2 types), vector store (2 types),
+        reranker (2 types), storage, memory, tools, transport.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+import respx
+from httpx import Response
+
+from adapters.chunker_simple import SimpleChunker
+from adapters.embedder_mock import MockEmbedder
+from adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
+from adapters.llm_mock import MockLLM
+from adapters.llm_openai_compatible import OpenAICompatibleLLM
+from adapters.memory_sqlite import SQLiteMemory
+from adapters.reranker_api import APIReranker
+from adapters.reranker_dummy import DummyReranker
+from adapters.storage_sqlite import SQLiteStorage
+from adapters.tools_calculator import CalculatorTool
+from adapters.transport_fastapi import FastAPITransport
+from adapters.vector_store_faiss import FaissVectorStore
+from adapters.vector_store_memory import MemoryVectorStore
+from core.config import EmbedderConfig, LLMConfig
+from core.domain.documents import Chunk, ChunkMetadata, Document
+from core.domain.errors import VersionMismatchError
+from core.domain.messages import AssistantMessage, UserMessage
+from core.ports.memory import MemoryEntry
+
+# ── Chunker ──
+
+class TestChunker:
+    @pytest.mark.parametrize(
+        "size,overlap,text,expected_count",
+        [
+            (10, 2, "hello world this is a test", 4),
+            (100, 10, "short", 1),
+            (50, 5, "", 0),
+            (5, 1, "1234567890", 3),  # 10 chars, step=4, chunks at 0,4,8
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_chunk_variations(self, size, overlap, text, expected_count):
+        config = type("C", (), {"chunk_size": size, "chunk_overlap": overlap})()
+        chunker = SimpleChunker(config)
+        doc = Document(id="d1", content=text)
+        chunks = await chunker.chunk(doc)
+        assert len(chunks) == expected_count
+        if chunks:
+            assert all(len(c.text) <= size for c in chunks)
+            # Verify total_chunks is accurate
+            assert all(c.metadata.total_chunks == len(chunks) for c in chunks)
+
+    @pytest.mark.asyncio
+    async def test_chunk_preserves_metadata(self):
+        config = type("C", (), {"chunk_size": 10, "chunk_overlap": 2})()
+        chunker = SimpleChunker(config)
+        doc = Document(id="d1", content="hello world", metadata={"tag": "test"})
+        chunks = await chunker.chunk(doc)
+        assert chunks[0].metadata.custom == {"tag": "test"}
+
+# ── Embedders (parametrized) ──
+
+class TestEmbedders:
+    @pytest.mark.parametrize("dim", [128, 384, 768, 1536])
+    def test_mock_dimension(self, dim):
+        config = type("C", (), {"dim": dim})()
+        emb = MockEmbedder(config)
+        assert emb.dimension == dim
+
+    @pytest.mark.parametrize(
+        "texts,expected_count",
+        [
+            (["hello", "world"], 2),
+            (["single"], 1),
+            ([], 0),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_mock_embed(self, texts, expected_count):
+        config = type("C", (), {"dim": 384})()
+        emb = MockEmbedder(config)
+        result = await emb.embed(texts)
+        assert len(result) == expected_count
+        if expected_count > 0:
+            assert len(result[0]) == 384
+            # Deterministic: same text = same embedding
+            if len(texts) > 1:
+                assert result[0] != result[1]
+
+    @pytest.mark.asyncio
+    async def test_openai_compatible_embed(self):
+        config = EmbedderConfig(
+            provider="openai_compatible",
+            api_base="https://api.test.com/v1",
+            api_key="test-key",
+            dim=1536,
+            timeout=5.0,
+        )
+        embedder = OpenAICompatibleEmbedder(config)
+
+        with respx.mock:
+            route = respx.post("https://api.test.com/v1/embeddings")
+            route.return_value = Response(
+                200,
+                json={
+                    "data": [{"embedding": [0.1] * 1536}, {"embedding": [0.2] * 1536}]
+                },
+            )
+            result = await embedder.embed(["a", "b"])
+            assert len(result) == 2
+            assert len(result[0]) == 1536
+            assert result[0] != result[1]
+
+    @pytest.mark.asyncio
+    async def test_openai_compatible_empty(self):
+        config = EmbedderConfig(
+            provider="openai_compatible",
+            api_base="https://api.test.com/v1",
+            api_key="key",
+            dim=1536,
+            timeout=5.0,
+        )
+        assert await OpenAICompatibleEmbedder(config).embed([]) == []
+
+# ── LLMs (parametrized) ──
+
+class TestLLMs:
+    @pytest.mark.asyncio
+    async def test_mock_complete(self):
+        llm = MockLLM(config={})
+        result = await llm.complete([UserMessage(text="hello")])
+        assert isinstance(result, AssistantMessage)
+        assert "[MOCK LLM] Echo: hello" == result.text
+
+    @pytest.mark.asyncio
+    async def test_mock_complete_empty(self):
+        llm = MockLLM(config={})
+        result = await llm.complete([])
+        assert "[MOCK LLM] Echo: ..." == result.text
+
+    @pytest.mark.asyncio
+    async def test_mock_stream(self):
+        llm = MockLLM(config={})
+        chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+        assert len(chunks) == 1
+        assert "Server is running" in chunks[0]
+
+    @pytest.mark.asyncio
+    async def test_openai_compatible_complete(self):
+        config = LLMConfig(
+            provider="openai_compatible",
+            api_base="https://api.test.com/v1",
+            api_key="key",
+            max_tokens=10,
+            temperature=0.7,
+            timeout=5.0,
+            stop_sequences=[],
+        )
+        llm = OpenAICompatibleLLM(config)
+
+        with respx.mock:
+            route = respx.post("https://api.test.com/v1/chat/completions")
+            route.return_value = Response(
+                200, json={"choices": [{"message": {"content": "Hello there"}}]}
+            )
+            result = await llm.complete([UserMessage(text="hi")])
+            assert result.text == "Hello there"
+
+    @pytest.mark.asyncio
+    async def test_openai_compatible_stream(self):
+        config = LLMConfig(
+            provider="openai_compatible",
+            api_base="https://api.test.com/v1",
+            api_key="key",
+            max_tokens=10,
+            temperature=0.7,
+            timeout=5.0,
+            stop_sequences=[],
+        )
+        llm = OpenAICompatibleLLM(config)
+
+        with respx.mock:
+            sse = (
+                'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":" world"}}]}\n\n'
+                "data: [DONE]\n\n"
+            )
+            respx.post(
+                "https://api.test.com/v1/chat/completions"
+            ).return_value = Response(
+                200, text=sse, headers={"content-type": "text/event-stream"}
+            )
+            chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+            assert chunks == ["Hello", " world"]
+
+# ── Vector Stores (parametrized) ──
+
+class TestVectorStores:
+    @pytest.mark.parametrize(
+        "store_cls,config",
+        [
+            (FaissVectorStore, type("C", (), {"dim": 3, "metric": "l2"})()),
+            (MemoryVectorStore, type("C", (), {"dim": 3})()),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_add_and_search(self, store_cls, config):
+        store = store_cls(config)
+        chunks = [
+            Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+            Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+        ]
+        await store.add(chunks, namespace="test")
+        results = await store.search([1.0, 0.0, 0.0], top_k=1, namespace="test")
+        assert len(results) == 1
+        assert results[0].id == "c1"
+
+    @pytest.mark.parametrize(
+        "store_cls,config",
+        [
+            (FaissVectorStore, type("C", (), {"dim": 3, "metric": "l2"})()),
+            (MemoryVectorStore, type("C", (), {"dim": 3})()),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_namespace_isolation(self, store_cls, config):
+        store = store_cls(config)
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="ns1"
+        )
+        await store.add(
+            [Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0])], namespace="ns2"
+        )
+
+        r1 = await store.search([1.0, 0.0, 0.0], top_k=1, namespace="ns1")
+        r2 = await store.search([0.0, 1.0, 0.0], top_k=1, namespace="ns2")
+        assert r1[0].id == "c1"
+        assert r2[0].id == "c2"
+
+        # Cross-namespace: c1 not in ns2
+        r3 = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns2")
+        assert not any(c.id == "c1" for c in r3)
+
+    @pytest.mark.asyncio
+    async def test_faiss_list_by_filter(self):
+        store = FaissVectorStore(type("C", (), {"dim": 3, "metric": "l2"})())
+        meta = ChunkMetadata(
+            source="doc1", index=0, total_chunks=1, custom={"tag": "important"}
+        )
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0], metadata=meta)],
+            namespace="test",
+        )
+        results = await store.list_by_filter({"tag": "important"}, namespace="test")
+        assert len(results) == 1
+        assert results[0][0] == "c1"
+
+    @pytest.mark.asyncio
+    async def test_faiss_save_and_load(self, tmp_path):
+        store = FaissVectorStore(type("C", (), {"dim": 3, "metric": "l2"})())
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
+        )
+        path = str(tmp_path / "idx")
+        await store.save(path, namespace="test")
+
+        store2 = FaissVectorStore(type("C", (), {"dim": 3, "metric": "l2"})())
+        await store2.load(path, namespace="test")
+        results = await store2.search([1.0, 0.0, 0.0], top_k=1, namespace="test")
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_faiss_version_mismatch(self, tmp_path):
+        store3 = FaissVectorStore(
+            type("C", (), {"dim": 3, "metric": "l2", "embedder_model": "test"})()
+        )
+        await store3.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
+        )
+        path = str(tmp_path / "idx")
+        await store3.save(path, namespace="test")
+
+        store5 = FaissVectorStore(
+            type("C", (), {"dim": 5, "metric": "l2", "embedder_model": "test"})()
+        )
+        with pytest.raises(VersionMismatchError, match="Reindex required"):
+            await store5.load(path, namespace="test")
+
+    @pytest.mark.asyncio
+    async def test_memory_threshold_filtering(self):
+        """Memory store: low similarity → empty results."""
+        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[0.0, 1.0, 0.0])], namespace="test"
+        )
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert results == []  # Orthogonal vectors, similarity ~0
+
+    @pytest.mark.asyncio
+    async def test_memory_high_similarity(self):
+        """Memory store: high similarity → results."""
+        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[0.99, 0.01, 0.0])], namespace="test"
+        )
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert len(results) == 1
+        assert results[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_memory_skips_no_embedding(self):
+        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        await store.add(
+            [
+                Chunk(id="c1", text="no emb", embedding=None),
+                Chunk(id="c2", text="has emb", embedding=[1.0, 0.0, 0.0]),
+            ],
+            namespace="test",
+        )
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert len(results) == 1
+        assert results[0].id == "c2"
+
+    @pytest.mark.asyncio
+    async def test_memory_skips_wrong_dimension(self):
+        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        await store.add(
+            [
+                Chunk(id="c1", text="wrong", embedding=[1.0, 0.0]),
+                Chunk(id="c2", text="correct", embedding=[1.0, 0.0, 0.0]),
+            ],
+            namespace="test",
+        )
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert len(results) == 1
+        assert results[0].id == "c2"
+
+# ── Rerankers ──
+
+class TestRerankers:
+    @pytest.mark.asyncio
+    async def test_dummy_pass_through(self):
+        reranker = DummyReranker(config={})
+        chunks = [Chunk(id="c1", text="hello"), Chunk(id="c2", text="world")]
+        results = await reranker.rerank("query", chunks)
+        assert len(results) == 2
+        assert all(r.score == 1.0 for r in results)
+        assert results[0].chunk.id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_dummy_top_k(self):
+        reranker = DummyReranker(config={})
+        chunks = [Chunk(id=f"c{i}", text=f"t{i}") for i in range(10)]
+        results = await reranker.rerank("q", chunks, top_k=3)
+        assert len(results) == 3
+
+    @pytest.mark.asyncio
+    async def test_dummy_empty(self):
+        assert await DummyReranker(config={}).rerank("q", []) == []
+
+    @pytest.mark.asyncio
+    async def test_api_rerank_success(self):
+        config = MagicMock()
+        config.api_base = "https://api.cohere.com"
+        config.api_key = "test-key"
+        config.model = "rerank-multilingual-v3.0"
+        config.timeout = 5.0
+        config.threshold = 0.3
+
+        reranker = APIReranker(config)
+        chunks = [Chunk(id="c1", text="hello"), Chunk(id="c2", text="world")]
+
+        with respx.mock:
+            respx.post("https://api.cohere.com/v1/rerank").return_value = Response(
+                200,
+                json={
+                    "results": [
+                        {"index": 0, "relevance_score": 0.9},
+                        {"index": 1, "relevance_score": 0.1},
+                    ]
+                },
+            )
+            results = await reranker.rerank("q", chunks, top_k=5)
+            assert len(results) == 1
+            assert results[0].chunk.id == "c1"
+            assert results[0].score == 0.9
+
+    @pytest.mark.asyncio
+    async def test_api_rerank_respects_top_k(self):
+        config = MagicMock()
+        config.api_base = "https://api.cohere.com"
+        config.api_key = "key"
+        config.model = "model"
+        config.timeout = 5.0
+        config.threshold = 0.3
+
+        reranker = APIReranker(config)
+        chunks = [Chunk(id=f"c{i}", text=f"t{i}") for i in range(5)]
+
+        with respx.mock:
+            respx.post("https://api.cohere.com/v1/rerank").return_value = Response(
+                200,
+                json={
+                    "results": [
+                        {"index": i, "relevance_score": 0.9 - i * 0.1} for i in range(5)
+                    ]
+                },
+            )
+            results = await reranker.rerank("q", chunks, top_k=2)
+            assert len(results) == 2
+            assert results[0].score == 0.9
+            assert results[1].score == 0.8
+
+    @pytest.mark.asyncio
+    async def test_api_rerank_empty_chunks(self):
+        config = MagicMock()
+        config.api_base = "https://api.cohere.com"
+        config.api_key = "key"
+        config.model = "model"
+        config.timeout = 5.0
+        config.threshold = 0.3
+        assert await APIReranker(config).rerank("q", []) == []
+
+    @pytest.mark.asyncio
+    async def test_api_rerank_error_propagates(self):
+        config = MagicMock()
+        config.api_base = "https://api.cohere.com"
+        config.api_key = "key"
+        config.model = "model"
+        config.timeout = 5.0
+        config.threshold = 0.3
+
+        with respx.mock:
+            respx.post("https://api.cohere.com/v1/rerank").return_value = Response(500)
+            with pytest.raises(Exception):
+                await APIReranker(config).rerank("q", [Chunk(id="c1", text="hello")])
+
+# ── Storage ──
+
+class TestStorage:
+    @pytest.fixture
+    def storage(self, tmp_path):
+        config = type("C", (), {"db_path": str(tmp_path / "test.db")})()
+        return SQLiteStorage(config)
+
+    @pytest.mark.asyncio
+    async def test_save_and_get_history(self, storage):
+        await storage.save_message(
+            "conv-1", {"role": "user", "content": "hi", "metadata": {"k": "v"}}
+        )
+        history = await storage.get_history("conv-1", limit=10)
+        assert len(history) == 1
+        assert history[0]["role"] == "user"
+        assert history[0]["metadata"] == {"k": "v"}
+
+    @pytest.mark.asyncio
+    async def test_history_limit_and_order(self, storage):
+        for i in range(5):
+            await storage.save_message("conv-1", {"role": "user", "content": f"msg{i}"})
+        history = await storage.get_history("conv-1", limit=2)
+        assert len(history) == 2
+        # DESC LIMIT 2 → msg4,msg3 → reversed → msg3,msg4
+        assert history[0]["content"] == "msg3"
+        assert history[1]["content"] == "msg4"
+
+    @pytest.mark.asyncio
+    async def test_settings_get_set(self, storage):
+        await storage.set("key1", {"nested": True})
+        assert await storage.get("key1") == {"nested": True}
+
+    @pytest.mark.asyncio
+    async def test_settings_default(self, storage):
+        assert await storage.get("missing", "default") == "default"
+
+    def test_db_tables_created(self, storage, tmp_path):
+        import sqlite3
+
+        with sqlite3.connect(str(tmp_path / "test.db")) as conn:
+            tables = {
+                t[0]
+                for t in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            assert "chat_messages" in tables
+            assert "settings" in tables
+
+# ── Memory (Long-term) ──
+
+class TestMemory:
+    @pytest.fixture
+    def memory(self, tmp_path):
+        config = type("C", (), {"db_path": str(tmp_path / "memory.db")})()
+        return SQLiteMemory(config)
+
+    @pytest.mark.asyncio
+    async def test_add_and_get(self, memory):
+        entry = MemoryEntry(
+            content="User likes Python",
+            source="conversation",
+            importance=0.8,
+            tags=["pref"],
+        )
+        await memory.add("user-1", entry)
+        results = await memory.get("user-1")
+        assert len(results) == 1
+        assert results[0].content == "User likes Python"
+        assert results[0].tags == ["pref"]
+
+    @pytest.mark.asyncio
+    async def test_search_by_query(self, memory):
+        await memory.add(
+            "user-1", MemoryEntry(content="Loves hiking", source="explicit")
+        )
+        await memory.add("user-1", MemoryEntry(content="Hates rain", source="explicit"))
+        results = await memory.get("user-1", query="hiking")
+        assert len(results) == 1
+        assert "hiking" in results[0].content
+
+    @pytest.mark.asyncio
+    async def test_forget(self, memory):
+        entry = MemoryEntry(content="To be deleted", source="test")
+        await memory.add("user-1", entry)
+        results = await memory.get("user-1")
+        success = await memory.forget("user-1", results[0].id)
+        assert success is True
+        assert len(await memory.get("user-1")) == 0
+
+    @pytest.mark.asyncio
+    async def test_consolidate_removes_old_low_importance(self, memory):
+        import sqlite3
+
+        # Add old low-importance memory
+        with sqlite3.connect(memory.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO memories (user_id, content, source, importance, created_at)
+                VALUES (?, ?, ?, ?, datetime('now', '-31 days'))
+            """,
+                ("user-1", "old", "test", 0.1),
+            )
+            conn.commit()
+        await memory.consolidate("user-1")
+        results = await memory.get("user-1")
+        assert len(results) == 0
+
+# ── Tools ──
+
+class TestCalculator:
+    @pytest.fixture
+    def calc(self):
+        return CalculatorTool()
+
+    @pytest.mark.parametrize(
+        "op,a,b,expected",
+        [
+            ("add", 2, 3, 5.0),
+            ("subtract", 5, 3, 2.0),
+            ("multiply", 4, 3, 12.0),
+            ("divide", 10, 2, 5.0),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_operations(self, calc, op, a, b, expected):
+        result = await calc.execute({"operation": op, "a": a, "b": b})
+        assert result.is_error is False
+        assert str(expected) in result.output
+
+    @pytest.mark.asyncio
+    async def test_divide_by_zero(self, calc):
+        result = await calc.execute({"operation": "divide", "a": 10, "b": 0})
+        assert result.is_error is True
+        assert "zero" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_unknown_operation(self, calc):
+        result = await calc.execute({"operation": "power", "a": 2, "b": 3})
+        assert result.is_error is True
+        assert "Unknown" in result.error
+
+    def test_spec(self, calc):
+        spec = calc.spec
+        assert spec.name == "calculator"
+        assert "add" in spec.parameters["properties"]["operation"]["enum"]
+
+# ── Transport ──
+
+class TestTransport:
+    @pytest.mark.asyncio
+    async def test_fastapi_start(self):
+        transport = FastAPITransport(config=MagicMock(host="127.0.0.1", port=9000))
+        with patch("uvicorn.Config") as mock_cfg:
+            with patch("uvicorn.Server") as mock_srv:
+                mock_srv.return_value.serve = AsyncMock()
+                await transport.start()
+                mock_cfg.assert_called_once()
+                assert mock_cfg.call_args.kwargs["host"] == "127.0.0.1"
+                assert mock_cfg.call_args.kwargs["port"] == 9000
+
+    @pytest.mark.asyncio
+    async def test_fastapi_stop_is_noop(self):
+        transport = FastAPITransport(config=MagicMock())
+        await transport.stop()  # should not raise
+```
+
+#### `tests/test_api_deps.py`
+
+```py
+"""Direct tests for api/deps.py — AppState assembly and pipeline construction.
+
+Validates that init_adapters correctly:
+- Creates AppState with all expected fields
+- Builds RAGPipeline with correct step lambdas
+- Handles missing/optional adapters gracefully
+- Respects sacred core boundaries (registry_create mocking)
+"""
+
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from api.deps import AppState, MetricsMiddleware, get_state, init_adapters
+from core.config import AppConfig
+from core.pipeline import RAGPipeline
+
+# ── AppState dataclass ──
+
+class TestAppState:
+    def test_has_all_expected_fields(self):
+        state = AppState(config=AppConfig())
+        assert hasattr(state, "config")
+        assert hasattr(state, "embedder")
+        assert hasattr(state, "vector_store")
+        assert hasattr(state, "llm")
+        assert hasattr(state, "chunker")
+        assert hasattr(state, "reranker")
+        assert hasattr(state, "pipeline")
+        assert hasattr(state, "voice_recognizer")
+        assert hasattr(state, "voice_synthesizer")
+        assert hasattr(state, "vision")
+        assert hasattr(state, "storage")
+        assert hasattr(state, "tool_registry")
+        assert hasattr(state, "long_term_memory")
+
+    def test_defaults_are_none_except_config(self):
+        cfg = AppConfig()
+        state = AppState(config=cfg)
+        assert state.config is cfg
+        assert state.embedder is None
+        assert state.vector_store is None
+        assert state.pipeline is None
+
+# ── init_adapters with mocked registry_create ──
+
+class TestInitAdapters:
+    @pytest.fixture
+    def minimal_config(self):
+        """Config with only required providers."""
+        return AppConfig(
+            llm={
+                "provider": "mock",
+                "max_tokens": 50,
+                "temperature": 0.7,
+                "timeout": 5.0,
+                "stop_sequences": [],
+            },
+            embedder={"provider": "mock", "dim": 384, "timeout": 5.0},
+            vector_store={
+                "provider": "memory",
+                "dim": 384,
+                "metric": "l2",
+                "index_path": "./data/indices/test",
+            },
+            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+            storage={"provider": "sqlite", "db_path": ":memory:"},
+            reranker={
+                "provider": "dummy",
+                "model": "test",
+                "api_base": "http://test",
+                "timeout": 5.0,
+                "threshold": 0.3,
+            },
+            rag={
+                "steps": ["embed_query", "retrieve", "build_context", "generate"],
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "top_k": 3,
+                "default_namespace": "test",
+                "relevance_threshold": 0.3,
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_app_state_assembled_correctly(self, minimal_config):
+        """Mock registry_create and verify AppState fields are populated."""
+        mock_llm = MagicMock()
+        mock_embedder = MagicMock()
+        mock_vector_store = MagicMock()
+        mock_chunker = MagicMock()
+        mock_storage = MagicMock()
+        mock_reranker = MagicMock()
+        mock_tool = MagicMock()
+
+        # Mock list_namespaces and load for vector_store
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+
+        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+            mapping = {
+                ("llm", "mock"): mock_llm,
+                ("embedder", "mock"): mock_embedder,
+                ("vector_store", "memory"): mock_vector_store,
+                ("chunker", "simple"): mock_chunker,
+                ("storage", "sqlite"): mock_storage,
+                ("reranker", "dummy"): mock_reranker,
+                ("tool", "calculator"): mock_tool,
+            }
+            return mapping.get((port, name), MagicMock())
+
+        with patch("api.deps.registry_create", side_effect=fake_registry_create):
+            state = AppState(config=minimal_config)
+            await init_adapters(state)
+
+        assert state.config is minimal_config
+        assert state.llm is mock_llm
+        assert state.embedder is mock_embedder
+        assert state.vector_store is mock_vector_store
+        assert state.chunker is mock_chunker
+        assert state.storage is mock_storage
+        assert state.reranker is mock_reranker
+        assert state.tool_registry is not None
+
+    @pytest.mark.asyncio
+    async def test_pipeline_created_with_correct_steps(self, minimal_config):
+        """Verify pipeline steps are bound with correct dependencies."""
+        mock_llm = MagicMock()
+        mock_embedder = MagicMock()
+        mock_vector_store = MagicMock()
+        mock_chunker = MagicMock()
+        mock_reranker = MagicMock()
+
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+
+        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+            mapping = {
+                ("llm", "mock"): mock_llm,
+                ("embedder", "mock"): mock_embedder,
+                ("vector_store", "memory"): mock_vector_store,
+                ("chunker", "simple"): mock_chunker,
+                ("reranker", "dummy"): mock_reranker,
+                ("tool", "calculator"): MagicMock(),
+                ("storage", "sqlite"): MagicMock(),
+            }
+            return mapping.get((port, name), MagicMock())
+
+        with patch("api.deps.registry_create", side_effect=fake_registry_create):
+            state = AppState(config=minimal_config)
+            await init_adapters(state)
+
+        assert state.pipeline is not None
+        assert isinstance(state.pipeline, RAGPipeline)
+        # Should have 4 steps: embed_query, retrieve, build_context, generate
+        assert len(state.pipeline.steps) == 4
+
+        # Verify step lambdas are callable and accept PipelineData
+        step_names = ["embed_query", "retrieve", "build_context", "generate"]
+        for i, name in enumerate(step_names):
+            assert callable(state.pipeline.steps[i]), f"Step {name} is not callable"
+
+    @pytest.mark.asyncio
+    async def test_reranker_none_when_not_configured(self, minimal_config):
+        """When reranker provider is missing, reranker should be None."""
+        minimal_config.reranker.provider = "nonexistent"
+
+        mock_vector_store = MagicMock()
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+
+        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+            if port == "vector_store" and name == "memory":
+                return mock_vector_store
+            if port == "reranker" and name == "nonexistent":
+                raise ValueError("No such reranker")
+            return MagicMock()
+
+        with patch("api.deps.registry_create", side_effect=fake_registry_create):
+            state = AppState(config=minimal_config)
+            await init_adapters(state)
+
+        assert state.reranker is None
+
+    @pytest.mark.asyncio
+    async def test_storage_none_when_registry_fails(self, minimal_config):
+        """Storage adapter failure should set storage to None, not crash."""
+        mock_vector_store = MagicMock()
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+
+        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+            if port == "vector_store" and name == "memory":
+                return mock_vector_store
+            if port == "storage" and name == "sqlite":
+                raise ValueError("No storage adapter")
+            return MagicMock()
+
+        with patch("api.deps.registry_create", side_effect=fake_registry_create):
+            state = AppState(config=minimal_config)
+            await init_adapters(state)
+
+        assert state.storage is None
+
+    @pytest.mark.asyncio
+    async def test_idempotent_init(self, minimal_config):
+        """Multiple calls to init_adapters should return same state without re-creating adapters."""
+        call_count = {"count": 0}
+
+        def counting_registry_create(port: str, name: str, config: Any) -> Any:
+            call_count["count"] += 1
+            m = MagicMock()
+            if port == "vector_store":
+                m.list_namespaces = AsyncMock(return_value=[])
+                m.load = AsyncMock(return_value=None)
+            return m
+
+        with patch("api.deps.registry_create", side_effect=counting_registry_create):
+            state = AppState(config=minimal_config)
+            first_result = await init_adapters(state)
+            first_count = call_count["count"]
+            second_result = await init_adapters(state)
+            second_count = call_count["count"]
+
+        assert second_count == first_count, "Second init should not re-create adapters"
+        assert first_result is second_result, "Should return same state object"
+        assert first_result is state, "Should return original state"
+
+# ── MetricsMiddleware ──
+
+class TestMetricsMiddleware:
+    @pytest.mark.asyncio
+    async def test_logs_request_metrics(self):
+        """Middleware should record latency and token metrics."""
+        from starlette.requests import Request
+        from starlette.responses import Response as StarletteResponse
+
+        middleware = MetricsMiddleware(MagicMock())
+
+        mock_request = MagicMock(spec=Request)
+        mock_request.url.path = "/test"
+
+        mock_response = MagicMock(spec=StarletteResponse)
+        mock_response.status_code = 200
+
+        async def mock_call_next(request: Request):
+            return mock_response
+
+        with patch(
+            "api.deps.get_current_metrics",
+            return_value={"input_tokens": 10, "output_tokens": 5},
+        ):
+            with patch("api.deps.get_metrics_logger") as mock_logger:
+                mock_logger.return_value.log = MagicMock()
+                result = await middleware.dispatch(mock_request, mock_call_next)
+                assert result is mock_response
+                mock_logger.return_value.log.assert_called_once()
+                record = mock_logger.return_value.log.call_args[0][0]
+                assert record["endpoint"] == "/test"
+                assert record["status_code"] == 200
+                assert "latency_ms" in record
+
+# ── get_state error handling ──
+
+class TestGetState:
+    def test_raises_when_not_initialized(self):
+        from fastapi import FastAPI, Request
+
+        app = FastAPI()
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "app": app,
+        }
+        request = Request(scope)
+        with pytest.raises(RuntimeError, match="State not initialized"):
+            get_state(request)
+
+    def test_reads_from_app_state(self):
+        from fastapi import FastAPI, Request
+
+        app = FastAPI()
+        mock_state = AppState(config=AppConfig())
+        app.state.app_state = mock_state
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "app": app,
+        }
+        request = Request(scope)
+        assert get_state(request) is mock_state
+```
+
+#### `tests/test_api_e2e.py`
+
+```py
+"""End-to-end API tests — works both offline (TestClient) and online (real server).
+
+Offline: mocked state via TestClient — 100% reliable, no server needed.
+Online: real HTTP calls when server detected — validates actual deployment.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import patch as mock_patch
+
+import pytest
+
+from core.domain.documents import Chunk, ChunkMetadata
+from core.pipeline import RAGPipeline
+from pipeline.steps import build_context, embed_query, generate, retrieve
+
+# ── Offline Tests (TestClient) ──
+
+class TestHealthOffline:
+    """GET /health — always available, no deps."""
+
+    def test_returns_ok(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["service"] == "ai-assistant"
+
+    def test_unauthorized_access(self, client, monkeypatch):
+        """When API key is configured, unauthorized requests should fail."""
+        monkeypatch.setattr("api.security.get_expected_api_key", lambda: "real-key")
+        resp = client.post(
+            "/chat",
+            json={"message": "test"},
+            headers={"Authorization": "Bearer wrong-key"},
+        )
+        assert resp.status_code == 401
+
+    def test_rate_limit_exceeded(self, client, monkeypatch):
+        """When rate limiter blocks IP, should return 429."""
+        monkeypatch.setattr("api.security.limiter.is_allowed", lambda ip: False)
+        resp = client.post("/chat", json={"message": "test"})
+        assert resp.status_code == 429
+
+class TestInfoOffline:
+    """GET /info — model badge for UI."""
+
+    def test_openai_compatible_model_name(self, client, mock_state):
+        mock_state.config.llm.provider = "openai_compatible"
+        mock_state.config.llm.model = "gemma3:4b"
+        resp = client.get("/info")
+        assert resp.status_code == 200
+        assert resp.json()["provider"] == "openai_compatible"
+        assert resp.json()["model"] == "gemma3:4b"
+
+    def test_mock_provider(self, client, mock_state):
+        mock_state.config.llm.provider = "mock"
+        resp = client.get("/info")
+        assert resp.status_code == 200
+        assert resp.json()["model"] == "mock"
+
+    def test_unknown_provider(self, client, mock_state):
+        mock_state.config.llm.provider = "custom"
+        resp = client.get("/info")
+        assert resp.status_code == 200
+        assert resp.json()["provider"] == "custom"
+        assert resp.json()["model"] == "custom"
+
+    def test_runtime_error_fallback(self, client):
+        from api.deps import get_state
+        from main import app
+
+        original_override = app.dependency_overrides.get(get_state, None)
+
+        def raise_runtime_error():
+            raise RuntimeError("No app state available")
+
+        try:
+            app.dependency_overrides[get_state] = raise_runtime_error
+            resp = client.get("/info")
+            assert resp.status_code == 200
+            assert resp.json() == {"provider": "unknown", "model": "unknown"}
+        finally:
+            if original_override is not None:
+                app.dependency_overrides[get_state] = original_override
+            else:
+                app.dependency_overrides.pop(get_state, None)
+
+class TestChatOffline:
+    """POST /chat and /chat/stream — full chat feature."""
+
+    def test_text_only(self, client):
+        resp = client.post(
+            "/chat", json={"message": "Hello", "conversation_id": "test-123"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "message" in data
+        assert data["conversation_id"] == "test-123"
+        assert data["role"] == "assistant"
+
+    def test_generates_conversation_id(self, client):
+        resp = client.post("/chat", json={"message": "Hello"})
+        assert resp.status_code == 200
+        assert resp.json()["conversation_id"]  # auto-generated UUID
+
+    def test_empty_message(self, client):
+        """Empty message should still return 200 (handled by manager)."""
+        resp = client.post("/chat", json={"message": " ", "conversation_id": "test"})
+        assert resp.status_code == 200
+
+    def test_with_image_base64(self, client):
+        resp = client.post(
+            "/chat",
+            json={
+                "message": "Describe this",
+                "conversation_id": "test",
+                "image_base64": "iVBORw0KGgo=",
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_with_image_url(self, client):
+        resp = client.post(
+            "/chat",
+            json={
+                "message": "Describe this",
+                "conversation_id": "test",
+                "image_url": "http://example.com/img.png",
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_with_voice(self, client, mock_state):
+        import base64
+
+        mock_state.voice_recognizer = MagicMock()
+        mock_state.voice_recognizer.transcribe = AsyncMock(
+            return_value="transcribed voice"
+        )
+
+        audio = base64.b64encode(b"fake_audio").decode()
+        resp = client.post(
+            "/chat",
+            json={
+                "message": "ignored",
+                "conversation_id": "test",
+                "voice_base64": audio,
+            },
+        )
+        assert resp.status_code == 200
+        mock_state.voice_recognizer.transcribe.assert_awaited_once()
+
+    def test_stream_returns_sse(self, client):
+        resp = client.post(
+            "/chat/stream",
+            json={"message": "Hello", "conversation_id": "test"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        text = resp.text
+        assert "data: " in text
+        assert "[DONE]" in text
+
+    def test_stream_with_image(self, client):
+        resp = client.post(
+            "/chat/stream",
+            json={
+                "message": "Describe",
+                "conversation_id": "test",
+                "image_base64": "iVBORw0KGgo=",
+            },
+        )
+        assert resp.status_code == 200
+        assert "data:" in resp.text
+
+class TestOpenAICompatibleOffline:
+    """OpenAI-compatible endpoints for Page Assist."""
+
+    def test_list_models(self, client):
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "list"
+        assert len(data["data"]) > 0
+        assert all("id" in m for m in data["data"])
+
+    def test_chat_completions_non_stream(self, client):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": False,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "chat.completion"
+        assert data["choices"][0]["message"]["role"] == "assistant"
+        assert data["choices"][0]["finish_reason"] == "stop"
+
+    def test_chat_completions_stream(self, client):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        assert "data:" in resp.text
+        assert "[DONE]" in resp.text
+
+class TestRAGOffline:
+    """POST /rag/* — indexing, query, delete, health, namespaces."""
+
+    def test_index_documents(self, client, mock_state):
+        mock_state.chunker.chunk = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="chunk1",
+                    metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
+                )
+            ]
+        )
+        mock_state.embedder.embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        mock_state.vector_store.add = AsyncMock(return_value=None)
+        mock_state.vector_store.save = AsyncMock(return_value=None)
+
+        resp = client.post(
+            "/rag/index",
+            json={
+                "documents": [{"id": "d1", "content": "hello world", "metadata": {}}],
+                "namespace": "test",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["indexed_count"] == 1
+        assert data["namespace"] == "test"
+
+    def test_index_empty_content(self, client, mock_state):
+        mock_state.chunker.chunk = AsyncMock(return_value=[])
+        resp = client.post(
+            "/rag/index",
+            json={
+                "documents": [{"id": "d1", "content": "", "metadata": {}}],
+                "namespace": "test",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["indexed_count"] == 0
+        assert len(resp.json()["errors"]) > 0
+
+    def test_query_rag(self, client, mock_state):
+        import functools
+
+        llm = MagicMock()
+        llm.complete = AsyncMock(return_value=MagicMock(text="integrated answer"))
+        step_funcs = [
+            functools.partial(embed_query, embedder=mock_state.embedder),
+            functools.partial(retrieve, vector_store=mock_state.vector_store),
+            build_context,
+            functools.partial(generate, llm=llm),
+        ]
+        mock_state.pipeline = RAGPipeline(step_funcs)
+        mock_state.embedder.embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        mock_state.vector_store.search = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="chunk1",
+                    metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
+                )
+            ]
+        )
+
+        resp = client.post("/rag/query", json={"query": "hello?", "namespace": "work"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["answer"] == "integrated answer"
+        assert data["chunks_used"] == 1
+        assert len(data["sources"]) == 1
+
+    def test_query_no_results(self, client, mock_state):
+        import functools
+
+        llm = MagicMock()
+        llm.complete = AsyncMock(return_value=MagicMock(text="No info"))
+        step_funcs = [
+            functools.partial(embed_query, embedder=mock_state.embedder),
+            functools.partial(retrieve, vector_store=mock_state.vector_store),
+            build_context,
+            functools.partial(generate, llm=llm),
+        ]
+        mock_state.pipeline = RAGPipeline(step_funcs)
+        mock_state.embedder.embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        mock_state.vector_store.search = AsyncMock(return_value=[])
+
+        resp = client.post("/rag/query", json={"query": "unknown?"})
+        assert resp.status_code == 200
+        assert resp.json()["chunks_used"] == 0
+
+    def test_delete_chunks(self, client, mock_state):
+        mock_state.vector_store.delete = AsyncMock(return_value=None)
+        resp = client.post(
+            "/rag/delete", json={"chunk_ids": ["c1"], "namespace": "test"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["deleted_chunks"] == 1
+
+    def test_delete_by_document_ids(self, client, mock_state):
+        mock_state.vector_store.list_by_filter = AsyncMock(
+            return_value=[("c1", {"source": "d1"})]
+        )
+        mock_state.vector_store.delete = AsyncMock(return_value=None)
+        resp = client.post(
+            "/rag/delete",
+            json={"document_ids": ["d1"], "namespace": "test"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["deleted_chunks"] == 1
+
+    def test_health(self, client, mock_state):
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default"])
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("c1", {})])
+        mock_state.embedder.dimension = 384
+        resp = client.get("/rag/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["index_loaded"] is True
+        assert data["embedder_dim"] == 384
+
+    def test_list_namespaces(self, client, mock_state):
+        mock_state.config.vector_store.index_path = "./data/indices"
+        mock_state.vector_store.list_namespaces = AsyncMock(
+            return_value=["personal", "work"]
+        )
+        resp = client.get("/rag/namespaces")
+        assert resp.status_code == 200
+        assert "personal" in resp.json()["namespaces"]
+        assert "work" in resp.json()["namespaces"]
+
+    def test_list_namespaces_empty_fallback(self, client, mock_state):
+        mock_state.config.vector_store.index_path = None
+        resp = client.get("/rag/namespaces")
+        assert resp.status_code == 200
+        assert resp.json()["namespaces"] == ["default"]
+
+    def test_save_chat(self, client, mock_state, tmp_path, monkeypatch):
+        monkeypatch.setattr("features.rag.handlers.DOCUMENTS_ROOT", tmp_path)
+        mock_state.chunker.chunk = AsyncMock(return_value=[])
+        mock_state.embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_state.vector_store.add = AsyncMock(return_value=None)
+        mock_state.vector_store.save = AsyncMock(return_value=None)
+
+        resp = client.post(
+            "/rag/save-chat",
+            json={
+                "filename": "chat_test.md",
+                "content": "## User\nHello\n\n---\n\n## Assistant\nHi!",
+                "namespace": "personal",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["saved"] is True
+        assert data["namespace"] == "personal"
+        assert (tmp_path / "personal" / "chat_test.md").exists()
+
+    def test_save_chat_invalid_namespace(self, client):
+        resp = client.post(
+            "/rag/save-chat",
+            json={
+                "filename": "test.md",
+                "content": "test",
+                "namespace": "invalid",
+            },
+        )
+        assert resp.status_code == 400
+        assert "Invalid namespace" in resp.json()["detail"]
+
+    def test_save_chat_default_namespace(
+        self, client, mock_state, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr("features.rag.handlers.DOCUMENTS_ROOT", tmp_path)
+        mock_state.chunker.chunk = AsyncMock(return_value=[])
+        mock_state.embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_state.vector_store.add = AsyncMock(return_value=None)
+        mock_state.vector_store.save = AsyncMock(return_value=None)
+
+        resp = client.post(
+            "/rag/save-chat",
+            json={"filename": "chat.md", "content": "test"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["namespace"] == "personal"
+
+    def test_reindex(self, client, tmp_path):
+        async def fake_subprocess(*cmd, **kwargs):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(
+                return_value=(
+                    b"[personal] Done: 3 docs, 15 chunks\n"
+                    b"[work] Done: 2 docs, 8 chunks",
+                    b"",
+                )
+            )
+            mock_proc.returncode = 0
+            return mock_proc
+
+        with mock_patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess):
+            resp = client.post(
+                "/rag/reindex",
+                json={"folder": "personal", "clear": True},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "personal" in data["results"]
+        assert data["results"]["personal"]["indexed"] == 3
+        assert data["results"]["personal"]["chunks"] == 15
+
+    def test_reindex_script_not_found(self, client, tmp_path):
+        class _MockPath:
+            def __init__(self, *args):
+                self._path = str(args[0]) if args else ""
+
+            def exists(self):
+                return False
+
+            def __truediv__(self, other):
+                return _MockPath(self._path + "/" + str(other))
+
+            def __str__(self):
+                return self._path
+
+            @property
+            def parent(self):
+                return _MockPath(self._path)
+
+        with mock_patch("features.rag.handlers.Path", _MockPath):
+            resp = client.post("/rag/reindex", json={})
+        assert resp.status_code == 500
+        assert "not found" in resp.json()["detail"].lower()
+
+class TestImageAnalysisOffline:
+    """POST /image/analyze — vision feature."""
+
+    def test_analyze_with_base64(self, client, mock_state):
+        mock_state.vision = MagicMock()
+        mock_state.vision.describe = AsyncMock(return_value="An image of a cat")
+        resp = client.post(
+            "/image/analyze",
+            json={
+                "image_base64": "abc123",
+                "prompt": "What is this?",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["description"] == "An image of a cat"
+
+    def test_analyze_with_url(self, client, mock_state):
+        mock_state.vision = MagicMock()
+        mock_state.vision.describe = AsyncMock(return_value="An image")
+        resp = client.post(
+            "/image/analyze",
+            json={
+                "image_url": "http://example.com/img.png",
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_analyze_no_image_raises_400(self, client):
+        resp = client.post("/image/analyze", json={"prompt": "test"})
+        assert resp.status_code == 400
+        assert "image_base64 or image_url" in resp.json()["detail"]
+
+    def test_analyze_fallback_to_llm(self, client, mock_state):
+        """When vision adapter is None but LLM available, use LLM vision."""
+        mock_state.vision = None
+        mock_state.llm.complete = AsyncMock(
+            return_value=MagicMock(text="LLM vision result")
+        )
+        resp = client.post(
+            "/image/analyze",
+            json={"image_base64": "abc", "prompt": "Describe"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["description"] == "LLM vision result"
+
+class TestCORSOffline:
+    """CORS headers for browser extensions."""
+
+    def test_preflight_headers(self, client):
+        resp = client.options(
+            "/health",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        assert resp.status_code == 200
+        assert "access-control-allow-origin" in resp.headers
+
+    def test_actual_request_headers(self, client):
+        resp = client.get("/health", headers={"Origin": "http://localhost:3000"})
+        assert "access-control-allow-origin" in resp.headers
+
+# ── Online Tests (real server) ──
+
+@pytest.mark.online
+class TestHealthOnline:
+    """Real server health check."""
+
+    def test_server_responds(self, httpx_client):
+        resp = httpx_client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+@pytest.mark.online
+class TestModelsOnline:
+    """Real /v1/models endpoint."""
+
+    def test_returns_model_list(self, httpx_client):
+        resp = httpx_client.get("/v1/models")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "list"
+        assert len(data["data"]) > 0
+        assert all("id" in m for m in data["data"])
+
+@pytest.mark.online
+class TestChatOnline:
+    """Real chat with running LLM."""
+
+    def test_non_streaming_chat(self, httpx_client):
+        resp = httpx_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [
+                    {"role": "user", "content": "Say 'test' and nothing else"}
+                ],
+                "stream": False,
+                "max_tokens": 10,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["choices"][0]["message"]["content"] != ""
+        assert data["choices"][0]["finish_reason"] in ["stop", "length"]
+
+    def test_streaming_chat(self, httpx_client):
+        resp = httpx_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "stream": True,
+                "max_tokens": 5,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        text = resp.text
+        assert "data:" in text
+        assert "[DONE]" in text
+
+@pytest.mark.online
+class TestRAGOnline:
+    """Real RAG with running pipeline."""
+
+    def test_health_reports_status(self, httpx_client):
+        resp = httpx_client.get("/rag/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "index_loaded" in data
+        assert "embedder_dim" in data
+
+    def test_namespaces_list(self, httpx_client):
+        resp = httpx_client.get("/rag/namespaces")
+        assert resp.status_code == 200
+        assert isinstance(resp.json()["namespaces"], list)
+
+@pytest.mark.online
+class TestAdminOnline:
+    """Real admin endpoints with running server."""
+
+    def test_current_model(self, httpx_client):
+        resp = httpx_client.get("/admin/current-model")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "model" in data
+        assert "provider" in data
+```
+
+#### `tests/test_chat_manager_direct.py`
+
+```py
+"""Direct tests for ChatManager — _maybe_rag and _trim_history.
+
+Tests real (mock) embedder/vector_store integration without relying on
+indirect chat() calls. Validates RAG prefix handling, token trimming logic,
+and edge cases.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from adapters.embedder_mock import MockEmbedder
+from adapters.vector_store_memory import MemoryVectorStore
+from core.domain.documents import Chunk, ChunkMetadata
+from core.domain.messages import AssistantMessage, UserMessage
+from features.chat.manager import ChatManager
+
+# ── _maybe_rag tests ──
+
+class TestMaybeRAG:
+    @pytest.fixture
+    def chat_manager_with_rag(self):
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+        )
+        return ChatManager(
+            llm=MagicMock(),
+            embedder=embedder,
+            vector_store=store,
+            reranker=None,
+            storage=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_prefix_returns_unchanged(self, chat_manager_with_rag):
+        """Message without [p]/[w]/[o] prefix should pass through unchanged."""
+        msg, chunks = await chat_manager_with_rag._maybe_rag("Hello world")
+        assert msg == "Hello world"
+        assert chunks == 0
+
+    @pytest.mark.asyncio
+    async def test_personal_prefix_triggers_rag(self, chat_manager_with_rag):
+        """[p] prefix should query personal namespace and return prompt."""
+        # Seed vector store
+        chunk = Chunk(
+            id="c1",
+            text="Paris is the capital of France.",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
+
+        msg, chunks = await chat_manager_with_rag._maybe_rag("[p] What is the capital?")
+        assert chunks > 0
+        assert "Paris" in msg or "France" in msg or "Context:" in msg
+
+    @pytest.mark.asyncio
+    async def test_work_prefix_triggers_rag(self, chat_manager_with_rag):
+        """[w] prefix should query work namespace."""
+        chunk = Chunk(
+            id="c1",
+            text="Project deadline is Friday.",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="work")
+
+        msg, chunks = await chat_manager_with_rag._maybe_rag(
+            "[w] When is the deadline?"
+        )
+        assert chunks > 0
+
+    @pytest.mark.asyncio
+    async def test_other_prefix_triggers_rag(self, chat_manager_with_rag):
+        """[o] prefix should query other namespace."""
+        chunk = Chunk(
+            id="c1",
+            text="Recipe: 2 eggs, 1 cup flour.",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="other")
+
+        msg, chunks = await chat_manager_with_rag._maybe_rag("[o] What ingredients?")
+        assert chunks > 0
+
+    @pytest.mark.asyncio
+    async def test_no_results_returns_original_query(self, chat_manager_with_rag):
+        """When no chunks match, return original query text (not prompt)."""
+        msg, chunks = await chat_manager_with_rag._maybe_rag(
+            "[p] something impossible to find"
+        )
+        assert msg == "something impossible to find"
+        assert chunks == 0
+
+    @pytest.mark.asyncio
+    async def test_prefix_removed_from_query(self, chat_manager_with_rag):
+        """Prefix should be stripped from the query text."""
+        chunk = Chunk(
+            id="c1",
+            text="Some content",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
+
+        msg, chunks = await chat_manager_with_rag._maybe_rag("[p] query text")
+        # Query should not contain [p]
+        assert not msg.startswith("[p]")
+        assert "query text" in msg or chunks == 0
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_prefix(self, chat_manager_with_rag):
+        """[P], [W], [O] should work same as lowercase."""
+        chunk = Chunk(
+            id="c1",
+            text="Content",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
+
+        msg_upper, chunks_upper = await chat_manager_with_rag._maybe_rag("[P] test")
+        msg_lower, chunks_lower = await chat_manager_with_rag._maybe_rag("[p] test")
+        assert chunks_upper == chunks_lower
+
+    @pytest.mark.asyncio
+    async def test_no_embedder_returns_unchanged(self):
+        """Without embedder, message should pass through."""
+        manager = ChatManager(
+            llm=MagicMock(),
+            embedder=None,
+            vector_store=MagicMock(),
+            storage=None,
+        )
+        msg, chunks = await manager._maybe_rag("[p] query")
+        assert msg == "[p] query"
+        assert chunks == 0
+
+    @pytest.mark.asyncio
+    async def test_no_vector_store_returns_unchanged(self):
+        """Without vector_store, message should pass through."""
+        manager = ChatManager(
+            llm=MagicMock(),
+            embedder=MagicMock(),
+            vector_store=None,
+            storage=None,
+        )
+        msg, chunks = await manager._maybe_rag("[p] query")
+        assert msg == "[p] query"
+        assert chunks == 0
+
+# ── _trim_history tests ──
+
+class TestTrimHistory:
+    @pytest.fixture
+    def manager_with_tokenizer(self):
+        mock_llm = MagicMock()
+        mock_llm.config = MagicMock()
+        mock_llm.config.max_tokens = 100
+        mock_llm.system_message = "System prompt"
+
+        return ChatManager(
+            llm=mock_llm,
+            max_context_tokens=100,
+            tokenizer_model="gpt-4o",
+            history_limit=10,
+            storage=None,
+        )
+
+    @pytest.fixture
+    def manager_no_tokenizer(self):
+        return ChatManager(
+            llm=MagicMock(),
+            max_context_tokens=None,
+            history_limit=3,
+            storage=None,
+        )
+
+    def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer):
+        """Oldest messages should be dropped when token budget exceeded."""
+        history = [
+            {"role": "user", "content": "Message 1"},
+            {"role": "assistant", "content": "Response 1"},
+            {"role": "user", "content": "Message 2"},
+            {"role": "assistant", "content": "Response 2"},
+        ]
+        user_msg = UserMessage(text="Current question")
+        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        # Should keep most recent messages that fit
+        assert len(trimmed) <= len(history)
+        # Most recent should be preserved
+        if trimmed:
+            assert trimmed[-1]["content"] == "Response 2"
+
+    def test_returns_empty_when_budget_too_small(self, manager_with_tokenizer):
+        """If user message alone exceeds budget, return empty history."""
+        # Create a very long user message that exceeds budget
+        long_msg = UserMessage(text="x" * 500)
+        history = [{"role": "user", "content": "old"}]
+        trimmed = manager_with_tokenizer._trim_history(history, long_msg)
+        assert trimmed == []
+
+    def test_fallback_to_count_based(self, manager_no_tokenizer):
+        """Without tokenizer, use simple count-based fallback."""
+        history = [
+            {"role": "user", "content": "1"},
+            {"role": "assistant", "content": "2"},
+            {"role": "user", "content": "3"},
+            {"role": "assistant", "content": "4"},
+            {"role": "user", "content": "5"},
+        ]
+        user_msg = UserMessage(text="q")
+        trimmed = manager_no_tokenizer._trim_history(history, user_msg)
+        assert len(trimmed) <= 3  # history_limit
+
+    def test_preserves_chronological_order(self, manager_with_tokenizer):
+        """Trimmed history should maintain oldest-first order."""
+        history = [
+            {"role": "user", "content": "First"},
+            {"role": "assistant", "content": "Second"},
+            {"role": "user", "content": "Third"},
+        ]
+        user_msg = UserMessage(text="q")
+        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        # Verify order is preserved
+        for i in range(len(trimmed) - 1):
+            original_idx = history.index(trimmed[i])
+            next_idx = history.index(trimmed[i + 1])
+            assert original_idx < next_idx
+
+    def test_empty_history(self, manager_with_tokenizer):
+        """Empty history should return empty list."""
+        trimmed = manager_with_tokenizer._trim_history([], UserMessage(text="hi"))
+        assert trimmed == []
+
+    def test_single_message_fits(self, manager_with_tokenizer):
+        """Single message within budget should be preserved."""
+        history = [{"role": "user", "content": "hello"}]
+        trimmed = manager_with_tokenizer._trim_history(history, UserMessage(text="hi"))
+        assert len(trimmed) == 1
+        assert trimmed[0]["content"] == "hello"
+
+    def test_respects_system_message_overhead(self, manager_with_tokenizer):
+        """System message tokens should be reserved from budget."""
+        history = [{"role": "user", "content": "x" * 200}]
+        trimmed = manager_with_tokenizer._trim_history(history, UserMessage(text="q"))
+        # System message reserves some tokens, so long message may be excluded
+        assert len(trimmed) <= 1
+
+    def test_no_llm_config_fallback(self):
+        """When LLM has no config, fallback to history_limit."""
+        manager = ChatManager(
+            llm=MagicMock(),
+            max_context_tokens=50,
+            history_limit=2,
+            storage=None,
+        )
+        # Mock LLM with no config attribute
+        manager.llm = MagicMock()
+        manager.llm.config = None
+
+        history = [
+            {"role": "user", "content": "1"},
+            {"role": "assistant", "content": "2"},
+            {"role": "user", "content": "3"},
+        ]
+        trimmed = manager._trim_history(history, UserMessage(text="q"))
+        assert len(trimmed) <= 2
+
+# ── Integration: chat() with real RAG pipeline ──
+
+class TestChatManagerRAGIntegration:
+    @pytest.fixture
+    def integrated_manager(self):
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+        )
+        llm = MagicMock()
+        llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="Paris is the capital.")
+        )
+        llm.stream = AsyncMock()
+        llm.config = MagicMock()
+        llm.config.max_tokens = 4096
+        llm.system_message = "System"
+
+        return ChatManager(
+            llm=llm,
+            embedder=embedder,
+            vector_store=store,
+            storage=None,
+            max_context_tokens=4096,
+            history_limit=10,
+        )
+
+    @pytest.mark.asyncio
+    async def test_chat_with_prefix_uses_rag_context(self, integrated_manager):
+        """Full flow: [p] prefix → embed → retrieve → build prompt → LLM."""
+        chunk = Chunk(
+            id="c1",
+            text="Paris is the capital of France.",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await integrated_manager.vector_store.add([chunk], namespace="personal")
+
+        response = await integrated_manager.chat(
+            "[p] What is the capital of France?",
+            "conv-test",
+        )
+        assert response.text == "Paris is the capital."
+        # Verify LLM was called with RAG-enhanced prompt
+        call_args = integrated_manager.llm.complete.call_args[0][0]
+        # First message should be the RAG prompt
+        first_msg = call_args[0]
+        assert "Paris" in first_msg.text or "capital" in first_msg.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_chat_without_prefix_no_rag(self, integrated_manager):
+        """Without prefix, LLM should receive original message."""
+        _ = await integrated_manager.chat(
+            "What is the capital of France?",
+            "conv-test",
+        )
+        call_args = integrated_manager.llm.complete.call_args[0][0]
+        first_msg = call_args[0]
+        assert first_msg.text == "What is the capital of France?"
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_with_prefix(self, integrated_manager):
+        """Streaming should also trigger RAG when prefix present."""
+        chunk = Chunk(
+            id="c1",
+            text="Paris is the capital.",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await integrated_manager.vector_store.add([chunk], namespace="personal")
+
+        async def mock_stream(*args, **kwargs):
+            yield "Paris"
+            yield " is"
+            yield " the"
+            yield " capital."
+
+        integrated_manager.llm.stream = mock_stream
+
+        chunks = []
+        async for chunk in integrated_manager.stream_chat(
+            "[p] What is the capital?",
+            "conv-test",
+        ):
+            chunks.append(chunk)
+
+        assert "".join(chunks) == "Paris is the capital."
+```
+
+#### `tests/test_contracts.py`
+
+```py
+from unittest.mock import MagicMock
+
+import pytest
+from pydantic import ValidationError
+
+from features.chat.schemas import (
+    ChatRequest,
+    ChatResponse,
+    OAIChatCompletionRequest,
+)
+from features.rag.schemas import IndexRequest, QueryRequest, QueryResponse
+
+class TestChatContracts:
+    def test_chat_request_validation(self):
+        valid = {"message": "test"}
+        assert ChatRequest(**valid)
+        # Empty message is allowed in current schema (no min_length constraint)
+        assert ChatRequest(message="")
+
+    def test_oai_chat_request_strict(self):
+        valid = {"messages": [{"role": "user", "content": "hi"}]}
+        assert OAIChatCompletionRequest(**valid)
+        # content=None is allowed (str | None)
+        assert OAIChatCompletionRequest(messages=[{"role": "user", "content": None}])
+
+    def test_chat_response_structure(self, client):
+        resp = client.post(
+            "/chat", json={"message": "contract test", "conversation_id": "t1"}
+        )
+        assert resp.status_code == 200
+        ChatResponse(**resp.json())  # strict pydantic validation
+
+class TestRAGContracts:
+    def test_query_request_validation(self):
+        valid = {"query": "test"}
+        assert QueryRequest(**valid)
+
+        with pytest.raises(ValidationError):
+            QueryRequest(query="test", top_k=0)  # ge=1 constraint
+
+        with pytest.raises(ValidationError):
+            QueryRequest(query="test", top_k=51)  # le=50 constraint
+
+    def test_index_request_validation(self):
+        valid = {"documents": [{"id": "1", "content": "text"}]}
+        assert IndexRequest(**valid)
+        # dict[str, Any] has no required keys validation for inner dicts
+        assert IndexRequest(documents=[{"id": "1"}])
+
+    def test_rag_query_response_structure(self, client, mock_state):
+        mock_state.pipeline.run.return_value = MagicMock(
+            chunks=[], response=MagicMock(text="ok"), errors=[]
+        )
+        resp = client.post("/rag/query", json={"query": "test"})
+        assert resp.status_code == 200
+        QueryResponse(**resp.json())
+
+class TestSSEContract:
+    def test_sse_format_compliance(self, client):
+        resp = client.post(
+            "/chat/stream", json={"message": "sse test", "conversation_id": "t1"}
+        )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+
+        lines = resp.text.strip().split("\n")
+        for line in lines:
+            if line.startswith("data:"):
+                # Validate SSE data payload isn't raw text leak
+                assert line[5:].strip(), "Empty SSE data chunk"
+```
+
+#### `tests/test_core_critical.py`
+
+```py
+"""Critical tests for Sacred Core — must pass 100% always.
+
+Covers: registry, pipeline, domain models, config, prompts, utils, retry.
+These are immutable — any failure is a project-breaking bug.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from core.config import AppConfig, load_config
+from core.domain.documents import Chunk, ChunkMetadata, Document
+from core.domain.messages import AssistantMessage, ImagePayload, UserMessage
+from core.domain.pipeline import PipelineData
+from core.pipeline import RAGPipeline
+from core.prompts import get_prompt
+from core.registry import create, list_adapters, register
+from core.retry import with_retry
+from core.utils import resolve_api_key
+
+# ── Registry ──
+
+class TestRegistry:
+    def test_register_and_create(self):
+        @register("test_port", "test_adapter")
+        class Dummy:
+            def __init__(self, config):
+                self.config = config
+
+        obj = create("test_port", "test_adapter", {"x": 1})
+        assert obj.config == {"x": 1}
+
+    def test_create_unknown_raises(self):
+        with pytest.raises(ValueError, match="No adapter registered"):
+            create("nonexistent", "nonexistent", {})
+
+    def test_list_adapters_returns_dict(self):
+        adapters = list_adapters()
+        assert isinstance(adapters, dict)
+        assert any(port in adapters for port in ["llm", "embedder", "vector_store"])
+
+    def test_list_adapters_by_port(self):
+        llm_adapters = list_adapters("llm")
+        assert isinstance(llm_adapters, list)
+
+# ── Pipeline ──
+
+class TestPipeline:
+    @pytest.mark.asyncio
+    async def test_sequential_execution(self):
+        async def step1(d: PipelineData) -> PipelineData:
+            d.metadata["s1"] = True
+            return d
+
+        async def step2(d: PipelineData) -> PipelineData:
+            d.metadata["s2"] = True
+            return d
+
+        pipeline = RAGPipeline([step1, step2])
+        result = await pipeline.run(PipelineData(query=UserMessage(text="q")))
+        assert result.metadata == {"s1": True, "s2": True}
+
+    @pytest.mark.asyncio
+    async def test_empty_pipeline_returns_unchanged(self):
+        pipeline = RAGPipeline([])
+        data = PipelineData(query=UserMessage(text="test"))
+        result = await pipeline.run(data)
+        assert result.query.text == "test"
+
+    @pytest.mark.asyncio
+    async def test_exception_propagates(self):
+        async def bad_step(d: PipelineData) -> PipelineData:
+            raise RuntimeError("fail")
+
+        pipeline = RAGPipeline([bad_step])
+        with pytest.raises(RuntimeError, match="fail"):
+            await pipeline.run(PipelineData())
+
+# ── Domain Models ──
+
+class TestDomainModels:
+    def test_user_message_text(self):
+        msg = UserMessage(text="hello")
+        assert msg.text == "hello"
+        assert msg.role.value == "user"
+
+    def test_user_message_no_payload_raises(self):
+        with pytest.raises(ValueError, match="must contain at least one payload"):
+            UserMessage()
+
+    def test_user_message_with_image(self):
+        msg = UserMessage(text="look", image=ImagePayload(url="http://img.png"))
+        assert msg.image.url == "http://img.png"
+
+    def test_assistant_message(self):
+        msg = AssistantMessage(text="reply", tool_calls=[{"id": "1"}])
+        assert msg.text == "reply"
+        assert len(msg.tool_calls) == 1
+
+    def test_document_and_chunk(self):
+        doc = Document(id="d1", content="hello world")
+        chunk = Chunk(
+            id="c1",
+            text="hello",
+            metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
+        )
+        doc.chunks.append(chunk)
+        assert len(doc.chunks) == 1
+        assert doc.chunks[0].metadata.source == "d1"
+
+    def test_chunk_frozen_metadata(self):
+        meta = ChunkMetadata(source="s", index=0, total_chunks=1)
+        with pytest.raises(AttributeError):
+            meta.source = "x"  # frozen dataclass
+
+# ── Config ──
+
+class TestConfig:
+    def test_default_values(self):
+        cfg = AppConfig()
+        assert cfg.app_name == "ai-assistant"
+        assert cfg.port == 8000
+        assert cfg.debug is False
+        assert cfg.chunker.provider == "simple"
+        assert cfg.llm.provider == "mock"
+        assert cfg.vector_store.provider == "memory"
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("AI_APP_NAME", "test")
+        monkeypatch.setenv("AI_PORT", "9999")
+        cfg = AppConfig()
+        assert cfg.app_name == "test"
+        assert cfg.port == 9999
+
+    def test_rag_steps_string_parsing(self):
+        cfg = AppConfig(rag={"steps": "a,b,c"})
+        assert cfg.rag.steps == ["a", "b", "c"]
+
+    def test_load_config_from_yaml(self, tmp_path, monkeypatch):
+        yaml = tmp_path / "cfg.yaml"
+        yaml.write_text("app_name: from-yaml\nport: 7777")
+        monkeypatch.chdir(tmp_path)
+        cfg = load_config("cfg.yaml")
+        assert cfg.app_name == "from-yaml"
+        assert cfg.port == 7777
+
+    def test_load_config_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        cfg = load_config("nonexistent.yaml")
+        assert cfg.app_name == "ai-assistant"
+
+# ── Prompts ──
+
+class TestPrompts:
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("rag_default", ["Context:", "chunk1"]),
+            ("rag_strict", ["Rules:", "citations"]),
+            ("rag_creative", ["imaginative"]),
+            ("summarize", ["Summary:"]),
+            ("voice_transcribe", ["Cleaned text:"]),
+        ],
+    )
+    def test_prompt_renders(self, name, expected):
+        prompt = get_prompt(
+            name,
+            version="v1",
+            query="test",
+            chunks=[{"text": "chunk1"}],
+            text="text",
+            transcript="transcript",
+            max_sentences="3",
+        )
+        for substr in expected:
+            assert substr.lower() in prompt.lower(), f"{name} missing: {substr}"
+
+    def test_unknown_version_raises(self):
+        with pytest.raises(ValueError, match="version directory not found"):
+            get_prompt("rag_default", version="v999")
+
+    def test_unknown_prompt_raises(self):
+        with pytest.raises(Exception):  # jinja2 TemplateNotFound
+            get_prompt("nonexistent", version="v1")
+
+# ── Utils ──
+
+class TestUtils:
+    def test_resolve_api_key_from_value(self):
+        assert resolve_api_key("key", "ENV") == "key"
+
+    def test_resolve_api_key_from_env(self, monkeypatch):
+        monkeypatch.setenv("ENV", "env-key")
+        assert resolve_api_key(None, "ENV") == "env-key"
+
+    def test_resolve_api_key_missing_raises(self):
+        with pytest.raises(ValueError, match="API key not found"):
+            resolve_api_key(None, "NONEXISTENT_VAR_99999")
+
+    def test_config_takes_precedence_over_env(self, monkeypatch):
+        monkeypatch.setenv("ENV", "env")
+        assert resolve_api_key("config", "ENV") == "config"
+
+# ── Retry ──
+
+class TestRetry:
+    @pytest.mark.asyncio
+    async def test_success_no_retry(self):
+        calls = 0
+
+        @with_retry(max_retries=2, delay=0.01)
+        async def fn():
+            nonlocal calls
+            calls += 1
+            return "ok"
+
+        assert await fn() == "ok"
+        assert calls == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_then_success(self):
+        calls = 0
+
+        @with_retry(max_retries=2, delay=0.01)
+        async def fn():
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise ConnectionError("fail")
+            return "ok"
+
+        assert await fn() == "ok"
+        assert calls == 3
+
+    @pytest.mark.asyncio
+    async def test_permanent_error_no_retry(self):
+        calls = 0
+
+        @with_retry(max_retries=2, delay=0.01)
+        async def fn():
+            nonlocal calls
+            calls += 1
+            raise ValueError("perm")
+
+        with pytest.raises(ValueError, match="perm"):
+            await fn()
+        assert calls == 1
+
+    @pytest.mark.asyncio
+    async def test_exhausted_retries(self):
+        @with_retry(max_retries=1, delay=0.01)
+        async def fn():
+            raise ConnectionError("fail")
+
+        with pytest.raises(ConnectionError, match="fail"):
+            await fn()
+
+    def test_sync_branch(self):
+        calls = 0
+
+        @with_retry(max_retries=1, delay=0.0)
+        def fn():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise RuntimeError("fail")
+            return "ok"
+
+        assert fn() == "ok"
+        assert calls == 2
+```
+
+#### `tests/test_fuzz.py`
+
+```py
+"""Fuzz tests with hypothesis — boundary cases, unicode, large data.
+
+Requires: hypothesis (optional dev dependency).
+If not installed, all tests are skipped gracefully.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+try:
+    from hypothesis import given, seed
+    from hypothesis import strategies as st
+
+    _HYPOTHESIS_AVAILABLE = True
+except ModuleNotFoundError:
+    _HYPOTHESIS_AVAILABLE = False
+
+    # Dummy decorators to keep class structure valid
+    def given(*args, **kwargs):
+        return lambda f: pytest.mark.skip(reason="hypothesis not installed")(f)
+
+    def seed(*args, **kwargs):
+        return lambda f: f
+
+    class _DummySt:
+        @staticmethod
+        def text(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def lists(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def integers(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def tuples(*args, **kwargs):
+            return None
+
+        @staticmethod
+        def dictionaries(*args, **kwargs):
+            return None
+
+    st = _DummySt()
+
+from adapters.chunker_simple import SimpleChunker
+from adapters.embedder_mock import MockEmbedder
+from adapters.storage_sqlite import SQLiteStorage
+from core.domain.documents import Document
+from core.domain.messages import UserMessage
+from core.domain.pipeline import PipelineData
+from pipeline.steps import build_context
+
+# ── Chunker fuzzing ──
+
+class TestFuzzChunker:
+    @seed(42)
+    @given(
+        text=st.text(min_size=0, max_size=2000),
+        size=st.integers(min_value=5, max_value=500),
+        overlap=st.integers(min_value=0, max_value=50),
+    )
+    @pytest.mark.asyncio
+    async def test_random_texts_chunking(self, text: str, size: int, overlap: int):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        cfg = type(
+            "C", (), {"chunk_size": max(size, overlap + 1), "chunk_overlap": overlap}
+        )()
+        chunker = SimpleChunker(cfg)
+        doc = Document(id="fuzz", content=text)
+        chunks = await chunker.chunk(doc)
+        assert len(chunks) >= 0
+        if chunks:
+            assert all(len(c.text) <= cfg.chunk_size for c in chunks)
+            assert all(c.text.strip() for c in chunks)
+            assert all(c.metadata.total_chunks == len(chunks) for c in chunks)
+
+    @seed(42)
+    @given(
+        text=st.text(
+            alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")),
+            min_size=0,
+            max_size=1000,
+        )
+    )
+    @pytest.mark.asyncio
+    async def test_unicode_and_special_chars(self, text: str):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        cfg = type("C", (), {"chunk_size": 50, "chunk_overlap": 5})()
+        chunker = SimpleChunker(cfg)
+        doc = Document(id="fuzz_unicode", content=text)
+        chunks = await chunker.chunk(doc)
+        assert len(chunks) >= 0
+        if chunks:
+            assert all(isinstance(c.text, str) for c in chunks)
+
+# ── Embedder fuzzing ──
+
+class TestFuzzEmbedder:
+    @seed(42)
+    @given(texts=st.lists(st.text(min_size=0, max_size=500), min_size=0, max_size=20))
+    @pytest.mark.asyncio
+    async def test_mock_embedder_various_texts(self, texts: list[str]):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        cfg = type("C", (), {"dim": 384})()
+        embedder = MockEmbedder(cfg)
+        result = await embedder.embed(texts)
+        assert len(result) == len(texts)
+        for emb in result:
+            assert len(emb) == 384
+            assert all(isinstance(x, float) for x in emb)
+
+    @seed(42)
+    @given(
+        texts=st.lists(
+            st.text(alphabet="\x00\x01\x02\xff", min_size=0, max_size=100),
+            min_size=0,
+            max_size=10,
+        )
+    )
+    @pytest.mark.asyncio
+    async def test_embedder_binary_like_texts(self, texts: list[str]):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        cfg = type("C", (), {"dim": 128})()
+        embedder = MockEmbedder(cfg)
+        result = await embedder.embed(texts)
+        assert len(result) == len(texts)
+
+# ── Storage fuzzing ──
+
+class TestFuzzStorage:
+    @seed(42)
+    @given(
+        pairs=st.lists(
+            st.tuples(
+                st.text(min_size=1, max_size=50), st.text(min_size=0, max_size=200)
+            ),
+            min_size=0,
+            max_size=30,
+            unique_by=lambda x: x[0],
+        )
+    )
+    @pytest.mark.asyncio
+    async def test_settings_roundtrip(self, pairs: list[tuple[str, str]]):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        import tempfile
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            cfg = type("C", (), {"db_path": f"{tmpdir}/test.db"})()
+            storage = SQLiteStorage(cfg)
+            for key, value in pairs:
+                await storage.set(key, value)
+                got = await storage.get(key)
+                assert got == value
+
+    @seed(42)
+    @given(
+        data=st.dictionaries(
+            st.text(min_size=1, max_size=30, alphabet="abcdefghijklmnopqrstuvwxyz_"),
+            st.text(min_size=0, max_size=100),
+            min_size=0,
+            max_size=20,
+        )
+    )
+    @pytest.mark.asyncio
+    async def test_settings_dict_roundtrip(self, data: dict[str, str]):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        import tempfile
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            cfg = type("C", (), {"db_path": f"{tmpdir}/test.db"})()
+            storage = SQLiteStorage(cfg)
+            for key, value in data.items():
+                await storage.set(key, value)
+            for key, value in data.items():
+                got = await storage.get(key)
+                assert got == value
+
+# ── Pipeline fuzzing ──
+
+class TestFuzzPipeline:
+    @seed(42)
+    @given(text=st.text(min_size=0, max_size=500))
+    @pytest.mark.asyncio
+    async def test_build_context_edge_cases(self, text: str):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        data = PipelineData(query=UserMessage(text="q"))
+        data.chunks = []
+        await build_context(data)
+        assert data.context == ""
+
+    @seed(42)
+    @given(chunks=st.lists(st.text(min_size=0, max_size=200), min_size=0, max_size=10))
+    @pytest.mark.asyncio
+    async def test_build_context_with_chunks(self, chunks: list[str]):
+        if not _HYPOTHESIS_AVAILABLE:
+            pytest.skip("hypothesis not installed")
+        from core.domain.documents import Chunk
+
+        data = PipelineData(query=UserMessage(text="q"))
+        data.chunks = [Chunk(id=f"c{i}", text=t) for i, t in enumerate(chunks)]
+        await build_context(data)
+        if chunks:
+            assert all(c in data.context for c in chunks if c)
+        else:
+            assert data.context == ""
+```
+
+#### `tests/test_lifespan.py`
+
+```py
+"""Tests for api/lifespan.py — startup/shutdown lifecycle.
+
+Validates graceful shutdown, index persistence, and error resilience.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from api.deps import AppState, init_adapters
+from api.lifespan import _load_config, lifespan
+from core.config import AppConfig
+
+# ── _load_config ──
+
+class TestLoadConfig:
+    def test_reads_from_env_var(self, monkeypatch, tmp_path):
+        cfg_file = tmp_path / "custom.yaml"
+        cfg_file.write_text("app_name: env-test\nport: 7777")
+        monkeypatch.setenv("AI_CONFIG_PATH", str(cfg_file))
+        cfg = _load_config()
+        assert cfg.app_name == "env-test"
+        assert cfg.port == 7777
+
+    def test_fallback_to_default(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "config.yaml").write_text("app_name: default-test\nport: 8888")
+        # Clear env var
+        monkeypatch.delenv("AI_CONFIG_PATH", raising=False)
+        cfg = _load_config()
+        assert cfg.app_name == "default-test"
+
+# ── lifespan context manager ──
+
+class TestLifespan:
+    @pytest.mark.asyncio
+    async def test_yields_after_init(self):
+        """lifespan should init adapters, yield, then shutdown."""
+        app = MagicMock()
+
+        with patch("api.lifespan._load_config", return_value=AppConfig()):
+            with patch("api.lifespan.init_adapters", new_callable=AsyncMock):
+                with patch("api.lifespan.get_metrics_logger") as mock_metrics:
+                    mock_metrics.return_value.start = MagicMock()
+                    mock_metrics.return_value.stop = AsyncMock()
+
+                    async with lifespan(app) as _:
+                        mock_metrics.return_value.start.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_saves_indices(self):
+        """On shutdown, indices should be saved to disk."""
+        app = MagicMock()
+        mock_state = MagicMock()
+        mock_state.llm = None
+        mock_state.embedder = None
+        mock_state.vector_store = MagicMock()
+        mock_state.vector_store.list_namespaces = AsyncMock(
+            return_value=["default", "personal"]
+        )
+        mock_state.vector_store.save = AsyncMock(return_value=None)
+
+        with patch(
+            "api.lifespan._load_config",
+            return_value=AppConfig(
+                vector_store={
+                    "provider": "memory",
+                    "dim": 384,
+                    "metric": "l2",
+                    "index_path": "./data/indices/test",
+                }
+            ),
+        ):
+            with patch("api.lifespan.init_adapters", new_callable=AsyncMock):
+                with patch("api.lifespan.get_metrics_logger") as mock_metrics:
+                    mock_metrics.return_value.start = MagicMock()
+                    mock_metrics.return_value.stop = AsyncMock()
+
+                    async with lifespan(app) as _:
+                        app.state.app_state = mock_state
+                        pass  # Exit context to trigger shutdown
+
+                    # Verify save was called for each namespace
+                    assert mock_state.vector_store.save.await_count == 2
+                    mock_state.vector_store.save.assert_any_await(
+                        "./data/indices/test", namespace="default"
+                    )
+                    mock_state.vector_store.save.assert_any_await(
+                        "./data/indices/test", namespace="personal"
+                    )
+
+    @pytest.mark.asyncio
+    async def test_shutdown_handles_missing_state(self):
+        """If get_state raises RuntimeError, shutdown should not crash."""
+        app = MagicMock()
+
+        with patch("api.lifespan._load_config", return_value=AppConfig()):
+            with patch("api.lifespan.init_adapters", new_callable=AsyncMock):
+                with patch("api.lifespan.get_metrics_logger") as mock_metrics:
+                    mock_metrics.return_value.start = MagicMock()
+                    mock_metrics.return_value.stop = AsyncMock()
+
+                    async with lifespan(app) as _:
+                        pass  # Should not raise on shutdown
+
+    @pytest.mark.asyncio
+    async def test_lifespan_creates_app_state(self):
+        """lifespan must create app.state.app_state with initialized fields."""
+        from fastapi import FastAPI
+
+        app = FastAPI(lifespan=lifespan)
+
+        with patch("api.lifespan._load_config", return_value=AppConfig()):
+            with patch("api.lifespan.get_metrics_logger") as mock_metrics:
+                mock_metrics.return_value.start = MagicMock()
+                mock_metrics.return_value.stop = AsyncMock()
+
+                async with lifespan(app):
+                    assert hasattr(app.state, "app_state")
+                    assert isinstance(app.state.app_state, AppState)
+                    assert app.state.app_state.chunker is not None
+                    assert app.state.app_state.embedder is not None
+                    assert app.state.app_state.llm is not None
+                    assert app.state.app_state.vector_store is not None
+                    assert app.state.app_state.pipeline is not None
+
+# ── init_adapters ──
+
+class TestInitAdaptersDirect:
+    @pytest.mark.asyncio
+    async def test_populates_state_fields(self):
+        """init_adapters should mutate state with real adapters."""
+        from core.config import AppConfig
+
+        cfg = AppConfig()
+        cfg.chunker.provider = "simple"
+        cfg.embedder.provider = "mock"
+        cfg.llm.provider = "mock"
+        cfg.vector_store.provider = "memory"
+        cfg.reranker.provider = "dummy"
+        cfg.storage.provider = "sqlite"
+        cfg.voice.enabled = False
+        cfg.vision.enabled = False
+
+        state = AppState(config=cfg)
+        await init_adapters(state)
+
+        assert state.chunker is not None
+        assert state.embedder is not None
+        assert state.llm is not None
+        assert state.vector_store is not None
+        assert state.pipeline is not None
+```
+
+#### `tests/test_malformed_sse.py`
+
+```py
+"""Tests for malformed SSE (Server-Sent Events) handling.
+
+Validates robustness against:
+- Invalid JSON in SSE chunks
+- Missing [DONE] terminator
+- Empty/null content chunks
+- Partial/malformed delta objects
+"""
+
+from __future__ import annotations
+
+import pytest
+import respx
+from httpx import Response
+
+from adapters.llm_openai_compatible import OpenAICompatibleLLM
+from core.config import LLMConfig
+from core.domain.messages import UserMessage
+
+# ── OpenAICompatibleLLM malformed SSE ──
+
+class TestOpenAICompatibleMalformedSSE:
+    @pytest.fixture
+    def llm(self):
+        config = LLMConfig(
+            provider="openai_compatible",
+            api_base="https://api.test.com/v1",
+            api_key="test-key",
+            max_tokens=50,
+            temperature=0.7,
+            timeout=5.0,
+            stop_sequences=[],
+        )
+        return OpenAICompatibleLLM(config)
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_skipped(self, llm):
+        """Invalid JSON should be silently skipped (not yielded)."""
+        sse = (
+            "data: not json\n\n"
+            'data: {"choices":[{"delta":{"content":"valid"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        with respx.mock:
+            respx.post(
+                "https://api.test.com/v1/chat/completions"
+            ).return_value = Response(
+                200, text=sse, headers={"content-type": "text/event-stream"}
+            )
+            chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+            assert chunks == ["valid"]
+
+    @pytest.mark.asyncio
+    async def test_empty_delta_content_skipped(self, llm):
+        """Empty content in delta should be skipped."""
+        sse = (
+            'data: {"choices":[{"delta":{"content":""}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"real"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        with respx.mock:
+            respx.post(
+                "https://api.test.com/v1/chat/completions"
+            ).return_value = Response(
+                200, text=sse, headers={"content-type": "text/event-stream"}
+            )
+            chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+            assert chunks == ["real"]
+
+    @pytest.mark.asyncio
+    async def test_missing_done_runs_to_end(self, llm):
+        """Without [DONE], stream yields all valid chunks."""
+        sse = (
+            'data: {"choices":[{"delta":{"content":"a"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"b"}}]}\n\n'
+        )
+        with respx.mock:
+            respx.post(
+                "https://api.test.com/v1/chat/completions"
+            ).return_value = Response(
+                200, text=sse, headers={"content-type": "text/event-stream"}
+            )
+            chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+            assert "".join(chunks) == "ab"
+```
+
+#### `tests/test_metrics.py`
+
+```py
+"""Tests for core.metrics — bare except fix validation."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from core.metrics import (
+    MetricsLogger,
+    get_current_metrics,
+    get_metrics_logger,
+    record_metric,
+)
+
+@pytest.fixture
+def tmp_metrics_path(tmp_path: Path) -> Path:
+    return tmp_path / "metrics.jsonl"
+
+class TestMetricsLogger:
+    async def test_worker_logs_write_errors(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Bare except fix: _worker must log errors instead of swallowing."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+
+        log_mock = MagicMock()
+        logger._logger = log_mock
+
+        with patch.object(
+            logger, "_append_line", side_effect=OSError("disk full")
+        ):
+            logger.log({"event": "test"})
+            await asyncio.sleep(0.15)
+            await logger.stop()
+
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("disk full" in c for c in calls), (
+            "Write error must be logged, not swallowed"
+        )
+
+    async def test_stop_logs_timeout(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Bare except fix: stop must log timeout instead of swallowing."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+
+        log_mock = MagicMock()
+        logger._logger = log_mock
+        real_task = logger._task
+
+        with patch(
+            "core.metrics.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError,
+        ):
+            await logger.stop()
+
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("timed out" in c for c in calls), (
+            "Timeout must be logged, not swallowed"
+        )
+
+        if real_task and not real_task.done():
+            real_task.cancel()
+            try:
+                await real_task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_stop_logs_generic_error(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Bare except fix: stop must log generic exceptions."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+
+        log_mock = MagicMock()
+        logger._logger = log_mock
+        real_task = logger._task
+
+        with patch(
+            "core.metrics.asyncio.wait_for",
+            side_effect=RuntimeError("boom"),
+        ):
+            await logger.stop()
+
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("boom" in c for c in calls), (
+            "Generic stop error must be logged, not swallowed"
+        )
+
+        if real_task and not real_task.done():
+            real_task.cancel()
+            try:
+                await real_task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_log_and_read_back(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Happy path: logged metrics are written to file."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        logger.log({"endpoint": "/health", "latency_ms": 42})
+        await logger.stop()
+
+        lines = tmp_metrics_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["endpoint"] == "/health"
+        assert data["latency_ms"] == 42
+
+    def test_record_metric_context_var(self) -> None:
+        record_metric("key", "value")
+        metrics = get_current_metrics()
+        assert "key" in metrics
+        assert metrics["key"] == "value"
+
+    def test_get_metrics_logger_singleton(self) -> None:
+        a = get_metrics_logger()
+        b = get_metrics_logger()
+        assert a is b
+```
+
+#### `tests/test_rag_pipeline.py`
+
+```py
+"""Full RAG pipeline tests — from document to answer.
+
+Tests the complete flow: chunk → embed → store → query → retrieve → rerank \
+→ build_context → generate.
+Validates integration between all pipeline steps.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from adapters.chunker_simple import SimpleChunker
+from adapters.embedder_mock import MockEmbedder
+from adapters.vector_store_memory import MemoryVectorStore
+from core.domain.documents import Chunk, ChunkMetadata, Document
+from core.domain.messages import AssistantMessage, UserMessage
+from core.domain.pipeline import PipelineData
+from features.rag.manager import IndexingManager, RAGManager
+from pipeline.steps import build_context, embed_query, generate, rerank, retrieve
+
+# ── Pipeline Steps Integration ──
+
+class TestPipelineSteps:
+    @pytest.mark.asyncio
+    async def test_embed_query_success(self):
+        class FakeEmbedder:
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                return [[1.0, 2.0, 3.0]]
+
+        data = PipelineData(query=UserMessage(text="hello"))
+        result = await embed_query(data, embedder=FakeEmbedder())
+        assert result.metadata["query_embedding"] == [1.0, 2.0, 3.0]
+        assert not result.errors
+
+    @pytest.mark.asyncio
+    async def test_embed_query_no_embedder(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        result = await embed_query(data, embedder=None)
+        assert "embedder not provided" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_embed_query_no_text(self):
+        class FakeEmbedder:
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                return []
+
+        data = PipelineData(query=UserMessage(text=""))
+        result = await embed_query(data, embedder=FakeEmbedder())
+        assert "no query text" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_success(self):
+        class FakeStore:
+            async def search(self, emb, top_k=5, namespace="default"):
+                return [Chunk(id="c1", text="result")]
+
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.metadata["query_embedding"] = [1.0, 2.0]
+        data.metadata["top_k"] = 5
+        data.metadata["namespace"] = "default"
+        result = await retrieve(data, vector_store=FakeStore())
+        assert len(result.chunks) == 1
+        assert result.chunks[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_no_store(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        result = await retrieve(data, vector_store=None)
+        assert "vector_store not provided" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_retrieve_no_embedding(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        result = await retrieve(data, vector_store=MagicMock())
+        assert "no query embedding" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_build_context_from_chunks(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [
+            Chunk(id="c1", text="chunk one"),
+            Chunk(id="c2", text="chunk two"),
+        ]
+        result = await build_context(data)
+        assert "chunk one" in result.context
+        assert "chunk two" in result.context
+        assert "\n\n" in result.context
+
+    @pytest.mark.asyncio
+    async def test_build_context_empty_chunks(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        result = await build_context(data)
+        assert result.context == ""
+
+    @pytest.mark.asyncio
+    async def test_build_context_skips_none_text(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [Chunk(id="c1", text="valid"), Chunk(id="c2", text="")]
+        result = await build_context(data)
+        assert result.context == "valid"
+
+    @pytest.mark.asyncio
+    async def test_rerank_with_reranker(self):
+        from core.ports.reranker import RerankResult
+
+        class FakeReranker:
+            async def rerank(self, query, chunks, top_k=None):
+                return [RerankResult(chunk=c, score=0.9) for c in chunks]
+
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [Chunk(id="c1", text="test")]
+        data.metadata["top_k"] = 5
+        data.metadata["relevance_threshold"] = 0.3
+        result = await rerank(data, reranker=FakeReranker())
+        assert len(result.chunks) == 1
+        assert result.metadata["rerank_scores"] == [0.9]
+
+    @pytest.mark.asyncio
+    async def test_rerank_without_reranker_passes_through(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [Chunk(id="c1", text="test")]
+        result = await rerank(data, reranker=None)
+        assert len(result.chunks) == 1  # pass-through
+
+    @pytest.mark.asyncio
+    async def test_rerank_empty_chunks(self):
+        data = PipelineData(query=UserMessage(text="hello"))
+        result = await rerank(data, reranker=None)
+        assert result.chunks == []
+
+    @pytest.mark.asyncio
+    async def test_rerank_filters_by_threshold(self):
+        from core.ports.reranker import RerankResult
+
+        class FakeReranker:
+            async def rerank(self, query, chunks, top_k=None):
+                return [
+                    RerankResult(chunk=chunks[0], score=0.9),
+                    RerankResult(chunk=chunks[1], score=0.1),
+                ]
+
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [Chunk(id="c1", text="high"), Chunk(id="c2", text="low")]
+        data.metadata["top_k"] = 5
+        data.metadata["relevance_threshold"] = 0.3
+        result = await rerank(data, reranker=FakeReranker())
+        assert len(result.chunks) == 1
+        assert result.chunks[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_rerank_all_filtered_out(self):
+        from core.ports.reranker import RerankResult
+
+        class FakeReranker:
+            async def rerank(self, query, chunks, top_k=None):
+                return [RerankResult(chunk=c, score=0.1) for c in chunks]
+
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [Chunk(id="c1", text="low")]
+        data.metadata["top_k"] = 5
+        data.metadata["relevance_threshold"] = 0.3
+        result = await rerank(data, reranker=FakeReranker())
+        assert result.chunks == []
+        assert result.metadata.get("rerank_filtered_out") is True
+
+    @pytest.mark.asyncio
+    async def test_rerank_error_fallback(self):
+        class BrokenReranker:
+            async def rerank(self, query, chunks, top_k=None):
+                raise RuntimeError("down")
+
+        data = PipelineData(query=UserMessage(text="hello"))
+        data.chunks = [Chunk(id="c1", text="test")]
+        result = await rerank(data, reranker=BrokenReranker())
+        assert len(result.chunks) == 1  # fallback
+        assert "rerank failed" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_generate_success(self):
+        class FakeLLM:
+            async def complete(self, messages):
+                return AssistantMessage(text="answer")
+
+        data = PipelineData(query=UserMessage(text="question"))
+        data.chunks = [Chunk(id="c1", text="context")]
+        data.metadata["prompt_version"] = "v1"
+        data.metadata["prompt_name"] = "rag_default"
+        result = await generate(data, llm=FakeLLM())
+        assert result.response.text == "answer"
+
+    @pytest.mark.asyncio
+    async def test_generate_no_llm(self):
+        data = PipelineData(query=UserMessage(text="q"))
+        result = await generate(data, llm=None)
+        assert "llm not provided" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_generate_no_query(self):
+        class FakeLLM:
+            async def complete(self, messages):
+                return None
+
+        data = PipelineData(query=None)
+        result = await generate(data, llm=FakeLLM())
+        assert "no query" in result.errors[0]
+
+    @pytest.mark.asyncio
+    async def test_generate_llm_error(self):
+        class BrokenLLM:
+            async def complete(self, messages):
+                raise RuntimeError("fail")
+
+        data = PipelineData(query=UserMessage(text="question"))
+        data.chunks = [Chunk(id="c1", text="context")]
+        data.metadata["prompt_version"] = "v1"
+        data.metadata["prompt_name"] = "rag_default"
+        result = await generate(data, llm=BrokenLLM())
+        assert "generate failed" in result.errors[0]
+        assert "Sorry, I encountered an error" in result.response.text
+
+    @pytest.mark.asyncio
+    async def test_generate_context_truncation(self):
+        """Long context triggers chunk removal to fit token budget."""
+
+        class FakeLLM:
+            config = MagicMock()
+            config.server_context_size = 100
+
+            async def complete(self, messages):
+                return AssistantMessage(text="truncated answer")
+
+        data = PipelineData(query=UserMessage(text="q"))
+        # Create many chunks to exceed context limit
+        original_chunks = 20
+        data.chunks = [Chunk(id=f"c{i}", text="word " * 50) for i in range(original_chunks)]
+        data.metadata["prompt_version"] = "v1"
+        data.metadata["prompt_name"] = "rag_default"
+        result = await generate(data, llm=FakeLLM())
+        # Should still produce a response, possibly with fewer chunks
+        assert result.response is not None
+        assert len(data.chunks) < original_chunks, (
+            f"Truncation should remove chunks: {len(data.chunks)} >= {original_chunks}"
+        )
+
+# ── Full Pipeline Integration ──
+
+class TestFullPipeline:
+    @pytest.mark.asyncio
+    async def test_end_to_end_rag(self):
+        """Complete RAG: chunk → embed → store → query → retrieve → generate."""
+        # 1. Chunk document
+        chunker = SimpleChunker(
+            type("C", (), {"chunk_size": 100, "chunk_overlap": 5})()
+        )
+        doc = Document(
+            id="doc1",
+            content="The capital of France is Paris. It is known for the Eiffel Tower.",
+        )
+        chunks = await chunker.chunk(doc)
+        assert len(chunks) > 0
+
+        # 2. Embed chunks
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        texts = [c.text for c in chunks]
+        embeddings = await embedder.embed(texts)
+        assert len(embeddings) == len(chunks)
+
+        # 3. Store in vector store
+        from dataclasses import replace
+
+        embedded_chunks = []
+        for i, chunk in enumerate(chunks):
+            embedded_chunks.append(replace(chunk, embedding=embeddings[i]))
+        chunks = embedded_chunks
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
+        )
+        await store.add(chunks, namespace="test")
+
+        # 4. Query pipeline
+        query = "What is the capital of France?"
+        data = PipelineData(query=UserMessage(text=query))
+        data.metadata = {
+            "top_k": 3,
+            "prompt_version": "v1",
+            "prompt_name": "rag_default",
+            "namespace": "test",
+            "relevance_threshold": -1.0,
+        }
+
+        # Run embed_query
+        data = await embed_query(data, embedder=embedder)
+        assert "query_embedding" in data.metadata
+
+        # Run retrieve
+        data = await retrieve(data, vector_store=store)
+        assert len(data.chunks) > 0
+
+        # Run build_context
+        data = await build_context(data)
+        assert "Paris" in data.context or "France" in data.context
+
+        # Run generate with fake LLM
+        class FakeLLM:
+            async def complete(self, messages):
+                return AssistantMessage(text="Paris is the capital of France.")
+
+        data = await generate(data, llm=FakeLLM())
+        assert "Paris" in data.response.text
+
+    @pytest.mark.asyncio
+    async def test_rag_no_relevant_chunks(self):
+        """Query with no matching chunks returns empty context."""
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": 0.99})()
+        )
+        await store.add(
+            [Chunk(id="c1", text="irrelevant", embedding=[0.0, 1.0, 0.0])],
+            namespace="test",
+        )
+
+        data = PipelineData(query=UserMessage(text="completely different topic"))
+        data.metadata = {
+            "top_k": 3,
+            "prompt_version": "v1",
+            "prompt_name": "rag_default",
+            "namespace": "test",
+            "relevance_threshold": 0.99,
+        }
+
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        data = await embed_query(data, embedder=embedder)
+        data = await retrieve(data, vector_store=store)
+        assert len(data.chunks) == 0
+
+        data = await build_context(data)
+        assert data.context == ""
+
+# ── RAG Manager Integration ──
+
+class TestRAGManager:
+    @pytest.fixture
+    def indexing_manager(self):
+        chunker = SimpleChunker(
+            type("C", (), {"chunk_size": 50, "chunk_overlap": 10})()
+        )
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
+        )
+        return IndexingManager(chunker, embedder, store)
+
+    @pytest.fixture
+    def rag_manager(self, mock_llm, mock_embedder, mock_vector_store):
+        pipeline = MagicMock()
+        pipeline.run = AsyncMock(
+            return_value=MagicMock(
+                chunks=[
+                    Chunk(
+                        id="c1",
+                        text="context",
+                        metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
+                    )
+                ],
+                response=MagicMock(text="Answer"),
+                errors=[],
+            )
+        )
+        return RAGManager(pipeline, mock_llm, mock_vector_store, embedder=mock_embedder)
+
+    @pytest.mark.asyncio
+    async def test_index_documents(self, indexing_manager):
+        docs = [{"id": "d1", "content": "hello world", "metadata": {}}]
+        result = await indexing_manager.index_documents(docs, namespace="test")
+        assert result["indexed_count"] == 1
+        assert result["chunk_count"] > 0
+
+    @pytest.mark.asyncio
+    async def test_index_empty_content(self, indexing_manager):
+        docs = [{"id": "d1", "content": "   ", "metadata": {}}]
+        result = await indexing_manager.index_documents(docs, namespace="test")
+        assert result["indexed_count"] == 0
+        assert len(result["errors"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_query_returns_answer_and_sources(self, rag_manager):
+        result = await rag_manager.query(
+            "What is AI?",
+            top_k=5,
+            prompt_name="rag_default",
+            prompt_version="v1",
+            namespace="default",
+        )
+        assert result["answer"] == "Answer"
+        assert result["chunks_used"] == 1
+        assert len(result["sources"]) == 1
+        assert result["sources"][0]["chunk_id"] == "c1"
+
+    @pytest.mark.asyncio
+    async def test_query_no_info_detected(self, rag_manager):
+        """When answer indicates no info, sources should be empty."""
+        rag_manager.pipeline.run = AsyncMock(
+            return_value=MagicMock(
+                chunks=[Chunk(id="c1", text="context")],
+                response=MagicMock(text="I don't have enough information."),
+                errors=[],
+            )
+        )
+        result = await rag_manager.query(
+            "unknown?",
+            top_k=5,
+            prompt_name="rag_default",
+            prompt_version="v1",
+            namespace="default",
+        )
+        assert len(result["sources"]) == 0  # No sources when no info
+
+    @pytest.mark.asyncio
+    async def test_health(self, rag_manager, mock_vector_store):
+        mock_vector_store.list_namespaces = AsyncMock(return_value=["default"])
+        mock_vector_store.list_by_filter = AsyncMock(return_value=[("c1", {})])
+        health = await rag_manager.health()
+        assert health["status"] == "ok"
+        assert health["index_loaded"] is True
+        assert health["chunk_count"] == 1
+
+# ── Chat Manager RAG Integration ──
+
+class TestChatManagerRAG:
+    @pytest.fixture
+    def chat_manager(self, mock_llm, mock_storage, mock_embedder, mock_vector_store):
+        from features.chat.manager import ChatManager
+
+        return ChatManager(
+            llm=mock_llm,
+            voice_recognizer=None,
+            vision=None,
+            storage=mock_storage,
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+            reranker=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_chat_with_namespace_prefix(
+        self, chat_manager, mock_vector_store, mock_embedder
+    ):
+        """[p] prefix triggers RAG in personal namespace."""
+        mock_vector_store.search = AsyncMock(
+            return_value=[Chunk(id="c1", text="Paris is the capital of France.")]
+        )
+        mock_embedder.embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+
+        _ = await chat_manager.chat("[p] What is the capital of France?", "conv-1")
+        assert mock_vector_store.search.called
+        # The query should have been processed through RAG
+
+    @pytest.mark.asyncio
+    async def test_chat_without_prefix_no_rag(self, chat_manager, mock_vector_store):
+        """No prefix = no RAG, direct LLM call."""
+        _ = await chat_manager.chat("Hello, how are you?", "conv-1")
+        assert not mock_vector_store.search.called
+        assert chat_manager.llm.complete.called
+
+    @pytest.mark.asyncio
+    async def test_chat_history_loaded(self, chat_manager, mock_storage):
+        mock_storage.get_history = AsyncMock(
+            return_value=[
+                {"role": "user", "content": "Previous question"},
+                {"role": "assistant", "content": "Previous answer"},
+            ]
+        )
+        _ = await chat_manager.chat("Follow up", "conv-1")
+        assert mock_storage.get_history.called
+        assert mock_storage.save_message.call_count == 2  # user + assistant
+
+    @pytest.mark.asyncio
+    async def test_stream_chat(self, chat_manager):
+        chunks = []
+        async for chunk in chat_manager.stream_chat("Hello", "conv-1"):
+            chunks.append(chunk)
+        assert "".join(chunks) == "Mocked streaming response"
+```
+
+#### `tests/test_stress.py`
+
+```py
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from api.deps import get_state
+from main import app
+
+@pytest.mark.asyncio
+async def test_concurrent_chat_requests(mock_state):
+    original_overrides = app.dependency_overrides.copy()
+    app.dependency_overrides[get_state] = lambda: mock_state
+    mock_state.llm.complete = AsyncMock(
+        return_value=MagicMock(text="ok", tool_calls=[], metadata={})
+    )
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost"
+        ) as ac:
+            tasks = [
+                ac.post(
+                    "/chat", json={"message": f"stress {i}", "conversation_id": f"conv-{i}"}
+                )
+                for i in range(50)
+            ]
+            responses = await asyncio.gather(*tasks)
+
+        assert all(r.status_code == 200 for r in responses)
+    finally:
+        app.dependency_overrides = original_overrides
+
+@pytest.mark.asyncio
+async def test_concurrent_vector_store_ops(mock_vector_store):
+    from adapters.vector_store_memory import MemoryVectorStore
+    from core.domain.documents import Chunk
+
+    cfg = MagicMock(dim=3)
+    store = MemoryVectorStore(cfg)
+
+    async def add_chunks(start, count):
+        chunks = [
+            Chunk(id=f"c_{start}_{i}", text=f"t{i}", embedding=[1.0, 0.0, 0.0])
+            for i in range(count)
+        ]
+        await store.add(chunks, namespace="stress")
+
+    async def search_chunks():
+        return await store.search([1.0, 0.0, 0.0], top_k=5, namespace="stress")
+
+    tasks = []
+    for i in range(20):
+        tasks.append(add_chunks(i, 5))
+        tasks.append(search_chunks())
+
+    await asyncio.gather(*tasks)
+    # If no deadlock/exception, test passes
+    chunks = await store.search([1.0, 0.0, 0.0], top_k=100, namespace="stress")
+    assert len(chunks) > 0
+```
+
+#### `tests/test_tokenizer.py`
+
+```py
+"""Tests for tokenizer resolution and counting."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from core.utils import _resolve_tokenizer_dir, count_tokens, get_tokenizer
+
+class TestResolveTokenizerDir:
+    def test_exact_match(self, tmp_path: Path) -> None:
+        (tmp_path / "gpt-4o").mkdir(parents=True)
+        (tmp_path / "gpt-4o" / "tokenizer.json").write_text("{}")
+        result = _resolve_tokenizer_dir("gpt-4o", str(tmp_path))
+        assert result is not None
+        assert result.name == "gpt-4o"
+
+    def test_partial_match(self, tmp_path: Path) -> None:
+        (tmp_path / "qwen2.5").mkdir(parents=True)
+        (tmp_path / "qwen2.5" / "tokenizer.json").write_text("{}")
+        result = _resolve_tokenizer_dir("qwen2.5-7b-instruct", str(tmp_path))
+        assert result is not None
+        assert result.name == "qwen2.5"
+
+    def test_underscore_to_dash(self, tmp_path: Path) -> None:
+        (tmp_path / "gemma-3").mkdir(parents=True)
+        (tmp_path / "gemma-3" / "tokenizer.json").write_text("{}")
+        result = _resolve_tokenizer_dir("gemma_3_4b_it", str(tmp_path))
+        assert result is not None
+        assert result.name == "gemma-3"
+
+    def test_no_match(self, tmp_path: Path) -> None:
+        result = _resolve_tokenizer_dir("unknown-model", str(tmp_path))
+        assert result is None
+
+class TestCountTokens:
+    def test_empty_text(self) -> None:
+        assert count_tokens("") == 0
+
+    def test_fallback_char_div4(self, tmp_path: Path) -> None:
+        """When no tokenizer exists, fallback to len(text)//4."""
+        with patch("core.utils.get_tokenizer", return_value=None):
+            assert count_tokens("hello world") == 2  # 11 // 4
+
+    @pytest.mark.skipif(
+        not Path("data/tokenizers").exists(),
+        reason="No offline tokenizers downloaded",
+    )
+    def test_offline_tokenizer_exists(self) -> None:
+        """If tokenizer.json exists, count returns > 0 for real text."""
+        text = "Hello world, this is a test."
+        result = count_tokens(text, model="gemma-3-4b-it")
+        assert result > 0
+
+    @pytest.mark.skipif(
+        not Path("data/tokenizers").exists(),
+        reason="No offline tokenizers downloaded",
+    )
+    def test_model_mapping(self) -> None:
+        """Different models may count differently."""
+        text = "Привет мир"
+        # At least one model should work if tokenizers exist
+        models = ["gemma-3-4b-it", "qwen2.5-7b-instruct", "llama-3.2-3b-instruct"]
+        results = [count_tokens(text, model=m) for m in models]
+        assert any(r > 0 for r in results)
+
+class TestGetTokenizer:
+    def test_tiktoken_for_openai(self) -> None:
+        """OpenAI models should use tiktoken if available."""
+        with patch("core.utils.tiktoken") as mock_tiktoken:
+            mock_enc = MagicMock()
+            mock_tiktoken.encoding_for_model.return_value = mock_enc
+            result = get_tokenizer("gpt-4o")
+            assert result is not None
+
+    def test_none_when_no_tokenizers(self) -> None:
+        """Returns None when neither tiktoken nor tokenizers available."""
+        with patch("core.utils.tiktoken", None), patch("core.utils.tokenizers", None):
+            result = get_tokenizer("some-model")
+            assert result is None
 ```

@@ -75,14 +75,17 @@ def pytest_collection_modifyitems(
 def reset_global_state():
     """Reset singleton state before every test to prevent cross-test pollution."""
     from api import deps
+    from core.metrics import _request_metrics
 
     deps._init_event.clear()
     deps._state = None
     deps._initializing = False
+    _request_metrics.set({})
     yield
     deps._init_event.clear()
     deps._state = None
     deps._initializing = False
+    _request_metrics.set({})
 
 
 @pytest.fixture(autouse=True)

@@ -8,11 +8,14 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+from core.logger import get_logger
+
 
 class MetricsLogger:
     """Non-blocking JSONL metrics logger using asyncio queue + background task."""
 
     def __init__(self, path: str = "./data/metrics.jsonl") -> None:
+        self._logger = get_logger("metrics")
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._queue: asyncio.Queue[dict[str, Any] | None] | None = None
@@ -40,8 +43,8 @@ class MetricsLogger:
             try:
                 line = json.dumps(item, ensure_ascii=False, default=str) + "\n"
                 await asyncio.to_thread(self._append_line, line)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._logger.warning("Metrics write failed: %s", exc)
 
     def log(self, data: dict[str, Any]) -> None:
         """Enqueue metric record (non-blocking)."""
@@ -63,8 +66,10 @@ class MetricsLogger:
         if self._task and not self._task.done():
             try:
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except Exception:
-                pass
+            except asyncio.TimeoutError:
+                self._logger.warning("Metrics worker stop timed out")
+            except Exception as exc:
+                self._logger.warning("Metrics worker stop failed: %s", exc)
         self._queue = None
         self._task = None
 

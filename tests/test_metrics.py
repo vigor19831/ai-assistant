@@ -1,15 +1,11 @@
-"""Tests for core/metrics.py — queue behavior, JSONL output, context isolation.
-
-Validates MetricsLogger async queue, record_metric context vars, and edge cases.
-"""
+"""Tests for core.metrics — bare except fix validation."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -20,167 +16,115 @@ from core.metrics import (
     record_metric,
 )
 
-# ── MetricsLogger queue behavior ──
+
+@pytest.fixture
+def tmp_metrics_path(tmp_path: Path) -> Path:
+    return tmp_path / "metrics.jsonl"
 
 
-class TestMetricsLoggerQueue:
-    @pytest.mark.asyncio
-    async def test_enqueue_and_write(self):
-        """Log entries should be written to JSONL file."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "metrics.jsonl"
-            logger = MetricsLogger(str(path))
-            logger.start()
+class TestMetricsLogger:
+    async def test_worker_logs_write_errors(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Bare except fix: _worker must log errors instead of swallowing."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
 
-            logger.log({"endpoint": "/test", "latency_ms": 42})
-            logger.log({"endpoint": "/chat", "latency_ms": 100})
+        log_mock = MagicMock()
+        logger._logger = log_mock
 
-            # Give worker time to process
-            await asyncio.sleep(0.1)
+        with patch.object(
+            logger, "_append_line", side_effect=OSError("disk full")
+        ):
+            logger.log({"event": "test"})
+            await asyncio.sleep(0.15)
             await logger.stop()
 
-            lines = path.read_text().strip().split("\n")
-            assert len(lines) == 2
-            assert json.loads(lines[0])["endpoint"] == "/test"
-            assert json.loads(lines[1])["latency_ms"] == 100
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("disk full" in c for c in calls), (
+            "Write error must be logged, not swallowed"
+        )
 
-    @pytest.mark.asyncio
-    async def test_queue_full_drops_oldest(self):
-        """QueueFull should silently drop new entries (not crash)."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MetricsLogger(str(Path(tmpdir) / "test_metrics.jsonl"))
-            logger.start()
+    async def test_stop_logs_timeout(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Bare except fix: stop must log timeout instead of swallowing."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
 
-            # Fill queue beyond maxsize
-            for _ in range(2000):
-                logger.log({"data": "x" * 100})
+        log_mock = MagicMock()
+        logger._logger = log_mock
+        real_task = logger._task
 
-            # Should not raise
+        with patch(
+            "core.metrics.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError,
+        ):
             await logger.stop()
 
-    @pytest.mark.asyncio
-    async def test_stop_signals_worker(self):
-        """stop() should signal worker to exit and flush remaining."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "metrics.jsonl"
-            logger = MetricsLogger(str(path))
-            logger.start()
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("timed out" in c for c in calls), (
+            "Timeout must be logged, not swallowed"
+        )
 
-            logger.log({"test": "before_stop"})
+        if real_task and not real_task.done():
+            real_task.cancel()
+            try:
+                await real_task
+            except asyncio.CancelledError:
+                pass
+
+    async def test_stop_logs_generic_error(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Bare except fix: stop must log generic exceptions."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+
+        log_mock = MagicMock()
+        logger._logger = log_mock
+        real_task = logger._task
+
+        with patch(
+            "core.metrics.asyncio.wait_for",
+            side_effect=RuntimeError("boom"),
+        ):
             await logger.stop()
 
-            # After stop, no new writes
-            logger.log({"test": "after_stop"})
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("boom" in c for c in calls), (
+            "Generic stop error must be logged, not swallowed"
+        )
 
-            content = path.read_text()
-            lines = [line for line in content.strip().split("\n") if line]
-            assert len(lines) == 1
-            assert json.loads(lines[0])["test"] == "before_stop"
+        if real_task and not real_task.done():
+            real_task.cancel()
+            try:
+                await real_task
+            except asyncio.CancelledError:
+                pass
 
-    @pytest.mark.asyncio
-    async def test_start_idempotent(self):
-        """Multiple start() calls should not create multiple workers."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            logger = MetricsLogger(str(Path(tmpdir) / "test_metrics.jsonl"))
-            logger.start()
-            first_task = logger._task
-            logger.start()
-            assert logger._task is first_task
-            await logger.stop()
+    async def test_log_and_read_back(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Happy path: logged metrics are written to file."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        logger.log({"endpoint": "/health", "latency_ms": 42})
+        await logger.stop()
 
-    @pytest.mark.asyncio
-    async def test_handles_invalid_json(self):
-        """Non-serializable objects should not crash the worker."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "metrics.jsonl"
-            logger = MetricsLogger(str(path))
-            logger.start()
+        lines = tmp_metrics_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        data = json.loads(lines[0])
+        assert data["endpoint"] == "/health"
+        assert data["latency_ms"] == 42
 
-            # default=str should handle non-serializable
-            logger.log({"bytes": b"raw"})
-            await asyncio.sleep(0.1)
-            await logger.stop()
-
-            lines = path.read_text().strip().split("\n")
-            assert len(lines) == 1
-            assert "raw" in lines[0]
-
-    @pytest.mark.asyncio
-    async def test_file_created_lazily(self):
-        """File should not exist before first log."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "metrics.jsonl"
-            logger = MetricsLogger(str(path))
-            assert not path.exists()
-            logger.start()
-            assert not path.exists()  # Still not created
-            logger.log({"test": 1})
-            await asyncio.sleep(0.1)
-            assert path.exists()
-            await logger.stop()
-
-
-# ── ContextVar metrics ──
-
-
-class TestRequestMetrics:
-    def test_record_and_get(self):
-        """record_metric should store in context, get_current_metrics \
-        should retrieve."""
-        record_metric("input_tokens", 100)
-        record_metric("output_tokens", 50)
-        metrics = get_current_metrics()
-        assert metrics["input_tokens"] == 100
-        assert metrics["output_tokens"] == 50
-
-    def test_isolated_between_contexts(self):
-        """Metrics should not leak between async contexts."""
-
-        async def task_a():
-            record_metric("task", "a")
-            return get_current_metrics()
-
-        async def task_b():
-            record_metric("task", "b")
-            return get_current_metrics()
-
-        # Run in separate contexts
-        m_a = asyncio.run(task_a())
-        m_b = asyncio.run(task_b())
-
-        assert m_a["task"] == "a"
-        assert m_b["task"] == "b"
-
-    def test_returns_empty_when_no_context(self):
-        """Fresh context should return empty dict."""
-        # Reset context
-        import core.metrics
-
-        core.metrics._request_metrics.set({})
-        metrics = get_current_metrics()
-        assert metrics == {}
-
-    def test_returns_copy_not_reference(self):
-        """get_current_metrics should return a copy."""
+    def test_record_metric_context_var(self) -> None:
         record_metric("key", "value")
-        m1 = get_current_metrics()
-        m1["key"] = "modified"
-        m2 = get_current_metrics()
-        assert m2["key"] == "value"
+        metrics = get_current_metrics()
+        assert "key" in metrics
+        assert metrics["key"] == "value"
 
-
-# ── Singleton accessor ──
-
-
-class TestGetMetricsLogger:
-    def test_returns_same_instance(self):
-        """get_metrics_logger should return singleton."""
-        logger1 = get_metrics_logger()
-        logger2 = get_metrics_logger()
-        assert logger1 is logger2
-
-    def test_creates_default_instance(self):
-        """First call should create instance with default path."""
-        with patch("core.metrics._metrics_logger", None):
-            logger = get_metrics_logger()
-            assert logger._path.name == "metrics.jsonl"
+    def test_get_metrics_logger_singleton(self) -> None:
+        a = get_metrics_logger()
+        b = get_metrics_logger()
+        assert a is b

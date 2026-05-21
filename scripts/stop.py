@@ -16,7 +16,6 @@ def is_running(pid: int) -> bool:
     if os.name == "nt":
         try:
             import ctypes
-
             kernel32 = ctypes.windll.kernel32
             synchronize = 0x00100000
             handle = kernel32.OpenProcess(synchronize, False, pid)
@@ -34,6 +33,34 @@ def is_running(pid: int) -> bool:
             return False
 
 
+def find_pid_by_port(port: int) -> int | None:
+    """Find PID listening on given port (fallback)."""
+    if os.name == "nt":
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, text=True, shell=False
+        )
+        for line in result.stdout.splitlines():
+            if f":{port}" in line and "LISTENING" in line:
+                parts = line.strip().split()
+                if parts:
+                    try:
+                        return int(parts[-1])
+                    except ValueError:
+                        continue
+    else:
+        result = subprocess.run(
+            ["lsof", "-i", f":{port}", "-t"],
+            capture_output=True, text=True
+        )
+        if result.stdout.strip():
+            try:
+                return int(result.stdout.strip().split()[0])
+            except ValueError:
+                pass
+    return None
+
+
 def main() -> int:
     project_root = Path(__file__).resolve().parent.parent
     pid_file = project_root / "data" / "server.pid"
@@ -43,7 +70,7 @@ def main() -> int:
         return 0
 
     try:
-        pid = int(pid_file.read_text().strip())
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
     except ValueError:
         print("Invalid PID file. Removing.")
         pid_file.unlink()
@@ -51,9 +78,16 @@ def main() -> int:
 
     # Check if process is actually alive before trying to kill
     if not is_running(pid):
-        print(f"Process {pid} is already gone.")
-        pid_file.unlink(missing_ok=True)
-        return 0
+        print(f"Process {pid} from PID file is already gone.")
+        # Fallback: try to find by port
+        port_pid = find_pid_by_port(8000)
+        if port_pid:
+            print(f"Found process {port_pid} on port 8000, using it.")
+            pid = port_pid
+        else:
+            print("No process found on port 8000.")
+            pid_file.unlink(missing_ok=True)
+            return 0
 
     print(f"Stopping server (PID {pid})...")
 

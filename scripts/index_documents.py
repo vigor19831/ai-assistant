@@ -113,6 +113,7 @@ async def index_namespace(
                 await client.post(
                     f"{base}/rag/delete",
                     json={"document_ids": [], "chunk_ids": [], "namespace": namespace},
+                    timeout=30.0,
                 )
                 print(f"  Cleared namespace: {namespace}")
             except Exception as e:
@@ -128,6 +129,7 @@ async def index_namespace(
                 resp = await client.post(
                     f"{base}/rag/index",
                     json={"documents": batch, "namespace": namespace},
+                    timeout=60.0,
                 )
                 resp.raise_for_status()
                 data = resp.json()

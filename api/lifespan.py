@@ -32,9 +32,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Сохраняем state в app для доступа через request.app.state
     app.state.app_state = state
 
+    # Write PID file for stop.py
+    import os
+    from pathlib import Path
+    pid_file = Path("data/server.pid")
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
     yield
 
     state = getattr(app.state, "app_state", state)
+
+    # Clean up PID file
+    pid_file = Path("data/server.pid")
+    if pid_file.exists():
+        pid_file.unlink(missing_ok=True)
 
     await get_metrics_logger().stop()
 
@@ -57,7 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 namespaces = await state.vector_store.list_namespaces(index_path)
                 for ns in namespaces:
                     await state.vector_store.save(index_path, namespace=ns)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Index save failed: %s", exc)
     except RuntimeError:
         pass

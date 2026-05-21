@@ -210,7 +210,7 @@ class TestInitAdapters:
 
     @pytest.mark.asyncio
     async def test_idempotent_init(self, minimal_config):
-        """Multiple calls to init_adapters should be idempotent (mutate same state)."""
+        """Multiple calls to init_adapters should return same state without re-creating adapters."""
         call_count = {"count": 0}
 
         def counting_registry_create(port: str, name: str, config: Any) -> Any:
@@ -223,12 +223,14 @@ class TestInitAdapters:
 
         with patch("api.deps.registry_create", side_effect=counting_registry_create):
             state = AppState(config=minimal_config)
-            await init_adapters(state)
+            first_result = await init_adapters(state)
             first_count = call_count["count"]
-            await init_adapters(state)
+            second_result = await init_adapters(state)
             second_count = call_count["count"]
 
-        assert second_count == first_count, "Second init should be idempotent"
+        assert second_count == first_count, "Second init should not re-create adapters"
+        assert first_result is second_result, "Should return same state object"
+        assert first_result is state, "Should return original state"
 
 
 # ── MetricsMiddleware ──
