@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import atexit
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
 import time
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +67,14 @@ def wait_for_port(port: int, timeout: float = 30.0, host: str = "127.0.0.1") -> 
     return False
 
 
+def _get_port(api_base: str) -> int:
+    """Extract port from API base URL (e.g. http://127.0.0.1:8080/v1 → 8080)."""
+    parsed = urlparse(api_base.rstrip("/"))
+    if parsed.port is not None:
+        return parsed.port
+    return 443 if parsed.scheme == "https" else 80
+
+
 def get_config() -> dict[str, Any]:
     project_root = Path(__file__).parent.parent
     config_path = project_root / "config.yaml"
@@ -117,7 +127,6 @@ def _find_llama_server_exe() -> Path | None:
         project_root / "vendor" / "llama.cpp" / LLAMA_SERVER_EXE,
     ]
 
-    import shutil
 
     path_found = shutil.which(LLAMA_SERVER_EXE)
     if path_found:
@@ -219,7 +228,7 @@ def _start_embedder_server(config: dict[str, Any]) -> subprocess.Popen[Any] | No
     if not api_base.startswith(("http://127.0.0.1", "http://localhost")):
         return None
 
-    port = int(api_base.rstrip("/").split(":")[-1])
+    port = _get_port(api_base)
     model_name = embedder.get("model", "")
     ngl = embedder.get("n_gpu_layers", 0)
 
@@ -246,7 +255,7 @@ def _start_llm_server(config: dict[str, Any]) -> subprocess.Popen[Any] | None:
     if not api_base.startswith(("http://127.0.0.1", "http://localhost")):
         return None
 
-    port = int(api_base.rstrip("/").split(":")[-1])
+    port = _get_port(api_base)
     model_name = llm.get("model", "")
     ngl = llm.get("n_gpu_layers", 99)
     ctx_size = llm.get("server_context_size", 4096)
