@@ -22,6 +22,7 @@ PROJECT_NAME = "AI Assistant"
 PROJECT_TAGLINE = (
     "A modular, cross-platform framework for local LLMs — 10+ years of evolution"
 )
+
 PROJECT_RULES = """
 # AI Assistant — Модульный фреймворк для локальных LLM
 -------------------------------------------------------------------------------
@@ -36,8 +37,7 @@ PROJECT_RULES = """
 
 ## Слои
 - core/ 🔒 Ядро: порты, домен, pipeline, registry, prompts/v1/*.j2
-- adapters/ 🔌 Plug-and-play: llm_*, embedder_*, vector_store_*, \
-memory_sqlite.py, tools_*.py
+- adapters/ 🔌 Plug-and-play: llm_*, embedder_*, vector_store_*, memory_sqlite.py, tools_*.py
 - features/ 📦 Изолированные: chat/, rag/, image_analysis(заглушка), voice_chat(заглушка)
 
 -------------------------------------------------------------------------------
@@ -60,13 +60,18 @@ memory_sqlite.py, tools_*.py
 ## БЫСТРЫЙ СТАРТ
 
 ```bash
-# 1. Установи Ollama: https://ollama.com/download
-#    и убедись, что сервер запущен:
-ollama serve
+# 1. Подготовь LLM-сервер с OpenAI-compatible API
+#    Варианты:
+#    • llama-server:  llama-server.exe -m model.gguf --port 8080
+#    • Ollama:        ollama serve  (порт 11434)
+#    • vLLM:          python -m vllm.entrypoints.openai.api_server --model ...
+#    • OpenAI:        https://api.openai.com/v1 (api_key нужен)
 
-# 2. Скачай нужные модели
-ollama pull gemma3:4b
-ollama pull nomic-embed-text
+# 2. Пропиши endpoint в config.yaml:
+#    llm:
+#      provider: openai_compatible
+#      api_base: http://127.0.0.1:8080/v1   # или 11434 для Ollama
+#      model: gemma-3-4b-it-Q4_K_M          # имя модели на сервере
 
 # 3. Установи зависимости проекта
 pip install -e .[dev]
@@ -79,11 +84,11 @@ python main.py
 # 5. UI: браузерное расширение с OpenAI-compatible API → http://localhost:8000
 ```
 
-## Рекомендуемые модели для Ollama
-- **LLM:** `gemma3:4b`, `qwen2.5:7b`, `llama3.2:3b` — быстрые, качественные, мультиязычные
-- **Embedder:** `nomic-embed-text`, `mxbai-embed-large` — проверь размерность выходного вектора!
+## Рекомендуемые модели
+- **LLM:** `gemma-3-4b-it`, `qwen2.5-7b-instruct`, `llama-3.2-3b-instruct` — быстрые, качественные, мультиязычные
+- **Embedder:** `nomic-embed-text-v1.5`, `mxbai-embed-large-v1` — проверь размерность выходного вектора!
 
-> 💡 Совет: запускай `ollama ps`, чтобы увидеть загруженные модели и их размер в VRAM.
+> 💡 Совет: убедись, что модель загружена в память/VRAM перед первым запросом, иначе первый ответ будет медленным.
 
 -------------------------------------------------------------------------------
 
@@ -122,16 +127,12 @@ python scripts/check_mypy.py              # типы чисто
 -------------------------------------------------------------------------------
 
 ## ТРАБЛШУТИНГ
-- Ollama не отвечает → проверь `ollama serve` и `OLLAMA_HOST=127.0.0.1:11434`
-- 401 от Ollama → в config.yaml пропиши `api_key: ollama` (любая строка, Ollama игнорирует)
+- LLM не отвечает → проверь, что сервер запущен и `AI_LLM_API_BASE` / `config.yaml → llm.api_base` указывают на правильный порт
+- 401 Unauthorized → в config.yaml пропиши `api_key: sk-...` (если сервер требует ключ; локальные серверы обычно игнорируют любую строку)
 - FAISS не ставится → vector_store.provider: memory в config.yaml
 - Индекс не грузится → проверь права на data/indices/ и index_path в конфиге
-- Несовпадение dim → embedder.dim и vector_store.dim должны быть равны (см. `ollama show <model>`)
+- Несовпадение dim → embedder.dim и vector_store.dim должны быть равны (смотри спецификацию модели эмбеддеров)
 - Не хватает зависимостей → `pip install -e .[dev]` из корня проекта
--------------------------------------------------------------------------------
-
-> 📝 **Примечание про llama.cpp:** поддержка нативного llama.cpp планируется, но требует значительного объёма кода и времени на стабилизацию. Будет допилена в свободное время; текущий фокус — стабильная работа через Ollama.
-
 -------------------------------------------------------------------------------
 
 ## ЛИЦЕНЗИЯ: MIT

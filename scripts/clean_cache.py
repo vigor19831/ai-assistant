@@ -3,7 +3,7 @@
 Очистка проекта от кэша, временных файлов и артефактов сборки.
 
 Использование:
-    python scripts/clean_cache.py              # сухой прогон (показать что удалит)
+    python scripts/clean_cache.py              # сухой прогон
     python scripts/clean_cache.py --clean      # реально удалить
 """
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # ── Конфигурация ──
@@ -56,25 +57,49 @@ NEVER_TOUCH: set[str] = {
     "README.md",
 }
 
+# Системный Temp: только наши артефакты (pytest/tempfile)
+SYSTEM_TEMP_PATTERNS: list[str] = ["tmp_*", "test.db", "pytest-*"]
+
 
 # ── Логика ──
 
 
 def find_targets(root: Path, patterns: list[str]) -> list[Path]:
-    """Найти все пути, соответствующие паттернам."""
+    """Найти все пути в проекте, соответствующие паттернам."""
     targets: set[Path] = set()
 
     for pattern in patterns:
         for p in root.rglob(pattern):
             if p.name in NEVER_TOUCH:
                 continue
-            # Защита: не лезть в .venv даже если __pycache__ там найден
             try:
                 if ".venv" in p.relative_to(root).parts:
                     continue
             except ValueError:
                 continue
             targets.add(p.resolve())
+
+    return sorted(targets)
+
+
+def find_system_temp_targets() -> list[Path]:
+    """Найти артефакты тестов в системном Temp (кроссплатформенно)."""
+    temp_dir = Path(tempfile.gettempdir())
+    targets: set[Path] = set()
+
+    # Ищем tmp_* папки и pytest-* папки
+    for pattern in SYSTEM_TEMP_PATTERNS:
+        for p in temp_dir.glob(pattern):
+            targets.add(p.resolve())
+
+    # Ищем test.db внутри tmp_* папок (глубже первого уровня)
+    for p in temp_dir.glob("tmp_*"):
+        if p.is_dir():
+            for db in p.rglob("test.db"):
+                targets.add(db.resolve())
+            # И любые другие .db артефакты тестов
+            for db in p.rglob("*.db"):
+                targets.add(db.resolve())
 
     return sorted(targets)
 
@@ -95,7 +120,6 @@ def format_size(path: Path | int) -> str:
 
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024:
-            # Без десятичных для целых байт, с десятичными для остального
             if unit == "B" and size == int(size):
                 return f"{int(size)} {unit}"
             return f"{size:.1f} {unit}"
@@ -116,6 +140,33 @@ def delete_target(path: Path) -> bool:
         return False
 
 
+def print_section(title: str, targets: list[Path], root: Path | None = None) -> None:
+    """Красивый вывод секции."""
+    if not targets:
+        return
+
+    dirs = [t for t in targets if t.is_dir()]
+    files = [t for t in targets if t.is_file()]
+
+    print(f"\n{'─' * 60}")
+    print(f"  {title}")
+    print(f"{'─' * 60}")
+
+    for d in dirs:
+        rel = str(d.relative_to(root)) if root and d.is_relative_to(root) else str(d)
+        print(f"  [DIR]  {rel:<50} {format_size(d):>10}")
+    for f in files:
+        rel = str(f.relative_to(root)) if root and f.is_relative_to(root) else str(f)
+        print(f"  [FILE] {rel:<50} {format_size(f):>10}")
+
+    total = sum(
+        sum(x.stat().st_size for x in t.rglob("*") if x.is_file()) if t.is_dir() else t.stat().st_size
+        for t in targets
+    )
+    print(f"{'─' * 60}")
+    print(f"  Всего: {len(dirs)} директорий, {len(files)} файлов  ({format_size(total)})")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Clean project cache and artifacts")
     parser.add_argument(
@@ -124,44 +175,43 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(__file__).parent.parent.resolve()
+    all_targets: list[Path] = []
 
-    targets = find_targets(root, SAFE_PATTERNS)
+    # ── 1. Проект ──
+    project_targets = find_targets(root, SAFE_PATTERNS)
+    if project_targets:
+        print_section("Проект", project_targets, root)
+        all_targets.extend(project_targets)
 
-    if not targets:
-        print("Нечего удалять — проект чист.")
+    # ── 2. Системный Temp (кроссплатформенно) ──
+    system_targets = find_system_temp_targets()
+    if system_targets:
+        print_section(f"Системный Temp  ({tempfile.gettempdir()})", system_targets)
+        all_targets.extend(system_targets)
+
+    if not all_targets:
+        print("Нечего удалять — всё чисто.")
         return 0
 
-    dirs = [t for t in targets if t.is_dir()]
-    files = [t for t in targets if t.is_file()]
-
-    print(f"Найдено для удаления: {len(dirs)} директорий, {len(files)} файлов")
-    print("-" * 60)
-
-    for d in dirs:
-        rel_str = str(d.relative_to(root))
-        print(f"  [DIR]  {rel_str:<50} {format_size(d):>10}")
-    for f in files:
-        rel_str = str(f.relative_to(root))
-        print(f"  [FILE] {rel_str:<50} {format_size(f):>10}")
-    print("-" * 60)
-
     if not args.clean:
+        print(f"\n{'=' * 60}")
         print("Сухой прогон. Для удаления добавьте флаг --clean")
         print("Команда: python scripts/clean_cache.py --clean")
         return 0
 
+    print(f"\n{'=' * 60}")
     print("Удаление...")
     deleted = 0
     failed = 0
-    for target in targets:
+    for target in all_targets:
         if delete_target(target):
-            rel_str = str(target.relative_to(root))
-            print(f"  [OK]   {rel_str}")
+            rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
+            print(f"  [OK]   {rel}")
             deleted += 1
         else:
             failed += 1
 
-    print("-" * 60)
+    print(f"{'=' * 60}")
     print(f"Удалено: {deleted}, ошибок: {failed}")
     return 0 if failed == 0 else 1
 
