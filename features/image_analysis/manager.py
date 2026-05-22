@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.messages import AssistantMessage, ImagePayload, UserMessage
+from core.logger import get_logger
+
+__all__ = ["ImageAnalysisManager"]
+
+_logger = get_logger("image.manager")
 
 
 class ImageAnalysisManager:
@@ -37,13 +42,26 @@ class ImageAnalysisManager:
 
         if self.vision:
             img_input = image_base64 or image_url or ""
-            result = await self.vision.describe(img_input, prompt=prompt)
-            if result and result.strip():
-                return AssistantMessage(text=result)
+            try:
+                result = await self.vision.describe(img_input, prompt=prompt)
+                if result and result.strip():
+                    return AssistantMessage(text=result)
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception as exc:
+                _logger.warning(
+                    "Vision processor failed (%s), falling back to LLM",
+                    exc,
+                )
 
         if self.llm and image:
             user_msg = UserMessage(text=prompt, image=image)
-            return await self.llm.complete([user_msg])
+            try:
+                return await self.llm.complete([user_msg])
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception as exc:
+                _logger.error("LLM vision fallback failed: %s", exc)
 
         return AssistantMessage(
             text=(

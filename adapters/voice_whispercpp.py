@@ -6,8 +6,13 @@ from typing import Any
 
 import httpx
 
+from core.logger import get_logger
 from core.ports.voice import IVoiceRecognizer
 from core.registry import register
+
+__all__ = ["WhisperCppRecognizer"]
+
+_logger = get_logger("voice.whispercpp")
 
 
 @register("voice_recognizer", "whispercpp")
@@ -27,7 +32,10 @@ class WhisperCppRecognizer(IVoiceRecognizer):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{self.api_base}/health")
                 self._available = resp.status_code < 500
-        except Exception:
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except Exception as exc:
+            _logger.debug("whisper.cpp health check failed: %s", exc)
             self._available = False
         return self._available
 
@@ -47,7 +55,9 @@ class WhisperCppRecognizer(IVoiceRecognizer):
                 )
                 resp.raise_for_status()
                 result = resp.json()
-                text = result.get("text", "")
-                return text.strip()
-        except Exception:
+                return result.get("text", "").strip()
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except Exception as exc:
+            _logger.warning("whisper.cpp transcription failed: %s", exc)
             return ""

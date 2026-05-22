@@ -8,6 +8,8 @@ from typing import Any
 
 from core.domain.documents import Chunk
 
+__all__ = ["IReranker", "RerankResult"]
+
 
 @dataclass
 class RerankResult:
@@ -29,7 +31,10 @@ class IReranker(ABC):
 
     @abstractmethod
     async def rerank(
-        self, query: str, chunks: list[Chunk], top_k: int | None = None
+        self,
+        query: str,
+        chunks: list[Chunk],
+        top_k: int | None = None,
     ) -> list[RerankResult]:
         """Rerank chunks by relevance to query.
 

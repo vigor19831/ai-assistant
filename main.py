@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from api.security import (
     require_api_key,
 )
 from core.config import load_config
+from core.logger import get_logger
+
+_logger = get_logger("main")
 
 _config = load_config(os.getenv("AI_CONFIG_PATH", "config.yaml"))
 
@@ -46,7 +50,10 @@ sec_cfg = _load_security_cfg()
 
 app.add_middleware(LimitMiddleware)
 if sec_cfg.get("allowed_hosts") and not _config.debug:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=sec_cfg["allowed_hosts"])
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=sec_cfg["allowed_hosts"],
+    )
 
 
 @app.get("/")
@@ -60,18 +67,27 @@ async def health_check() -> dict[str, str]:
 
 
 async def _safe_get_state(request: Request) -> AppState | None:
-    app = request.app
-    override: Any = app.dependency_overrides.get(get_state)
+    fastapi_app = request.app
+    override: Any = fastapi_app.dependency_overrides.get(get_state)
     try:
         if override is not None:
-            return override()
-        return get_state(request)
-    except RuntimeError:
+            result = override()
+            if inspect.isawaitable(result):
+                return await result
+            return result
+        result = get_state(request)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+    except RuntimeError as exc:
+        _logger.debug("Failed to get app state: %s", exc)
         return None
 
 
 @app.get("/info", dependencies=[Depends(require_api_key)])
-async def get_info(state: AppState | None = Depends(_safe_get_state)) -> dict[str, str]:
+async def get_info(
+    state: AppState | None = Depends(_safe_get_state),
+) -> dict[str, str]:
     if state is None:
         return {"provider": "unknown", "model": "unknown"}
     provider = state.config.llm.provider
@@ -91,4 +107,8 @@ static_dir = Path(_config.ui.static_path)
 if not static_dir.is_absolute():
     static_dir = Path(__file__).parent / static_dir
 if static_dir.exists():
-    app.mount("/ui", StaticFiles(directory=str(static_dir), html=True), name="static")
+    app.mount(
+        "/ui",
+        StaticFiles(directory=str(static_dir), html=True),
+        name="static",
+    )

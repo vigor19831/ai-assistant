@@ -13,22 +13,34 @@ import aiosqlite
 from core.ports.memory import ILongTermMemory, MemoryEntry
 from core.registry import register
 
+__all__ = ["SQLiteMemory"]
+
+
+def _escape_like(value: str) -> str:
+    """Escape % and _ for SQLite LIKE with ESCAPE '\\'."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 def _sanitize_fts(query: str) -> str:
     """Sanitize user input for SQLite FTS5 phrase queries."""
     if not query:
         return '""'
-    # Remove FTS5 special characters
     cleaned = re.sub(r"[*^~/\\()\[\]{}:]", "", query)
-    # Remove SQL-like operators and injection patterns
     cleaned = re.sub(r"\b(OR|AND|NOT|NEAR)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"--.*$", "", cleaned, flags=re.MULTILINE)
     cleaned = re.sub(r"\b\d+\s*=\s*\d+\b", "", cleaned)
-    # Escape internal double quotes for FTS5 phrase syntax
     cleaned = cleaned.replace('"', '""')
-    # Collapse whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return f'"{cleaned}"'
+
+
+def _safe_json_loads(value: str | None, default: Any) -> Any:
+    if value is None:
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
 
 
 @register("memory", "sqlite")
@@ -36,16 +48,21 @@ class SQLiteMemory(ILongTermMemory):
     """Persistent memory using SQLite with FTS5 full-text search."""
 
     def __init__(self, config: Any) -> None:
-        self.config = config
+        super().__init__(config)
         self.db_path: str = getattr(config, "db_path", "./data/memory.db")
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._consolidate_threshold: float = getattr(
+            config, "consolidate_importance_threshold", 0.3
+        )
+        self._consolidate_days: int = getattr(config, "consolidate_days", 30)
         self._fts5_available = False
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute("PRAGMA journal_mode=WAL")
             await conn.execute("PRAGMA busy_timeout=5000")
-            await conn.execute("""
+            await conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS memories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT NOT NULL,
@@ -56,24 +73,36 @@ class SQLiteMemory(ILongTermMemory):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     metadata TEXT
                 )
-            """)
-            await conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id)
-            """)
+                """
+            )
+            await conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_memories_user
+                ON memories(user_id)
+                """
+            )
             try:
-                await conn.execute("""
-                    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                        content, content='memories', content_rowid='id'
+                await conn.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
+                    USING fts5(
+                        content,
+                        content='memories',
+                        content_rowid='id'
                     )
-                """)
-                await conn.execute("""
+                    """
+                )
+                await conn.execute(
+                    """
                     CREATE TRIGGER IF NOT EXISTS memories_ai
                     AFTER INSERT ON memories BEGIN
                         INSERT INTO memories_fts(rowid, content)
                         VALUES (new.id, new.content);
                     END
-                """)
-                await conn.execute("""
+                    """
+                )
+                await conn.execute(
+                    """
                     CREATE TRIGGER IF NOT EXISTS memories_ad
                     AFTER DELETE ON memories BEGIN
                         INSERT INTO memories_fts(
@@ -81,8 +110,10 @@ class SQLiteMemory(ILongTermMemory):
                         )
                         VALUES ('delete', old.id, old.content);
                     END
-                """)
-                await conn.execute("""
+                    """
+                )
+                await conn.execute(
+                    """
                     CREATE TRIGGER IF NOT EXISTS memories_au
                     AFTER UPDATE ON memories BEGIN
                         INSERT INTO memories_fts(
@@ -92,7 +123,8 @@ class SQLiteMemory(ILongTermMemory):
                         INSERT INTO memories_fts(rowid, content)
                         VALUES (new.id, new.content);
                     END
-                """)
+                    """
+                )
                 cur = await conn.execute("SELECT COUNT(*) FROM memories_fts")
                 row = await cur.fetchone()
                 if row and row[0] == 0:
@@ -108,9 +140,11 @@ class SQLiteMemory(ILongTermMemory):
     async def add(self, user_id: str, entry: MemoryEntry) -> None:
         async with aiosqlite.connect(self.db_path) as conn:
             cursor = await conn.execute(
-                """INSERT INTO memories
-                   (user_id, content, source, importance, tags, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                """
+                INSERT INTO memories
+                (user_id, content, source, importance, tags, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
                 (
                     user_id,
                     entry.content,
@@ -122,12 +156,12 @@ class SQLiteMemory(ILongTermMemory):
             )
             rowid = cursor.lastrowid
             if self._fts5_available:
-                # Fallback: some aiosqlite builds don't fire triggers reliably
                 cur = await conn.execute(
                     "SELECT COUNT(*) FROM memories_fts WHERE rowid = ?",
                     (rowid,),
                 )
-                if (await cur.fetchone())[0] == 0:
+                row = await cur.fetchone()
+                if row is not None and row[0] == 0:
                     await conn.execute(
                         "INSERT INTO memories_fts(rowid, content) VALUES (?, ?)",
                         (rowid, entry.content),
@@ -135,7 +169,10 @@ class SQLiteMemory(ILongTermMemory):
             await conn.commit()
 
     async def get(
-        self, user_id: str, query: str | None = None, limit: int = 20
+        self,
+        user_id: str,
+        query: str | None = None,
+        limit: int = 20,
     ) -> list[MemoryEntry]:
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -145,41 +182,54 @@ class SQLiteMemory(ILongTermMemory):
                     try:
                         safe_query = _sanitize_fts(query)
                         cur = await conn.execute(
-                            """SELECT m.* FROM memories m
-                               JOIN memories_fts f ON m.id = f.rowid
-                               WHERE m.user_id = ? AND f.content MATCH ?
-                               ORDER BY m.importance DESC, m.created_at DESC
-                               LIMIT ?""",
+                            """
+                            SELECT m.* FROM memories m
+                            JOIN memories_fts f ON m.id = f.rowid
+                            WHERE m.user_id = ? AND f.content MATCH ?
+                            ORDER BY m.importance DESC,
+                                     m.created_at DESC
+                            LIMIT ?
+                            """,
                             (user_id, safe_query, limit),
                         )
                         rows = list(await cur.fetchall())
                     except sqlite3.OperationalError:
                         rows = []
-                    # Fallback: some SQLite builds return empty FTS5 results
                     if not rows:
+                        like_query = f"%{_escape_like(query)}%"
                         cur = await conn.execute(
-                            """SELECT * FROM memories
-                               WHERE user_id = ? AND content LIKE ?
-                               ORDER BY importance DESC, created_at DESC
-                               LIMIT ?""",
-                            (user_id, f"%{query}%", limit),
+                            """
+                            SELECT * FROM memories
+                            WHERE user_id = ? AND content LIKE ? ESCAPE '\\'
+                            ORDER BY importance DESC,
+                                     created_at DESC
+                            LIMIT ?
+                            """,
+                            (user_id, like_query, limit),
                         )
                         rows = list(await cur.fetchall())
                 else:
+                    like_query = f"%{_escape_like(query)}%"
                     cur = await conn.execute(
-                        """SELECT * FROM memories
-                           WHERE user_id = ? AND content LIKE ?
-                           ORDER BY importance DESC, created_at DESC
-                           LIMIT ?""",
-                        (user_id, f"%{query}%", limit),
+                        """
+                        SELECT * FROM memories
+                        WHERE user_id = ? AND content LIKE ? ESCAPE '\\'
+                        ORDER BY importance DESC,
+                                 created_at DESC
+                        LIMIT ?
+                        """,
+                        (user_id, like_query, limit),
                     )
                     rows = list(await cur.fetchall())
             else:
                 cur = await conn.execute(
-                    """SELECT * FROM memories
-                       WHERE user_id = ?
-                       ORDER BY importance DESC, created_at DESC
-                       LIMIT ?""",
+                    """
+                    SELECT * FROM memories
+                    WHERE user_id = ?
+                    ORDER BY importance DESC,
+                             created_at DESC
+                    LIMIT ?
+                    """,
                     (user_id, limit),
                 )
                 rows = list(await cur.fetchall())
@@ -190,9 +240,9 @@ class SQLiteMemory(ILongTermMemory):
                     content=r["content"],
                     source=r["source"],
                     importance=r["importance"],
-                    tags=json.loads(r["tags"]) if r["tags"] else [],
+                    tags=_safe_json_loads(r["tags"], []),
                     created_at=r["created_at"],
-                    metadata=json.loads(r["metadata"]) if r["metadata"] else {},
+                    metadata=_safe_json_loads(r["metadata"], {}),
                 )
                 for r in rows
             ]
@@ -210,10 +260,16 @@ class SQLiteMemory(ILongTermMemory):
         """Remove old low-importance memories."""
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute(
-                """DELETE FROM memories
-                   WHERE user_id = ?
-                   AND importance < 0.3
-                   AND created_at < datetime('now', '-30 days')""",
-                (user_id,),
+                """
+                DELETE FROM memories
+                WHERE user_id = ?
+                AND importance < ?
+                AND created_at < datetime('now', ?)
+                """,
+                (
+                    user_id,
+                    self._consolidate_threshold,
+                    f"-{self._consolidate_days} days",
+                ),
             )
             await conn.commit()

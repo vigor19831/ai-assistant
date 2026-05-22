@@ -89,6 +89,28 @@ def main() -> int:
             pid_file.unlink(missing_ok=True)
             return 0
 
+    # Also kill the start.py wrapper if it is still running in background
+    start_pid_file = project_root / "data" / "start.pid"
+    if start_pid_file.exists():
+        try:
+            start_pid = int(start_pid_file.read_text(encoding="utf-8").strip())
+            if start_pid != pid and is_running(start_pid):
+                print(f"Stopping start wrapper (PID {start_pid})...")
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(start_pid)],
+                        capture_output=True,
+                    )
+                else:
+                    try:
+                        os.kill(start_pid, signal.SIGTERM)
+                        time.sleep(0.5)
+                        os.kill(start_pid, signal.SIGKILL)
+                    except Exception:
+                        pass
+        except ValueError:
+            pass
+
     print(f"Stopping server (PID {pid})...")
 
     if os.name == "nt":
@@ -129,6 +151,23 @@ def main() -> int:
             print("Process already gone.")
 
     pid_file.unlink(missing_ok=True)
+
+    # Kill any remaining llama-server processes by executable name
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "llama-server.exe"],
+            capture_output=True,
+        )
+    else:
+        subprocess.run(
+            ["pkill", "-9", "-f", "llama-server"],
+            capture_output=True,
+        )
+
+    # Clean up all PID files
+    for extra_pid in (project_root / "data").glob("*.pid"):
+        extra_pid.unlink(missing_ok=True)
+
     return 0
 
 

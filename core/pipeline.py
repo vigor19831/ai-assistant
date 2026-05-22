@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 
 from core.domain.pipeline import PipelineData
 
+__all__ = ["RAGPipeline"]
+
 
 class RAGPipeline:
     """Sequential step runner."""
@@ -13,7 +15,7 @@ class RAGPipeline:
     def __init__(
         self, steps: list[Callable[[PipelineData], Awaitable[PipelineData]]]
     ) -> None:
-        self.steps = steps
+        self.steps = list(steps)
 
     async def run(self, data: PipelineData) -> PipelineData:
         """Execute steps sequentially, passing PipelineData through."""

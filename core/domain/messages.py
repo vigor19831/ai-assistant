@@ -6,6 +6,15 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+__all__ = [
+    "AssistantMessage",
+    "ImagePayload",
+    "MessageRole",
+    "TextPayload",
+    "UserMessage",
+    "VoicePayload",
+]
+
 
 class MessageRole(StrEnum):
     USER = "user"

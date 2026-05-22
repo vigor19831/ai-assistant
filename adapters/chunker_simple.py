@@ -9,6 +9,8 @@ from core.domain.documents import Chunk, ChunkMetadata, Document
 from core.ports.chunker import IChunker
 from core.registry import register
 
+__all__ = ["SimpleChunker"]
+
 
 @register("chunker", "simple")
 class SimpleChunker(IChunker):
@@ -24,7 +26,8 @@ class SimpleChunker(IChunker):
             raise ValueError(f"chunk_overlap must be >= 0, got {self.chunk_overlap}")
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError(
-                f"chunk_overlap ({self.chunk_overlap}) must be < chunk_size ({self.chunk_size})"
+                f"chunk_overlap ({self.chunk_overlap}) must be < "
+                f"chunk_size ({self.chunk_size})"
             )
 
     async def chunk(self, document: Document) -> list[Chunk]:
@@ -36,30 +39,23 @@ class SimpleChunker(IChunker):
         overlap = self.chunk_overlap
         step = size - overlap
 
-        chunks: list[Chunk] = []
-        total = max(1, (len(text) + step - 1) // step)
-        idx = 0
+        chunk_texts: list[str] = []
         for i in range(0, len(text), step):
             chunk_text = text[i : i + size]
-            if not chunk_text.strip():
-                continue
-            meta = ChunkMetadata(
-                source=document.id,
-                index=idx,
-                total_chunks=total,
-                custom=document.metadata,
-            )
-            chunks.append(
-                Chunk(
-                    id=str(uuid.uuid4()),
-                    text=chunk_text,
-                    metadata=meta,
-                )
-            )
-            idx += 1
+            if chunk_text.strip():
+                chunk_texts.append(chunk_text)
 
-        # Update total_chunks accurately
-        for c in chunks:
-            if c.metadata:
-                object.__setattr__(c.metadata, "total_chunks", len(chunks))
-        return chunks
+        total = len(chunk_texts)
+        return [
+            Chunk(
+                id=str(uuid.uuid4()),
+                text=ct,
+                metadata=ChunkMetadata(
+                    source=document.id,
+                    index=idx,
+                    total_chunks=total,
+                    custom=document.metadata.copy(),
+                ),
+            )
+            for idx, ct in enumerate(chunk_texts)
+        ]

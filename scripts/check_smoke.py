@@ -268,8 +268,8 @@ def check_tools() -> str:
 
     async def run():
         tool = CalculatorTool()
-        ok = await tool.execute({"operation": "add", "a": 2, "b": 3})
-        err = await tool.execute({"operation": "divide", "a": 1, "b": 0})
+        ok = await tool.execute("call-1", {"operation": "add", "a": 2, "b": 3})
+        err = await tool.execute("call-2", {"operation": "divide", "a": 1, "b": 0})
         return f"add_ok={ok.is_error is False}, div0_err={err.is_error is True}"
 
     return asyncio.run(run())

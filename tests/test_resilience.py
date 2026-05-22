@@ -21,7 +21,7 @@ class TestGracefulDegradation:
     def test_chat_manager_no_embedder_no_store(self):
         from features.chat.manager import ChatManager
 
-        mgr = ChatManager(llm=MagicMock(), embedder=None, vector_store=None)
+        _ = ChatManager(llm=MagicMock(), embedder=None, vector_store=None)
         # Should not crash on init
 
     @pytest.mark.asyncio
@@ -44,7 +44,7 @@ class TestGracefulDegradation:
     def test_pipeline_with_none_steps(self):
         from core.pipeline import RAGPipeline
 
-        pipeline = RAGPipeline([])
+        _ = RAGPipeline([])
         # Empty pipeline should be valid
 
     @pytest.mark.asyncio

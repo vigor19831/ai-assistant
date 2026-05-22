@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +24,7 @@ from core.io_utils import atomic_write
 from core.ports.vector_store import IVectorStore
 from core.registry import register
 
-logger = logging.getLogger(__name__)
+__all__ = ["FaissVectorStore"]
 
 
 if _FAISS_AVAILABLE:
@@ -99,13 +98,11 @@ if _FAISS_AVAILABLE:
                     faiss_id = start_id + i
                     ns.chunks[faiss_id] = chunk
                     ns.id_map[chunk.id] = faiss_id
-                    meta = (
-                        chunk.metadata.custom
-                        if chunk.metadata and chunk.metadata.custom
-                        else {}
-                    )
-                    meta["source"] = chunk.metadata.source if chunk.metadata else ""
-                    meta["index"] = chunk.metadata.index if chunk.metadata else 0
+                    meta: dict[str, Any] = {}
+                    if chunk.metadata is not None:
+                        meta = chunk.metadata.custom.copy()
+                        meta["source"] = chunk.metadata.source
+                        meta["index"] = chunk.metadata.index
                     ns.metadata[chunk.id] = meta
 
                 ns.next_id += len(valid_chunks)
@@ -118,7 +115,9 @@ if _FAISS_AVAILABLE:
         ) -> list[Chunk]:
             self._validate_dim(query_embedding, "<query>")
             async with self._lock:
-                ns = self._get_ns(namespace)
+                if namespace not in self._namespaces:
+                    return []
+                ns = self._namespaces[namespace]
                 if ns.index is None or ns.index.ntotal == 0:
                     return []
                 q = np.array([query_embedding], dtype=np.float32)
@@ -140,9 +139,8 @@ if _FAISS_AVAILABLE:
                 ids_to_remove = set(chunk_ids)
                 remaining: list[Chunk] = []
                 for fid, chunk in ns.chunks.items():
-                    if chunk.id not in ids_to_remove:
-                        if chunk.embedding:
-                            remaining.append(chunk)
+                    if chunk.id not in ids_to_remove and chunk.embedding:
+                        remaining.append(chunk)
 
                 ns.index = self._create_index()
                 ns.chunks.clear()
@@ -152,39 +150,37 @@ if _FAISS_AVAILABLE:
                 }
                 ns.next_id = 0
 
-                if remaining:
-                    embeddings: list[list[float]] = []
-                    valid_chunks: list[Chunk] = []
-                    for c in remaining:
-                        if c.embedding is None:
-                            continue
-                        self._validate_dim(c.embedding, c.id)
-                        embeddings.append(c.embedding)
-                        valid_chunks.append(c)
+                if not remaining:
+                    return
 
-                    if embeddings:
-                        vectors = np.array(embeddings, dtype=np.float32)
-                        start_id = ns.next_id
-                        ns.index.add(vectors)
+                embeddings: list[list[float]] = []
+                valid_chunks: list[Chunk] = []
+                for c in remaining:
+                    if c.embedding is None:
+                        continue
+                    self._validate_dim(c.embedding, c.id)
+                    embeddings.append(c.embedding)
+                    valid_chunks.append(c)
 
-                        for i, chunk in enumerate(valid_chunks):
-                            faiss_id = start_id + i
-                            ns.chunks[faiss_id] = chunk
-                            ns.id_map[chunk.id] = faiss_id
-                            meta = (
-                                chunk.metadata.custom
-                                if chunk.metadata and chunk.metadata.custom
-                                else {}
-                            )
-                            meta["source"] = (
-                                chunk.metadata.source if chunk.metadata else ""
-                            )
-                            meta["index"] = (
-                                chunk.metadata.index if chunk.metadata else 0
-                            )
-                            ns.metadata[chunk.id] = meta
+                if not embeddings:
+                    return
 
-                        ns.next_id += len(valid_chunks)
+                vectors = np.array(embeddings, dtype=np.float32)
+                start_id = ns.next_id
+                ns.index.add(vectors)
+
+                for i, chunk in enumerate(valid_chunks):
+                    faiss_id = start_id + i
+                    ns.chunks[faiss_id] = chunk
+                    ns.id_map[chunk.id] = faiss_id
+                    meta: dict[str, Any] = {}
+                    if chunk.metadata is not None:
+                        meta = chunk.metadata.custom.copy()
+                        meta["source"] = chunk.metadata.source
+                        meta["index"] = chunk.metadata.index
+                    ns.metadata[chunk.id] = meta
+
+                ns.next_id += len(valid_chunks)
 
         async def save(self, path: str, namespace: str = "default") -> None:
             async with self._lock:
@@ -211,19 +207,17 @@ if _FAISS_AVAILABLE:
                             "id": c.id,
                             "text": c.text,
                             "embedding": c.embedding,
-                            "metadata": {
-                                "source": c.metadata.source if c.metadata else "",
-                                "index": c.metadata.index if c.metadata else 0,
-                                "total_chunks": c.metadata.total_chunks
+                            "metadata": (
+                                {
+                                    "source": c.metadata.source,
+                                    "index": c.metadata.index,
+                                    "total_chunks": c.metadata.total_chunks,
+                                    "created_at": c.metadata.created_at,
+                                    "custom": c.metadata.custom,
+                                }
                                 if c.metadata
-                                else 0,
-                                "created_at": c.metadata.created_at
-                                if c.metadata
-                                else "",
-                                "custom": c.metadata.custom if c.metadata else {},
-                            }
-                            if c.metadata
-                            else None,
+                                else None
+                            ),
                         }
                         for k, c in ns.chunks.items()
                     },
@@ -235,40 +229,50 @@ if _FAISS_AVAILABLE:
 
         async def load(self, path: str, namespace: str = "default") -> None:
             p = Path(path) / namespace
-            if not await asyncio.to_thread((p / "index.faiss").exists):
+            index_path = p / "index.faiss"
+            if not await asyncio.to_thread(index_path.exists):
                 return
+
+            index = await asyncio.to_thread(faiss.read_index, str(index_path))
+
+            meta_path = p / "index_meta.json"
+            meta = None
+            if await asyncio.to_thread(meta_path.exists):
+                meta_text = await asyncio.to_thread(meta_path.read_text)
+                meta = json.loads(meta_text)
+                stored_dim = meta.get("embedder_dim")
+                if stored_dim is not None and stored_dim != self.dim:
+                    raise VersionMismatchError(
+                        f"Reindex required: stored dim {stored_dim} "
+                        f"!= config dim {self.dim}"
+                    )
+
+            store_path = p / "store.json"
+            store = None
+            if await asyncio.to_thread(store_path.exists):
+                store_text = await asyncio.to_thread(store_path.read_text)
+                store = json.loads(store_text)
 
             async with self._lock:
                 ns = self._get_ns(namespace)
-                ns.index = faiss.read_index(str(p / "index.faiss"))
-
-                meta_path = p / "index_meta.json"
-                if await asyncio.to_thread(meta_path.exists):
-                    meta_text = await asyncio.to_thread(meta_path.read_text)
-                    meta = json.loads(meta_text)
-                    stored_dim = meta.get("embedder_dim")
-                    if stored_dim is not None and stored_dim != self.dim:
-                        raise VersionMismatchError(
-                            f"Reindex required: stored dim {stored_dim} "
-                            f"!= config dim {self.dim}"
-                        )
-
-                store_path = p / "store.json"
-                if await asyncio.to_thread(store_path.exists):
-                    store_text = await asyncio.to_thread(store_path.read_text)
-                    store = json.loads(store_text)
-                    ns.chunks = {}
+                ns.chunks.clear()
+                ns.metadata.clear()
+                ns.id_map.clear()
+                ns.index = index
+                if store:
                     for k, v in store.get("chunks", {}).items():
-                        meta = v.get("metadata")
-                        chunk_meta = None
-                        if meta:
-                            chunk_meta = ChunkMetadata(
-                                source=meta.get("source", ""),
-                                index=meta.get("index", 0),
-                                total_chunks=meta.get("total_chunks", 0),
-                                created_at=meta.get("created_at", ""),
-                                custom=meta.get("custom", {}),
+                        m = v.get("metadata")
+                        chunk_meta = (
+                            ChunkMetadata(
+                                source=m.get("source", ""),
+                                index=m.get("index", 0),
+                                total_chunks=m.get("total_chunks", 0),
+                                created_at=m.get("created_at", ""),
+                                custom=m.get("custom", {}),
                             )
+                            if m
+                            else None
+                        )
                         ns.chunks[int(k)] = Chunk(
                             id=v["id"],
                             text=v["text"],
@@ -276,24 +280,25 @@ if _FAISS_AVAILABLE:
                             metadata=chunk_meta,
                         )
                     ns.metadata = store.get("metadata", {})
-                    ns.id_map = store.get("id_map", {})
+                    ns.id_map = {
+                        str(k): int(v) for k, v in store.get("id_map", {}).items()
+                    }
                     ns.next_id = store.get("next_id", 0)
 
         async def list_by_filter(
-            self, filter: dict[str, Any], namespace: str = "default"
+            self,
+            filters: dict[str, Any],
+            namespace: str = "default",
         ) -> list[tuple[str, dict[str, Any]]]:
             async with self._lock:
-                ns = self._get_ns(namespace)
-                results: list[tuple[str, dict[str, Any]]] = []
-                for chunk_id, meta in ns.metadata.items():
-                    match = True
-                    for key, value in filter.items():
-                        if meta.get(key) != value:
-                            match = False
-                            break
-                    if match:
-                        results.append((chunk_id, meta))
-                return results
+                if namespace not in self._namespaces:
+                    return []
+                ns = self._namespaces[namespace]
+                return [
+                    (chunk_id, meta)
+                    for chunk_id, meta in ns.metadata.items()
+                    if all(meta.get(k) == v for k, v in filters.items())
+                ]
 
         async def list_namespaces(self, path: str) -> list[str]:
             p = Path(path)
@@ -334,6 +339,7 @@ else:
         def __init__(self, config: Any) -> None:
             super().__init__(config)
             raise ImportError(
-                "faiss-cpu is not installed but vector_store.provider='faiss'. "
+                "faiss-cpu is not installed but "
+                "vector_store.provider='faiss'. "
                 "Install: pip install faiss-cpu"
             )

@@ -13,6 +13,14 @@ from core.prompts import get_prompt
 from core.utils import count_tokens, get_context_limit
 from pipeline.decorators import step
 
+__all__: list[str] = [
+    "build_context",
+    "embed_query",
+    "generate",
+    "rerank",
+    "retrieve",
+]
+
 
 def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
     return count_tokens(text, model)
@@ -52,7 +60,7 @@ async def retrieve(data: PipelineData, **kwargs: Any) -> PipelineData:
         data.errors.append("retrieve: no query embedding")
         return data
     try:
-        top_k = data.metadata["top_k"]
+        top_k = data.metadata.get("top_k", 5)
         namespace = data.metadata.get("namespace") or "default"
         chunks = await vector_store.search(embedding, top_k=top_k, namespace=namespace)
         data.chunks = chunks
@@ -116,23 +124,25 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
         data.errors.append("generate: no query")
         return data
 
+    query_text = data.query.text or ""
     prompt_version = data.metadata["prompt_version"]
     prompt_name = data.metadata["prompt_name"]
+
+    def _build_fallback_prompt() -> str:
+        chunks_text = "\n".join(
+            f"[{i + 1}] {c.text}" for i, c in enumerate(data.chunks)
+        )
+        return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
 
     try:
         prompt = get_prompt(
             prompt_name,
             version=prompt_version,
-            query=data.query.text or "",
+            query=query_text,
             context=data.context,
         )
     except Exception:
-        chunks_text = "\n".join(
-            [f"[{i + 1}] {c.text}" for i, c in enumerate(data.chunks)]
-        )
-        prompt = (
-            f"Context:\n{chunks_text}\n\nQuestion: {data.query.text or ''}\nAnswer:"
-        )
+        prompt = _build_fallback_prompt()
 
     record_metric("input_tokens", _estimate_tokens(prompt))
 
@@ -151,17 +161,11 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
                 prompt = get_prompt(
                     prompt_name,
                     version=prompt_version,
-                    query=data.query.text or "",
+                    query=query_text,
                     context=data.context,
                 )
             except Exception:
-                chunks_text = "\n".join(
-                    [f"[{i + 1}] {c.text}" for i, c in enumerate(data.chunks)]
-                )
-                prompt = (
-                    f"Context:\n{chunks_text}\n\n"
-                    f"Question: {data.query.text or ''}\nAnswer:"
-                )
+                prompt = _build_fallback_prompt()
             prompt_tokens = _estimate_tokens(prompt)
         if prompt_tokens > limit:
             data.errors.append(
@@ -169,8 +173,10 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
                 f"exceeds limit ({limit})"
             )
             data.response = AssistantMessage(
-                text="Sorry, the retrieved context is too large to process. "
-                "Please narrow your query."
+                text=(
+                    "Sorry, the retrieved context is too large "
+                    "to process. Please narrow your query."
+                )
             )
             return data
 
@@ -185,11 +191,11 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
         except Exception as e:
             data.errors.append(f"generate failed: {e}")
             data.response = AssistantMessage(
-                text="Sorry, I encountered an error generating the response."
+                text=("Sorry, I encountered an error generating the response.")
             )
             return data
 
-        if not response.tool_calls:
+        if not response or not response.tool_calls:
             break
 
         messages.append(response)
@@ -229,5 +235,8 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
         if response
         else AssistantMessage(text="Sorry, tool call loop exhausted.")
     )
-    record_metric("output_tokens", _estimate_tokens(data.response.text or ""))
+    record_metric(
+        "output_tokens",
+        _estimate_tokens(data.response.text or ""),
+    )
     return data

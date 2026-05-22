@@ -6,12 +6,13 @@ import asyncio
 import importlib.util
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import AppState, get_state
 from api.security import require_api_key
+from core.logger import get_logger
 from features.rag.manager import IndexingManager, RAGManager
 from features.rag.schemas import (
     DeleteRequest,
@@ -23,6 +24,10 @@ from features.rag.schemas import (
     QueryRequest,
     QueryResponse,
 )
+
+__all__ = ["router"]
+
+_logger = get_logger("rag.handlers")
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
@@ -37,7 +42,9 @@ def _resolve_script(name: str) -> Path:
     raise FileNotFoundError(f"Script {name!r} not found in PYTHONPATH")
 
 
-def _get_indexing_manager(state: AppState = Depends(get_state)) -> IndexingManager:
+def _get_indexing_manager(
+    state: Annotated[AppState, Depends(get_state)],
+) -> IndexingManager:
     return IndexingManager(
         chunker=state.chunker,
         embedder=state.embedder,
@@ -45,7 +52,7 @@ def _get_indexing_manager(state: AppState = Depends(get_state)) -> IndexingManag
     )
 
 
-def _get_rag_manager(state: AppState = Depends(get_state)) -> RAGManager:
+def _get_rag_manager(state: Annotated[AppState, Depends(get_state)]) -> RAGManager:
     if state.pipeline is None:
         raise HTTPException(status_code=500, detail="RAG pipeline not initialized")
     return RAGManager(
@@ -58,12 +65,14 @@ def _get_rag_manager(state: AppState = Depends(get_state)) -> RAGManager:
 
 
 @router.post(
-    "/index", response_model=IndexResponse, dependencies=[Depends(require_api_key)]
+    "/index",
+    response_model=IndexResponse,
+    dependencies=[Depends(require_api_key)],
 )
 async def index_documents(
     req: IndexRequest,
-    manager: IndexingManager = Depends(_get_indexing_manager),
-    state: AppState = Depends(get_state),
+    manager: Annotated[IndexingManager, Depends(_get_indexing_manager)],
+    state: Annotated[AppState, Depends(get_state)],
 ) -> IndexResponse:
     namespace = req.namespace or state.config.rag.default_namespace
     result = await manager.index_documents(req.documents, namespace=namespace)
@@ -78,12 +87,14 @@ async def index_documents(
 
 
 @router.post(
-    "/query", response_model=QueryResponse, dependencies=[Depends(require_api_key)]
+    "/query",
+    response_model=QueryResponse,
+    dependencies=[Depends(require_api_key)],
 )
 async def query_rag(
     req: QueryRequest,
-    manager: RAGManager = Depends(_get_rag_manager),
-    state: AppState = Depends(get_state),
+    manager: Annotated[RAGManager, Depends(_get_rag_manager)],
+    state: Annotated[AppState, Depends(get_state)],
 ) -> QueryResponse:
     cfg = state.config.rag
     # Use strict prompt by default
@@ -104,11 +115,13 @@ async def query_rag(
 
 
 @router.post(
-    "/delete", response_model=DeleteResponse, dependencies=[Depends(require_api_key)]
+    "/delete",
+    response_model=DeleteResponse,
+    dependencies=[Depends(require_api_key)],
 )
 async def delete_chunks(
     req: DeleteRequest,
-    state: AppState = Depends(get_state),
+    state: Annotated[AppState, Depends(get_state)],
 ) -> DeleteResponse:
     namespace = req.namespace or state.config.rag.default_namespace
     errors: list[str] = []
@@ -129,16 +142,19 @@ async def delete_chunks(
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
     except Exception as e:
+        _logger.warning("Delete chunks failed: %s", e)
         errors.append(str(e))
     return DeleteResponse(deleted_chunks=deleted, errors=errors)
 
 
 @router.get(
-    "/health", response_model=HealthResponse, dependencies=[Depends(require_api_key)]
+    "/health",
+    response_model=HealthResponse,
+    dependencies=[Depends(require_api_key)],
 )
 async def rag_health(
-    manager: RAGManager = Depends(_get_rag_manager),
-    state: AppState = Depends(get_state),
+    manager: Annotated[RAGManager, Depends(_get_rag_manager)],
+    state: Annotated[AppState, Depends(get_state)],
 ) -> HealthResponse:
     health = await manager.health()
     return HealthResponse(
@@ -155,24 +171,28 @@ async def rag_health(
     dependencies=[Depends(require_api_key)],
 )
 async def list_namespaces(
-    state: AppState = Depends(get_state),
+    state: Annotated[AppState, Depends(get_state)],
 ) -> NamespaceListResponse:
     index_path = getattr(state.config.vector_store, "index_path", None)
     namespaces: list[str] = []
     if index_path:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("List namespaces failed: %s", exc)
     if not namespaces:
         namespaces = ["default"]
     return NamespaceListResponse(namespaces=namespaces)
 
 
-@router.post("/save-chat", response_model=None, dependencies=[Depends(require_api_key)])
+@router.post(
+    "/save-chat",
+    response_model=None,
+    dependencies=[Depends(require_api_key)],
+)
 async def save_chat(
     req: dict[str, Any],
-    state: AppState = Depends(get_state),
+    state: Annotated[AppState, Depends(get_state)],
 ) -> dict[str, Any]:
     """Save chat content to documents folder and index it."""
     namespace = req.get("namespace", "personal")
@@ -182,7 +202,8 @@ async def save_chat(
     # Validate namespace
     if namespace not in ("personal", "work", "other"):
         raise HTTPException(
-            status_code=400, detail="Invalid namespace. Use: personal, work, other"
+            status_code=400,
+            detail="Invalid namespace. Use: personal, work, other",
         )
 
     # Validate filename: no absolute paths, no traversal
@@ -196,15 +217,15 @@ async def save_chat(
 
     # Save to documents folder
     folder = DOCUMENTS_ROOT / namespace
-    folder.mkdir(parents=True, exist_ok=True)
-    folder_resolved = folder.resolve()
+    await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
+    folder_resolved = await asyncio.to_thread(folder.resolve)
 
     file_path = (folder / filename).resolve()
     if not file_path.is_relative_to(folder_resolved):
         raise HTTPException(status_code=400, detail="Path traversal detected")
 
     try:
-        file_path.write_text(content, encoding="utf-8")
+        await asyncio.to_thread(file_path.write_text, content, encoding="utf-8")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
 
@@ -253,10 +274,14 @@ async def save_chat(
         }
 
 
-@router.post("/reindex", response_model=None, dependencies=[Depends(require_api_key)])
+@router.post(
+    "/reindex",
+    response_model=None,
+    dependencies=[Depends(require_api_key)],
+)
 async def reindex_documents(
     req: dict[str, Any],
-    state: AppState = Depends(get_state),
+    state: Annotated[AppState, Depends(get_state)],
 ) -> dict[str, Any]:
     """Reindex documents from folders. Called from UI button."""
     folder = req.get("folder")
@@ -304,7 +329,10 @@ async def reindex_documents(
                         idx = parts.index("docs,")
                         docs = int(parts[idx - 1])
                         chunks = int(parts[idx + 1])
-                        results[ns] = {"indexed": docs, "chunks": chunks}
+                        results[ns] = {
+                            "indexed": docs,
+                            "chunks": chunks,
+                        }
                     except (ValueError, IndexError):
                         pass
 

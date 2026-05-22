@@ -169,7 +169,13 @@ def print_menu(scripts, tests, last):
 def run(python, target, root, extra):
     ts = timestamp()
     if target.startswith("pytest:"):
-        cmd = [python, "-m", "pytest", target.split(":", 1)[1], "-v"] + extra
+        cmd = [
+            python,
+            "-m",
+            "pytest",
+            target.split(":", 1)[1],
+            "-v",
+        ] + extra
         print(f"\n>>> [{ts}] pytest tests")
     else:
         cmd = [python, target] + extra
@@ -217,8 +223,9 @@ def run_bg(python, target, root, extra):
     pid_file = data_dir / f"{target_path.stem}.pid"
 
     handler = _get_rotating_log(log_file)
-    # Open the log file through the handler to ensure rotation works
-    # We use the handler's stream for stdout/stderr redirection
+    # Open the log file through the handler to ensure
+    # rotation works. We use the handler's stream for
+    # stdout/stderr redirection.
     log_fp = handler.stream
 
     kwargs = {

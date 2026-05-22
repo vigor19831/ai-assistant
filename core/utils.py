@@ -16,24 +16,17 @@ try:
 except ImportError:
     tokenizers = None  # type: ignore[assignment]
 
-
-# Маппинг: имя модели в config.yaml → папка в data/tokenizers/
-_MODEL_TO_TOKENIZER: dict[str, str] = {
-    "qwen2.5": "qwen2.5",
-    "qwen2.5-7b-instruct": "qwen2.5",
-    "qwen2.5-14b-instruct": "qwen2.5",
-    "llama-3.2": "llama-3.2",
-    "llama-3.2-3b-instruct": "llama-3.2",
-    "llama-3.1": "llama-3.2",
-    "gemma-3": "gemma-3",
-    "gemma-3-4b-it": "gemma-3",
-    "gemma-3-27b-it": "gemma-3",
-}
+__all__ = [
+    "count_tokens",
+    "get_context_limit",
+    "get_tokenizer",
+    "resolve_api_key",
+]
 
 
 def resolve_api_key(config_value: str | None, env_var: str = "OPENAI_API_KEY") -> str:
     """Resolve API key from config or environment."""
-    if config_value:
+    if config_value is not None and config_value != "":
         return config_value
     key = os.getenv(env_var)
     if key:
@@ -44,24 +37,29 @@ def resolve_api_key(config_value: str | None, env_var: str = "OPENAI_API_KEY") -
 def _resolve_tokenizer_dir(model: str, local_dir: str) -> Path | None:
     """Map model name to local tokenizer directory."""
     base = Path(local_dir)
-    # Normalize: underscores ↔ dashes, lowercase
+    if not base.exists():
+        return None
+
     normalized = model.lower().strip().replace("_", "-")
 
-    # Exact match after normalization
-    for entry in base.iterdir():
-        if entry.is_dir():
+    try:
+        for entry in base.iterdir():
+            if not entry.is_dir():
+                continue
             entry_norm = entry.name.lower().replace("_", "-")
-            if entry_norm == normalized:
-                if (entry / "tokenizer.json").exists():
-                    return entry
+            if entry_norm == normalized and (entry / "tokenizer.json").exists():
+                return entry
 
-    # Partial match (e.g. qwen2.5-7b-instruct -> qwen2.5)
-    for entry in base.iterdir():
-        if entry.is_dir():
+        for entry in base.iterdir():
+            if not entry.is_dir():
+                continue
             entry_norm = entry.name.lower().replace("_", "-")
-            if entry_norm in normalized or normalized.startswith(entry_norm + "-"):
-                if (entry / "tokenizer.json").exists():
-                    return entry
+            if (
+                entry_norm in normalized or normalized.startswith(entry_norm + "-")
+            ) and (entry / "tokenizer.json").exists():
+                return entry
+    except OSError:
+        return None
 
     return None
 
@@ -73,7 +71,7 @@ def get_tokenizer(
     if tiktoken is not None:
         try:
             return tiktoken.encoding_for_model(model)
-        except Exception:
+        except KeyError:
             try:
                 return tiktoken.get_encoding("cl100k_base")
             except Exception:
@@ -110,11 +108,8 @@ def get_context_limit(llm: Any) -> int | None:
     cfg = getattr(llm, "config", None)
     if cfg is None:
         return None
-    limit = getattr(cfg, "server_context_size", None)
-    if limit is None:
-        limit = getattr(cfg, "context_size", None)
-    if limit is None:
-        limit = getattr(cfg, "max_tokens", None)
-    if isinstance(limit, (int, float)) and limit > 0:
-        return int(limit)
+    for attr in ("server_context_size", "context_size", "max_tokens"):
+        limit = getattr(cfg, attr, None)
+        if isinstance(limit, (int, float)) and limit > 0:
+            return int(limit)
     return None

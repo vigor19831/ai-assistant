@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.logger import get_logger
 from core.ports.transport import ITransport
 from core.registry import register
+
+__all__ = ["FastAPITransport"]
+
+_logger = get_logger("transport.fastapi")
 
 
 @register("transport", "fastapi")
@@ -14,17 +19,21 @@ class FastAPITransport(ITransport):
 
     def __init__(self, config: Any) -> None:
         super().__init__(config)
-        self.host: str = config.host
-        self.port: int = config.port
+        self.host: str = getattr(config, "host", "0.0.0.0")
+        self.port: int = getattr(config, "port", 8000)
+        self._server: Any | None = None
 
     async def start(self) -> None:
         import uvicorn
 
         from main import app
 
-        config = uvicorn.Config(app, host=self.host, port=self.port)
-        server = uvicorn.Server(config)
-        await server.serve()
+        _logger.info("Starting FastAPI on %s:%d", self.host, self.port)
+        uvicorn_config = uvicorn.Config(app, host=self.host, port=self.port)
+        self._server = uvicorn.Server(uvicorn_config)
+        await self._server.serve()
 
     async def stop(self) -> None:
-        pass
+        if self._server is not None:
+            _logger.info("Stopping FastAPI server")
+            self._server.should_exit = True

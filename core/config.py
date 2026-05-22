@@ -9,6 +9,23 @@ import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+__all__ = [
+    "AppConfig",
+    "ChatConfig",
+    "ChunkerConfig",
+    "CORSConfig",
+    "EmbedderConfig",
+    "LLMConfig",
+    "load_config",
+    "RAGConfig",
+    "RerankerConfig",
+    "StorageConfig",
+    "UIConfig",
+    "VectorStoreConfig",
+    "VisionConfig",
+    "VoiceConfig",
+]
+
 
 class CORSConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_CORS_", extra="allow")
@@ -189,15 +206,28 @@ class AppConfig(BaseSettings):
     @classmethod
     def _load_rag_steps(cls, v: Any) -> Any:
         if isinstance(v, dict) and "steps" in v and isinstance(v["steps"], str):
-            v["steps"] = v["steps"].split(",")
+            return {**v, "steps": v["steps"].split(",")}
         return v
 
 
-def load_config(path: str = "config.yaml") -> AppConfig:
-    """Load config from YAML, fallback to env defaults."""
+def load_config(path: str | Path = "config.yaml") -> AppConfig:
+    """Load config from YAML, fallback to env defaults.
+
+    Args:
+        path: Path to the YAML config file.
+
+    Returns:
+        Populated AppConfig instance.
+
+    Raises:
+        ValueError: If the file contains invalid YAML.
+    """
     config_path = Path(path)
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
+    if not config_path.exists():
+        return AppConfig()
+    try:
+        with config_path.open(encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        return AppConfig(**data)
-    return AppConfig()
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in {config_path}: {exc}") from exc
+    return AppConfig(**data)

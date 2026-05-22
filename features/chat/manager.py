@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import re
 from collections.abc import AsyncIterator
@@ -17,6 +18,8 @@ from core.ports.tools import ToolCall
 from core.prompts import get_prompt
 from core.utils import count_tokens, get_context_limit
 from pipeline.steps import build_context, embed_query, rerank, retrieve
+
+__all__ = ["ChatManager"]
 
 logger = get_logger("chat")
 
@@ -65,13 +68,8 @@ class ChatManager:
 
         Keeps the most recent messages that fit within the token budget.
         """
-        budget = self.max_context_tokens
-        if isinstance(budget, (int, float)) and budget > 0:
-            pass
-        else:
-            budget = get_context_limit(self.llm)
-        if not isinstance(budget, (int, float)) or budget <= 0:
-            # No tokenizer available — simple count-based fallback
+        budget = self.max_context_tokens or get_context_limit(self.llm)
+        if not budget:
             return (
                 history[-self.history_limit :]
                 if len(history) > self.history_limit
@@ -88,7 +86,6 @@ class ChatManager:
         if available <= 0:
             return []
 
-        # Walk from newest to oldest, accumulating until budget exhausted
         total = 0
         keep: list[dict[str, Any]] = []
         for h in reversed(history):
@@ -99,7 +96,6 @@ class ChatManager:
             total += tokens
             keep.append(h)
 
-        # Reverse to restore chronological order (oldest first)
         keep.reverse()
         return keep
 
@@ -113,7 +109,7 @@ class ChatManager:
 
         m = _PREFIX_RE.match(message)
         if not m:
-            return message, message, 0  # Без префикса → RAG НЕ запускается
+            return message, message, 0
 
         ns_short = m.group(1).lower()
         query_text = m.group(2)
@@ -138,7 +134,7 @@ class ChatManager:
         data = await build_context(data)
 
         if not data.context:
-            logger.debug(f"RAG skipped: no relevant chunks in {namespace}")
+            logger.debug("RAG skipped: no relevant chunks in %s", namespace)
             return query_text, query_text, 0
 
         chunks_for_prompt = json.dumps(
@@ -165,12 +161,19 @@ class ChatManager:
     ) -> AssistantMessage:
         """Process a chat message (text, image, or voice)."""
         meta = metadata or {}
-        logger.info(f"Chat request: conv={conversation_id}, msg_len={len(message)}")
+        logger.info(
+            "Chat request: conv=%s, msg_len=%d",
+            conversation_id,
+            len(message),
+        )
 
         if voice_base64:
             if self.voice_recognizer is None:
                 raise AdapterError("Voice recognizer not configured")
-            audio_bytes = base64.b64decode(voice_base64)
+            try:
+                audio_bytes = base64.b64decode(voice_base64)
+            except (binascii.Error, ValueError) as exc:
+                raise AdapterError(f"Invalid voice_base64: {exc}") from exc
             transcribed = await self.voice_recognizer.transcribe(audio_bytes)
             message = transcribed
 
@@ -180,12 +183,8 @@ class ChatManager:
         elif image_base64:
             image_payload = ImagePayload(base64_data=image_base64)
 
-        # --- RAG injection ---
-        # prompt_for_llm: текст, который уходит в LLM (может быть огромным с RAG)
-        # original_query: чистый запрос пользователя для истории
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
         record_metric("rag_chunks", rag_chunks)
-        # ---------------------
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -193,23 +192,25 @@ class ChatManager:
             metadata=meta,
         )
 
-        messages: list[Any] = [user_msg]
+        messages: list[UserMessage | AssistantMessage | dict[str, Any]] = [user_msg]
         input_tokens = self._count_tokens(prompt_for_llm or "")
 
         history: list[dict[str, Any]] = []
         if self.storage:
             try:
                 history = await self.storage.get_history(
-                    conversation_id, limit=self.history_limit
+                    conversation_id,
+                    limit=self.history_limit,
                 )
                 try:
                     history = self._trim_history(history, user_msg)
-                except Exception as e:
+                except Exception as exc:
                     logger.warning(
-                        "Token-based trim failed (%s), falling back to count-based", e
+                        "Token-based trim failed (%s), falling back to count-based",
+                        exc,
                     )
                     history = (
-                        history[: -self.history_limit]
+                        history[-self.history_limit :]
                         if len(history) > self.history_limit
                         else history
                     )
@@ -221,16 +222,23 @@ class ChatManager:
                     elif role == "assistant":
                         messages.insert(-1, AssistantMessage(text=content))
                     input_tokens += self._count_tokens(content)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("History load failed: %s", exc)
 
         response: AssistantMessage | None = None
-        for _ in range(3):
+        for attempt in range(3):
             try:
                 response = await self.llm.complete(messages)
-            except Exception as e:
-                logger.error(f"Chat failed: conv={conversation_id}, error={e}")
-                raise
+            except Exception as exc:
+                logger.error(
+                    "Chat failed (attempt %d): conv=%s, error=%s",
+                    attempt + 1,
+                    conversation_id,
+                    exc,
+                )
+                if attempt == 2:
+                    raise
+                continue
 
             if not response.tool_calls:
                 break
@@ -254,8 +262,8 @@ class ChatManager:
                             if not result.is_error
                             else f"Error: {result.error}"
                         )
-                    except Exception as e:
-                        content = f"Error: {e}"
+                    except Exception as exc:
+                        content = f"Error: {exc}"
 
                     messages.append(
                         {
@@ -282,16 +290,20 @@ class ChatManager:
         record_metric("tools_used", tools_used)
 
         logger.info(
-            f"Chat response: conv={conversation_id}, "
-            f"resp_len={len(response.text or '')}"
+            "Chat response: conv=%s, resp_len=%d",
+            conversation_id,
+            len(response.text or ""),
         )
 
         if self.storage:
             try:
-                # Сохраняем ОРИГИНАЛЬНЫЙ запрос, не RAG-промт
                 await self.storage.save_message(
                     conversation_id,
-                    {"role": "user", "content": original_query, "metadata": meta},
+                    {
+                        "role": "user",
+                        "content": original_query,
+                        "metadata": meta,
+                    },
                 )
                 await self.storage.save_message(
                     conversation_id,
@@ -301,8 +313,8 @@ class ChatManager:
                         "metadata": {},
                     },
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("History save failed: %s", exc)
 
         return response
 
@@ -315,13 +327,19 @@ class ChatManager:
         voice_base64: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """Stream chat response."""
+        """Stream chat response.
+
+        TODO: tool calls are not handled in streaming mode.
+        """
         meta = metadata or {}
 
         if voice_base64:
             if self.voice_recognizer is None:
                 raise AdapterError("Voice recognizer not configured")
-            audio_bytes = base64.b64decode(voice_base64)
+            try:
+                audio_bytes = base64.b64decode(voice_base64)
+            except (binascii.Error, ValueError) as exc:
+                raise AdapterError(f"Invalid voice_base64: {exc}") from exc
             transcribed = await self.voice_recognizer.transcribe(audio_bytes)
             message = transcribed
 
@@ -331,10 +349,8 @@ class ChatManager:
         elif image_base64:
             image_payload = ImagePayload(base64_data=image_base64)
 
-        # --- RAG injection ---
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
         record_metric("rag_chunks", rag_chunks)
-        # ---------------------
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -342,13 +358,14 @@ class ChatManager:
             metadata=meta,
         )
 
-        messages: list[Any] = [user_msg]
+        messages: list[UserMessage | AssistantMessage | dict[str, Any]] = [user_msg]
         input_tokens = self._count_tokens(prompt_for_llm or "")
 
         if self.storage:
             try:
                 history = await self.storage.get_history(
-                    conversation_id, limit=self.history_limit
+                    conversation_id,
+                    limit=self.history_limit,
                 )
                 try:
                     history = self._trim_history(history, user_msg)
@@ -366,8 +383,8 @@ class ChatManager:
                     elif role == "assistant":
                         messages.insert(-1, AssistantMessage(text=content))
                     input_tokens += self._count_tokens(content)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("History load failed: %s", exc)
 
         output_text = ""
         async for chunk in self.llm.stream(messages):
@@ -380,10 +397,13 @@ class ChatManager:
 
         if self.storage:
             try:
-                # Сохраняем оригинальный запрос, не RAG-промт
                 await self.storage.save_message(
                     conversation_id,
-                    {"role": "user", "content": original_query, "metadata": meta},
+                    {
+                        "role": "user",
+                        "content": original_query,
+                        "metadata": meta,
+                    },
                 )
                 await self.storage.save_message(
                     conversation_id,
@@ -393,5 +413,5 @@ class ChatManager:
                         "metadata": {},
                     },
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("History save failed: %s", exc)

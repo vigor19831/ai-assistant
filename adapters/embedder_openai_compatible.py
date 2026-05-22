@@ -12,6 +12,8 @@ from core.registry import register
 from core.retry import with_retry
 from core.utils import resolve_api_key
 
+__all__ = ["OpenAICompatibleEmbedder"]
+
 
 @register("embedder", "openai_compatible")
 class OpenAICompatibleEmbedder(IEmbedder):
@@ -25,14 +27,20 @@ class OpenAICompatibleEmbedder(IEmbedder):
             getattr(config, "api_key", None), "OPENAI_API_KEY"
         )
         self._dim: int = getattr(config, "dim", 1536)
-        self._timeout: float = config.timeout
+        self._timeout: float = getattr(config, "timeout", 60.0)
 
     @property
     def dimension(self) -> int:
         return self._dim
 
-    @with_retry(max_retries=3, delay=1.0)
+    @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Request embeddings from remote API.
+
+        Raises:
+            AdapterError: On dimension mismatch.
+            httpx.HTTPStatusError: On non-2xx response (after retries).
+        """
         if not texts:
             return []
         url = f"{self.api_base}/embeddings"
@@ -48,9 +56,14 @@ class OpenAICompatibleEmbedder(IEmbedder):
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
-        embeddings = [item["embedding"] for item in data["data"]]
 
-        # Validate dimension consistency
+        try:
+            embeddings = [item["embedding"] for item in data["data"]]
+        except (KeyError, TypeError) as exc:
+            raise AdapterError(
+                f"Unexpected response shape from {self.model!r}: {exc}"
+            ) from exc
+
         for i, emb in enumerate(embeddings):
             if len(emb) != self._dim:
                 raise AdapterError(

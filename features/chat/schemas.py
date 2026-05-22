@@ -1,11 +1,10 @@
-# features/chat/schemas.py
 """Chat feature Pydantic schemas."""
 
 from __future__ import annotations
 
-from typing import Any
+import binascii
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ChatRequest(BaseModel):
@@ -19,7 +18,19 @@ class ChatRequest(BaseModel):
     image_base64: str | None = None
     voice_base64: str | None = None
     stream: bool = False
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("image_base64", "voice_base64")
+    @classmethod
+    def _validate_base64(cls, v: str | None) -> str | None:
+        """Validate base64-encoded payload."""
+        if v is None:
+            return None
+        try:
+            binascii.a2b_base64(v.encode())
+        except binascii.Error as exc:
+            raise ValueError("Invalid base64 encoding") from exc
+        return v
 
 
 class ChatResponse(BaseModel):
@@ -28,7 +39,7 @@ class ChatResponse(BaseModel):
     message: str
     conversation_id: str
     role: str = "assistant"
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class ChatStreamChunk(BaseModel):
@@ -96,3 +107,17 @@ class OAIModel(BaseModel):
 class OAIModelList(BaseModel):
     object: str = "list"
     data: list[OAIModel]
+
+
+__all__ = [
+    "ChatRequest",
+    "ChatResponse",
+    "ChatStreamChunk",
+    "OAIChatMessage",
+    "OAIChatCompletionRequest",
+    "OAIChoice",
+    "OAIChatCompletion",
+    "OAIDeltaChunk",
+    "OAIModel",
+    "OAIModelList",
+]

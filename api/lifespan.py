@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
 from api.deps import init_adapters
 from core.config import AppConfig, load_config
-from core.logger import get_logger
+from core.logger import get_logger, setup_logging
 from core.metrics import get_metrics_logger
 from core.registry import create as registry_create  # noqa: F401 — для тестируемости
+
+__all__ = ["lifespan"]
 
 logger = get_logger("lifespan")
 
@@ -27,50 +31,62 @@ def _load_config() -> AppConfig:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle."""
     config = _load_config()
+    setup_logging(
+        level="DEBUG" if config.debug else "INFO",
+        log_file=getattr(config, "log_file", "./data/app.log"),
+    )
     get_metrics_logger().start()
     state = await init_adapters(config)
-    # Сохраняем state в app для доступа через request.app.state
     app.state.app_state = state
 
-    # Write PID file for stop.py
-    import os
-    from pathlib import Path
-
     pid_file = Path("data/server.pid")
-    pid_file.parent.mkdir(parents=True, exist_ok=True)
-    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(pid_file.write_text, str(os.getpid()), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Failed to write PID file: %s", exc)
 
-    yield
+    try:
+        yield
+    finally:
+        await _async_cleanup(app, config)
+        _cleanup(app, config, pid_file)
 
-    state = getattr(app.state, "app_state", state)
 
-    # Clean up PID file
-    pid_file = Path("data/server.pid")
+def _cleanup(app: FastAPI, config: AppConfig, pid_file: Path) -> None:
+    """Synchronous cleanup actions."""
     if pid_file.exists():
-        pid_file.unlink(missing_ok=True)
+        try:
+            pid_file.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Failed to remove PID file: %s", exc)
+
+
+async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
+    """Async cleanup actions."""
+    state = getattr(app.state, "app_state", None)
+    if state is None:
+        logger.warning("No app state found during shutdown")
+        await get_metrics_logger().stop()
+        return
 
     await get_metrics_logger().stop()
 
-    try:
-        if state.llm and hasattr(state.llm, "shutdown"):
+    for attr, name in (
+        (state.llm, "llm"),
+        (state.embedder, "embedder"),
+    ):
+        if attr and hasattr(attr, "shutdown"):
             try:
-                await state.llm.shutdown()
-            except Exception as e:
-                logger.warning("LLM shutdown failed: %s", e)
-
-        if state.embedder and hasattr(state.embedder, "shutdown"):
-            try:
-                await state.embedder.shutdown()
-            except Exception as e:
-                logger.warning("Embedder shutdown failed: %s", e)
-
-        index_path = getattr(config.vector_store, "index_path", None)
-        if index_path and state.vector_store:
-            try:
-                namespaces = await state.vector_store.list_namespaces(index_path)
-                for ns in namespaces:
-                    await state.vector_store.save(index_path, namespace=ns)
+                await attr.shutdown()
             except Exception as exc:
-                logger.warning("Index save failed: %s", exc)
-    except RuntimeError:
-        pass
+                logger.warning("%s shutdown failed: %s", name, exc)
+
+    index_path = getattr(config.vector_store, "index_path", None)
+    if index_path and state.vector_store:
+        try:
+            namespaces = await state.vector_store.list_namespaces(index_path)
+            for ns in namespaces:
+                await state.vector_store.save(index_path, namespace=ns)
+        except Exception as exc:
+            logger.warning("Index save failed: %s", exc)

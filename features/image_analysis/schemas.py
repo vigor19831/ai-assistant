@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+__all__ = ["AnalyzeRequest", "AnalyzeResponse"]
+
 
 class AnalyzeRequest(BaseModel):
     image_base64: str | None = None

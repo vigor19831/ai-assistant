@@ -8,7 +8,12 @@ from typing import Any
 from core.domain.documents import Chunk, Document
 from core.domain.messages import UserMessage
 from core.domain.pipeline import PipelineData
+from core.logger import get_logger
 from core.pipeline import RAGPipeline
+
+__all__ = ["IndexingManager", "RAGManager", "NO_INFO_PHRASES"]
+
+_logger = get_logger("rag.manager")
 
 NO_INFO_PHRASES = [
     "не достаточно",
@@ -163,7 +168,7 @@ class RAGManager:
         sources = []
         if result.chunks and not self._is_no_info_answer(answer):
             for c in result.chunks:
-                meta = c.metadata.custom if c.metadata and c.metadata.custom else {}
+                meta = c.metadata.custom if c.metadata else {}
                 sources.append(
                     {
                         "chunk_id": c.id,
@@ -184,14 +189,16 @@ class RAGManager:
         total_chunks = 0
         try:
             index_path = getattr(
-                self.vector_store.config, "index_path", "./data/indices"
+                self.vector_store.config,
+                "index_path",
+                "./data/indices",
             )
             namespaces = await self.vector_store.list_namespaces(index_path)
             for ns in namespaces:
                 chunks = await self.vector_store.list_by_filter({}, namespace=ns)
                 total_chunks += len(chunks)
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("RAG health check failed: %s", exc)
 
         return {
             "status": "ok",

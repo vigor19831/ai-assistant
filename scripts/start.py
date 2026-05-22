@@ -25,24 +25,44 @@ LLAMA_SERVER_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
 _spawned_procs: list[subprocess.Popen[Any]] = []
 
 
+def _kill_process_tree(pid: int) -> None:
+    """Kill a process and all its children. Works on Windows and Unix."""
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+            )
+        else:
+            import psutil
+            parent = psutil.Process(pid)
+            for child in parent.children(recursive=True):
+                child.kill()
+            parent.kill()
+    except Exception:
+        pass
+
+
 def _cleanup_servers() -> None:
     """Terminate all spawned llama-server processes on exit."""
-    for proc in _spawned_procs:
+    # Fallback: kill by PID file if the in-memory list is stale
+    project_root = Path(__file__).parent.parent
+    pid_file = project_root / "data" / "llama-server.pid"
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            _kill_process_tree(pid)
+        except Exception:
+            pass
+        pid_file.unlink(missing_ok=True)
+
+    for proc in list(_spawned_procs):
         if proc.poll() is None:
-            try:
-                if os.name == "nt":
-                    proc.send_signal(signal.CTRL_BREAK_EVENT)
-                    time.sleep(1.0)
-                    if proc.poll() is None:
-                        proc.kill()
-                else:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=3.0)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-            except Exception:
-                pass
+            _kill_process_tree(proc.pid)
+        try:
+            _spawned_procs.remove(proc)
+        except ValueError:
+            pass
 
 
 def is_port_in_use(port: int, host: str = "127.0.0.1") -> bool:
@@ -148,6 +168,7 @@ def _start_llama_server(
     extra_args: list[str] | None = None,
 ) -> subprocess.Popen[Any] | None:
     """Start llama-server as a background process."""
+    project_root = Path(__file__).parent.parent
 
     if is_port_in_use(port):
         print(f"[start] Port {port} already in use — assuming server is running")
@@ -204,6 +225,9 @@ def _start_llama_server(
     try:
         proc = subprocess.Popen(cmd, **kwargs)
         _spawned_procs.append(proc)
+        # Persist PID so stop.py / launcher can kill us even if this process crashes
+        pid_file = project_root / "data" / "llama-server.pid"
+        pid_file.write_text(str(proc.pid), encoding="utf-8")
 
         if wait_for_port(port, timeout=60.0):
             print(f"[start] {LLAMA_SERVER_EXE} ready on port {port} (PID {proc.pid})")

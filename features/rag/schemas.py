@@ -6,15 +6,29 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+__all__ = [
+    "DeleteRequest",
+    "DeleteResponse",
+    "HealthResponse",
+    "IndexRequest",
+    "IndexResponse",
+    "NamespaceListResponse",
+    "QueryRequest",
+    "QueryResponse",
+    "SaveChatRequest",
+]
+
 
 class IndexRequest(BaseModel):
     """Request to index documents."""
 
     documents: list[dict[str, Any]] = Field(
-        ..., description="List of {id, content, metadata} objects"
+        ...,
+        description="List of {id, content, metadata} objects",
     )
     namespace: str | None = Field(
-        default=None, description="Index namespace (default, personal, work, etc.)"
+        default=None,
+        description="Index namespace (default, personal, work, etc.)",
     )
 
 
@@ -74,3 +88,19 @@ class NamespaceListResponse(BaseModel):
     """Available RAG namespaces."""
 
     namespaces: list[str]
+
+
+class SaveChatRequest(BaseModel):
+    """Request to save chat content to documents folder."""
+
+    content: str = Field(..., min_length=1, description="Chat content to save")
+    namespace: str = Field(
+        default="personal",
+        pattern=r"^(personal|work|other)$",
+        description="Target namespace",
+    )
+    filename: str = Field(
+        default="chat.md",
+        pattern=r"^[^/\\][^\\]*$",
+        description="Filename without path traversal",
+    )

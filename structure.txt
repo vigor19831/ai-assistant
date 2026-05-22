@@ -1,13 +1,13 @@
 # Project Structure
-**Generated:** 2026-05-21T23:27:25.427211
+**Generated:** 2026-05-22T13:40:21.801874
 **Root:** `D:\ai`
 
 ## Summary
 | Metric | Value |
 |--------|-------|
-| Total files | 130 |
-| Python files | 102 |
-| Python LOC | 12,470 |
+| Total files | 133 |
+| Python files | 105 |
+| Python LOC | 12,902 |
 | Total size | 7.9 GB |
 
 ```
@@ -153,6 +153,9 @@
 │   ├── test_malformed_sse.py
 │   ├── test_metrics.py
 │   ├── test_rag_pipeline.py
+│   ├── test_resilience.py
+│   ├── test_scripts_and_platform.py
+│   ├── test_security.py
 │   ├── test_stress.py
 │   └── test_tokenizer.py
 ├── vendor

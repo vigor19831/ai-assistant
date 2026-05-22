@@ -7,6 +7,8 @@ from typing import Any
 
 from core.domain.documents import Chunk, Document
 
+__all__ = ["IChunker"]
+
 
 class IChunker(ABC):
     """Split documents into chunks."""

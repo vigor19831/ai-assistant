@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import argparse
+import errno
+import logging
 import shutil
 import sys
 import tempfile
@@ -62,6 +64,19 @@ SYSTEM_TEMP_PATTERNS: list[str] = ["tmp_*", "test.db", "pytest-*"]
 
 
 # ── Логика ──
+
+
+def _close_file_handlers() -> None:
+    """Close all FileHandler streams so we can delete our own log files."""
+    for logger in [logging.getLogger()] + [
+        l
+        for l in logging.Logger.manager.loggerDict.values()
+        if isinstance(l, logging.Logger)
+    ]:
+        for handler in getattr(logger, "handlers", [])[:]:
+            if isinstance(handler, logging.FileHandler):
+                handler.close()
+                logger.removeHandler(handler)
 
 
 def find_targets(root: Path, patterns: list[str]) -> list[Path]:
@@ -127,17 +142,25 @@ def format_size(path: Path | int) -> str:
     return f"{size:.1f} TB"
 
 
-def delete_target(path: Path) -> bool:
-    """Удалить файл или директорию."""
+def delete_target(path: Path) -> tuple[bool, bool]:
+    """Удалить файл или директорию. Returns (success, is_locked)."""
     try:
         if path.is_file() or path.is_symlink():
             path.unlink()
         elif path.is_dir():
             shutil.rmtree(path)
-        return True
+        return True, False
+    except PermissionError as e:
+        # Windows: файл занят другим процессом (сервер запущен)
+        winerr = getattr(e, "winerror", None)
+        if winerr == 32 or e.errno == errno.EACCES:
+            print(f"  [SKIP] {path}: locked by running process")
+            return False, True
+        print(f"  [ERROR] {path}: {e}")
+        return False, False
     except Exception as e:
         print(f"  [ERROR] {path}: {e}")
-        return False
+        return False, False
 
 
 def print_section(title: str, targets: list[Path], root: Path | None = None) -> None:
@@ -199,20 +222,26 @@ def main() -> int:
         print("Команда: python scripts/clean_cache.py --clean")
         return 0
 
+    _close_file_handlers()
+
     print(f"\n{'=' * 60}")
     print("Удаление...")
     deleted = 0
+    skipped = 0
     failed = 0
     for target in all_targets:
-        if delete_target(target):
-            rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
+        ok, locked = delete_target(target)
+        rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
+        if ok:
             print(f"  [OK]   {rel}")
             deleted += 1
+        elif locked:
+            skipped += 1
         else:
             failed += 1
 
     print(f"{'=' * 60}")
-    print(f"Удалено: {deleted}, ошибок: {failed}")
+    print(f"Удалено: {deleted}, пропущено (занято): {skipped}, ошибок: {failed}")
     return 0 if failed == 0 else 1
 
 

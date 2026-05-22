@@ -7,6 +7,8 @@ from typing import Any
 
 from core.domain.documents import Chunk
 
+__all__ = ["IVectorStore"]
+
 
 class IVectorStore(ABC):
     """Vector storage with FAISS-like semantics."""
@@ -21,7 +23,10 @@ class IVectorStore(ABC):
 
     @abstractmethod
     async def search(
-        self, query_embedding: list[float], top_k: int = 5, namespace: str = "default"
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        namespace: str = "default",
     ) -> list[Chunk]:
         """Search by embedding in a namespace."""
         ...
@@ -43,9 +48,11 @@ class IVectorStore(ABC):
 
     @abstractmethod
     async def list_by_filter(
-        self, filter: dict[str, Any], namespace: str = "default"
+        self,
+        filters: dict[str, Any],
+        namespace: str = "default",
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Return (chunk_id, metadata) matching ALL filter key-values in namespace."""
+        """Return (chunk_id, metadata) matching ALL filters key-values in namespace."""
         ...
 
     @abstractmethod

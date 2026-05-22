@@ -8,6 +8,8 @@ from core.domain.documents import Chunk
 from core.ports.reranker import IReranker, RerankResult
 from core.registry import register
 
+__all__ = ["DummyReranker"]
+
 
 @register("reranker", "dummy")
 class DummyReranker(IReranker):

@@ -1,7 +1,11 @@
 """Adapter registry — sacred, immutable."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from typing import Any
+
+__all__ = ["create", "list_adapters", "register"]
 
 _registry: dict[str, dict[str, Callable[..., Any]]] = {}
 

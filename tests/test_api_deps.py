@@ -231,7 +231,8 @@ class TestInitAdapters:
 
     @pytest.mark.asyncio
     async def test_idempotent_init(self, minimal_config):
-        """Multiple calls to init_adapters should return same state without re-creating adapters."""
+        """Multiple calls to init_adapters should return same state
+        without re-creating adapters."""
         call_count = {"count": 0}
 
         def counting_registry_create(port: str, name: str, config: Any) -> Any:

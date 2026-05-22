@@ -1,4 +1,4 @@
-"""Tool port — external capabilities (calculator, search, APIs, code execution).
+"""Tool port — external capabilities (calculator, search, APIs, code execution.
 
 This enables the LLM to call external tools, similar to OpenAI function calling
 but framework-agnostic. ToolRegistry manages available tools; ITool is the
@@ -15,6 +15,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+__all__ = [
+    "ITool",
+    "IToolRegistry",
+    "ToolCall",
+    "ToolResult",
+    "ToolSpec",
+]
 
 
 @dataclass(frozen=True)
@@ -52,6 +60,9 @@ class ToolResult:
 class ITool(ABC):
     """Single tool implementation."""
 
+    def __init__(self, config: Any) -> None:
+        self.config = config
+
     @property
     @abstractmethod
     def spec(self) -> ToolSpec:
@@ -59,8 +70,14 @@ class ITool(ABC):
         ...
 
     @abstractmethod
-    async def execute(self, arguments: dict[str, Any]) -> ToolResult:
-        """Execute the tool with given arguments."""
+    async def execute(self, call_id: str, arguments: dict[str, Any]) -> ToolResult:
+        """Execute the tool with given arguments.
+
+        Args:
+            call_id: Unique identifier for this tool call,
+                must be propagated into the returned ToolResult.
+            arguments: Tool arguments parsed from LLM response.
+        """
         ...
 
 
@@ -89,5 +106,9 @@ class IToolRegistry(ABC):
 
     @abstractmethod
     async def dispatch(self, call: ToolCall) -> ToolResult:
-        """Execute a tool call by dispatching to the registered tool."""
+        """Execute a tool call by dispatching to the registered tool.
+
+        Implementations must propagate *call.call_id* into the returned
+        ToolResult by passing it to *tool.execute(call_id, ...)*.
+        """
         ...

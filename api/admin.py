@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from api.deps import AppState, get_state
 
+__all__ = ["router"]
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 

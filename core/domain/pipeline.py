@@ -8,6 +8,8 @@ from typing import Any
 from .documents import Chunk
 from .messages import AssistantMessage, UserMessage
 
+__all__ = ["PipelineData"]
+
 
 @dataclass
 class PipelineData:

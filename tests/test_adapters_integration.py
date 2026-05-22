@@ -592,19 +592,19 @@ class TestCalculator:
     )
     @pytest.mark.asyncio
     async def test_operations(self, calc, op, a, b, expected):
-        result = await calc.execute({"operation": op, "a": a, "b": b})
+        result = await calc.execute("call-1", {"operation": op, "a": a, "b": b})
         assert result.is_error is False
         assert str(expected) in result.output
 
     @pytest.mark.asyncio
     async def test_divide_by_zero(self, calc):
-        result = await calc.execute({"operation": "divide", "a": 10, "b": 0})
+        result = await calc.execute("call-2", {"operation": "divide", "a": 10, "b": 0})
         assert result.is_error is True
         assert "zero" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_unknown_operation(self, calc):
-        result = await calc.execute({"operation": "power", "a": 2, "b": 3})
+        result = await calc.execute("call-3", {"operation": "power", "a": 2, "b": 3})
         assert result.is_error is True
         assert "Unknown" in result.error
 

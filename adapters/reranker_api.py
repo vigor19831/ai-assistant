@@ -7,10 +7,13 @@ from typing import Any
 import httpx
 
 from core.domain.documents import Chunk
+from core.domain.errors import AdapterError
 from core.ports.reranker import IReranker, RerankResult
 from core.registry import register
 from core.retry import with_retry
 from core.utils import resolve_api_key
+
+__all__ = ["APIReranker"]
 
 
 @register("reranker", "api")
@@ -33,9 +36,12 @@ class APIReranker(IReranker):
         self._timeout: float = getattr(config, "timeout", 30.0)
         self._threshold: float = getattr(config, "threshold", 0.3)
 
-    @with_retry(max_retries=2, delay=1.0)
+    @with_retry(max_retries=2, delay=1.0, jitter=True, max_delay=15.0)
     async def rerank(
-        self, query: str, chunks: list[Chunk], top_k: int | None = None
+        self,
+        query: str,
+        chunks: list[Chunk],
+        top_k: int | None = None,
     ) -> list[RerankResult]:
         """Rerank chunks via API and filter by relevance threshold."""
         if not chunks:
@@ -46,9 +52,7 @@ class APIReranker(IReranker):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        docs = [c.text for c in chunks if c.text]
-        if not docs:
-            return []
+        docs = [c.text for c in chunks]
         payload = {
             "model": self.model,
             "query": query,
@@ -62,17 +66,22 @@ class APIReranker(IReranker):
             resp.raise_for_status()
             data = resp.json()
 
-        # Map API results back to chunks
+        try:
+            raw_results = data["results"]
+        except (KeyError, TypeError) as exc:
+            raise AdapterError(f"Unexpected rerank response shape: {exc}") from exc
+
         results: list[RerankResult] = []
-        for item in data.get("results", []):
-            idx = item.get("index", 0)
-            score = item.get("relevance_score", 0.0)
-            if idx < len(chunks) and score >= self._threshold:
+        for item in raw_results:
+            try:
+                idx = int(item["index"])
+                score = float(item["relevance_score"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if 0 <= idx < len(chunks) and score >= self._threshold:
                 results.append(RerankResult(chunk=chunks[idx], score=score))
 
-        # Sort by score descending (API usually returns sorted, but ensure)
         results.sort(key=lambda r: r.score, reverse=True)
-
         if top_k is not None:
             results = results[:top_k]
 

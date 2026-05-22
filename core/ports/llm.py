@@ -8,21 +8,25 @@ from typing import Any
 
 from core.domain.messages import AssistantMessage, UserMessage
 
+Message = UserMessage | AssistantMessage | dict[str, Any]
+
+__all__ = ["ILLM", "Message"]
+
 
 class ILLM(ABC):
     """Language model interface."""
+
+    system_message: str | None = None
 
     def __init__(self, config: Any) -> None:
         self.config = config
 
     @abstractmethod
     async def complete(
-        self, messages: list[UserMessage | AssistantMessage], **kwargs: Any
+        self, messages: list[Message], **kwargs: Any
     ) -> AssistantMessage:
         """Non-streaming completion."""
         ...
 
     @abstractmethod
-    def stream(
-        self, messages: list[UserMessage | AssistantMessage], **kwargs: Any
-    ) -> AsyncIterator[str]: ...
+    def stream(self, messages: list[Message], **kwargs: Any) -> AsyncIterator[str]: ...

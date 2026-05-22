@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 from typing import Any
 
 import httpx
 
+from core.logger import get_logger
 from core.ports.voice import IVoiceSynthesizer
 from core.registry import register
+
+__all__ = ["PiperRealSynthesizer", "PiperSynthesizer"]
+
+_logger = get_logger("voice.piper")
 
 
 @register("voice_synthesizer", "piper")
@@ -20,7 +26,8 @@ class PiperSynthesizer(IVoiceSynthesizer):
         super().__init__(config)
 
     async def synthesize(self, text: str, voice: str | None = None) -> bytes:
-        return b""  # silent placeholder — TTS not configured
+        _logger.warning("TTS synthesize called but Piper is not configured")
+        return b""
 
 
 @register("voice_synthesizer", "piper_real")
@@ -44,11 +51,11 @@ class PiperRealSynthesizer(IVoiceSynthesizer):
                     resp = await client.get(f"{self.api_base}/health")
                     self._available = resp.status_code < 500
                     return self._available
-            except Exception:
-                pass
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception as exc:
+                _logger.debug("Piper HTTP health check failed: %s", exc)
         if self.local_bin:
-            import shutil
-
             self._available = shutil.which(self.local_bin) is not None
             return self._available
         self._available = False
@@ -67,8 +74,10 @@ class PiperRealSynthesizer(IVoiceSynthesizer):
                     )
                     resp.raise_for_status()
                     return resp.content
-            except Exception:
-                pass
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception as exc:
+                _logger.warning("Piper HTTP synthesis failed: %s", exc)
 
         if self.local_bin and self.model_path:
             try:
@@ -82,12 +91,30 @@ class PiperRealSynthesizer(IVoiceSynthesizer):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-                stdout, _ = await asyncio.wait_for(
-                    proc.communicate(text.encode()),
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(input=text.encode()),
                     timeout=self._timeout,
                 )
+                if proc.returncode != 0:
+                    _logger.warning(
+                        "Piper subprocess failed (rc=%d): %s",
+                        proc.returncode,
+                        stderr.decode().strip(),
+                    )
+                    return b""
                 return stdout
-            except Exception:
-                pass
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except TimeoutError:
+                _logger.warning(
+                    "Piper subprocess timed out after %.1fs",
+                    self._timeout,
+                )
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+            except Exception as exc:
+                _logger.warning("Piper subprocess failed: %s", exc)
 
         return b""

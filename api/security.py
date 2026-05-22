@@ -14,6 +14,20 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from core.logger import get_logger
+
+__all__ = [
+    "APIKeyMiddleware",
+    "apply_rate_limit",
+    "check_request_size",
+    "get_expected_api_key",
+    "LimitMiddleware",
+    "require_api_key",
+    "SECURITY_MAX_BODY",
+]
+
+_logger = get_logger("security")
+
 CONFIG_PATH = Path("config.yaml")
 SECURITY_MAX_BODY = 10_485_760
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -32,9 +46,16 @@ class SecurityLimiter:
         cfg = _load_security_cfg()
         rate_str = cfg.get("rate_limit", "100/minute")
         try:
-            self.max_req, period = int(rate_str.split("/")[0]), rate_str.split("/")[1]
+            self.max_req, period = (
+                int(rate_str.split("/")[0]),
+                rate_str.split("/")[1],
+            )
             self.window = 60.0 if period == "minute" else 1.0
-        except Exception:
+        except (ValueError, IndexError):
+            _logger.warning(
+                "Invalid rate_limit format %r, using default 100/minute",
+                rate_str,
+            )
             self.max_req, self.window = 100, 60.0
 
     def is_allowed(self, ip: str) -> bool:
@@ -63,7 +84,9 @@ class LimitMiddleware(BaseHTTPMiddleware):
         ip = request.client.host if request.client else "unknown"
         if not limiter.is_allowed(ip):
             return Response(
-                "Rate limit exceeded", status_code=429, media_type="text/plain"
+                "Rate limit exceeded",
+                status_code=429,
+                media_type="text/plain",
             )
         return await call_next(request)
 
@@ -72,7 +95,16 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     """Enforce API key on every request except public paths."""
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
-        public_paths = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        public_paths = {
+            "/",
+            "/health",
+            "/docs",
+            "/openapi.json",
+            "/redoc",
+        }
         path = request.url.path
         if path in public_paths or path.startswith(("/docs/", "/redoc")):
             return await call_next(request)
@@ -80,16 +112,26 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         expected = get_expected_api_key()
         if not expected:
             return Response(
-                "API key not configured", status_code=401, media_type="text/plain"
+                "API key not configured",
+                status_code=401,
+                media_type="text/plain",
             )
 
         auth = request.headers.get("Authorization", "")
         if not auth:
-            return Response("Missing API key", status_code=401, media_type="text/plain")
+            return Response(
+                "Missing API key",
+                status_code=401,
+                media_type="text/plain",
+            )
 
         scheme, _, token = auth.partition(" ")
         if scheme.lower() != "bearer" or token != expected:
-            return Response("Invalid API key", status_code=401, media_type="text/plain")
+            return Response(
+                "Invalid API key",
+                status_code=401,
+                media_type="text/plain",
+            )
 
         return await call_next(request)
 

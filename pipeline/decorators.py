@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import threading
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+__all__ = ["get_step", "step"]
+
 _step_registry: dict[str, Callable[..., Awaitable[Any]]] = {}
+_lock: threading.Lock = threading.Lock()
 
 
 def step(
@@ -21,7 +26,13 @@ def step(
     """
 
     def decorator(fn: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
-        _step_registry[name] = fn
+        with _lock:
+            if name in _step_registry:
+                warnings.warn(
+                    f"Step {name!r} already registered; overwriting",
+                    stacklevel=2,
+                )
+            _step_registry[name] = fn
         return fn
 
     return decorator
@@ -39,6 +50,7 @@ def get_step(name: str) -> Callable[..., Awaitable[Any]]:
     Raises:
         ValueError: If step not found.
     """
-    if name not in _step_registry:
-        raise ValueError(f"Unknown step: {name}")
-    return _step_registry[name]
+    with _lock:
+        if name not in _step_registry:
+            raise ValueError(f"Unknown step: {name}")
+        return _step_registry[name]

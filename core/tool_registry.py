@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import warnings
+
+from core.logger import get_logger
 from core.ports.tools import ITool, IToolRegistry, ToolCall, ToolResult, ToolSpec
+
+__all__ = ["ToolRegistry"]
+
+_logger = get_logger("tool_registry")
 
 
 class ToolRegistry(IToolRegistry):
@@ -13,10 +20,18 @@ class ToolRegistry(IToolRegistry):
 
     def register(self, tool: ITool) -> None:
         """Add a tool to registry."""
-        self._tools[tool.spec.name] = tool
+        name = tool.spec.name
+        if name in self._tools:
+            warnings.warn(
+                f"Tool '{name}' already registered; overwriting",
+                stacklevel=2,
+            )
+        self._tools[name] = tool
 
     def unregister(self, name: str) -> None:
         """Remove a tool from registry."""
+        if name not in self._tools:
+            _logger.warning("Unregister unknown tool: %s", name)
         self._tools.pop(name, None)
 
     def list_tools(self) -> list[ToolSpec]:
@@ -38,7 +53,9 @@ class ToolRegistry(IToolRegistry):
                 is_error=True,
             )
         try:
-            return await tool.execute(call.arguments)
+            return await tool.execute(call.call_id, call.arguments)
+        except (SystemExit, KeyboardInterrupt):
+            raise
         except Exception as e:
             return ToolResult(
                 call_id=call.call_id,

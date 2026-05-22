@@ -8,9 +8,13 @@ from typing import Any
 from core.ports.embedder import IEmbedder
 from core.registry import register
 
+__all__ = ["MockEmbedder"]
+
 
 @register("embedder", "mock")
 class MockEmbedder(IEmbedder):
+    """Deterministic fake embedder for testing."""
+
     def __init__(self, config: Any) -> None:
         super().__init__(config)
         self._dim: int = config.dim
@@ -20,7 +24,8 @@ class MockEmbedder(IEmbedder):
         return self._dim
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        return [
-            [random.Random(t + str(i)).random() for i in range(self._dim)]
-            for t in texts
-        ]
+        result: list[list[float]] = []
+        for t in texts:
+            rng = random.Random(abs(hash(t)))
+            result.append([rng.random() for _ in range(self._dim)])
+        return result
