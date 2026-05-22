@@ -6,6 +6,8 @@ If not installed, all tests are skipped gracefully.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 try:
@@ -127,13 +129,12 @@ class TestFuzzEmbedder:
             max_size=10,
         )
     )
-    @pytest.mark.asyncio
-    async def test_embedder_binary_like_texts(self, texts: list[str]):
+    def test_embedder_binary_like_texts(self, texts: list[str]):
         if not _HYPOTHESIS_AVAILABLE:
             pytest.skip("hypothesis not installed")
         cfg = type("C", (), {"dim": 128})()
         embedder = MockEmbedder(cfg)
-        result = await embedder.embed(texts)
+        result = asyncio.run(embedder.embed(texts))
         assert len(result) == len(texts)
 
 
@@ -152,20 +153,23 @@ class TestFuzzStorage:
             unique_by=lambda x: x[0],
         )
     )
-    @pytest.mark.asyncio
-    async def test_settings_roundtrip(self, pairs: list[tuple[str, str]]):
+    def test_settings_roundtrip(self, pairs: list[tuple[str, str]]):
         if not _HYPOTHESIS_AVAILABLE:
             pytest.skip("hypothesis not installed")
         import tempfile
 
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             cfg = type("C", (), {"db_path": f"{tmpdir}/test.db"})()
             storage = SQLiteStorage(cfg)
-            await storage.init_db()
-            for key, value in pairs:
-                await storage.set(key, value)
-                got = await storage.get(key)
-                assert got == value
+
+            async def _run() -> None:
+                await storage.init_db()
+                for key, value in pairs:
+                    await storage.set(key, value)
+                    got = await storage.get(key)
+                    assert got == value
+
+            asyncio.run(_run())
 
     @seed(42)
     @given(
@@ -176,21 +180,24 @@ class TestFuzzStorage:
             max_size=20,
         )
     )
-    @pytest.mark.asyncio
-    async def test_settings_dict_roundtrip(self, data: dict[str, str]):
+    def test_settings_dict_roundtrip(self, data: dict[str, str]):
         if not _HYPOTHESIS_AVAILABLE:
             pytest.skip("hypothesis not installed")
         import tempfile
 
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir:
             cfg = type("C", (), {"db_path": f"{tmpdir}/test.db"})()
             storage = SQLiteStorage(cfg)
-            await storage.init_db()
-            for key, value in data.items():
-                await storage.set(key, value)
-            for key, value in data.items():
-                got = await storage.get(key)
-                assert got == value
+
+            async def _run() -> None:
+                await storage.init_db()
+                for key, value in data.items():
+                    await storage.set(key, value)
+                for key, value in data.items():
+                    got = await storage.get(key)
+                    assert got == value
+
+            asyncio.run(_run())
 
 
 # ── Pipeline fuzzing ──

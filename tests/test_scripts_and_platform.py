@@ -180,6 +180,7 @@ class TestCheckScripts:
 
     def test_check_llm_no_config(self, tmp_path, monkeypatch):
         import check_llm
+
         monkeypatch.setattr(check_llm, "root", tmp_path)
         monkeypatch.setattr(check_llm, "cfg_path", tmp_path / "config.yaml")
         assert not check_llm.cfg_path.exists()

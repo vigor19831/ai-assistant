@@ -154,6 +154,9 @@ class SQLiteMemory(ILongTermMemory):
                         )
                         rows = list(await cur.fetchall())
                     except sqlite3.OperationalError:
+                        rows = []
+                    # Fallback: some SQLite builds return empty FTS5 results
+                    if not rows:
                         cur = await conn.execute(
                             """SELECT * FROM memories
                                WHERE user_id = ? AND content LIKE ?
@@ -170,7 +173,7 @@ class SQLiteMemory(ILongTermMemory):
                            LIMIT ?""",
                         (user_id, f"%{query}%", limit),
                     )
-                rows = list(await cur.fetchall())
+                    rows = list(await cur.fetchall())
             else:
                 cur = await conn.execute(
                     """SELECT * FROM memories

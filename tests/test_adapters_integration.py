@@ -6,7 +6,6 @@ Covers: chunker, embedder (2 types), LLM (2 types), vector store (2 types),
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -540,12 +539,7 @@ class TestMemory:
             "user-1", MemoryEntry(content="Loves hiking", source="explicit")
         )
         await memory.add("user-1", MemoryEntry(content="Hates rain", source="explicit"))
-        await asyncio.sleep(0.1)  # FTS5 index is asynchronous
         results = await memory.get("user-1", query="hiking")
-        # Debug: print what we got
-        print(f"DEBUG: got {len(results)} results, fts5={memory._fts5_available}")
-        for r in results:
-            print(f"  - {r.content}")
         assert len(results) == 1
         assert "hiking" in results[0].content
 
