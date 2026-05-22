@@ -1,3 +1,5 @@
+"""API security — rate limiting, request size, API key enforcement."""
+
 from __future__ import annotations
 
 import os
@@ -49,7 +51,11 @@ limiter = SecurityLimiter()
 
 def get_expected_api_key() -> str | None:
     cfg = _load_security_cfg()
-    return cfg.get("api_key") or os.getenv("AI_API_KEY")
+    env_key: str | None = os.getenv("AI_API_KEY")
+    if env_key:
+        return env_key
+    cfg_key = cfg.get("api_key")
+    return cfg_key if isinstance(cfg_key, str) else None
 
 
 class LimitMiddleware(BaseHTTPMiddleware):
@@ -59,6 +65,32 @@ class LimitMiddleware(BaseHTTPMiddleware):
             return Response(
                 "Rate limit exceeded", status_code=429, media_type="text/plain"
             )
+        return await call_next(request)
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """Enforce API key on every request except public paths."""
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        public_paths = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
+        path = request.url.path
+        if path in public_paths or path.startswith(("/docs/", "/redoc")):
+            return await call_next(request)
+
+        expected = get_expected_api_key()
+        if not expected:
+            return Response(
+                "API key not configured", status_code=401, media_type="text/plain"
+            )
+
+        auth = request.headers.get("Authorization", "")
+        if not auth:
+            return Response("Missing API key", status_code=401, media_type="text/plain")
+
+        scheme, _, token = auth.partition(" ")
+        if scheme.lower() != "bearer" or token != expected:
+            return Response("Invalid API key", status_code=401, media_type="text/plain")
+
         return await call_next(request)
 
 
@@ -74,7 +106,7 @@ async def require_api_key(
 ) -> None:
     expected = get_expected_api_key()
     if not expected:
-        return
+        raise HTTPException(status_code=401, detail="API key not configured")
     if not credentials:
         raise HTTPException(status_code=401, detail="Missing API key")
     if credentials.credentials != expected:

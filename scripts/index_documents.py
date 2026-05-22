@@ -27,12 +27,40 @@ if sys.platform == "win32":
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import httpx
+import yaml
 
 API_BASE = "http://localhost:8000"
+import os
 DOCUMENTS_ROOT = Path(__file__).parent.parent / "documents"
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
 CHUNK_SIZE = 100000  # Max chars per document chunk
 
+
+def _load_api_key() -> str | None:
+    """Read API key from config.yaml or environment."""
+    # Try environment first
+    key = None
+    for env_var in ("AI_API_KEY", "AI_SECURITY_API_KEY"):
+        key = os.getenv(env_var)
+        if key:
+            return key
+
+    # Try config.yaml
+    config_paths = [Path("config.yaml"), Path(__file__).parent.parent / "config.yaml"]
+    for cp in config_paths:
+        if cp.exists():
+            try:
+                with open(cp, encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                key = data.get("security", {}).get("api_key")
+                if key:
+                    return key
+            except Exception:
+                continue
+    return None
+
+
+API_KEY = _load_api_key()
 
 def read_file(path: Path) -> str:
     """Read text file with encoding fallback."""
@@ -106,6 +134,10 @@ async def index_namespace(
 ) -> dict:
     """Index documents into a namespace."""
     base = api_base or API_BASE
+    headers = {}
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
+
     async with httpx.AsyncClient() as client:
         # Clear existing if requested
         if clear:
@@ -114,6 +146,7 @@ async def index_namespace(
                     f"{base}/rag/delete",
                     json={"document_ids": [], "chunk_ids": [], "namespace": namespace},
                     timeout=30.0,
+                    headers=headers,
                 )
                 print(f"  Cleared namespace: {namespace}")
             except Exception as e:
@@ -130,6 +163,7 @@ async def index_namespace(
                     f"{base}/rag/index",
                     json={"documents": batch, "namespace": namespace},
                     timeout=60.0,
+                    headers=headers,
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -159,12 +193,17 @@ async def main() -> int:
     parser.add_argument("--api", "-a", default=API_BASE, help="API base URL")
     args = parser.parse_args()
 
+    print(f"DEBUG: API_KEY loaded = {API_KEY!r}")
+
     api_base = args.api
 
     # Check API is running
+    headers = {}
+    if API_KEY:
+        headers["Authorization"] = f"Bearer {API_KEY}"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(f"{api_base}/health")
+            resp = await client.get(f"{api_base}/health", headers=headers)
             resp.raise_for_status()
     except Exception:
         print(f"ERROR: API not available at {api_base}")

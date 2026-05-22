@@ -6,9 +6,10 @@ import importlib
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from api import admin  # ← добавлено
+from api import admin
+from api.security import require_api_key
 
 logger = logging.getLogger("ai_assistant.router")
 
@@ -36,13 +37,19 @@ def assemble_routers() -> list[APIRouter]:
             router = getattr(module, "router", None)
             if isinstance(router, APIRouter):
                 routers.append(router)
-                logger.debug(f"Loaded router from features.{feature_dir.name}.handlers")
+                logger.debug(
+                    "Loaded router from features.%s.handlers", feature_dir.name
+                )
             else:
                 logger.warning(
-                    f"No 'router' found in features.{feature_dir.name}.handlers"
+                    "No 'router' found in features.%s.handlers", feature_dir.name
                 )
         except Exception as e:
-            logger.error(f"Failed to load features.{feature_dir.name}.handlers: {e}")
+            logger.error("Failed to load features.%s.handlers: %s", feature_dir.name, e)
             continue
+
+    # 3. Enforce API key on every router (defence in depth)
+    for router in routers:
+        router.dependencies.append(Depends(require_api_key))
 
     return routers

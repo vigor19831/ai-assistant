@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import os
+import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Hard exclusions — never traversed
 HARD_EXCLUDE = {
@@ -59,11 +60,12 @@ def hard_excluded(path: Path, root: Path) -> bool:
 
 def fmt_size(n: int) -> str:
     """Human-readable size."""
+    size = float(n)
     for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.1f} {unit}" if unit != "B" and n != int(n) else f"{int(n)} {unit}"
-        n /= 1024
-    return f"{n:.1f} TB"
+        if size < 1024:
+            return f"{size:.1f} {unit}" if unit != "B" and size != int(size) else f"{int(size)} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 def count_lines(path: Path) -> int:
@@ -92,13 +94,13 @@ def build(root: Path, use_color: bool = False) -> str:
     py_loc = sum(count_lines(f) for f in py_files)
 
     # Tree rendering: directories first, then files, both alphabetically
-    tree: dict[str, dict] = {}
+    tree: dict[str, Any] = {}
     for e in entries:
-        node = tree
+        node: dict[str, Any] = tree
         for part in e.relative_to(root).parts:
             node = node.setdefault(part, {})
 
-    def render(node: dict[str, dict], prefix: str = "") -> list[str]:
+    def render(node: dict[str, Any], prefix: str = "") -> list[str]:
         # Separate dirs and files: dirs have non-empty dict values
         dirs = sorted(k for k, v in node.items() if v)
         files_only = sorted(k for k, v in node.items() if not v)
@@ -115,7 +117,6 @@ def build(root: Path, use_color: bool = False) -> str:
 
     # ANSI colors
     G = "\033[32m" if use_color else ""
-    Y = "\033[33m" if use_color else ""
     R = "\033[0m" if use_color else ""
 
     lines = [

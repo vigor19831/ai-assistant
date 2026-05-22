@@ -176,6 +176,8 @@ def mock_vector_store():
     m.load = AsyncMock(return_value=None)
     m.list_by_filter = AsyncMock(return_value=[])
     m.list_namespaces = AsyncMock(return_value=["test_default"])
+    m.max_chunks = 10000
+    m.relevance_threshold = 0.3
     return m
 
 
@@ -187,6 +189,7 @@ def mock_storage():
     m.save_message = AsyncMock(return_value=None)
     m.get = AsyncMock(return_value=None)
     m.set = AsyncMock(return_value=None)
+    m.init_db = AsyncMock(return_value=None)
     return m
 
 
@@ -258,19 +261,26 @@ def mock_state(
 
 
 @pytest.fixture
-def client(mock_state):
+def client(mock_state, monkeypatch):
     """FastAPI TestClient with fully mocked state — 100% offline."""
     from fastapi.testclient import TestClient
 
     from api.deps import get_state
     from main import app
 
+    # Отключаем проверку API key для тестов
+    monkeypatch.setattr("api.security.get_expected_api_key", lambda: "test-key")
+
     # Устанавливаем state НАПРЯМУЮ в app.state, а не только через override
     # Это нужно для get_state(), который читает request.app.state.app_state
     app.state.app_state = mock_state
     app.dependency_overrides[get_state] = lambda: mock_state
 
-    with TestClient(app, base_url="http://localhost") as c:
+    with TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"Authorization": "Bearer test-key"},
+    ) as c:
         yield c
 
     app.dependency_overrides.clear()
@@ -320,6 +330,7 @@ def vs_cfg():
     c.dim = 384
     c.metric = "l2"
     c.relevance_threshold = 0.3
+    c.max_chunks = 10000
     return c
 
 

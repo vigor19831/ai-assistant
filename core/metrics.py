@@ -66,7 +66,7 @@ class MetricsLogger:
         if self._task and not self._task.done():
             try:
                 await asyncio.wait_for(self._task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._logger.warning("Metrics worker stop timed out")
             except Exception as exc:
                 self._logger.warning("Metrics worker stop failed: %s", exc)

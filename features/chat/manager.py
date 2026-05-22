@@ -103,13 +103,17 @@ class ChatManager:
         keep.reverse()
         return keep
 
-    async def _maybe_rag(self, message: str) -> tuple[str, int]:
+    async def _maybe_rag(self, message: str) -> tuple[str, str, int]:
+        """Return (prompt_for_llm, original_query, rag_chunks_count).
+
+        If RAG not triggered, prompt_for_llm == original_query == message.
+        """
         if not self.embedder or not self.vector_store:
-            return message, 0
+            return message, message, 0
 
         m = _PREFIX_RE.match(message)
         if not m:
-            return message, 0  # Без префикса → RAG НЕ запускается
+            return message, message, 0  # Без префикса → RAG НЕ запускается
 
         ns_short = m.group(1).lower()
         query_text = m.group(2)
@@ -135,17 +139,20 @@ class ChatManager:
 
         if not data.context:
             logger.debug(f"RAG skipped: no relevant chunks in {namespace}")
-            return query_text, 0
+            return query_text, query_text, 0
 
-        chunks_for_prompt = [{"text": c.text or " "} for c in data.chunks]
+        chunks_for_prompt = json.dumps(
+            [{"text": c.text or " "} for c in data.chunks],
+            ensure_ascii=False,
+        )
         rag_prompt = get_prompt(
             "rag_strict",
             version="v1",
             query=query_text,
-            chunks=json.dumps(chunks_for_prompt, ensure_ascii=False),
+            chunks=chunks_for_prompt,
             context=data.context,
         )
-        return rag_prompt, len(data.chunks)
+        return rag_prompt, query_text, len(data.chunks)
 
     async def chat(
         self,
@@ -174,18 +181,20 @@ class ChatManager:
             image_payload = ImagePayload(base64_data=image_base64)
 
         # --- RAG injection ---
-        message, rag_chunks = await self._maybe_rag(message)
+        # prompt_for_llm: текст, который уходит в LLM (может быть огромным с RAG)
+        # original_query: чистый запрос пользователя для истории
+        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
         record_metric("rag_chunks", rag_chunks)
         # ---------------------
 
         user_msg = UserMessage(
-            text=message,
+            text=prompt_for_llm,
             image=image_payload,
             metadata=meta,
         )
 
         messages: list[Any] = [user_msg]
-        input_tokens = self._count_tokens(message or "")
+        input_tokens = self._count_tokens(prompt_for_llm or "")
 
         history: list[dict[str, Any]] = []
         if self.storage:
@@ -239,7 +248,7 @@ class ChatManager:
                             arguments=arguments,
                             call_id=call.get("id", ""),
                         )
-                        result = await self.tool_registry.execute(tc)
+                        result = await self.tool_registry.dispatch(tc)
                         content = (
                             result.output
                             if not result.is_error
@@ -279,9 +288,10 @@ class ChatManager:
 
         if self.storage:
             try:
+                # Сохраняем ОРИГИНАЛЬНЫЙ запрос, не RAG-промт
                 await self.storage.save_message(
                     conversation_id,
-                    {"role": "user", "content": message, "metadata": meta},
+                    {"role": "user", "content": original_query, "metadata": meta},
                 )
                 await self.storage.save_message(
                     conversation_id,
@@ -322,18 +332,18 @@ class ChatManager:
             image_payload = ImagePayload(base64_data=image_base64)
 
         # --- RAG injection ---
-        message, rag_chunks = await self._maybe_rag(message)
+        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
         record_metric("rag_chunks", rag_chunks)
         # ---------------------
 
         user_msg = UserMessage(
-            text=message,
+            text=prompt_for_llm,
             image=image_payload,
             metadata=meta,
         )
 
         messages: list[Any] = [user_msg]
-        input_tokens = self._count_tokens(message or "")
+        input_tokens = self._count_tokens(prompt_for_llm or "")
 
         if self.storage:
             try:
@@ -367,3 +377,21 @@ class ChatManager:
         record_metric("input_tokens", input_tokens)
         record_metric("output_tokens", self._count_tokens(output_text))
         record_metric("tools_used", 0)
+
+        if self.storage:
+            try:
+                # Сохраняем оригинальный запрос, не RAG-промт
+                await self.storage.save_message(
+                    conversation_id,
+                    {"role": "user", "content": original_query, "metadata": meta},
+                )
+                await self.storage.save_message(
+                    conversation_id,
+                    {
+                        "role": "assistant",
+                        "content": output_text,
+                        "metadata": {},
+                    },
+                )
+            except Exception:
+                pass

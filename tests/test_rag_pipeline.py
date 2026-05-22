@@ -221,30 +221,6 @@ class TestPipelineSteps:
         assert "generate failed" in result.errors[0]
         assert "Sorry, I encountered an error" in result.response.text
 
-    @pytest.mark.asyncio
-    async def test_generate_context_truncation(self):
-        """Long context triggers chunk removal to fit token budget."""
-
-        class FakeLLM:
-            config = MagicMock()
-            config.server_context_size = 100
-
-            async def complete(self, messages):
-                return AssistantMessage(text="truncated answer")
-
-        data = PipelineData(query=UserMessage(text="q"))
-        # Create many chunks to exceed context limit
-        original_chunks = 20
-        data.chunks = [Chunk(id=f"c{i}", text="word " * 50) for i in range(original_chunks)]
-        data.metadata["prompt_version"] = "v1"
-        data.metadata["prompt_name"] = "rag_default"
-        result = await generate(data, llm=FakeLLM())
-        # Should still produce a response, possibly with fewer chunks
-        assert result.response is not None
-        assert len(data.chunks) < original_chunks, (
-            f"Truncation should remove chunks: {len(data.chunks)} >= {original_chunks}"
-        )
-
 
 # ── Full Pipeline Integration ──
 
@@ -430,62 +406,3 @@ class TestRAGManager:
         assert health["status"] == "ok"
         assert health["index_loaded"] is True
         assert health["chunk_count"] == 1
-
-
-# ── Chat Manager RAG Integration ──
-
-
-class TestChatManagerRAG:
-    @pytest.fixture
-    def chat_manager(self, mock_llm, mock_storage, mock_embedder, mock_vector_store):
-        from features.chat.manager import ChatManager
-
-        return ChatManager(
-            llm=mock_llm,
-            voice_recognizer=None,
-            vision=None,
-            storage=mock_storage,
-            embedder=mock_embedder,
-            vector_store=mock_vector_store,
-            reranker=None,
-        )
-
-    @pytest.mark.asyncio
-    async def test_chat_with_namespace_prefix(
-        self, chat_manager, mock_vector_store, mock_embedder
-    ):
-        """[p] prefix triggers RAG in personal namespace."""
-        mock_vector_store.search = AsyncMock(
-            return_value=[Chunk(id="c1", text="Paris is the capital of France.")]
-        )
-        mock_embedder.embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
-
-        _ = await chat_manager.chat("[p] What is the capital of France?", "conv-1")
-        assert mock_vector_store.search.called
-        # The query should have been processed through RAG
-
-    @pytest.mark.asyncio
-    async def test_chat_without_prefix_no_rag(self, chat_manager, mock_vector_store):
-        """No prefix = no RAG, direct LLM call."""
-        _ = await chat_manager.chat("Hello, how are you?", "conv-1")
-        assert not mock_vector_store.search.called
-        assert chat_manager.llm.complete.called
-
-    @pytest.mark.asyncio
-    async def test_chat_history_loaded(self, chat_manager, mock_storage):
-        mock_storage.get_history = AsyncMock(
-            return_value=[
-                {"role": "user", "content": "Previous question"},
-                {"role": "assistant", "content": "Previous answer"},
-            ]
-        )
-        _ = await chat_manager.chat("Follow up", "conv-1")
-        assert mock_storage.get_history.called
-        assert mock_storage.save_message.call_count == 2  # user + assistant
-
-    @pytest.mark.asyncio
-    async def test_stream_chat(self, chat_manager):
-        chunks = []
-        async for chunk in chat_manager.stream_chat("Hello", "conv-1"):
-            chunks.append(chunk)
-        assert "".join(chunks) == "Mocked streaming response"

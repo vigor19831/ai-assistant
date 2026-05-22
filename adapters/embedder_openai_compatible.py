@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from core.domain.errors import AdapterError
 from core.ports.embedder import IEmbedder
 from core.registry import register
 from core.retry import with_retry
@@ -48,4 +49,14 @@ class OpenAICompatibleEmbedder(IEmbedder):
             resp.raise_for_status()
             data = resp.json()
         embeddings = [item["embedding"] for item in data["data"]]
+
+        # Validate dimension consistency
+        for i, emb in enumerate(embeddings):
+            if len(emb) != self._dim:
+                raise AdapterError(
+                    f"Dimension mismatch: expected {self._dim}, "
+                    f"got {len(emb)} for text[{i}] "
+                    f"(model={self.model!r}). "
+                    f"Check config.embedder.dim or model compatibility."
+                )
         return embeddings

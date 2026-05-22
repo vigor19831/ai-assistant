@@ -20,7 +20,7 @@ except ImportError:
     _FAISS_AVAILABLE = False
 
 from core.domain.documents import Chunk, ChunkMetadata
-from core.domain.errors import VersionMismatchError
+from core.domain.errors import AdapterError, VersionMismatchError
 from core.io_utils import atomic_write
 from core.ports.vector_store import IVectorStore
 from core.registry import register
@@ -63,6 +63,14 @@ if _FAISS_AVAILABLE:
                 )
             return self._namespaces[name]
 
+        def _validate_dim(self, embedding: list[float], chunk_id: str = "") -> None:
+            if len(embedding) != self.dim:
+                raise AdapterError(
+                    f"Dimension mismatch in FAISS add: expected {self.dim}, "
+                    f"got {len(embedding)} (chunk_id={chunk_id!r}). "
+                    f"Check embedder config.dim vs vector_store config.dim."
+                )
+
         async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
             if not chunks:
                 return
@@ -76,6 +84,7 @@ if _FAISS_AVAILABLE:
                 for c in chunks:
                     if c.embedding is None:
                         continue
+                    self._validate_dim(c.embedding, c.id)
                     embeddings.append(c.embedding)
                     valid_chunks.append(c)
 
@@ -107,6 +116,7 @@ if _FAISS_AVAILABLE:
             top_k: int = 5,
             namespace: str = "default",
         ) -> list[Chunk]:
+            self._validate_dim(query_embedding, "<query>")
             async with self._lock:
                 ns = self._get_ns(namespace)
                 if ns.index is None or ns.index.ntotal == 0:
@@ -148,6 +158,7 @@ if _FAISS_AVAILABLE:
                     for c in remaining:
                         if c.embedding is None:
                             continue
+                        self._validate_dim(c.embedding, c.id)
                         embeddings.append(c.embedding)
                         valid_chunks.append(c)
 
@@ -315,15 +326,14 @@ if _FAISS_AVAILABLE:
             self.next_id = next_id
 
 else:
-    from adapters.vector_store_memory import MemoryVectorStore
 
     @register("vector_store", "faiss")
-    class FaissVectorStore(MemoryVectorStore):  # type: ignore[no-redef]
-        """Fallback to MemoryVectorStore when faiss-cpu is not installed."""
+    class FaissVectorStore(IVectorStore):  # type: ignore[no-redef]
+        """Explicitly unavailable — raises on any operation."""
 
         def __init__(self, config: Any) -> None:
-            logger.warning(
-                "faiss-cpu not installed. "
-                "FaissVectorStore falls back to MemoryVectorStore."
-            )
             super().__init__(config)
+            raise ImportError(
+                "faiss-cpu is not installed but vector_store.provider='faiss'. "
+                "Install: pip install faiss-cpu"
+            )

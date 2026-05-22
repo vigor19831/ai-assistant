@@ -23,9 +23,7 @@ def tmp_metrics_path(tmp_path: Path) -> Path:
 
 
 class TestMetricsLogger:
-    async def test_worker_logs_write_errors(
-        self, tmp_metrics_path: Path
-    ) -> None:
+    async def test_worker_logs_write_errors(self, tmp_metrics_path: Path) -> None:
         """Bare except fix: _worker must log errors instead of swallowing."""
         logger = MetricsLogger(path=str(tmp_metrics_path))
         logger.start()
@@ -33,9 +31,7 @@ class TestMetricsLogger:
         log_mock = MagicMock()
         logger._logger = log_mock
 
-        with patch.object(
-            logger, "_append_line", side_effect=OSError("disk full")
-        ):
+        with patch.object(logger, "_append_line", side_effect=OSError("disk full")):
             logger.log({"event": "test"})
             await asyncio.sleep(0.15)
             await logger.stop()
@@ -45,9 +41,7 @@ class TestMetricsLogger:
             "Write error must be logged, not swallowed"
         )
 
-    async def test_stop_logs_timeout(
-        self, tmp_metrics_path: Path
-    ) -> None:
+    async def test_stop_logs_timeout(self, tmp_metrics_path: Path) -> None:
         """Bare except fix: stop must log timeout instead of swallowing."""
         logger = MetricsLogger(path=str(tmp_metrics_path))
         logger.start()
@@ -74,9 +68,7 @@ class TestMetricsLogger:
             except asyncio.CancelledError:
                 pass
 
-    async def test_stop_logs_generic_error(
-        self, tmp_metrics_path: Path
-    ) -> None:
+    async def test_stop_logs_generic_error(self, tmp_metrics_path: Path) -> None:
         """Bare except fix: stop must log generic exceptions."""
         logger = MetricsLogger(path=str(tmp_metrics_path))
         logger.start()
@@ -103,9 +95,7 @@ class TestMetricsLogger:
             except asyncio.CancelledError:
                 pass
 
-    async def test_log_and_read_back(
-        self, tmp_metrics_path: Path
-    ) -> None:
+    async def test_log_and_read_back(self, tmp_metrics_path: Path) -> None:
         """Happy path: logged metrics are written to file."""
         logger = MetricsLogger(path=str(tmp_metrics_path))
         logger.start()

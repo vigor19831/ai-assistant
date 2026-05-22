@@ -126,7 +126,7 @@ rag:
 
 # ── Безопасность ──
 security:
-  api_key: null
+  api_key: sk-local-api-key
   rate_limit: "100/minute"
   max_body_size: 10485760
   allowed_hosts: ["localhost", "127.0.0.1"]

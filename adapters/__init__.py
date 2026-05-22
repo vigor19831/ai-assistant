@@ -24,10 +24,8 @@ from . import (
     embedder_openai_compatible,
     llm_mock,
     llm_openai_compatible,
-    memory_sqlite,
     reranker_api,
     reranker_dummy,
-    storage_sqlite,
     tools_calculator,
     transport_fastapi,
     vector_store_memory,
@@ -36,6 +34,17 @@ from . import (
     voice_whisper_local,
     voice_whispercpp,
 )
+
+# Lazy imports — optional dependencies, fail gracefully if not installed
+try:
+    from . import memory_sqlite  # noqa: F401
+except ImportError:
+    pass
+
+try:
+    from . import storage_sqlite  # noqa: F401
+except ImportError:
+    pass
 
 try:
     from . import vector_store_faiss  # noqa: F401

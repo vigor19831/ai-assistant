@@ -1,4 +1,3 @@
-# pipeline/steps.py
 """RAG pipeline steps with namespace and rerank support."""
 
 from __future__ import annotations
@@ -101,11 +100,7 @@ async def rerank(data: PipelineData, **kwargs: Any) -> PipelineData:
 @step("build_context")
 async def build_context(data: PipelineData, **kwargs: Any) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks."""
-    if not data.chunks:
-        data.context = ""
-        return data
-    lines = [chunk.text for chunk in data.chunks if chunk.text]
-    data.context = "\n\n".join(lines)
+    data.rebuild_context()
     return data
 
 
@@ -146,37 +141,38 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
         prompt_tokens = _estimate_tokens(prompt)
         margin = max(256, int(max_ctx * 0.1))
         limit = max_ctx - margin
+        while data.chunks and prompt_tokens > limit:
+            data.chunks = data.chunks[:-1]
+            if not data.chunks:
+                data.context = ""
+                break
+            data.rebuild_context()
+            try:
+                prompt = get_prompt(
+                    prompt_name,
+                    version=prompt_version,
+                    query=data.query.text or "",
+                    context=data.context,
+                )
+            except Exception:
+                chunks_text = "\n".join(
+                    [f"[{i + 1}] {c.text}" for i, c in enumerate(data.chunks)]
+                )
+                prompt = (
+                    f"Context:\n{chunks_text}\n\n"
+                    f"Question: {data.query.text or ''}\nAnswer:"
+                )
+            prompt_tokens = _estimate_tokens(prompt)
         if prompt_tokens > limit:
-            while data.chunks and prompt_tokens > limit:
-                data.chunks = data.chunks[:-1]
-                if not data.chunks:
-                    break
-                try:
-                    prompt = get_prompt(
-                        prompt_name,
-                        version=prompt_version,
-                        query=data.query.text or "",
-                        context=data.context,
-                    )
-                except Exception:
-                    chunks_text = "\n".join(
-                        [f"[{i + 1}] {c.text}" for i, c in enumerate(data.chunks)]
-                    )
-                    prompt = (
-                        f"Context:\n{chunks_text}\n\n"
-                        f"Question: {data.query.text or ''}\nAnswer:"
-                    )
-                prompt_tokens = _estimate_tokens(prompt)
-            if prompt_tokens > limit:
-                data.errors.append(
-                    f"generate: prompt too long ({prompt_tokens} tokens) "
-                    f"exceeds limit ({limit})"
-                )
-                data.response = AssistantMessage(
-                    text="Sorry, the retrieved context is too large to process. "
-                    "Please narrow your query."
-                )
-                return data
+            data.errors.append(
+                f"generate: prompt too long ({prompt_tokens} tokens) "
+                f"exceeds limit ({limit})"
+            )
+            data.response = AssistantMessage(
+                text="Sorry, the retrieved context is too large to process. "
+                "Please narrow your query."
+            )
+            return data
 
     original_image = data.query.image if data.query else None
 
@@ -209,7 +205,7 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
                         arguments=arguments,
                         call_id=call.get("id", ""),
                     )
-                    result = await tool_registry.execute(tc)
+                    result = await tool_registry.dispatch(tc)
                     content = (
                         result.output
                         if not result.is_error

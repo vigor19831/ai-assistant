@@ -60,31 +60,32 @@ _initializing = False
 
 async def init_adapters(config: AppConfig | AppState) -> AppState:
     """Initialize all adapters via Registry and return populated AppState."""
-
     global _state, _initializing
 
-    # Normalize input: tests may pass AppState, production passes AppConfig
-    if isinstance(config, AppState):
-        state = config
-        cfg = state.config
-    else:
-        cfg = config
-        state = AppState(config=cfg)
-
+    # Fast path
     if _init_event.is_set() and _state is not None:
         return _state
 
+    # Another coroutine is initializing — wait for it
     if _initializing:
         await _init_event.wait()
         if _state is not None:
             return _state
 
     _initializing = True
-    # Сбрасываем event, если он был установлен при предыдущем падении
+    # Reset event if it was set from a previous (failed) run
     if _init_event.is_set():
         _init_event.clear()
 
     try:
+        # Normalize input: tests may pass AppState, production passes AppConfig
+        if isinstance(config, AppState):
+            state = config
+            cfg = state.config
+        else:
+            cfg = config
+            state = AppState(config=cfg)
+
         if not isinstance(config, AppState):
             state = AppState(config=cfg)
         state.tool_registry = ToolRegistry()
@@ -124,6 +125,9 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
             )
             state.storage = None
 
+        if state.storage is not None and hasattr(state.storage, "init_db"):
+            await state.storage.init_db()
+
         try:
             state.long_term_memory = registry_create("memory", "sqlite", cfg.storage)
         except Exception as e:
@@ -133,6 +137,11 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
                 "Long-term memory not available: %s", e
             )
             state.long_term_memory = None
+
+        if state.long_term_memory is not None and hasattr(
+            state.long_term_memory, "init_db"
+        ):
+            await state.long_term_memory.init_db()
 
         if cfg.voice.enabled:
             state.voice_recognizer = registry_create(
@@ -185,6 +194,10 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
         _state = state
         _init_event.set()
         return state
+    except Exception:
+        _state = None
+        _init_event.clear()
+        raise
     finally:
         _initializing = False
 

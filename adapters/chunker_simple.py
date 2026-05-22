@@ -18,6 +18,14 @@ class SimpleChunker(IChunker):
         super().__init__(config)
         self.chunk_size: int = config.chunk_size
         self.chunk_overlap: int = config.chunk_overlap
+        if self.chunk_size <= 0:
+            raise ValueError(f"chunk_size must be > 0, got {self.chunk_size}")
+        if self.chunk_overlap < 0:
+            raise ValueError(f"chunk_overlap must be >= 0, got {self.chunk_overlap}")
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError(
+                f"chunk_overlap ({self.chunk_overlap}) must be < chunk_size ({self.chunk_size})"
+            )
 
     async def chunk(self, document: Document) -> list[Chunk]:
         text = document.content
@@ -26,7 +34,7 @@ class SimpleChunker(IChunker):
 
         size = self.chunk_size
         overlap = self.chunk_overlap
-        step = max(1, size - overlap)
+        step = size - overlap
 
         chunks: list[Chunk] = []
         total = max(1, (len(text) + step - 1) // step)

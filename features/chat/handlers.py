@@ -1,4 +1,3 @@
-# features/chat/handlers.py
 """Chat feature HTTP handlers."""
 
 from __future__ import annotations
@@ -103,7 +102,11 @@ async def chat_stream(
 # --- OpenAI-compatible endpoints ---
 
 
-@router.get("/v1/models", response_model=OAIModelList)
+@router.get(
+    "/v1/models",
+    response_model=OAIModelList,
+    dependencies=[Depends(require_api_key)],
+)
 async def list_models(state: AppState = Depends(get_state)) -> OAIModelList:
     models = getattr(state.config.llm, "available_models", [])
     if not models:

@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -22,18 +22,25 @@ async def test_concurrent_chat_requests(mock_state):
     )
 
     try:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://localhost"
-        ) as ac:
-            tasks = [
-                ac.post(
-                    "/chat", json={"message": f"stress {i}", "conversation_id": f"conv-{i}"}
-                )
-                for i in range(50)
-            ]
-            responses = await asyncio.gather(*tasks)
+        with patch("api.security.get_expected_api_key", lambda: "test-key"):
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://localhost",
+                headers={"Authorization": "Bearer test-key"},
+            ) as ac:
+                tasks = [
+                    ac.post(
+                        "/chat",
+                        json={
+                            "message": f"stress {i}",
+                            "conversation_id": f"conv-{i}",
+                        },
+                    )
+                    for i in range(50)
+                ]
+                responses = await asyncio.gather(*tasks)
 
-        assert all(r.status_code == 200 for r in responses)
+            assert all(r.status_code == 200 for r in responses)
     finally:
         app.dependency_overrides = original_overrides
 
@@ -43,7 +50,7 @@ async def test_concurrent_vector_store_ops(mock_vector_store):
     from adapters.vector_store_memory import MemoryVectorStore
     from core.domain.documents import Chunk
 
-    cfg = MagicMock(dim=3)
+    cfg = MagicMock(dim=3, max_chunks=10000, relevance_threshold=0.3)
     store = MemoryVectorStore(cfg)
 
     async def add_chunks(start, count):

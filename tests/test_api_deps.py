@@ -96,8 +96,11 @@ class TestInitAdapters:
         mock_vector_store = MagicMock()
         mock_chunker = MagicMock()
         mock_storage = MagicMock()
+        mock_storage.init_db = AsyncMock()
         mock_reranker = MagicMock()
         mock_tool = MagicMock()
+        mock_memory = MagicMock()
+        mock_memory.init_db = AsyncMock()
 
         # Mock list_namespaces and load for vector_store
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
@@ -112,6 +115,7 @@ class TestInitAdapters:
                 ("storage", "sqlite"): mock_storage,
                 ("reranker", "dummy"): mock_reranker,
                 ("tool", "calculator"): mock_tool,
+                ("memory", "sqlite"): mock_memory,
             }
             return mapping.get((port, name), MagicMock())
 
@@ -136,6 +140,10 @@ class TestInitAdapters:
         mock_vector_store = MagicMock()
         mock_chunker = MagicMock()
         mock_reranker = MagicMock()
+        mock_storage = MagicMock()
+        mock_storage.init_db = AsyncMock()
+        mock_memory = MagicMock()
+        mock_memory.init_db = AsyncMock()
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -148,7 +156,8 @@ class TestInitAdapters:
                 ("chunker", "simple"): mock_chunker,
                 ("reranker", "dummy"): mock_reranker,
                 ("tool", "calculator"): MagicMock(),
-                ("storage", "sqlite"): MagicMock(),
+                ("storage", "sqlite"): mock_storage,
+                ("memory", "sqlite"): mock_memory,
             }
             return mapping.get((port, name), MagicMock())
 
@@ -174,12 +183,20 @@ class TestInitAdapters:
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
+        mock_storage = MagicMock()
+        mock_storage.init_db = AsyncMock()
+        mock_memory = MagicMock()
+        mock_memory.init_db = AsyncMock()
 
         def fake_registry_create(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "reranker" and name == "nonexistent":
                 raise ValueError("No such reranker")
+            if port == "storage" and name == "sqlite":
+                return mock_storage
+            if port == "memory" and name == "sqlite":
+                return mock_memory
             return MagicMock()
 
         with patch("api.deps.registry_create", side_effect=fake_registry_create):
@@ -194,12 +211,16 @@ class TestInitAdapters:
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
+        mock_memory = MagicMock()
+        mock_memory.init_db = AsyncMock()
 
         def fake_registry_create(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ValueError("No storage adapter")
+            if port == "memory" and name == "sqlite":
+                return mock_memory
             return MagicMock()
 
         with patch("api.deps.registry_create", side_effect=fake_registry_create):
@@ -219,6 +240,8 @@ class TestInitAdapters:
             if port == "vector_store":
                 m.list_namespaces = AsyncMock(return_value=[])
                 m.load = AsyncMock(return_value=None)
+            if port in ("storage", "memory"):
+                m.init_db = AsyncMock()
             return m
 
         with patch("api.deps.registry_create", side_effect=counting_registry_create):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import AppState, get_state
+from api.security import require_api_key
 from features.image_analysis.manager import ImageAnalysisManager
 from features.image_analysis.schemas import AnalyzeRequest, AnalyzeResponse
 
@@ -18,7 +19,11 @@ def _get_manager(state: AppState = Depends(get_state)) -> ImageAnalysisManager:
     )
 
 
-@router.post("/analyze", response_model=AnalyzeResponse)
+@router.post(
+    "/analyze",
+    response_model=AnalyzeResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def analyze_image(
     req: AnalyzeRequest,
     manager: ImageAnalysisManager = Depends(_get_manager),

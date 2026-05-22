@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class CORSConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_CORS_", extra="allow")
-    allow_origins: list[str] = Field(default_factory=lambda: ["*"])
+    allow_origins: list[str] = Field(default_factory=list)
     allow_credentials: bool = True
     allow_methods: list[str] = Field(default_factory=lambda: ["*"])
     allow_headers: list[str] = Field(default_factory=lambda: ["*"])

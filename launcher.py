@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import logging.handlers
 import os
 import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -33,12 +35,24 @@ RED = "\033[31m"
 YELLOW = "\033[33m"
 RESET = "\033[0m"
 
-TERMINAL_CMD = {
-    "nt": 'start cmd /k "{venv}\\Scripts\\activate.bat && cd /d {root}"',
-    "posix": (
-        'gnome-terminal -- bash -c "source {venv}/bin/activate'
-        ' && cd {root} && exec bash"'
-    ),
+_EXTRA_RE = re.compile(r"^[a-zA-Z0-9_.\-/:=@]+$")
+
+TERMINAL_CMD: dict[str, Callable[[str, str], list[str]]] = {
+    "nt": lambda venv, root: [
+        "cmd",
+        "/c",
+        "start",
+        "cmd",
+        "/k",
+        f"{venv}\\Scripts\\activate.bat && cd /d {root}",
+    ],
+    "posix": lambda venv, root: [
+        "gnome-terminal",
+        "--",
+        "bash",
+        "-c",
+        f"source {venv}/bin/activate && cd {root} && exec bash",
+    ],
 }
 
 # --- helpers --------------------------------------------------------------
@@ -110,6 +124,14 @@ def ask_flags(target: str) -> list[str]:
     return flags if ans in ("y", "yes") else []
 
 
+def _sanitize_extra(extra: list[str]) -> list[str] | None:
+    bad = [arg for arg in extra if not _EXTRA_RE.fullmatch(arg)]
+    if bad:
+        print(f"\n>>> {RED}Invalid extra arguments rejected: {bad}{RESET}")
+        return None
+    return extra
+
+
 def print_menu(scripts, tests, last):
     w = 38
     rows = max(len(scripts), len(tests))
@@ -175,6 +197,17 @@ def run(python, target, root, extra):
     return res.returncode
 
 
+def _get_rotating_log(log_file: Path) -> logging.handlers.RotatingFileHandler:
+    handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    return handler
+
+
 def run_bg(python, target, root, extra):
     target_path = Path(target)
     data_dir = root / "data"
@@ -183,17 +216,21 @@ def run_bg(python, target, root, extra):
     log_file = data_dir / f"{target_path.stem}.log"
     pid_file = data_dir / f"{target_path.stem}.pid"
 
-    with open(log_file, "a", encoding="utf-8") as log_fp:
-        kwargs = {
-            "cwd": root,
-            "stdout": log_fp,
-            "stderr": subprocess.STDOUT,
-            "stdin": subprocess.DEVNULL,
-        }
-        if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    handler = _get_rotating_log(log_file)
+    # Open the log file through the handler to ensure rotation works
+    # We use the handler's stream for stdout/stderr redirection
+    log_fp = handler.stream
 
-        proc = subprocess.Popen([python, target_path] + extra, **kwargs)
+    kwargs = {
+        "cwd": root,
+        "stdout": log_fp,
+        "stderr": subprocess.STDOUT,
+        "stdin": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+    proc = subprocess.Popen([python, str(target_path)] + extra, **kwargs)
 
     pid_file.write_text(str(proc.pid), encoding="utf-8")
 
@@ -210,12 +247,12 @@ def run_terminal(root: Path) -> int:
     if not venv.exists():
         print(f">>> {RED}No .venv found. Run setup first.{RESET}")
         return 1
-    cmd_template = TERMINAL_CMD.get(os.name, TERMINAL_CMD["posix"])
-    cmd = cmd_template.format(venv=str(venv), root=str(root))
+    cmd_factory = TERMINAL_CMD.get(os.name, TERMINAL_CMD["posix"])
+    cmd = cmd_factory(str(venv), str(root))
     ts = timestamp()
     print(f"\n>>> [{ts}] Opening terminal with .venv")
-    print(f">>> [{ts}] {cmd}")
-    subprocess.Popen(cmd, shell=True)
+    print(f">>> [{ts}] {' '.join(cmd)}")
+    subprocess.Popen(cmd)
     return 0
 
 
@@ -302,6 +339,11 @@ def main() -> int:
 
         if not target.startswith("pytest:") and not extra:
             extra = ask_flags(target)
+
+        sanitized = _sanitize_extra(extra)
+        if sanitized is None:
+            continue
+        extra = sanitized
 
         if target == "__terminal__":
             run_terminal(root)

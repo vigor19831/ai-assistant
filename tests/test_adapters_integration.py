@@ -6,6 +6,7 @@ Covers: chunker, embedder (2 types), LLM (2 types), vector store (2 types),
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -461,6 +462,7 @@ class TestStorage:
 
     @pytest.mark.asyncio
     async def test_save_and_get_history(self, storage):
+        await storage.init_db()
         await storage.save_message(
             "conv-1", {"role": "user", "content": "hi", "metadata": {"k": "v"}}
         )
@@ -471,6 +473,7 @@ class TestStorage:
 
     @pytest.mark.asyncio
     async def test_history_limit_and_order(self, storage):
+        await storage.init_db()
         for i in range(5):
             await storage.save_message("conv-1", {"role": "user", "content": f"msg{i}"})
         history = await storage.get_history("conv-1", limit=2)
@@ -481,14 +484,18 @@ class TestStorage:
 
     @pytest.mark.asyncio
     async def test_settings_get_set(self, storage):
+        await storage.init_db()
         await storage.set("key1", {"nested": True})
         assert await storage.get("key1") == {"nested": True}
 
     @pytest.mark.asyncio
     async def test_settings_default(self, storage):
+        await storage.init_db()
         assert await storage.get("missing", "default") == "default"
 
-    def test_db_tables_created(self, storage, tmp_path):
+    @pytest.mark.asyncio
+    async def test_db_tables_created(self, storage, tmp_path):
+        await storage.init_db()
         import sqlite3
 
         with sqlite3.connect(str(tmp_path / "test.db")) as conn:
@@ -513,6 +520,7 @@ class TestMemory:
 
     @pytest.mark.asyncio
     async def test_add_and_get(self, memory):
+        await memory.init_db()
         entry = MemoryEntry(
             content="User likes Python",
             source="conversation",
@@ -527,16 +535,23 @@ class TestMemory:
 
     @pytest.mark.asyncio
     async def test_search_by_query(self, memory):
+        await memory.init_db()
         await memory.add(
             "user-1", MemoryEntry(content="Loves hiking", source="explicit")
         )
         await memory.add("user-1", MemoryEntry(content="Hates rain", source="explicit"))
+        await asyncio.sleep(0.1)  # FTS5 index is asynchronous
         results = await memory.get("user-1", query="hiking")
+        # Debug: print what we got
+        print(f"DEBUG: got {len(results)} results, fts5={memory._fts5_available}")
+        for r in results:
+            print(f"  - {r.content}")
         assert len(results) == 1
         assert "hiking" in results[0].content
 
     @pytest.mark.asyncio
     async def test_forget(self, memory):
+        await memory.init_db()
         entry = MemoryEntry(content="To be deleted", source="test")
         await memory.add("user-1", entry)
         results = await memory.get("user-1")
@@ -546,6 +561,7 @@ class TestMemory:
 
     @pytest.mark.asyncio
     async def test_consolidate_removes_old_low_importance(self, memory):
+        await memory.init_db()
         import sqlite3
 
         # Add old low-importance memory

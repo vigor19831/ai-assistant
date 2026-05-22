@@ -7,6 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
+
 from core.ports.storage import IChatStorage, ISettingsStorage
 from core.registry import register
 
@@ -19,11 +21,12 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
         self.config = config
         self.db_path: str = config.db_path
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
 
-    def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+    async def init_db(self) -> None:
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("PRAGMA journal_mode=WAL")
+            await conn.execute("PRAGMA busy_timeout=5000")
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     conversation_id TEXT NOT NULL,
@@ -33,17 +36,17 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.execute("""
+            await conn.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT
                 )
             """)
-            conn.commit()
+            await conn.commit()
 
     async def save_message(self, conversation_id: str, message: dict[str, Any]) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute(
                 """
                 INSERT INTO chat_messages
                 (conversation_id, role, content, metadata)
@@ -56,14 +59,14 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                     json.dumps(message.get("metadata", {})),
                 ),
             )
-            conn.commit()
+            await conn.commit()
 
     async def get_history(
         self, conversation_id: str, limit: int = 50
     ) -> list[dict[str, Any]]:
-        with sqlite3.connect(self.db_path) as conn:
+        async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
+            cur = await conn.execute(
                 """
                 SELECT role, content, metadata, created_at
                 FROM chat_messages
@@ -72,7 +75,8 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                 LIMIT ?
                 """,
                 (conversation_id, limit),
-            ).fetchall()
+            )
+            rows = await cur.fetchall()
             return [
                 {
                     "role": r["role"],
@@ -80,21 +84,20 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                     "metadata": json.loads(r["metadata"]) if r["metadata"] else {},
                     "created_at": r["created_at"],
                 }
-                for r in reversed(rows)
+                for r in reversed(list(rows))
             ]
 
     async def get(self, key: str, default: Any = None) -> Any:
-        with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute(
-                "SELECT value FROM settings WHERE key = ?", (key,)
-            ).fetchone()
+        async with aiosqlite.connect(self.db_path) as conn:
+            cur = await conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = await cur.fetchone()
             if row:
                 return json.loads(row[0])
             return default
 
     async def set(self, key: str, value: Any) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute(
                 """
                 INSERT INTO settings (key, value)
                 VALUES (?, ?)
@@ -102,4 +105,4 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                 """,
                 (key, json.dumps(value), json.dumps(value)),
             )
-            conn.commit()
+            await conn.commit()

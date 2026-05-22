@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +14,15 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from api.deps import AppState, MetricsMiddleware, get_state
 from api.lifespan import lifespan
 from api.router import assemble_routers
-from api.security import LimitMiddleware, _load_security_cfg
+from api.security import (
+    APIKeyMiddleware,
+    LimitMiddleware,
+    _load_security_cfg,
+    require_api_key,
+)
 from core.config import load_config
 
-_config = load_config()
+_config = load_config(os.getenv("AI_CONFIG_PATH", "config.yaml"))
 
 app = FastAPI(
     title="AI Assistant",
@@ -26,13 +32,14 @@ app = FastAPI(
 )
 
 app.add_middleware(MetricsMiddleware)
+app.add_middleware(APIKeyMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_config.cors.allow_origins,
+    allow_credentials=_config.cors.allow_credentials,
+    allow_methods=_config.cors.allow_methods,
+    allow_headers=_config.cors.allow_headers,
 )
 
 sec_cfg = _load_security_cfg()
@@ -44,12 +51,12 @@ if sec_cfg.get("allowed_hosts") and not _config.debug:
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-assistant"}
+    return {"status": "ok"}
 
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    return {"status": "ok", "service": "ai-assistant"}
+    return {"status": "ok"}
 
 
 async def _safe_get_state(request: Request) -> AppState | None:
@@ -63,7 +70,7 @@ async def _safe_get_state(request: Request) -> AppState | None:
         return None
 
 
-@app.get("/info")
+@app.get("/info", dependencies=[Depends(require_api_key)])
 async def get_info(state: AppState | None = Depends(_safe_get_state)) -> dict[str, str]:
     if state is None:
         return {"provider": "unknown", "model": "unknown"}

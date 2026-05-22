@@ -161,6 +161,7 @@ class TestFuzzStorage:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             cfg = type("C", (), {"db_path": f"{tmpdir}/test.db"})()
             storage = SQLiteStorage(cfg)
+            await storage.init_db()
             for key, value in pairs:
                 await storage.set(key, value)
                 got = await storage.get(key)
@@ -184,6 +185,7 @@ class TestFuzzStorage:
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             cfg = type("C", (), {"db_path": f"{tmpdir}/test.db"})()
             storage = SQLiteStorage(cfg)
+            await storage.init_db()
             for key, value in data.items():
                 await storage.set(key, value)
             for key, value in data.items():

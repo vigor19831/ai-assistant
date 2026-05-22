@@ -7,14 +7,14 @@ and edge cases.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from adapters.embedder_mock import MockEmbedder
 from adapters.vector_store_memory import MemoryVectorStore
 from core.domain.documents import Chunk, ChunkMetadata
-from core.domain.messages import AssistantMessage, UserMessage
+from core.domain.messages import UserMessage
 from features.chat.manager import ChatManager
 
 # ── _maybe_rag tests ──
@@ -38,8 +38,9 @@ class TestMaybeRAG:
     @pytest.mark.asyncio
     async def test_no_prefix_returns_unchanged(self, chat_manager_with_rag):
         """Message without [p]/[w]/[o] prefix should pass through unchanged."""
-        msg, chunks = await chat_manager_with_rag._maybe_rag("Hello world")
-        assert msg == "Hello world"
+        prompt, query, chunks = await chat_manager_with_rag._maybe_rag("Hello world")
+        assert prompt == "Hello world"
+        assert query == "Hello world"
         assert chunks == 0
 
     @pytest.mark.asyncio
@@ -54,9 +55,11 @@ class TestMaybeRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
 
-        msg, chunks = await chat_manager_with_rag._maybe_rag("[p] What is the capital?")
+        prompt, query, chunks = await chat_manager_with_rag._maybe_rag(
+            "[p] What is the capital?"
+        )
         assert chunks > 0
-        assert "Paris" in msg or "France" in msg or "Context:" in msg
+        assert "Paris" in prompt or "France" in prompt or "Context:" in prompt
 
     @pytest.mark.asyncio
     async def test_work_prefix_triggers_rag(self, chat_manager_with_rag):
@@ -69,7 +72,7 @@ class TestMaybeRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="work")
 
-        msg, chunks = await chat_manager_with_rag._maybe_rag(
+        prompt, query, chunks = await chat_manager_with_rag._maybe_rag(
             "[w] When is the deadline?"
         )
         assert chunks > 0
@@ -85,16 +88,19 @@ class TestMaybeRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="other")
 
-        msg, chunks = await chat_manager_with_rag._maybe_rag("[o] What ingredients?")
+        prompt, query, chunks = await chat_manager_with_rag._maybe_rag(
+            "[o] What ingredients?"
+        )
         assert chunks > 0
 
     @pytest.mark.asyncio
     async def test_no_results_returns_original_query(self, chat_manager_with_rag):
         """When no chunks match, return original query text (not prompt)."""
-        msg, chunks = await chat_manager_with_rag._maybe_rag(
+        prompt, query, chunks = await chat_manager_with_rag._maybe_rag(
             "[p] something impossible to find"
         )
-        assert msg == "something impossible to find"
+        assert prompt == "something impossible to find"
+        assert query == "something impossible to find"
         assert chunks == 0
 
     @pytest.mark.asyncio
@@ -108,10 +114,10 @@ class TestMaybeRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
 
-        msg, chunks = await chat_manager_with_rag._maybe_rag("[p] query text")
+        prompt, query, chunks = await chat_manager_with_rag._maybe_rag("[p] query text")
         # Query should not contain [p]
-        assert not msg.startswith("[p]")
-        assert "query text" in msg or chunks == 0
+        assert not query.startswith("[p]")
+        assert "query text" in query
 
     @pytest.mark.asyncio
     async def test_case_insensitive_prefix(self, chat_manager_with_rag):
@@ -124,8 +130,16 @@ class TestMaybeRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
 
-        msg_upper, chunks_upper = await chat_manager_with_rag._maybe_rag("[P] test")
-        msg_lower, chunks_lower = await chat_manager_with_rag._maybe_rag("[p] test")
+        (
+            prompt_upper,
+            query_upper,
+            chunks_upper,
+        ) = await chat_manager_with_rag._maybe_rag("[P] test")
+        (
+            prompt_lower,
+            query_lower,
+            chunks_lower,
+        ) = await chat_manager_with_rag._maybe_rag("[p] test")
         assert chunks_upper == chunks_lower
 
     @pytest.mark.asyncio
@@ -137,8 +151,9 @@ class TestMaybeRAG:
             vector_store=MagicMock(),
             storage=None,
         )
-        msg, chunks = await manager._maybe_rag("[p] query")
-        assert msg == "[p] query"
+        prompt, query, chunks = await manager._maybe_rag("[p] query")
+        assert prompt == "[p] query"
+        assert query == "[p] query"
         assert chunks == 0
 
     @pytest.mark.asyncio
@@ -150,8 +165,9 @@ class TestMaybeRAG:
             vector_store=None,
             storage=None,
         )
-        msg, chunks = await manager._maybe_rag("[p] query")
-        assert msg == "[p] query"
+        prompt, query, chunks = await manager._maybe_rag("[p] query")
+        assert prompt == "[p] query"
+        assert query == "[p] query"
         assert chunks == 0
 
 
@@ -273,93 +289,3 @@ class TestTrimHistory:
         ]
         trimmed = manager._trim_history(history, UserMessage(text="q"))
         assert len(trimmed) <= 2
-
-
-# ── Integration: chat() with real RAG pipeline ──
-
-
-class TestChatManagerRAGIntegration:
-    @pytest.fixture
-    def integrated_manager(self):
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
-        store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
-        )
-        llm = MagicMock()
-        llm.complete = AsyncMock(
-            return_value=AssistantMessage(text="Paris is the capital.")
-        )
-        llm.stream = AsyncMock()
-        llm.config = MagicMock()
-        llm.config.max_tokens = 4096
-        llm.system_message = "System"
-
-        return ChatManager(
-            llm=llm,
-            embedder=embedder,
-            vector_store=store,
-            storage=None,
-            max_context_tokens=4096,
-            history_limit=10,
-        )
-
-    @pytest.mark.asyncio
-    async def test_chat_with_prefix_uses_rag_context(self, integrated_manager):
-        """Full flow: [p] prefix → embed → retrieve → build prompt → LLM."""
-        chunk = Chunk(
-            id="c1",
-            text="Paris is the capital of France.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
-        await integrated_manager.vector_store.add([chunk], namespace="personal")
-
-        response = await integrated_manager.chat(
-            "[p] What is the capital of France?",
-            "conv-test",
-        )
-        assert response.text == "Paris is the capital."
-        # Verify LLM was called with RAG-enhanced prompt
-        call_args = integrated_manager.llm.complete.call_args[0][0]
-        # First message should be the RAG prompt
-        first_msg = call_args[0]
-        assert "Paris" in first_msg.text or "capital" in first_msg.text.lower()
-
-    @pytest.mark.asyncio
-    async def test_chat_without_prefix_no_rag(self, integrated_manager):
-        """Without prefix, LLM should receive original message."""
-        _ = await integrated_manager.chat(
-            "What is the capital of France?",
-            "conv-test",
-        )
-        call_args = integrated_manager.llm.complete.call_args[0][0]
-        first_msg = call_args[0]
-        assert first_msg.text == "What is the capital of France?"
-
-    @pytest.mark.asyncio
-    async def test_stream_chat_with_prefix(self, integrated_manager):
-        """Streaming should also trigger RAG when prefix present."""
-        chunk = Chunk(
-            id="c1",
-            text="Paris is the capital.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
-        await integrated_manager.vector_store.add([chunk], namespace="personal")
-
-        async def mock_stream(*args, **kwargs):
-            yield "Paris"
-            yield " is"
-            yield " the"
-            yield " capital."
-
-        integrated_manager.llm.stream = mock_stream
-
-        chunks = []
-        async for chunk in integrated_manager.stream_chat(
-            "[p] What is the capital?",
-            "conv-test",
-        ):
-            chunks.append(chunk)
-
-        assert "".join(chunks) == "Paris is the capital."

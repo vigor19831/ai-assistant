@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,14 @@ from features.rag.schemas import (
 router = APIRouter(prefix="/rag", tags=["rag"])
 
 DOCUMENTS_ROOT = Path("documents")
+
+
+def _resolve_script(name: str) -> Path:
+    """Find script path via importlib — works after any refactor."""
+    spec = importlib.util.find_spec(name)
+    if spec and spec.origin:
+        return Path(spec.origin)
+    raise FileNotFoundError(f"Script {name!r} not found in PYTHONPATH")
 
 
 def _get_indexing_manager(state: AppState = Depends(get_state)) -> IndexingManager:
@@ -124,7 +133,9 @@ async def delete_chunks(
     return DeleteResponse(deleted_chunks=deleted, errors=errors)
 
 
-@router.get("/health", response_model=HealthResponse)
+@router.get(
+    "/health", response_model=HealthResponse, dependencies=[Depends(require_api_key)]
+)
 async def rag_health(
     manager: RAGManager = Depends(_get_rag_manager),
     state: AppState = Depends(get_state),
@@ -138,7 +149,11 @@ async def rag_health(
     )
 
 
-@router.get("/namespaces", response_model=NamespaceListResponse)
+@router.get(
+    "/namespaces",
+    response_model=NamespaceListResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def list_namespaces(
     state: AppState = Depends(get_state),
 ) -> NamespaceListResponse:
@@ -170,10 +185,23 @@ async def save_chat(
             status_code=400, detail="Invalid namespace. Use: personal, work, other"
         )
 
+    # Validate filename: no absolute paths, no traversal
+    if (
+        not filename
+        or filename.startswith(("/", "\\"))
+        or Path(filename).is_absolute()
+        or ".." in Path(filename).parts
+    ):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     # Save to documents folder
     folder = DOCUMENTS_ROOT / namespace
     folder.mkdir(parents=True, exist_ok=True)
-    file_path = folder / filename
+    folder_resolved = folder.resolve()
+
+    file_path = (folder / filename).resolve()
+    if not file_path.is_relative_to(folder_resolved):
+        raise HTTPException(status_code=400, detail="Path traversal detected")
 
     try:
         file_path.write_text(content, encoding="utf-8")
@@ -234,10 +262,11 @@ async def reindex_documents(
     folder = req.get("folder")
     clear = req.get("clear", False)
 
-    # Run index_documents.py script
-    script_path = Path(__file__).parent.parent.parent / "scripts" / "index_documents.py"
-    if not script_path.exists():
-        raise HTTPException(status_code=500, detail="index_documents.py not found")
+    # Dynamic script resolution via importlib
+    try:
+        script_path = _resolve_script("scripts.index_documents")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     cmd = [sys.executable, str(script_path)]
     if folder:
