@@ -79,11 +79,11 @@ llm:
 
 # ── Vector Store ──
 vector_store:
-  provider: memory
+  provider: faiss
   index_path: ./data/indices
   metric: l2
   dim: 768                # ← ОБЯЗАТЕЛЬНО равно embedder.dim
-  relevance_threshold: 0.3
+  relevance_threshold: 0.1
 
 # ── Storage ──
 storage:

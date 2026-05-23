@@ -9,6 +9,7 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
+from core.domain.documents import Chunk
 from core.domain.errors import AdapterError
 from core.domain.messages import AssistantMessage, ImagePayload, UserMessage
 from core.domain.pipeline import PipelineData
@@ -26,9 +27,48 @@ logger = get_logger("chat")
 _NS_MAP = {"p": "personal", "w": "work", "o": "other"}
 _PREFIX_RE = re.compile(r"^\[(p|w|o)\]\s*(.*)", re.IGNORECASE)
 
+NO_INFO_PHRASES = [
+    "не достаточно",
+    "недостаточно",
+    "не имею",
+    "не знаю",
+    "not enough",
+    "don't have",
+    "no information",
+    "не найдено",
+    "not found",
+    "i don't have",
+    "i do not have",
+    "don't know",
+    "do not know",
+    "у меня недостаточно",
+    "у меня нет",
+]
+
 
 class ChatManager:
     """Universal chat router."""
+
+    @staticmethod
+    def _append_rag_sources(answer: str, chunks: list[Chunk]) -> str:
+        if not chunks or any(ph in answer.lower() for ph in NO_INFO_PHRASES):
+            return answer
+        cited: set[int] = set()
+        for m in re.finditer(r"\[(\d+)\]", answer):
+            try:
+                cited.add(int(m.group(1)) - 1)
+            except (ValueError, IndexError):
+                continue
+        src_lines = [
+            f"[{i + 1}] {chunks[i].metadata.source if chunks[i].metadata else 'unknown'}"
+            for i in sorted(cited)
+            if 0 <= i < len(chunks)
+        ]
+        return (
+            f"{answer}\n\n📎 Источники:\n" + "\n".join(src_lines)
+            if src_lines
+            else answer
+        )
 
     def __init__(
         self,
@@ -99,17 +139,17 @@ class ChatManager:
         keep.reverse()
         return keep
 
-    async def _maybe_rag(self, message: str) -> tuple[str, str, int]:
-        """Return (prompt_for_llm, original_query, rag_chunks_count).
+    async def _maybe_rag(self, message: str) -> tuple[str, str, list[Chunk]]:
+        """Return (prompt_for_llm, original_query, rag_chunks).
 
         If RAG not triggered, prompt_for_llm == original_query == message.
         """
         if not self.embedder or not self.vector_store:
-            return message, message, 0
+            return message, message, []
 
         m = _PREFIX_RE.match(message)
         if not m:
-            return message, message, 0
+            return message, message, []
 
         ns_short = m.group(1).lower()
         query_text = m.group(2)
@@ -135,12 +175,11 @@ class ChatManager:
 
         if not data.context:
             logger.debug("RAG skipped: no relevant chunks in %s", namespace)
-            return query_text, query_text, 0
+            return query_text, query_text, []
 
-        chunks_for_prompt = json.dumps(
-            [{"text": c.text or " "} for c in data.chunks],
-            ensure_ascii=False,
-        )
+        chunks_for_prompt = [
+            {"text": c.text or " ", "id": c.id} for c in data.chunks
+        ]
         rag_prompt = get_prompt(
             "rag_strict",
             version="v1",
@@ -148,7 +187,7 @@ class ChatManager:
             chunks=chunks_for_prompt,
             context=data.context,
         )
-        return rag_prompt, query_text, len(data.chunks)
+        return rag_prompt, query_text, data.chunks
 
     async def chat(
         self,
@@ -184,7 +223,7 @@ class ChatManager:
             image_payload = ImagePayload(base64_data=image_base64)
 
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
-        record_metric("rag_chunks", rag_chunks)
+        record_metric("rag_chunks", len(rag_chunks))
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -295,6 +334,8 @@ class ChatManager:
             len(response.text or ""),
         )
 
+        response.text = self._append_rag_sources(response.text or "", rag_chunks)
+
         if self.storage:
             try:
                 await self.storage.save_message(
@@ -350,7 +391,7 @@ class ChatManager:
             image_payload = ImagePayload(base64_data=image_base64)
 
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
-        record_metric("rag_chunks", rag_chunks)
+        record_metric("rag_chunks", len(rag_chunks))
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -390,6 +431,8 @@ class ChatManager:
         async for chunk in self.llm.stream(messages):
             output_text += chunk
             yield chunk
+
+        output_text = self._append_rag_sources(output_text, rag_chunks)
 
         record_metric("input_tokens", input_tokens)
         record_metric("output_tokens", self._count_tokens(output_text))

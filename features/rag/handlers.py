@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import asyncio
 import importlib.util
 import sys
@@ -63,12 +64,6 @@ def _get_rag_manager(state: Annotated[AppState, Depends(get_state)]) -> RAGManag
         reranker=state.reranker,
     )
 
-
-@router.post(
-    "/index",
-    response_model=IndexResponse,
-    dependencies=[Depends(require_api_key)],
-)
 async def index_documents(
     req: IndexRequest,
     manager: Annotated[IndexingManager, Depends(_get_indexing_manager)],
@@ -80,7 +75,7 @@ async def index_documents(
     index_path = getattr(state.config.vector_store, "index_path", None)
     if index_path:
         try:
-            await manager.save_index(index_path, namespace=namespace)
+            await state.vector_store.save(index_path, namespace=namespace)
         except Exception as e:
             result["errors"].append(f"Auto-save failed: {e}")
     return IndexResponse(**result, namespace=namespace)
@@ -254,7 +249,7 @@ async def save_chat(
         # Auto-save index
         index_path = getattr(state.config.vector_store, "index_path", None)
         if index_path:
-            await manager.save_index(index_path, namespace=namespace)
+            await state.vector_store.save(index_path, namespace=namespace)
 
         return {
             "saved": True,

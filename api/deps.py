@@ -168,13 +168,17 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
 
         index_path = getattr(cfg.vector_store, "index_path", None)
         if index_path:
+            # Load all discovered namespaces
             try:
                 namespaces = await state.vector_store.list_namespaces(index_path)
                 for ns in namespaces:
                     await state.vector_store.load(index_path, namespace=ns)
             except Exception:
+                pass
+            # Also ensure chat namespaces exist (create empty if missing)
+            for ns in ("personal", "work", "other", "default"):
                 try:
-                    await state.vector_store.load(index_path, namespace="default")
+                    await state.vector_store.load(index_path, namespace=ns)
                 except Exception:
                     pass
 

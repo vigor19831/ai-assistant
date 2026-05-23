@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -162,20 +163,39 @@ class RAGManager:
         )
         result = await self.pipeline.run(data)
 
-        answer = result.response.text if result.response else ""
+        answer = result.response.text if result.response else " "
 
-        # Only show sources if answer actually uses context
-        sources = []
+        # Post-process: map citations [N] to real sources
+        sources: list[dict[str, Any]] = []
         if result.chunks and not self._is_no_info_answer(answer):
-            for c in result.chunks:
-                meta = c.metadata.custom if c.metadata else {}
-                sources.append(
-                    {
-                        "chunk_id": c.id,
-                        "text_preview": c.text[:200] if c.text else "",
-                        "metadata": meta,
-                    }
-                )
+            cited_indices: set[int] = set()
+            for m in re.finditer(r"\[(\d+)\]", answer):
+                try:
+                    cited_indices.add(int(m.group(1)) - 1)
+                except (ValueError, IndexError):
+                    continue
+
+            src_lines: list[str] = []
+            for idx in sorted(cited_indices):
+                if 0 <= idx < len(result.chunks):
+                    src = (
+                        result.chunks[idx].metadata.source
+                        if result.chunks[idx].metadata
+                        else "unknown"
+                    )
+                    src_lines.append(f"[{idx + 1}] {src}")
+
+            if src_lines:
+                answer += "\n\n📎 Источники:\n" + "\n".join(src_lines)
+
+            sources = [
+                {
+                    "chunk_id": c.id,
+                    "text_preview": c.text[:200] if c.text else " ",
+                    "metadata": c.metadata.custom if c.metadata else {},
+                }
+                for c in result.chunks
+            ]
 
         return {
             "answer": answer,

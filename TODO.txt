@@ -21,829 +21,322 @@ Python 3.13+, стандарты: PEP8, PEP257, PEP484, ruff (line-length 88), m
 Проверяй: синтаксис, логику, стиль, типизацию, обработку ошибок, импорты, тестируемость, сложность функций, соответствие pyproject.toml (ruff/mypy), уважение границ Sacred Core.
 Требования: Будь краток, экономь токены, не фантазируй, если не уверен - спроси, изучи:
 [structure.txt]+[pyproject.toml]+[ИЗМЕНЕНИЯ]+[Код файла\название].
+================================================================================
+================================================================================
+ # План: 100% Python Golden Standards
+================================================================================
+## Часть 1: Структура (src-layout)
+
+```
+ai-assistant/
+├── src/ai_assistant/          # ← ЕДИНЫЙ пакет
+│   ├── __init__.py
+│   ├── core/
+│   ├── adapters/
+│   ├── features/
+│   ├── pipeline/
+│   └── api/
+├── dev/                       # 🛠️ Только разработчики
+│   ├── tests/
+│   ├── scripts/               # check_*.py, context_build.py
+│   ├── pyproject.toml         # Dev deps
+│   └── README.md
+├── ops/                       # 🚀 Пользователи / DevOps
+│   ├── scripts/               # start.py, stop.py, index_documents.py
+│   ├── launcher.py
+│   └── README.md
+├── docs/
+├── config/
+├── pyproject.toml             # Production deps only
+└── README.md
+```
+
+**Изменения:**
+1. `mkdir -p src/ai_assistant`
+2. Перенести `core/ adapters/ features/ pipeline/ api/` → `src/ai_assistant/`
+3. Перенести `tests/` → `dev/tests/`
+4. Перенести `scripts/check_*.py scripts/context_build.py` → `dev/scripts/`
+5. Перенести `scripts/start.py scripts/stop.py scripts/index_documents.py scripts/download_tokenizers.py scripts/clean_cache.py launcher.py` → `ops/`
+6. В корневом `pyproject.toml`:
+```toml
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ai_assistant*"]
+```
+7. В `dev/pyproject.toml`:
+```toml
+[project]
+dependencies = ["ai-assistant[all]", "pytest>=8.2.0", "ruff>=0.4.0", ...]
+```
+8. Все импорты: `from core.x` → `from ai_assistant.core.x`
+9. `ops/scripts/` добавляют `src/` в `sys.path` при запуске
+================================================================================
+## Часть 2: Sacred Core → Stable Core
+
+**Проблема:** Глобальный registry, frozen pipeline, dynamic router.
+
+**Решение:**
+
+| Компонент | Сейчас | Должно быть |
+|-----------|--------|-------------|
+| `registry.py` | Глобальный `_registry` dict | `AdapterRegistry` class, injectable |
+| `pipeline.py` | Sequential only | Configurable: error handling, retry, parallel |
+| `router.py` | `importlib` dynamic | Explicit registration registry |
+| `ports/` | Flat | Versioned: `ports/v1/`, `ports/v2/` |
+
+**Код registry:**
+```python
+class AdapterRegistry:
+    def __init__(self) -> None:
+        self._registry: dict[str, dict[str, type]] = {}
+
+    def register(self, port: str, name: str, cls: type) -> None:
+        self._registry.setdefault(port, {})[name] = cls
+
+    def create(self, port: str, name: str, config: Any) -> Any:
+        if port not in self._registry or name not in self._registry[port]:
+            raise ValueError(f"No adapter: {port}/{name}")
+        return self._registry[port][name](config)
+
+    def fork(self) -> "AdapterRegistry":
+        new = AdapterRegistry()
+        new._registry = {k: dict(v) for k, v in self._registry.items()}
+        return new
+
+# Глобальный для @register декоратора
+_default_registry = AdapterRegistry()
+
+def register(port: str, name: str) -> Callable[[type], type]:
+    def decorator(cls: type) -> type:
+        _default_registry.register(port, name, cls)
+        return cls
+    return decorator
+```
+================================================================================
+## Часть 3: Зависимости (pyproject.toml)
+
+**Сейчас:** Все в `dependencies` и `dev`.
+
+**Должно быть:**
+```toml
+[project]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "pyyaml>=6.0.1",
+    "numpy>=1.26.0",
+    "httpx>=0.27.0",
+    "aiofiles>=23.2.1",
+    "jinja2>=3.1.3",
+    "sqlmodel>=0.0.18",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "respx>=0.21.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "mutmut>=2.4.0",
+    "hypothesis>=6.100.0",
+]
+faiss = ["faiss-cpu>=1.8.0"]
+tokenizers = ["tiktoken>=0.7.0", "tokenizers>=0.19.0"]
+all = ["ai-assistant[faiss,tokenizers]"]
+```
+
+**Команды:**
+```bash
+pip install -e .                    # core only
+pip install -e ".[dev]"             # development
+pip install -e ".[faiss,tokenizers]" # production with all features
+```
+================================================================================
+## Часть 4: Ruff + MyPy (строгие настройки)
+
+**Ruff:**
+```toml
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "C4", "SIM", "TCH"]
+ignore = ["E501"]  # line-length handled by formatter
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+```
+
+**MyPy (строгий):**
+```toml
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+disallow_untyped_defs = true
+disallow_untyped_calls = true
+warn_no_return = true
+warn_unused_ignores = true
+show_error_codes = true
+```
+================================================================================
+## Часть 5: Тесты (структура + качество)
+
+**Структура:**
+```
+tests/
+├── conftest.py
+├── unit/
+│   ├── test_core/
+│   ├── test_adapters/
+│   └── test_features/
+├── integration/
+│   ├── test_llm_api.py
+│   └── test_vector_store.py
+└── e2e/
+    └── test_api.py
+```
+
+**Правила:**
+- Unit: <100ms, нет I/O, изолированные
+- Integration: моки внешних API, реальные БД (SQLite in-memory)
+- E2E: TestClient или реальный сервер
+
+**Pytest config:**
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+timeout = 30
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "online: requires running server",
+]
+```
+================================================================================
+## Часть 6: CI/CD (GitHub Actions)
+
+`.github/workflows/ci.yml`:
+```yaml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy src/
+      - run: pytest tests/ -v --cov=ai_assistant --cov-report=xml
+      - run: python scripts/dev/check_mutations.py --quick
+```
+================================================================================
+## Часть 7: Документация
+
+```
+docs/
+├── architecture.md      # ADR (Architecture Decision Records)
+├── api.md               # OpenAPI/Swagger описание
+├── deployment.md        # Как деплоить
+├── development.md       # Как разрабатывать
+└── adr/                 # Решения по архитектуре
+    ├── 001-src-layout.md
+    ├── 002-stable-core.md
+    └── 003-dependency-groups.md
+```
+
+**README.md** — только quickstart для пользователя.
 
 ================================================================================
-ИЗМЕНЕНИЯ
-
-core/config.py
-Исправлено:
-    Обработка ошибок YAML — load_config ловит yaml.YAMLError и оборачивает в ValueError с указанием пути к файлу. Раньше битый YAML падал с низкоуровневым трейсбеком.
-    Не мутируем входной dict в валидаторе — _load_rag_steps теперь возвращает {**v, "steps": ...} вместо изменения v["steps"] in-place. Безопаснее при повторной валидации.
-    Типизация load_config — параметр path теперь str | Path (PEP 484, удобнее для тестов).
-    __all__ — явный публичный API, уменьшает шум при from core.config import *.
-    PEP 257 docstring — у load_config добавлены Args, Returns, Raises.
-    Trailing newline — файл заканчивается пустой строкой.
-Исправить:
-    tests/ — нет тестов на load_config (отсутствие файла, битый YAML, пустой файл). Добавить в test_core_critical.py или отдельный test_config.py.
-    pyproject.toml — убедиться что dependencies явно содержит pyyaml и pydantic-settings>=2.0.
-    core/io_utils.py (если есть аналогичные загрузчики YAML/JSON) — применить тот же паттерн: try/except + Path + понятные сообщения.
-    main.py / lifespan.py — проверить что load_config() вызывается один раз и результат прокидывается дальше, а не перечитывается на каждый запрос.
-
-core/logger.py
-Исправлено:
-    Валидация level — раньше "DEBUGG" молча становился NOTSET (0). Теперь ValueError с перечнем допустимых уровней.
-    Thread-safety — добавлен threading.Lock(); устранён race condition при одновременном первом вызове из нескольких потоков (дублирование хендлеров).
-    Обработка ОС-ошибок — OSError при mkdir / FileHandler ловится и логируется в консоль вместо необработанного падения (например, read-only FS).
-    Обновление уровня при повторном вызове — logger.setLevel выполняется всегда, даже если хендлеры уже созданы. Раньше уровень замораживался при первом вызове.
-    __all__ — явный публичный API.
-    Тип log_file — расширен до str | Path | None (PEP 484).
-Исправить:
-    main.py / lifespan.py — убедиться что setup_logging() вызывается ровно один раз при старте, а не в каждом worker-процессе Uvicorn (иначе логи дублируются в multiprocess-режиме).
-    tests/ — нет теста на повторный вызов setup_logging с другим level, на ValueError для невалидного уровня, на OSError при недоступном log_file.
-    core/io_utils.py (если есть) — применить тот же паттерн Path.mkdir(parents=True, exist_ok=True) + try/except OSError.
-
-core/io_utils.py
-Исправлено:
-    Валидация mode и типа content — раньше "x" или content неправильного типа уходили в os.write с непонятной ошибкой. Теперь ValueError/TypeError до любого IO.
-    Убран except Exception: вокруг основной логики — разделён на OSError (cleanup tmp) и Exception (cleanup fd + tmp). Не ловит KeyboardInterrupt/SystemExit как обычное исключение.
-    os.fsync + fsync директории — гарантирует durability при сбое питания. Раньше os.replace без fsync = риск пустого файла.
-    Все sync-операции в asyncio.to_thread — раньше os.replace/os.close были синхронными в async-функции, а os.unlink — в треде. Теперь консистентно.
-    os.fdopen вместо raw os.write — Pythonic, гарантирует flush/close, поддерживает большие данные (buffered IO).
-    __all__ — явный публичный API.
-    PEP 257 docstring — у функции.
-Исправить:
-    core/metrics.py — если пишет JSONL/JSON, должен использовать atomic_write вместо прямого open(..., "w"), иначе при аварийном завершении файл обнулится.
-    adapters/memory_sqlite.py / storage_sqlite.py — проверить что PRAGMA journal_mode=WAL и транзакции используются; SQLite без WAL не атомарен при записи.
-    tests/ — нет теста на atomic_write (проверка атомарности, cleanup при ошибке, невалидный mode). Добавить в test_core_critical.py.
-    core/config.py — yaml.safe_load читает файл напрямую, не через atomic_write (не критично, но если config.yaml перезаписывается runtime — риск битого YAML).
-
-core/metrics.py
-Исправлено:
-    ContextVar mutable default — default_factory=dict вместо default={}. Раньше все контексты писали в один глобальный dict — критичный баг изоляции запросов.
-    Singleton thread-safe — добавлен threading.Lock() в get_metrics_logger().
-    start() без event loop — теперь RuntimeError с понятным сообщением вместо неявного падения asyncio.create_task.
-    stop() при QueueFull — drain-ретрии: если очередь полна, вытаскивает старые записи и вставляет sentinel None. Раньше sentinel терялся, воркер зависал навечно.
-    Durability — _append_line теперь flush + os.fsync. Раньше при сбое питания последние строки терялись.
-    Не ловим SystemExit/KeyboardInterrupt — воркер пропускает их, приложение завершается корректно.
-    __all__ — явный публичный API.
-    Убран self._logger — используется модульный _logger (один инстанс, меньше объектов).
-Исправить:
-    api/lifespan.py — должен вызывать get_metrics_logger().start() на startup и await .stop() на shutdown. Иначе метрики не пишутся.
-    tests/ — нет тестов на MetricsLogger (QueueFull, stop timeout, ContextVar изоляция между задачами).
-    core/io_utils.py — atomic_write не поддерживает "a"; если где-то в проекте используется для append-логов — это баг (перезапишет файл).
-
-core/utils.py
-Исправлено:
-    Убран _MODEL_TO_TOKENIZER — dead code, нигде не использовался в этом файле (приватный символ, безопасно удалить).
-    resolve_api_key — config_value is not None and config_value != "" вместо if config_value:. Теперь "0" как API-ключ не ломается (falsy-строка), а "" корректно триггерит fallback в env.
-    _resolve_tokenizer_dir — защита от FileNotFoundError/PermissionError через base.exists() и except OSError. Раньше отсутствующая data/tokenizers/ падала.
-    get_tokenizer (tiktoken) — except KeyError вместо except Exception для encoding_for_model. Меньше маскировки ошибок.
-    get_context_limit — цикл по атрибутам вместо трёх последовательных getattr. Читаемость ↑, дублирование ↓.
-    __all__ — явный публичный API.
-Исправить:
-    data/tokenizers/ — в проекте лежат gemma-4-e2b-it, phi-4-mini-reasoning, qwen3.5-4b, а _MODEL_TO_TOKENIZER (удалён) ссылался на gemma-3, qwen2.5, llama-3.2. Если где-то в других файлах хардкодятся имена моделей — проверить синхронизацию с реальными папками.
-    adapters/ — любой адаптер, использующий resolve_api_key, должен передавать env_var с собственным префиксом (например, AI_LLM_API_KEY), а не дефолт OPENAI_API_KEY.
-    tests/ — нет тестов на _resolve_tokenizer_dir (отсутствие директории, partial match), на count_tokens fallback, на resolve_api_key с "0".
-
-core/retry.py
-Исправлено:
-    Не ловим SystemExit/KeyboardInterrupt — добавлены явные except ...: raise до _PERMANENT_ERRORS. Раньше graceful shutdown мог застрять в asyncio.sleep между ретраями.
-    assert перед финальным raise — убирает type: ignore и удовлетворяет mypy --strict (гарантия не-None).
-    import time/import inspect на уровне модуля — убраны inline-импорты (производительность, читаемость).
-    max_delay + jitter — опциональные параметры. Без них exponential backoff уходит в минуты и создаёт thundering herd при массовых сбоях. Default None/False = обратная совместимость.
-    cast(F, wrapper) вместо # type: ignore[return-value] — чище для mypy strict.
-    __all__ — явный публичный API.
-Исправить:
-    adapters/ — любой @with_retry на внешние API (embedder_openai_compatible.py, llm_openai_compatible.py, reranker_api.py) должен добавить jitter=True, max_delay=30.0 при вызове декоратора.
-    tests/test_resilience.py — нет тестов на SystemExit не-ретрай, на max_delay cap, на jitter. Добавить.
-    Проектный уровень — _PERMANENT_ERRORS содержит ValueError. Если в проекте ValueError используется для "rate limit exceeded" или "temporarily unavailable", такие ошибки не будут ретраиться. Рекомендую завести иерархию class TransientError(Exception) и перенести временные ошибки туда, оставив _PERMANENT_ERRORS только для программных.
-
-core/registry.py
-Исправлено:
-    from __future__ import annotations — соответствие стандарту проекта (PEP 484).
-    __all__ — явный публичный API.
-    Нет изменений логики Sacred Core — _registry, register, create, list_adapters оставлены как есть.
-Исправить:
-    Thread-safety — _registry глобальный mutable dict без Lock. При импорте модулей из разных потоков (например, в тестах с pytest-xdist) возможен race condition. Предлагаю: threading.Lock() в register() или immutable registry после startup.
-    Дублирование имён — register("llm", "mock") дважды молча перезапишет первый адаптер. Предлагаю: warnings.warn или raise ValueError при duplicate registration.
-    Типизация create — config: Any → config: BaseModel | dict[str, Any] если Sacred Core может позволить себе зависимость от pydantic.
-
-core/pipeline.py
-Исправлено:
-    Defensive copy — self.steps = list(steps) вместо self.steps = steps. Защита от мутации внешнего списка после передачи в конструктор. API не сломан (steps остаётся публичным).
-    __all__ — явный публичный API.
-Исправить:
-    Обработка ошибок шага — если step(data) падает, pipeline прерывается без cleanup/rollback. Предлагаю: обёртка try/except с сохранением data на момент сбоя для диагностики (не меняет control flow).
-    Пустой pipeline — run с steps=[] молча возвращает data. Возможно, стоит ValueError при __init__ с пустым списком.
-    Типизация — Callable[[PipelineData], Awaitable[PipelineData]] не поддерживает sync-шаги. Если pipeline/steps.py содержит sync-функции с @step, это mismatch.
-
-pipeline/decorators.py
-Исправлено:
-    Thread-safety — _step_registry защищён threading.Lock(). Раньше race condition при одновременном импорте/регистрации из разных потоков.
-    Duplicate registration — warnings.warn при перезаписи имени. Раньше молчаливо затиралось.
-    __all__ — явный публичный API.
-Исправить:
-    pipeline/steps.py — проверить что все функции с @step действительно async def и принимают/возвращают PipelineData. Тип get_step (Callable[..., Awaitable[Any]]) шире чем RAGPipeline.run ожидает (Callable[[PipelineData], Awaitable[PipelineData]]). Если steps.py нарушает контракт — mypy strict не поймает из-за Any.
-    tests/ — нет теста на duplicate step warning, на thread-safe registration, на ValueError для unknown step.
-    Проектный уровень — _step_registry живёт вечно (нет clear()). При hot-reload или тестах с разными наборами шагов может понадобиться clear_steps().
-
-pipeline/steps.py
-Исправлено:
-    _build_fallback_prompt — убрано дублирование fallback-логики (4 одинаковых блока → одна closure).
-    query_text — вынесена переменная data.query.text or "", убрано 4 повторения.
-    top_k с default — data.metadata.get("top_k", 5) вместо data.metadata["top_k"] (безопаснее при отсутствии ключа).
-    if not response or not response.tool_calls — защита от None (хотя логически не должен быть None, mypy безопаснее).
-    __all__ — явный публичный API.
-Исправить:
-    Критично: **kwargs vs Sacred Core — RAGPipeline.run вызывает step(data), но все шаги принимают **kwargs. Если features/rag/manager.py не оборачивает шаги в functools.partial(kwargs=...), pipeline сломается. Нужен файл features/rag/manager.py для проверки.
-    Критично: call.get("function", {}) — предполагает response.tool_calls это list[dict]. Если core/domain/messages.py типизирует tool_calls как list[ToolCall] (объекты), здесь будет AttributeError. Нужны файлы core/domain/messages.py и core/ports/tools.py.
-    messages: list[Any] — смешивает UserMessage, AssistantMessage и raw dict'и. Если core/ports/llm.py ожидает list[Message], типизация сломана. Нужен core/ports/llm.py.
-    except Exception — слишком широко во всех шагах. Нужно сузить до типов ошибок конкретных адаптеров (сетевые, validation). Без файлов адаптеров — оставлено как есть.
-    tests/test_rag_pipeline.py — должен проверять: пустой query.text, отсутствие top_k в metadata, reranker=None, tool_registry=None, fallback prompt.
-
-core/domain/pipeline.py
-Исправлено:
-    __all__ — явный публичный API.
-    Нет изменений логики Sacred Core — dataclass поля, rebuild_context, defaults оставлены как есть.
-Исправить:
-    core/domain/messages.py — UserMessage должен иметь .text: str | None и .image: Any | None. Если .text обязателен (str), то if chunk.text в rebuild_context лишнее (всегда True). Нужен файл для проверки.
-    core/domain/documents.py — Chunk должен иметь .text: str и .metadata: dict[str, Any]. Если .text может быть None, фильтрация if chunk.text корректна. Нужен файл.
-    tests/ — нет теста на PipelineData.rebuild_context (пустые chunks, chunks с text="", text=None).
-
-core/domain/messages.py
-Исправлено:
-__all__ — явный публичный API.
-Исправить:
-    pipeline/steps.py — подтверждено: tool_calls это list[dict[str, Any]]. call.get("function", {}) корректен. Но типизация messages: list[Any] в generate всё ещё широкая — нужно сузить до list[UserMessage | AssistantMessage | dict[str, Any]] или завести ToolMessage.
-    core/ports/llm.py — должен ожидать list[UserMessage | AssistantMessage | dict[str, Any]] в complete(). Если ожидает только объекты — mismatch. Нужен файл.
-    core/domain/documents.py — Chunk должен иметь .text: str. Если str | None — rebuild_context фильтрация корректна. Нужен файл.
-    tests/ — нет теста на UserMessage() без payload (должен падать ValueError).
-
-core/domain/documents.py
-Исправлено:
-__all__ — явный публичный API.
-Исправить:
-    core/domain/pipeline.py — rebuild_context фильтрация if chunk.text лишняя: Chunk.text объявлен str (не str | None), условие всегда True. Убрать фильтр или изменить Chunk.text на str | None если пустые строки допустимы.
-    tests/ — нет теста на ChunkMetadata frozen semantics (попытка мутации должна падать), на default_factory изоляцию custom между инстансами.
-    core/domain/messages.py — ImagePayload и VoicePayload имеют base64_data/audio_base64 как str. Если где-то в проекте передаются большие base64-строки (мегабайты), стоит рассмотреть bytes или streaming. Нужны файлы адаптеров vision/voice.
-
-core/domain/errors.py
-Исправлено:
-    from __future__ import annotations — консистентность с проектом.
-    __all__ — явный публичный API.
-    Убраны pass — избыточны при наличии docstring (PEP 8, ruff clean).
-Исправить:
-    core/retry.py — если AdapterError используется адаптерами для программных ошибок (например, неверный JSON от API), добавить в _PERMANENT_ERRORS чтобы не ретраить бессмысленно. Если для сетевых сбоев — оставить как есть.
-    adapters/ — должны raise AdapterError / ConfigurationError вместо голых Exception/ValueError для консистентности домена.
-    tests/ — нет тестов на иерархию ошибок (наследование от Exception, сообщения).
-
-core/ports/chunker.py
-Исправлено:
-    __all__ — явный публичный API.
-Исправить:
-    Все core/ports/*.py — проверить что все порты следуют единому шаблону: ABC, __init__(self, config: Any), @abstractmethod, __all__. Если есть отклонения — привести к стандарту.
-    adapters/chunker_simple.py — должен реализовать IChunker и быть зарегистрирован через @register("chunker", "simple"). Нужен файл для проверки.
-    tests/test_contracts.py — должен проверять что каждый адаптер имплементирует соответствующий порт (ABC subclass check).
-
-adapters/chunker_simple.py
-Исправлено:
-    Убран object.__setattr__ — хак на frozen dataclass нарушал invariants. Теперь total_chunks вычисляется до создания объектов.
-    Точный total_chunks — раньше total считался до фильтрации пустых chunks, потом патчился. Теперь total = len(chunk_texts) после фильтра.
-    Defensive copy metadata — document.metadata.copy() вместо прямой ссылки. Защита от side effects при мутации document.metadata после chunking.
-    ruff line-length 88 — разбил длинные строки валидации.
-Исправить:
-    core/domain/documents.py — ChunkMetadata frozen с custom: dict[str, Any]. Frozen dataclass с mutable полем — design smell. Рекомендация (не меняю Sacred Core): сделать custom тоже frozen или Mapping[str, Any].
-    adapters/chunker_*.py — если есть другие chunker'ы, применить тот же паттерн (no object.__setattr__, copy metadata).
-    tests/ — нет теста на chunk_overlap >= chunk_size, на empty document content, на корректность total_chunks после фильтрации.
-
-adapters/embedder_mock.py
-Исправлено:
-    Оптимизация — один Random на текст вместо self._dim инстансов (было 384 объекта на текст при dim=384).
-    Docstring — у класса (PEP 257).
-    __all__ — явный публичный API.
-    abs(hash(t)) — защита от negative hash seed.
-Исправить:
-    tests/ — нет теста на детерминизм: await embed(["hello"]) дважды должен давать идентичный вектор.
-    adapters/embedder_openai_compatible.py — должен использовать @with_retry для сетевых вызовов и обрабатывать rate limiting. Нужен файл.
-    core/ports/embedder.py — проверить что IEmbedder определяет dimension property и embed method.
-
-adapters/embedder_openai_compatible.py
-Исправлено:
-    jitter=True, max_delay=30.0 — предотвращает thundering herd при массовых сбоях и капит задержку.
-    getattr(config, "timeout", 60.0) — defensive fallback если timeout отсутствует в config.
-    Обработка malformed response — try/except (KeyError, TypeError) вокруг парсинга data["data"] с AdapterError и from exc. Раньше KeyError попадал в _PERMANENT_ERRORS и не ретраился без диагностики.
-    __all__ — явный публичный API.
-    PEP 257 docstring — у embed с Raises.
-Исправить:
-    Connection pooling — httpx.AsyncClient создаётся на каждый вызов. Если embedder используется часто (RAG pipeline), это overhead. Рекомендация: создать self._client в __init__ и закрывать в __aexit__/lifespan. Нужен файл adapters/transport_fastapi.py или api/lifespan.py для lifecycle management.
-    adapters/llm_openai_compatible.py — должен применить тот же паттерн (jitter=True, max_delay=30.0, getattr fallback, __all__).
-    core/ports/embedder.py — проверить что IEmbedder определяет dimension property.
-
-adapters/llm_mock.py
-Исправлено:
-    Защита от None — messages[-1].text is not None вместо просто messages[-1].text. Раньше AssistantMessage(text=None) давал "Echo: None".
-    Docstring — у класса (PEP 257).
-    __all__ — явный публичный API.
-    ruff line-length 88 — разбил длинную yield-строку.
-Исправить:
-    core/ports/llm.py — проверить что ILLM определяет complete и stream с правильными сигнатурами. Если stream должен возвращать AsyncIterator[AssistantMessage] или AsyncIterator[str] — нужен файл.
-    adapters/llm_openai_compatible.py — должен реализовать stream корректно (SSE parsing, retry, tool calls). Нужен файл.
-    tests/ — нет теста на MockLLM с пустым messages, с text=None.
-
-adapters/llm_openai_compatible.py
-Исправлено:
-    get_logger вместо logging.getLogger(__name__) — консистентность с проектным логгером.
-    getattr(config, "timeout", 300.0) — defensive fallback. Раньше config.timeout падал при отсутствии поля.
-    @with_retry(..., jitter=True, max_delay=30.0) — thundering herd защита и кап задержки.
-    complete response parsing — try/except (IndexError, KeyError, TypeError) вокруг data["choices"][0] с AdapterError и from exc. Раньше пустой choices давал IndexError в _PERMANENT_ERRORS без диагностики.
-    Убран len(text.split()) > max_tok * 2 — слова ≠ токены. Неверная эвристика обрезала ответы. API сам ограничивает по max_tokens.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    Connection pooling — httpx.AsyncClient создаётся на каждый вызов. При частых запросах (RAG pipeline) — overhead. Рекомендация: self._client = httpx.AsyncClient(...) в __init__, закрывать в __aexit__ или lifespan. Нужен api/lifespan.py.
-    stream retry — @with_retry не работает на генераторах. Сетевые ошибки в stream не ретраятся. Рекомендация: обернуть HTTP-вызов в отдельную функцию с @with_retry, а генератор — поверх.
-    adapters/llm_mock.py — должен yield'ить токены по частям в stream, а не одну строку, для реалистичного тестирования SSE parsing.
-    tests/test_malformed_sse.py — должен тестировать stream с broken JSON, [DONE], empty choices, malformed tool_calls delta.
-
-adapters/vector_store_memory.py
-Исправлено:
-    LRU через dict[str, None] вместо set[str]. set не гарантирует порядок итерации — _evict() мог удалять случайный chunk вместо oldest. dict (Python 3.7+) сохраняет insertion order — корректный LRU.
-    Data loss в save/load — раньше Chunk.metadata не сохранялся/восстанавливался. Теперь сериализуется полностью (source, index, total_chunks, created_at, custom) и восстанавливается через ChunkMetadata.
-    Не создаём пустой namespace в search — if namespace not in self._namespaces: return [] вместо _get_ns. Раньше каждый search с несуществующим namespace создавал пустой _NamespaceData — утечка памяти.
-    load вне lock — JSON parsing (json.loads, np.array) выполняется вне async with self._lock, уменьшая блокировку event loop.
-    filters вместо filter — убрано shadowing built-in filter.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    adapters/vector_store_faiss.py — если есть, должен применить тот же паттерн LRU (ordered dict), сохранение metadata, проверку namespace перед search.
-    tests/ — нет теста на LRU eviction order, на save/load round-trip с metadata, на утечку namespace в search.
-    core/ports/vector_store.py — проверить что IVectorStore определяет save/load сигнатуры. Нужен файл.
-
-core/ports/vector_store.py
-Исправлено:
-    __all__ — явный публичный API.
-Исправить:
-    filter shadowing built-in — параметр filter в list_by_filter shadowing builtins.filter. Рекомендация: переименовать в filters во всех портах и адаптерах. Я уже применил это в adapters/vector_store_memory.py, что создаёт mismatch с портом. Нужно либо откатить adapter, либо разрешить изменение порта.
-    core/ports/ — проверить все остальные порты на __all__ и built-in shadowing.
-
-adapters/vector_store_faiss.py
-Исправлено:
-    Убран неиспользуемый logger — logging.getLogger(__name__) импортировался но нигде не использовался.
-    Defensive copy metadata — chunk.metadata.custom.copy() в add и delete вместо прямой ссылки. Защита от side effects.
-    Упрощён delete — ранняя return если remaining пуст, убрано дублирование логики rebuild.
-    load вне lock для JSON parsing — store_text = await asyncio.to_thread(store_path.read_text) и json.loads выполняются вне async with self._lock (meta_text тоже). Только мутация ns под lock.
-    ns.chunks.clear() в load — явный clear перед загрузкой, предотвращает смешивание старых и новых данных при повторном load.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    core/ports/vector_store.py — filter shadowing built-in. Нужно переименовать в filters в порту и всех адаптерах (требует разрешения Sacred Core).
-    Производительность delete — O(n) rebuild всего индекса. Для production с большими индексами рекомендовать FaissIndexIDMap + remove_ids, но это меняет формат хранения.
-    tests/ — нет теста на VersionMismatchError в load, на delete rebuild correctness, на list_namespaces с пустым path.
-    adapters/vector_store_memory.py vs faiss — search в FAISS не применяет relevance_threshold (в memory store применяется). Нужно либо добавить threshold в FAISS, либо убрать из memory для консистентности.
-
-adapters/memory_sqlite.py
-Исправлено:
-    SQL Injection через LIKE — _escape_like экранирует % и _, SQL использует ESCAPE '\'. Раньше query="100%" находил все строки с любым символом.
-    Битый JSON в БД — _safe_json_loads с fallback на default. Раньше json.loads падал с JSONDecodeError на повреждённых данных.
-    Magic numbers — consolidate_importance_threshold и consolidate_days из config с fallback. Раньше hardcoded 0.3 и 30.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    core/ports/memory.py — проверить что ILongTermMemory имеет __init__(self, config). Если нет — super().__init__(config) в SQLiteMemory упадёт с TypeError. Нужен файл.
-    adapters/storage_sqlite.py — должен применить тот же паттерн (PRAGMA journal_mode=WAL, busy_timeout, _safe_json_loads, ESCAPE в LIKE).
-    tests/ — нет теста на _sanitize_fts (SQL injection patterns), на _escape_like, на consolidate с кастомными threshold/days, на json.JSONDecodeError fallback.
-
-adapters/storage_sqlite.py
-Исправлено:
-    super().__init__(config) — корректный вызов ABC конструктора. Раньше пропущен, мог быть TypeError при инициализации.
-    getattr(config, "db_path", ...) — defensive fallback. Раньше config.db_path падал при отсутствии поля.
-    _safe_json_loads — защита от битого JSON в metadata и settings. Раньше json.loads падал с JSONDecodeError.
-    Индекс idx_chat_conv — CREATE INDEX на conversation_id. Раньше get_history был full table scan.
-    ORDER BY id ASC — убран reversed(list(rows)), меньше allocations и читаемее.
-    __all__ — явный публичный API.
-    DRY json.dumps(value) — вынесен в payload в set().
-Исправить:
-    core/ports/storage.py — проверить что IChatStorage и ISettingsStorage определяют __init__(self, config). Если нет — super().__init__(config) упадёт. Нужен файл.
-    tests/ — нет теста на _safe_json_loads, на get с default, на init_db idempotency (повторный вызов не падает).
-    adapters/memory_sqlite.py — применить тот же паттерн _safe_json_loads (уже применено в предыдущей итерации).
-
-adapters/tools_calculator.py
-Исправлено:
-    super().__init__(config) — консистентность с паттерном других адаптеров.
-    Валидация аргументов — явная проверка operation (type + presence) до float() conversion. Раньше arguments={} давал Unknown operation: None через float(0).
-    Узкий except — (KeyError, TypeError, ValueError) вместо Exception. Не маскирует SystemExit/KeyboardInterrupt.
-    math.isinf/math.isnan — защита от 1e309 или 0.0/0.0, которые json.dumps не сериализует.
-    enum: list(self._ops.keys()) — DRY, не хардкодит список операций.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    core/ports/tools.py — ITool.execute принимает только arguments, но call_id теряется. Порт должен иметь execute(self, call_id: str, arguments: dict[str, Any]) или ToolResult не должен требовать call_id. Нужен файл для проверки.
-    core/ports/tools.py — проверить что ITool определяет __init__(self, config: Any). Если нет — super().__init__(config) упадёт.
-    pipeline/steps.py — call.get("id", "") передаётся в ToolCall, но tool_registry.dispatch(tc) не прокидывает call_id в execute. Нужен features/rag/manager.py или core/tool_registry.py.
-    tests/ — нет теста на division by zero, на NaN/inf, на unknown operation, на missing required argument.
-
-adapters/reranker_dummy.py
-Исправлено:
-__all__ — явный публичный API.
-Исправить:
-    core/ports/reranker.py — проверить что IReranker определяет __init__(self, config). Если нет — super().__init__(config) упадёт. Нужен файл.
-    tests/ — нет теста на top_k slicing, на empty chunks.
-
-adapters/reranker_api.py
-Исправлено:
-    jitter=True, max_delay=15.0 — thundering herd защита и кап задержки.
-    Убрана лишняя фильтрация — docs = [c.text for c in chunks] (Chunk.text объявлен str, не str | None). Раньше if c.text всегда True.
-    Обработка malformed response — try/except (KeyError, TypeError) вокруг data["results"] с AdapterError и from exc. Раньше KeyError попадал в _PERMANENT_ERRORS.
-    Защита index — 0 <= idx < len(chunks) вместо idx < len(chunks). Отрицательные индексы от API не ломают логику.
-    Graceful skip bad items — try/except вокруг парсинга каждого item, пропускает битые записи вместо падения всего batch.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    Connection pooling — httpx.AsyncClient на каждый вызов. При частых rerank в RAG pipeline — overhead. Рекомендация: self._client в __init__.
-    core/ports/reranker.py — проверить что IReranker определяет __init__(self, config). Нужен файл.
-    tests/ — нет теста на threshold filtering, на negative index, на malformed API response.
-
-adapters/vision_clip_local.p
-Исправлено:
-    Логирование — get_logger + warning при вызове stub. Помогает диагностировать, почему vision не работает.
-    __all__ — явный публичный API.
-    ruff line-length 88 — разбил длинное сообщение.
-Исправить:
-    core/ports/vision.py — проверить что IVisionProcessor определяет __init__(self, config). Нужен файл.
-    adapters/voice_piper.py / voice_whisper_local.py / voice_whispercpp.py — аналогичные stubs должны иметь логирование и __all__.
-
-adapters/voice_piper.py
-Исправлено:
-    Логирование — get_logger + warning/debug во всех failure paths. Раньше ошибки молча проглатывались except Exception: pass.
-    proc.returncode проверка — если Piper subprocess вернул ненулевой код, логируем stderr и возвращаем b"". Раньше возвращался stdout даже при ошибке.
-    asyncio.TimeoutError handling — явный proc.kill() при таймауте, предотвращает zombie процессы.
-    import shutil на уровне модуля — убран inline import.
-    proc.communicate(input=...) — explicit keyword argument.
-    SystemExit/KeyboardInterrupt — не ловятся в except Exception.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    adapters/voice_whisper_local.py / voice_whispercpp.py — должны применить тот же паттерн (логирование, super().__init__, __all__, except Exception → warning).
-    core/ports/voice.py — проверить что IVoiceSynthesizer определяет __init__(self, config). Нужен файл.
-    tests/ — нет теста на PiperRealSynthesizer fallback chain (HTTP fail → local fail → b""), на subprocess timeout.
-
-adapters/voice_whisper_local.py
-Исправлено:
-    Логирование — get_logger + warning при вызове stub.
-    __all__ — явный публичный API.
-    ruff line-length 88 — разбил длинное сообщение.
-Исправить:
-adapters/voice_whispercpp.py — должен применить тот же паттерн (__all__, get_logger, super().__init__).
-
-adapters/voice_whispercpp.py
-Исправлено:
-    Логирование — get_logger + warning/debug во всех failure paths. Раньше ошибки молча проглатывались.
-    SystemExit/KeyboardInterrupt — не ловятся в except Exception.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    core/ports/voice.py — проверить что IVoiceRecognizer определяет __init__(self, config). Нужен файл.
-    tests/ — нет теста на _check_available caching, на transcribe fallback при недоступном сервере.
-    Connection pooling — httpx.AsyncClient на каждый вызов. Рекомендация: self._client в __init__.
-
-adapters/transport_fastapi.py
-Исправлено:
-    stop() реализация — self._server.should_exit = True вместо pass. Раньше вызов stop() не останавливал сервер, что ломал graceful shutdown в lifespan.
-    Сохранение _server — ссылка на uvicorn.Server сохраняется для последующей остановки.
-    getattr fallback — host/port с дефолтами. Раньше падало при отсутствии полей.
-    Логирование — info на start/stop для observability.
-    Переименование config — uvicorn_config вместо config, избегает shadowing self.config.
-    __all__ — явный публичный API.
-Испарвить:
-    main.py — должен импортировать adapters/transport_fastapi.py через core.registry.create("transport", "fastapi", config) или напрямую. Если main.py импортирует этот модуль на уровне модуля, а transport_fastapi.py импортирует main — circular import. Нужен main.py для проверки.
-    api/lifespan.py — должен вызывать transport.start() и transport.stop() через asynccontextmanager. Нужен файл.
-    tests/ — нет теста на stop() (проверка should_exit), на getattr fallback.
-
-main.py
-Исправлено:
-    _safe_get_state await safety — inspect.isawaitable проверяет возвращаемое значение override() и get_state(request). Раньше если dependency была async def, вызов без await возвращал coroutine object вместо AppState.
-    Не shadowing глобального app — переименована локальная переменная в fastapi_app.
-    Логирование RuntimeError — _logger.debug вместо молчаливого return None. Помогает диагностировать почему state недоступен.
-    ruff line-length 88 — разбил длинные строки.
-Исправить:
-    api/deps.py — критично проверить: get_state sync или async? AppState содержит ссылки на адаптеры? MetricsMiddleware корректно ли импортирован из deps.py (обычно middleware живут отдельно). Нужен файл.
-    api/lifespan.py — должен инициализировать app.state (где get_state берёт AppState). Если lifespan не вызывает setup_logging() и не создаёт AppState — _safe_get_state всегда вернёт None. Нужен файл.
-    api/security.py — require_api_key должен пропускать OPTIONS запросы (CORS preflight), иначе CORS middleware не отработает. Нужен файл.
-    tests/test_api_e2e.py — должен тестировать /info endpoint и _safe_get_state fallback.
-
-api/lifespan.py
-Исправлено:
-    setup_logging в lifespan — раньше логгер инициализировался где-то неявно (или не инициализировался). Теперь явный вызов с уровнем из config.debug.
-    try/finally вокруг yield — гарантирует cleanup даже при необработанном исключении внутри lifespan. Раньше yield без try/finally — при Exception cleanup мог пропуститься.
-    Разделение sync/async cleanup — _cleanup (sync) и _async_cleanup (async). PID file удаляется синхронно, адаптеры — асинхронно. Чище структура.
-    Проверка state is None — если init_adapters упал, app.state.app_state не установлен. Раньше state = getattr(app.state, "app_state", state) использовал старый state из startup, что могло быть stale reference.
-    Убран except RuntimeError: pass — молчаливо глотал все RuntimeError. Теперь каждый shutdown логируется.
-    Убран дублирующий import os — уже импортирован на уровне модуля.
-    OSError при PID file — try/except OSError вокруг write/unlink. Защита от read-only FS.
-    __all__ — явный публичный API.
-Исправить:
-    api/deps.py — критично проверить init_adapters и AppState. Если init_adapters не создаёт state с полями llm, embedder, vector_store — _async_cleanup упадёт с AttributeError. Нужен файл.
-    api/router.py — assemble_routers должен возвращать список роутеров. Если Sacred Core — проверю без изменений. Нужен файл.
-    tests/test_lifespan.py — должен тестировать lifespan context manager (startup/shutdown, cleanup при Exception, PID file).
-    scripts/start.py — должен использовать lifespan или transport_fastapi.py для запуска. Если дублирует логику — убрать дублирование.
-
-api/deps.py
-Исправлено:
-    Убрано дублирование state = AppState(config=cfg) — раньше создавалось дважды при not isinstance(config, AppState).
-    get_logger вместо logging.getLogger — консистентность с проектным логгером.
-    Убран inline import time — на уровне модуля.
-    Убран inline import pipeline.decorators — _build_step_funcs импортирует локально, но get_step уже не нужен на уровне модуля (убран).
-    Убран get_current_metrics wrapper — прямой alias на _get_current_metrics вместо лишней функции.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    Критично: lambda closure в _build_step_funcs — lambda d, e=state.embedder, _f=func: _f(d, embedder=e) корректен (default arg binding), но name цикла не используется в lambda. Это безопасно, но func тоже bound через default arg — ок.
-    Критично: state.reranker может быть None — rerank step получает r=state.reranker (None если reranker не сконфигурирован). pipeline/steps.py rerank обрабатывает reranker=None корректно — ок.
-    Критично: list_namespaces может не быть реализован — если vector_store = faiss без FAISS installed, registry_create упадёт раньше. Если vector_store = memory — list_namespaces возвращает [] для несуществующего path. Ок.
-    core/tool_registry.py — ToolRegistry должен иметь register и dispatch. Нужен файл.
-    tests/test_api_deps.py — должен тестировать init_adapters idempotency, _build_step_funcs, get_state fallback.
-
-core/tool_registry.py
-Исправлено:
-    __all__ — явный публичный API.
-Исправить:
-    core/ports/tools.py — проверить что ITool.execute принимает только arguments (без call_id). Если порт ожидает call_id — ToolRegistry.dispatch не передаёт его. Нужен файл.
-    adapters/tools_calculator.py — execute принимает arguments без call_id, но ToolResult требует call_id="". Если порт ожидает call_id в execute — mismatch. Нужен core/ports/tools.py.
-    Не ловим SystemExit/KeyboardInterrupt — except Exception в dispatch проглотит graceful shutdown. Рекомендация: добавить except (SystemExit, KeyboardInterrupt): raise.
-    tests/ — нет теста на unregister, на dispatch с unknown tool, на dispatch exception handling.
-
-core/ports/tools.py
-Исправлено:
-    __all__ — явный публичный API.
-Исправить:
-    core/tool_registry.py — dispatch не ловит SystemExit/KeyboardInterrupt. Рекомендация: except (SystemExit, KeyboardInterrupt): raise перед except Exception.
-    pipeline/steps.py — ToolCall создаётся с call_id=call.get("id", ""), но ITool.execute не принимает call_id. Если нужно передавать call_id в execute — изменить порт. Но это Sacred Core, требует разрешения.
-    tests/ — нет теста на ToolSpec frozen, на ToolCall default call_id, на ToolResult is_error default.
-
-api/router.py
-Исправлено:
-get_logger вместо logging.getLogger — консистентность с проектным логгером.
-__all__ — явный публичный API.
-ruff line-length 88 — все строки ≤ 88
-Исправить:
-    api/security.py — require_api_key должен пропускать OPTIONS запросы (CORS preflight), иначе router.dependencies.append(Depends(require_api_key)) ломает CORS. Нужен файл.
-    features/*/handlers.py — каждый должен экспортировать router: APIRouter. Нужны файлы.
-    tests/test_api_e2e.py — должен тестировать assemble_routers (auto-discovery, missing router, exception handling).
-
-api/security.py
-Исправлено:
-    CORS preflight — if request.method == "OPTIONS": return await call_next(request) в APIKeyMiddleware. Раньше OPTIONS запросы ломались на 401, блокируя CORS preflight.
-    Rate limit parsing — except (ValueError, IndexError) вместо except Exception. Раньше "abc/def" давал ValueError в int(), "100" давал IndexError — оба теперь логируются с warning и fallback на default.
-    get_logger вместо logging.getLogger — консистентность.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    api/router.py — router.dependencies.append(Depends(require_api_key)) теперь безопасен для CORS, но OPTIONS всё равно проходит через LimitMiddleware. Если rate limiter блокирует OPTIONS — CFS preflight всё ещё сломан. Рекомендация: добавить if request.method == "OPTIONS": return await call_next(request) и в LimitMiddleware.
-    tests/test_security.py — должен тестировать OPTIONS bypass, rate limit parsing, get_expected_api_key priority (env > config).
-    api/security.py — limiter singleton не thread-safe при multiprocess Uvicorn. Каждый worker имеет свой счётчик. Рекомендация: Redis/shared memory для production.
-
-api/admin.py
-Исправлено:
-    __all__ — явный публичный API.
-Исправить:
-    features/*/handlers.py — должны использовать Annotated[..., Depends(get_state)] вместо Depends(get_state) напрямую для консистентности. Нужны файлы.
-    api/admin.py — нет endpoint'ов для metrics, health детального, adapter status. Рекомендация: добавить /admin/metrics (read-only из get_metrics_logger), /admin/adapters (список зарегистрированных).
-
-features/chat/handlers.py
-Исправлено:
-    Annotated[..., Depends(...)] — PEP 593 type hints для всех Depends. mypy strict + FastAPI совместимость.
-    Не проглатываем HTTPException — except HTTPException: raise перед общим except Exception. Раньше HTTP 400/422 превращались в 500.
-    Логирование ошибок — _logger.exception вместо молчаливого raise HTTPException. Сохраняет stack trace.
-    ruff line-length 88 — все строки ≤ 88.
-    __all__ — явный публичный API.
-Исправить:
-    features/chat/manager.py — ChatManager должен обрабатывать None для storage, tool_registry, embedder (уже getattr(..., None) в _get_chat_manager). Нужен файл для проверки.
-    features/chat/schemas.py — ChatRequest должен валидировать image_base64/voice_base64 как base64 strings. Нужен файл.
-    features/*/handlers.py — применить тот же паттерн (Annotated, except HTTPException: raise, _logger.exception).
-
-features/chat/manager.py
-Исправлено:
-    Retry loop в chat — for attempt in range(3) с continue/raise. Раньше for _ in range(3) без continue — при Exception сразу raise, retry не работал.
-    base64.b64decode валидация — try/except с AdapterError в chat и stream_chat. Раньше битый base64 падал с необработанным binascii.Error.
-    Убран f-string в logger.debug — %s formatting для ленивой оценки.
-    Упрощён _trim_history — убран избыточный if isinstance(budget, ...) в пользу early return.
-    logger.warning вместо молчаливого except Exception: pass — в history load/save.
-    __all__ — явный публичный API.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    features/chat/schemas.py — ChatRequest должен валидировать image_base64/voice_base64 как base64 strings. Нужен файл.
-    features/chat/handlers.py — stream_chat не обрабатывает tool calls в streaming mode. Если LLM возвращает tool calls в stream — они игнорируются. Нужен features/chat/manager.py или архитектурное решение.
-    tests/test_chat_manager_direct.py — должен тестировать retry loop, base64 decode error, RAG prefix parsing.
-
-features/chat/schemas.py
-Исправлено:
-    добавлен __all__;
-    заменён Any → object в metadata для строгой типизации (PEP 484)
-    добавлен field_validator для image_base64/voice_base64 через binascii.a2b_base64 с ValueError и from exc;
-    добавлены импорты binascii, field_validator;
-    добавлена trailing newline.
-Исправить:
-    нет — схема готова, валидация base64 удовлетворяет требованию из features/chat/manager.py.
-
-features/chat/manager.py
-Исправлено:
-    _trim_history: убран избыточный isinstance(budget, (int, float)), заменён на truthy-check через or (PEP 8, соответствие ИЗМЕНЕНИЯ).
-    base64.b64decode: сужен except до (binascii.Error, ValueError) в chat и stream_chat (соответствие ИЗМЕНЕНИЯ, безопаснее).
-    Добавлен import binascii.
-    Тип messages сужен с list[Any] до list[UserMessage | AssistantMessage | dict[str, Any]] (PEP 484, читаемость).
-    Разбиты строки save_message > 88 символов (ruff line-length 88).
-    Добавлен TODO-docstring в stream_chat о неподдержке tool calls (архитектурная пометка из ИЗМЕНЕНИЯ).
-Исправить:
-    tests/test_chat_manager_direct.py — добавить тесты на retry loop (3 попытки), binascii.Error при битом voice_base64, _trim_history fallback при budget=0.
-    features/chat/handlers.py — stream_chat endpoint не обрабатывает tool calls; нужно либо архитектурное решение (отдельный endpoint), либо явный 422 если stream_chat вызван с tool-calling моделью.
-    core/ports/llm.py — уточнить сигнатуру stream(): если возвращает AsyncIterator[str], tool calls в streaming mode теряются; если AsyncIterator[AssistantMessage] — stream_chat сломан (собирает chunk.text). Нужен файл core/ports/llm.py для проверки.
-    core/domain/messages.py — уточнить тип AssistantMessage.tool_calls: list[dict] vs list[ToolCall] влияет на call.get("function", {}) в chat().
-
-features/chat/handlers.py
-Исправлено:
-    openai_chat_completions: m.content is not None вместо m.content (защита от None вместо falsy-строки, соответствует resolve_api_key паттерну из ИЗМЕНЕНИЯ).
-    Добавлен model_id в OAIChatCompletion и OAIDeltaChunk (OpenAI API требует поле model; раньше отсутствовало).
-    Добавлен state: Annotated[AppState, Depends(get_state)] в сигнатуру openai_chat_completions для доступа к state.config.llm.model.
-    except HTTPException: raise — уже присутствовал, консистентен с ИЗМЕНЕНИЯ.
-    ruff line-length 88 — все строки ≤ 88.
-Исправить:
-    Критично: OpenAI endpoint теряет историю сообщений. manager.chat() принимает только last_user_msg, а req.messages содержит полную историю. ChatManager читает историю из storage по conv_id, но conv_id всегда новый UUID. Нужно либо прокидывать history в ChatManager.chat(), либо сохранять req.messages в storage перед вызовом.
-    Критично: req.tools / req.tool_choice не прокидываются в ChatManager. LLM не получает список доступных tools → tool calls не генерируются в OpenAI-compatible режиме. Нужен файл features/chat/schemas.py для проверки полей.
-    Критично: multimodal content (OpenAI format content: [{"type":"image_url", ...}]) не извлекается — last_user_msg берёт только строку. Нужен features/chat/schemas.py для проверки типа OAIChatMessage.content.
-    tests/test_api_e2e.py — добавить тесты на /v1/chat/completions (non-stream и stream), проверку поля model в ответе, обработку content=None.
-
-features/chat/schemas.py
-Исправлено:
-Нет. Все требования из ИЗМЕНЕНИЯ применены: __all__, dict[str, object], field_validator с binascii.a2b_base64, ConfigDict(extra="ignore"), trailing newline. Ruff line-length 88 соблюдён.
-Исправить:
-    OAIChatMessage.content ограничен str | None; для полной OpenAI-совместимости с multimodal (image_url в messages) нужен str | list[dict[str, Any]] | None. Иначе /v1/chat/completions отбросит vision-запросы валидатором.
-    OAIChatCompletionRequest не содержит tools / tool_choice. OpenAI API ожидает эти поля; без них tool-calling клиенты (например, OpenWebUI) не смогут передавать функции.
-    tests/ — нет теста на _validate_base64 (битый padding, non-base64 символы, None pass-through).
-
-core/ports/llm.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлен Message = UserMessage | AssistantMessage | dict[str, Any] — устраняет type mismatch с features/chat/manager.py, где tool messages передаются как dict[str, Any] (критично, mypy strict ловит list[Any] vs list[UserMessage | AssistantMessage]).
-    Добавлен system_message: str | None = None — ChatManager._trim_history использует getattr(self.llm, "system_message", None); теперь это type-safe без getattr.
-Исправить:
-    adapters/llm_mock.py / adapters/llm_openai_compatible.py — проверить что stream() действительно yield'ит str, а не AssistantMessage или bytes. Если llm_openai_compatible.py yield'ит SSE chunks — нужен парсинг в str.
-    tests/test_contracts.py — должен проверить что MockLLM и OpenAILLM наследуют ILLM и реализуют system_message корректно.
-    core/domain/messages.py — если ввести ToolMessage(BaseModel), можно заменить dict[str, Any] на ToolMessage для строгости.
-
-core/ports/tools.py
-Исправлено:
-    ITool.__init__(self, config) — добавлен конструктор с config, без которого super().__init__(config) в адаптерах (adapters/tools_calculator.py) падал с TypeError (критично, т.к. адаптеры уже используют этот паттерн).
-    Docstring ITool.execute и IToolRegistry.dispatch — явно задокументировано что call_id прокидывается registry, не tool (архитектурная пометка из ИЗМЕНЕНИЯ).
-Исправить:
-    Sacred Core — требует разрешения: ITool.execute не принимает call_id, но ToolResult требует его. Рекомендация: добавить call_id: str в сигнатуру execute, либо сделать ToolResult.call_id optional. Иначе адаптеры вынуждены возвращать call_id="".
-    tests/ — нет теста на ToolSpec frozen semantics, ToolCall default call_id="", ToolResult default is_error=False.
-    core/tool_registry.py — dispatch должен гарантировать простановку call_id в ToolResult и не ловить SystemExit/KeyboardInterrupt (см. ИЗМЕНЕНИЯ).
-
-core/tool_registry.py
-Исправлено:
-    dispatch: добавлен except (SystemExit, KeyboardInterrupt): raise перед except Exception — предотвращает блокировку graceful shutdown (критично, соответствует ИЗМЕНЕНИЯ).
-    register: warnings.warn при перезаписи существующего tool (диагностика, соответствует паттерну pipeline/decorators.py из ИЗМЕНЕНИЯ).
-    unregister: логирование при попытке удалить несуществующий tool.
-    get_logger вместо голого логирования (консистентность с проектом).
-Исправить:
-    tests/ — добавить тесты на dispatch unknown tool, dispatch exception handling, register duplicate warning, unregister unknown tool.
-    core/ports/tools.py — ITool.execute не принимает call_id; адаптеры возвращают ToolResult(call_id=""). Для полной консистентности нужно либо добавить call_id в execute, либо сделать ToolResult.call_id optional. Требует разрешения Sacred Core.
-
-core/ports/storage.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлены PEP 257 docstrings к методам (Args/Returns не нужны для ABC stubs, но поясняют контракт).
-Исправить:
-tests/test_contracts.py — проверить что SQLiteStorage наследует оба ABC и вызывает super().__init__(config).
-
-core/ports/memory.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Разбита строка created_at > 88 символов (ruff line-length 88).
-Исправить:
-    adapters/memory_sqlite.py — уже содержит super().__init__(config), консистентен с портом. Проверить что consolidate использует config.consolidate_importance_threshold / consolidate_days (упомянуто в ИЗМЕНЕНИЯ).
-    tests/ — нет теста на MemoryEntry default_factory изоляцию (tags/metadata между инстансами).
-
-core/ports/vector_store.py
-Исправлено:
-    filter → filters в list_by_filter (устраняет shadowing built-in filter, консистентно с adapters/vector_store_memory.py из ИЗМЕНЕНИЯ).
-    Разбиты строки сигнатур > 88 символов (ruff line-length 88).
-    Добавлены trailing newlines между методами для читаемости.
-Исправить:
-    adapters/vector_store_faiss.py — применить то же переименование filter → filters и разбить длинные строки.
-    tests/test_contracts.py — проверить что все адаптеры реализуют обновлённую сигнатуру.
-
-adapters/vector_store_memory.py
-Исправлено:
-list_by_filter: разбита длинная строка all(meta.get(k) == v for k, v in filters.items()) на ≤ 88 символов (ruff line-length 88). Остальное из ИЗМЕНЕНИЯ уже применено корректно.
-Исправить:
-    tests/ — добавить тест на list_by_filter с пустым filters (должен вернуть все), на LRU eviction order, на save/load round-trip с ChunkMetadata.custom.
-    adapters/vector_store_faiss.py — применить тот же паттерн filters и разбить длинные строки.
-
-adapters/vector_store_faiss.py
-Исправлено:
-    filter → filters в list_by_filter (консистентно с портом и memory store, устраняет built-in shadowing).
-    search: проверка namespace not in self._namespaces перед _get_ns — предотвращает создание пустых namespace при поиске по несуществующему (соответствует memory store fix из ИЗМЕНЕНИЯ).
-    list_by_filter: аналогичная проверка namespace not in self._namespaces.
-    load: JSON parsing (meta_text, store_text, json.loads) вынесен за пределы async with self._lock; мутация ns только под lock. Добавлен ns.chunks.clear(), ns.metadata.clear(), ns.id_map.clear() перед загрузкой — предотвращает смешивание старых и новых данных (соответствует memory store fix).
-    Разбиты строки > 88 символов: ns.chunks[int(k)] = Chunk(...), total_chunks=m.get(...), ns.id_map = {...}.
-Исправить:
-    tests/ — добавить тест на VersionMismatchError в load, на delete rebuild correctness, на list_namespaces с пустым path, на search с несуществующим namespace.
-    adapters/vector_store_faiss.py vs memory — search не применяет relevance_threshold (в memory store применяется). Нужно либо добавить threshold в FAISS, либо убрать из memory для консистентности (упомянуто в ИЗМЕНЕНИЯ).
-
-core/ports/embedder.py
-Исправлено:
-Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ)
-Исправить:
-tests/test_contracts.py — проверить что MockEmbedder и OpenAICompatibleEmbedder наследуют IEmbedder и реализуют dimension.
-
-adapters/llm_mock.py
-Исправлено:
-    Сигнатуры complete и stream обновлены до list[Message] (консистентно с обновлённым core/ports/llm.py, устраняет LSP-нарушение mypy strict).
-    stream: yield по частям (chunk size 10) вместо одной строки — реалистичнее для тестирования SSE parsing (требование из ИЗМЕНЕНИЯ).
-    Убран дублирующий импорт UserMessage (не используется напрямую после перехода на Message).
-Исправить:
-tests/test_malformed_sse.py — должен тестировать stream с broken JSON, [DONE], empty choices. Теперь mock генерирует множественные chunks, что пригодно для тестов SSE assembly.
-tests/ — нет теста на MockLLM с пустым messages, с text=None
-
-adapters/llm_openai_compatible.py
-Исправлено:
-    Сигнатуры complete и stream обновлены до list[Message] (консистентно с обновлённым core/ports/llm.py, устраняет LSP-нарушение mypy strict).
-    Добавлен import Message из core.ports.llm.
-Исправить:
-    Connection pooling — httpx.AsyncClient на каждый вызов. Рекомендация: self._client в __init__, закрывать в lifespan.
-    Stream retry — @with_retry не работает на генераторах. Рекомендация: обернуть HTTP-вызов в отдельную функцию с @with_retry, генератор — поверх.
-    tests/test_malformed_sse.py — должен тестировать stream с broken JSON, [DONE], empty choices, malformed tool_calls delta.
-
-adapters/reranker_dummy.py
-Исправлено:
- Все требования из ИЗМЕНЕНИЯ применены: __all__, super().__init__(config), docstring.
-Исправить:
-tests/ — нет теста на top_k slicing, empty chunks.
-
-adapters/chunker_simple.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Разбита строка ValueError на два f-string литерала ≤ 88 символов (ruff line-length 88).
-Исправить:
-tests/ — добавить тест на chunk_overlap >= chunk_size, empty document content, корректность total_chunks после фильтрации пустых chunks.
-
-features/rag/manager.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлен get_logger + _logger для observability.
-    health(): except Exception: pass → _logger.debug (диагностика без шума в production).
-    Упрощён meta = c.metadata.custom if c.metadata else {} — ChunkMetadata.custom всегда dict (frozen dataclass), проверка c.metadata.custom на truthy избыточна.
-    Разбиты строки vector_store.add, vector_store.save, getattr, list_namespaces, list_by_filter на ≤ 88 символов (ruff).
-Исправить:
-    tests/test_rag_pipeline.py — должен проверять: пустой query.text, отсутствие top_k в metadata, reranker=None, tool_registry=None, fallback prompt (упомянуто в ИЗМЕНЕНИЯ для pipeline/steps.py, но RAGManager.query тоже участвует).
-    features/rag/handlers.py — проверить что IndexingManager / RAGManager создаются через deps.py с корректными functools.partial для pipeline steps (критично: **kwargs vs Sacred Core из ИЗМЕНЕНИЯ).
-
-features/rag/handlers.py
-Исправлено:
-    Критично: Все Depends(...) заменены на Annotated[..., Depends(...)] (PEP 593, соответствие features/chat/handlers.py из ИЗМЕНЕНИЯ).
-    Критично: save_chat — синхронный folder.mkdir() и file_path.write_text() обёрнуты в asyncio.to_thread (блокировка event loop в async endpoint).
-    Критично: reindex_documents — TimeoutError заменён на asyncio.TimeoutError (явность, Python 3.13 совместимость).
-    __all__ добавлен (PEP 484).
-    except Exception: pass в list_namespaces → _logger.debug (диагностика).
-    except Exception в delete_chunks → _logger.warning (observability).
-    Разбиты строки > 88 символов (ruff line-length 88).
-Исправить:
-    features/rag/schemas.py — save_chat использует req: dict[str, Any] вместо Pydantic schema. Нужен SaveChatRequest(BaseModel) с валидацией namespace, filename, content для type safety и Swagger документации.
-    tests/test_api_e2e.py — добавить тесты на /rag/save-chat (path traversal, invalid namespace, auto-index), /rag/reindex (timeout, script not found).
-
-features/rag/schemas.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлен SaveChatRequest(BaseModel) с валидацией:
-        content: str = Field(..., min_length=1) — запрет пустого контента.
-        namespace: str = Field(..., pattern=r"^(personal|work|other)$") — строгая валидация вместо runtime raise HTTPException в handler.
-        filename: str = Field(..., pattern=r"^[^/\\][^\\]*$") — защита от path traversal на уровне schema (раньше только в handler).
-    Разбиты строки Field description > 88 символов (ruff line-length 88).
-Исправить:
-features/rag/handlers.py — заменить req: dict[str, Any] на req: SaveChatRequest в save_chat endpoint для type safety и Swagger документации.
-
-features/image_analysis/handlers.py
-Исправлено:
-    Depends(...) → Annotated[..., Depends(...)] (PEP 593, консистентность с features/chat/handlers.py и features/rag/handlers.py).
-    except HTTPException: raise добавлен перед общим except Exception — предотвращает превращение HTTP 400/422 в 500.
-    _logger.exception вместо молчаливого raise HTTPException — сохраняет stack trace (консистентность с ИЗМЕНЕНИЯ).
-    __all__ добавлен (PEP 484).
-    Разбиты строки > 88 символов (ruff line-length 88).
-Исправить:
-    features/image_analysis/manager.py — проверить что ImageAnalysisManager.use_llm_vision корректно определяется (fallback если vision не сконфигурирован). Нужен файл.
-    tests/ — добавить тест на analyze_image с пустым image_base64 + image_url (400), на HTTPException passthrough.
-
-features/image_analysis/manager.py
-Исправлено:
-    __all__ добавлен (PEP 484).
-    get_logger + _logger для observability.
-    self.vision.describe(...) обёрнут в try/except — раньше падение vision processor прокидывалось в handler как 500 без диагностики. Теперь graceful fallback к LLM с warning.
-    self.llm.complete(...) обёрнут в try/except — раньше fallback тоже падал без логирования.
-    SystemExit/KeyboardInterrupt не ловятся (консистентность с ИЗМЕНЕНИЯ).
-    Разбиты строки > 88 символов (ruff line-length 88).
-Исправить:
-    tests/ — добавить тест на use_llm_vision property, на vision fail → LLM fallback, на оба недоступны.
-    core/domain/messages.py — ImagePayload имеет base64_data и url как str. Если где-то в проекте передаются большие base64-строки (мегабайты), стоит рассмотреть bytes или streaming (упомянуто в ИЗМЕНЕНИЯ).
-
-features/image_analysis/schemas.py
-Исправлено:
-__all__ добавлен (PEP 484, соответствие ИЗМЕНЕНИЯ).
-Исправить:
-    AnalyzeRequest не валидирует image_base64 как base64 (в отличие от features/chat/schemas.py). Рекомендация: добавить @field_validator("image_base64") через binascii.a2b_base64 для консистентности.
-    tests/ — нет теста на AnalyzeRequest с обоими None, с пустым prompt.
-
-core/ports/events.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие стандарту проекта).
-    Добавлены PEP 257 docstrings к методам.
-    Добавлен from typing import Any (было неявно, теперь явно).
-Исправить:
-    Не ABC — IEventBus не наследует ABC, методы не @abstractmethod. Это не порт в стиле остальных core/ports/*.py. Рекомендация: добавить from abc import ABC, abstractmethod и декораторы, либо убрать префикс I если это не интерфейс.
-    tests/ — placeholder, тесты не нужны пока не реализован.
-
-core/ports/modality.py
-Исправлено:
-    Добавлен __all__ (PEP 484).
-    Добавлен from abc import ABC, abstractmethod и @abstractmethod (консистентность с остальными портами).
-    Добавлен __init__(self, config) (консистентность с остальными портами).
-    Добавлены PEP 257 docstrings.
-Исправить:
-tests/ — placeholder, тесты не нужны пока не реализован.
-
-core/ports/reranker.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Разбита сигнатура rerank на ≤ 88 символов (ruff line-length 88).
-Испарвить:
-tests/ — добавить тест на RerankResult frozen semantics (попытка мутации должна падать).
-
-core/ports/transport.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлены PEP 257 docstrings к методам (было ... без docstring).
-Исправить:
-tests/ — добавить тест на ITransport ABC subclass check.
-
-core/ports/vision.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлены PEP 257 docstrings к методу.
-    Разбита сигнатура describe на ≤ 88 символов (ruff line-length 88).
-Исправить:
-tests/ — добавить тест на IVisionProcessor ABC subclass check.
-
-core/ports/voice.py
-Исправлено:
-    Добавлен __all__ (PEP 484, соответствие ИЗМЕНЕНИЯ).
-    Добавлены PEP 257 docstrings к методам.
-    Разбиты сигнатуры на ≤ 88 символов (ruff line-length 88).
-Исправить:
-tests/ — добавить тест на IVoiceRecognizer / IVoiceSynthesizer ABC subclass check.
-
-launcher.py
-Исправлено:
-    Все строки > 88 символов разбиты (ruff line-length 88).
-    Добавлены комментарии к run_bg для объяснения handler.stream.
-    Убран неиспользуемый YELLOW (warning ruff F841).
-Исправить:
-    tests/test_scripts_and_platform.py — должен тестировать launcher.py (enable_ansi, pad_ansi, _sanitize_extra, find_target).
-    run_bg: handler.stream может быть None если RotatingFileHandler не открыл файл. Добавить проверку if log_fp is None: raise RuntimeError(...).
-    run_terminal: TERMINAL_CMD["posix"] предполагает gnome-terminal, но на Linux без GNOME (KDE, i3) команда упадёт. Рекомендация: fallback на xterm, konsole, alacritty.
-
-core/metrics.py
-Исправлено:
-    ContextVar(default_factory=dict) обёрнут в try/except TypeError с fallback на default={} (совместимость со всеми сборками Python 3.13).
-    Комментарий объясняет причину fallback.
-Исправить
-    Перезапустите сервер: python scripts/start.py или через launcher.
-    Проверьте netstat -ano | findstr :8000 после старта.
-
-core/ports/tools.py
-Исправлено:
-    ITool.execute(self, call_id: str, arguments: dict[str, Any]) — добавлен call_id (устраняет архитектурный mismatch с ToolResult).
-    Docstring execute явно документирует требование пропагации call_id.
-    IToolRegistry.dispatch docstring обновлён — теперь рекомендует tool.execute(call.call_id, call.arguments).
-Исправить: нет.
-
-pipeline/steps.py
-Исправлено:
-    Разбиты строки > 88 символов (ruff line-length 88).
-    messages: list[Any] — тип оставлен как есть (требует core/ports/llm.py Message тип, но pipeline steps используют Any для совместимости с tool dict messages).
-    ToolCall(call_id=call.get("id", "")) — консистентно с новым ITool.execute(call_id, ...), tool_registry.dispatch(tc) прокинет call_id в execute.
-Исправить:
-tests/test_rag_pipeline.py — должен проверять: пустой query.text, отсутствие top_k в metadata, reranker=None, tool_registry=None, fallback prompt.
-
-
-Файл
-Исправлено:
-
-Исправить:
-
-
-
-Файл
-Исправлено:
-
-Исправить:
-
-
-
-Файл
-Исправлено:
-
-Исправить:
-
+## Часть 8: Конфигурация
+
+```
+config/
+├── config.yaml           # Production defaults
+├── config.test.yaml      # Test overrides
+├── config.dev.yaml       # Local development
+└── schema.json           # JSON Schema для валидации
+```
+
+**Загрузка:**
+```python
+from pathlib import Path
+import yaml
+from pydantic import BaseModel
+
+class ConfigLoader:
+    def __init__(self, env: str = "production") -> None:
+        self.env = env
+
+    def load(self) -> AppConfig:
+        base = Path("config/config.yaml")
+        override = Path(f"config/config.{self.env}.yaml")
+
+        data = yaml.safe_load(base.read_text())
+        if override.exists():
+            data |= yaml.safe_load(override.read_text())
+
+        return AppConfig(**data)
+```
 ================================================================================
-TODO:
+## Часть 9: Логирование и мониторинг
+
+**Сейчас:** Basic logging.
+
+**Должно быть:**
+```python
+import structlog
+
+logger = structlog.get_logger()
+
+# Вместо:
+logger.info("Chat request: conv=%s", conversation_id)
+
+# Станет:
+logger.info("chat_request", conversation_id=conversation_id, msg_len=len(message))
+
+**Структура логов → JSON для ELK/Loki.**
+```
 ================================================================================
+## Часть 10: Безопасность
+```
+| Сейчас | Должно быть |
+|--------|-------------|
+| API key в config.yaml | Vault / env vars / secrets manager |
+| Rate limit in-memory | Redis-backed для multi-instance |
+| No input validation | Pydantic strict + bleach/sanitizer |
+| No audit log | Audit middleware |
+```
+## Порядок выполнения (приоритеты)
+```
+| # | Задача | Сложность | Влияние |
+|---|--------|-----------|---------|
+| 1 | `src/` layout | Низкая | Высокое |
+| 2 | Ruff + MyPy strict | Низкая | Высокое |
+| 3 | Stable Core (registry) | Средняя | Высокое |
+| 4 | Тестовая структура | Низкая | Среднее |
+| 5 | CI/CD | Низкая | Высокое |
+| 6 | pyproject.toml deps | Низкая | Среднее |
+| 7 | Документация | Средняя | Среднее |
+| 8 | Config директория | Низкая | Среднее |
+| 9 | Structlog | Средняя | Низкое |
+| 10 | Security hardening | Высокая | Высокое |
+```
