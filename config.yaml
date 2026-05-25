@@ -1,8 +1,6 @@
-# ═══════════════════════════════════════════════════════════════
 # AI Assistant — Универсальная конфигурация
 # Работает с любым OpenAI-compatible API: llama-server, Ollama, vLLM, OpenAI
 # Переменные окружения с префиксом AI_* переопределяют значения ниже
-# ═══════════════════════════════════════════════════════════════
 
 # ── Приложение ──
 app_name: ai-assistant
@@ -122,7 +120,7 @@ rag:
   prompt_name: rag_strict
   top_k: 5
   default_namespace: "default"
-  relevance_threshold: 0.3
+  relevance_threshold: 0.1
 
 # ── Безопасность ──
 security:

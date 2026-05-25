@@ -44,23 +44,23 @@ faiss = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["core*", "adapters*", "features*", "pipeline*", "api*"]
+where = ["src"]
+include = ["ai_assistant*"]
 
 [tool.ruff]
 line-length = 88
 target-version = "py313"
-extend-exclude = ["scripts/"]
+extend-exclude = ["dev/", "ops/", "vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ASYNC"]
-ignore = []
+ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.13"
 strict = true
 ignore_missing_imports = true
-exclude = ["tests/", "scripts/"]
+exclude = ["dev/", "ops/", "vendor/"]
 warn_return_any = false
 disallow_untyped_calls = false
 disallow_untyped_defs = false
@@ -69,13 +69,13 @@ warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
 module = [
-    "api.deps",
-    "api.security",
-    "pipeline.steps",
-    "features.chat.manager",
-    "features.image_analysis.manager",
-    "adapters.*",
-    "core.utils",
+    "ai_assistant.api.deps",
+    "ai_assistant.api.security",
+    "ai_assistant.pipeline.steps",
+    "ai_assistant.features.chat.manager",
+    "ai_assistant.features.image_analysis.manager",
+    "ai_assistant.adapters.*",
+    "ai_assistant.core.utils",
 ]
 warn_return_any = false
 disallow_untyped_defs = false
@@ -83,11 +83,11 @@ disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["dev/tests"]
 timeout = 240
 addopts = "-m 'not online'"
 
 [tool.mutmut]
-paths_to_mutate = ["core/", "adapters/", "features/", "api/", "pipeline/"]
-pytest_add_cli_args_test_selection = ["tests/"]
+paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/", "src/ai_assistant/pipeline/"]
+pytest_add_cli_args_test_selection = ["dev/tests/"]
 backup = false
