@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import tempfile
 from pathlib import Path
@@ -41,9 +42,9 @@ async def atomic_write(
         try:
             with os.fdopen(fd, mode, closefd=True) as fh:
                 if binary:
-                    fh.write(cast(bytes, content))
+                    fh.write(cast("bytes", content))
                 else:
-                    fh.write(cast(str, content))
+                    fh.write(cast("str", content))
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp, target)
@@ -61,10 +62,8 @@ async def atomic_write(
             raise
         except Exception:
             # Unexpected error (e.g. TypeError) — fd may still be open
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
             if os.path.exists(tmp):
                 os.unlink(tmp)
             raise

@@ -5,7 +5,13 @@ from __future__ import annotations
 import warnings
 
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.ports.tools import ITool, IToolRegistry, ToolCall, ToolResult, ToolSpec
+from ai_assistant.core.ports.tools import (
+    ITool,
+    IToolRegistry,
+    ToolCall,
+    ToolResult,
+    ToolSpec,
+)
 
 __all__ = ["ToolRegistry"]
 

@@ -29,11 +29,20 @@ TEST_FLAGS = {
     "context_build": ["--full"],
     "download_tokenizers": ["--auto"],
 }
+TEST_MODES = {
+    "default": [],
+    "reverse": ["--reverse"],
+    "forked": ["--forked"],
+    "e2e": ["-m", "online"],
+}
 
 GREEN = "\033[32m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
 RESET = "\033[0m"
+
+VENV_NAME = ".venv"
+PYTHON_SUBPATH = "Scripts/python.exe" if os.name == "nt" else "bin/python"
 
 _EXTRA_RE = re.compile(r"^[a-zA-Z0-9_.\-/:=@]+$")
 
@@ -94,10 +103,35 @@ def pad_ansi(text: str, width: int) -> str:
 
 
 def get_python(root: Path) -> str:
-    venv = root / ".venv"
-    name = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-    exe = venv / name
-    return str(exe) if exe.exists() else sys.executable
+    """Return the Python interpreter inside the project's virtual env.
+
+    Never falls back to sys.executable — explicit isolation is mandatory.
+    """
+    exe = root / VENV_NAME / PYTHON_SUBPATH
+    if not exe.exists():
+        raise FileNotFoundError(
+            f"Virtual-env interpreter not found: {exe}\n\n"
+            f"Create it:  python -m venv {VENV_NAME}\n"
+            f"Install:    {exe} -m pip install -e '.[dev,faiss]'"
+        )
+    if not os.access(exe, os.X_OK):
+        raise PermissionError(
+            f"Found interpreter is not executable: {exe}\nTry: chmod +x {exe}"
+        )
+    return str(exe)
+
+
+def ensure_venv(root: Path) -> str:
+    """Wrapper with clear UI error message."""
+    try:
+        return get_python(root)
+    except (FileNotFoundError, PermissionError) as exc:
+        print(f"\n{RED}❌ ENVIRONMENT ERROR{RESET}")
+        print(f"{RED}   {exc}{RESET}\n")
+        print(f"{YELLOW}Hint:{RESET} Run these commands from the project root:\n")
+        print(f"   python -m venv {VENV_NAME}")
+        print(f"   {VENV_NAME}/{PYTHON_SUBPATH} -m pip install -e '.[dev,faiss]'\n")
+        sys.exit(1)
 
 
 def collect(root: Path, subdir: str) -> list[Path]:
@@ -130,6 +164,22 @@ def ask_flags(target: str) -> list[str]:
     except EOFError:
         return []
     return flags if ans in ("y", "yes") else []
+
+
+def ask_test_mode() -> list[str]:
+    """Ask user which test mode to run for 'RUN ALL TESTS'."""
+    print(f"\n{YELLOW}Select test mode:{RESET}")
+    print("  [1] default   — normal run (fast, shared process)")
+    print("  [2] reverse   — reverse order (detects order dependencies)")
+    print("  [3] forked    — isolated processes (slowest, 100% isolation)")
+    print("  [4] e2e       — include online tests (requires running server)")
+    try:
+        ans = input("Mode [1]: ").strip()
+    except EOFError:
+        return []
+    mapping = {"1": "default", "2": "reverse", "3": "forked", "4": "e2e"}
+    mode = mapping.get(ans, "default")
+    return TEST_MODES[mode]
 
 
 def _sanitize_extra(extra: list[str]) -> list[str] | None:
@@ -174,17 +224,28 @@ def print_menu(scripts, tests, last):
     print("=" * total)
 
 
-def run(python, target, root, extra):
+def run(python, target, root, extra, mode_extra):
     ts = timestamp()
     if target.startswith("pytest:"):
-        cmd = [
-            python,
-            "-m",
-            "pytest",
-            target.split(":", 1)[1],
-            "-v",
-        ] + extra
+        cmd = (
+            [
+                python,
+                "-m",
+                "pytest",
+                target.split(":", 1)[1],
+                "-v",
+            ]
+            + extra
+            + mode_extra
+        )
         print(f"\n>>> [{ts}] pytest tests")
+        if mode_extra:
+            mode_label = {
+                "--reverse": "reverse",
+                "--forked": "forked",
+                "-m": "e2e",
+            }.get(mode_extra[0], "custom")
+            print(f">>> [{ts}] Mode: {mode_label}")
     else:
         cmd = [python, target] + extra
         print(f"\n>>> [{ts}] {Path(target).relative_to(root)}")
@@ -298,7 +359,7 @@ def main() -> int:
     enable_ansi()
 
     root = Path(__file__).parent.parent.resolve()
-    py = get_python(root)
+    py = ensure_venv(root)
 
     script_files = sort_scripts(
         collect(root, "ops/scripts") + collect(root, "dev/scripts")
@@ -331,6 +392,7 @@ def main() -> int:
     last_num = None
     last_target = None
     last_extra = []
+    last_mode_extra: list[str] = []
 
     while True:
         print_menu(scripts, tests, last_num)
@@ -352,7 +414,7 @@ def main() -> int:
                 ):
                     run_bg(py, last_target, root, last_extra)
                 else:
-                    run(py, last_target, root, last_extra)
+                    run(py, last_target, root, last_extra, last_mode_extra)
             else:
                 print("No previous run.")
             continue
@@ -373,6 +435,13 @@ def main() -> int:
         if not target.startswith("pytest:") and not extra:
             extra = ask_flags(target)
 
+        # Для "RUN ALL TESTS" спрашиваем режим
+        mode_extra: list[str] = []
+        if target.startswith("pytest:"):
+            test_path = Path(target.split(":", 1)[1])
+            if test_path.name == "tests" and test_path.parent.name == "dev":
+                mode_extra = ask_test_mode()
+
         sanitized = _sanitize_extra(extra)
         if sanitized is None:
             continue
@@ -383,11 +452,12 @@ def main() -> int:
             continue
 
         last_num, last_target, last_extra = num, target, extra
+        last_mode_extra = mode_extra
 
         if Path(target).stem in BACKGROUND and not target.startswith("pytest:"):
             run_bg(py, target, root, extra)
         else:
-            run(py, target, root, extra)
+            run(py, target, root, extra, mode_extra)
 
 
 if __name__ == "__main__":

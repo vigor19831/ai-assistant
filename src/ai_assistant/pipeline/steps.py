@@ -1,25 +1,49 @@
-"""RAG pipeline steps with namespace and rerank support."""
+"""RAG pipeline steps with namespace and rerank support.
+
+All steps return new PipelineData instances via dataclasses.replace().
+No in-place mutation.
+"""
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
-from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.metrics import record_metric
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.utils import count_tokens, get_context_limit
 from ai_assistant.pipeline.decorators import step
 
+if TYPE_CHECKING:
+    from ai_assistant.core.domain.pipeline import PipelineData
+    from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.llm import ILLM
+    from ai_assistant.core.ports.reranker import IReranker
+    from ai_assistant.core.ports.vector_store import IVectorStore
+    from ai_assistant.core.tool_registry import ToolRegistry
+
 __all__: list[str] = [
+    "StepContext",
     "build_context",
     "embed_query",
     "generate",
     "rerank",
     "retrieve",
 ]
+
+
+@dataclass
+class StepContext:
+    """Typed container for step dependencies."""
+
+    embedder: IEmbedder | None = None
+    vector_store: IVectorStore | None = None
+    reranker: IReranker | None = None
+    llm: ILLM | None = None
+    tool_registry: ToolRegistry | None = None
 
 
 def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
@@ -31,47 +55,40 @@ def _get_llm_context_limit(llm: Any) -> int | None:
 
 
 @step("embed_query")
-async def embed_query(data: PipelineData, **kwargs: Any) -> PipelineData:
+async def embed_query(data: PipelineData, ctx: StepContext) -> PipelineData:
     """Embed the user query text."""
-    embedder = kwargs.get("embedder")
-    if embedder is None:
-        data.errors.append("embed_query: embedder not provided")
-        return data
+    if ctx.embedder is None:
+        return data.add_error("embed_query: embedder not provided")
     if data.query is None or not data.query.text:
-        data.errors.append("embed_query: no query text")
-        return data
+        return data.add_error("embed_query: no query text")
     try:
-        embeddings = await embedder.embed([data.query.text])
-        data.metadata["query_embedding"] = embeddings[0]
+        embeddings = await ctx.embedder.embed([data.query.text])
+        new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
+        return replace(data, metadata=new_metadata)
     except Exception as e:
-        data.errors.append(f"embed_query failed: {e}")
-    return data
+        return data.add_error(f"embed_query failed: {e}")
 
 
 @step("retrieve")
-async def retrieve(data: PipelineData, **kwargs: Any) -> PipelineData:
+async def retrieve(data: PipelineData, ctx: StepContext) -> PipelineData:
     """Retrieve relevant chunks from vector store (namespace-aware)."""
-    vector_store = kwargs.get("vector_store")
-    if vector_store is None:
-        data.errors.append("retrieve: vector_store not provided")
-        return data
+    if ctx.vector_store is None:
+        return data.add_error("retrieve: vector_store not provided")
     embedding = data.metadata.get("query_embedding")
     if embedding is None:
-        data.errors.append("retrieve: no query embedding")
-        return data
+        return data.add_error("retrieve: no query embedding")
     try:
         top_k = data.metadata.get("top_k", 5)
         namespace = data.metadata.get("namespace") or "default"
-        chunks = await vector_store.search(embedding, top_k=top_k, namespace=namespace)
-        data.chunks = chunks
+        chunks = await ctx.vector_store.search(embedding, top_k=top_k, namespace=namespace)
         record_metric("rag_chunks", len(chunks))
+        return data.with_chunks(chunks)
     except Exception as e:
-        data.errors.append(f"retrieve failed: {e}")
-    return data
+        return data.add_error(f"retrieve failed: {e}")
 
 
 @step("rerank")
-async def rerank(data: PipelineData, **kwargs: Any) -> PipelineData:
+async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
     If reranker is not configured (None), acts as transparent pass-through.
@@ -79,8 +96,7 @@ async def rerank(data: PipelineData, **kwargs: Any) -> PipelineData:
     if not data.chunks:
         return data
 
-    reranker = kwargs.get("reranker")
-    if reranker is None:
+    if ctx.reranker is None:
         return data
 
     try:
@@ -88,41 +104,47 @@ async def rerank(data: PipelineData, **kwargs: Any) -> PipelineData:
         top_k = data.metadata.get("top_k", 5)
         threshold = data.metadata.get("relevance_threshold", 0.3)
 
-        results = await reranker.rerank(query, data.chunks, top_k=top_k)
+        results = await ctx.reranker.rerank(query, data.chunks, top_k=top_k)
 
         filtered = [r for r in results if r.score >= threshold]
 
         if not filtered:
-            data.chunks = []
-            data.metadata["rerank_filtered_out"] = True
+            new_metadata = {
+                **data.metadata,
+                "rerank_filtered_out": True,
+            }
+            return replace(data, chunks=[], metadata=new_metadata)
         else:
-            data.chunks = [r.chunk for r in filtered]
-            data.metadata["rerank_scores"] = [r.score for r in filtered]
+            new_metadata = {
+                **data.metadata,
+                "rerank_scores": [r.score for r in filtered],
+            }
+            return replace(
+                data,
+                chunks=[r.chunk for r in filtered],
+                metadata=new_metadata,
+            )
 
     except Exception as e:
-        data.errors.append(f"rerank failed: {e}")
-
-    return data
+        return data.add_error(f"rerank failed: {e}")
 
 
 @step("build_context")
-async def build_context(data: PipelineData, **kwargs: Any) -> PipelineData:
+async def build_context(data: PipelineData, ctx: StepContext) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks."""
-    data.rebuild_context()
-    return data
+    if not data.chunks:
+        return data.with_context("")
+    lines = [chunk.text for chunk in data.chunks if chunk.text]
+    return data.with_context("\n\n".join(lines))
 
 
 @step("generate")
-async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
+async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
     """Generate response using LLM with context."""
-    llm = kwargs.get("llm")
-    tool_registry = kwargs.get("tool_registry")
-    if llm is None:
-        data.errors.append("generate: llm not provided")
-        return data
+    if ctx.llm is None:
+        return data.add_error("generate: llm not provided")
     if data.query is None:
-        data.errors.append("generate: no query")
-        return data
+        return data.add_error("generate: no query")
 
     query_text = data.query.text or ""
     prompt_version = data.metadata["prompt_version"]
@@ -146,39 +168,44 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
 
     record_metric("input_tokens", _estimate_tokens(prompt))
 
-    max_ctx = _get_llm_context_limit(llm)
+    max_ctx = _get_llm_context_limit(ctx.llm)
     if isinstance(max_ctx, int) and max_ctx > 0:
         prompt_tokens = _estimate_tokens(prompt)
         margin = max(256, int(max_ctx * 0.1))
         limit = max_ctx - margin
-        while data.chunks and prompt_tokens > limit:
-            data.chunks = data.chunks[:-1]
-            if not data.chunks:
-                data.context = ""
+        current_data = data
+        while current_data.chunks and prompt_tokens > limit:
+            new_chunks = current_data.chunks[:-1]
+            if not new_chunks:
+                current_data = current_data.with_context("")
                 break
-            data.rebuild_context()
+            current_data = current_data.with_chunks(new_chunks)
+            lines = [chunk.text for chunk in current_data.chunks if chunk.text]
+            current_data = current_data.with_context("\n\n".join(lines))
             try:
                 prompt = get_prompt(
                     prompt_name,
                     version=prompt_version,
                     query=query_text,
-                    context=data.context,
+                    context=current_data.context,
                 )
             except Exception:
                 prompt = _build_fallback_prompt()
             prompt_tokens = _estimate_tokens(prompt)
         if prompt_tokens > limit:
-            data.errors.append(
+            error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens) "
                 f"exceeds limit ({limit})"
             )
-            data.response = AssistantMessage(
-                text=(
-                    "Sorry, the retrieved context is too large "
-                    "to process. Please narrow your query."
+            return current_data.add_error(error_msg).with_response(
+                AssistantMessage(
+                    text=(
+                        "Sorry, the retrieved context is too large "
+                        "to process. Please narrow your query."
+                    )
                 )
             )
-            return data
+        data = current_data
 
     original_image = data.query.image if data.query else None
 
@@ -187,20 +214,20 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
 
     for _ in range(3):
         try:
-            response = await llm.complete(messages)
+            response = await ctx.llm.complete(messages)
         except Exception as e:
-            data.errors.append(f"generate failed: {e}")
-            data.response = AssistantMessage(
-                text=("Sorry, I encountered an error generating the response.")
+            return data.add_error(f"generate failed: {e}").with_response(
+                AssistantMessage(
+                    text=("Sorry, I encountered an error generating the response.")
+                )
             )
-            return data
 
         if not response or not response.tool_calls:
             break
 
         messages.append(response)
 
-        if tool_registry:
+        if ctx.tool_registry:
             for call in response.tool_calls:
                 try:
                     func = call.get("function", {})
@@ -211,7 +238,7 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
                         arguments=arguments,
                         call_id=call.get("id", ""),
                     )
-                    result = await tool_registry.dispatch(tc)
+                    result = await ctx.tool_registry.dispatch(tc)
                     content = (
                         result.output
                         if not result.is_error
@@ -230,13 +257,13 @@ async def generate(data: PipelineData, **kwargs: Any) -> PipelineData:
         else:
             break
 
-    data.response = (
+    final_response = (
         response
         if response
         else AssistantMessage(text="Sorry, tool call loop exhausted.")
     )
     record_metric(
         "output_tokens",
-        _estimate_tokens(data.response.text or ""),
+        _estimate_tokens(final_response.text or ""),
     )
-    return data
+    return data.with_response(final_response)

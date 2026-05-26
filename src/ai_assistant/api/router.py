@@ -1,4 +1,4 @@
-﻿"""Auto-discovery router assembly."""
+"""Auto-discovery router assembly."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def assemble_routers() -> list[APIRouter]:
 
     features_dir = Path(__file__).parent.parent / "features"
     if not features_dir.exists():
-        return routers
+        return []
 
     for feature_dir in features_dir.iterdir():
         if not feature_dir.is_dir() or feature_dir.name.startswith("_"):
@@ -33,19 +33,18 @@ def assemble_routers() -> list[APIRouter]:
         if not handlers_path.exists():
             continue
         try:
-            module = importlib.import_module(f"ai_assistant.features.{feature_dir.name}.handlers")
-            router = getattr(module, "router", None)
-            if isinstance(router, APIRouter):
-                routers.append(router)
-                _logger.debug(
-                    "Loaded router from features.%s.handlers",
-                    feature_dir.name,
-                )
-            else:
-                _logger.warning(
-                    "No 'router' found in features.%s.handlers",
-                    feature_dir.name,
-                )
+            module = importlib.import_module(
+                f"ai_assistant.features.{feature_dir.name}.handlers"
+            )
+            for attr_name in ("router", "router_oai", "router_legacy"):
+                router = getattr(module, attr_name, None)
+                if isinstance(router, APIRouter):
+                    routers.append(router)
+                    _logger.debug(
+                        "Loaded router %s from features.%s.handlers",
+                        attr_name,
+                        feature_dir.name,
+                    )
         except Exception as exc:
             _logger.error(
                 "Failed to load features.%s.handlers: %s",
@@ -54,7 +53,18 @@ def assemble_routers() -> list[APIRouter]:
             )
             continue
 
+    # Wrap each router with API key dependency and apply /api/v1 prefix
+    # OpenAI-compatible routers (tagged "chat-oai") stay at root without wrapping
+    wrapped: list[APIRouter] = []
     for router in routers:
-        router.dependencies.append(Depends(require_api_key))
+        is_oai = "chat-oai" in router.tags
+        if is_oai:
+            # OpenAI routers keep their original paths, no prefix, no extra wrapper
+            wrapped.append(router)
+        else:
+            # Legacy routers get /api/v1 prefix + API key dependency via wrapper
+            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            wrapper.include_router(router, prefix="/api/v1")
+            wrapped.append(wrapper)
 
-    return routers
+    return wrapped

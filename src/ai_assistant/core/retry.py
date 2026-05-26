@@ -88,6 +88,6 @@ def with_retry(
             raise last_exception
 
         wrapper = async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
-        return cast(F, wrapper)
+        return cast("F", wrapper)
 
     return decorator

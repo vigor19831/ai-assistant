@@ -19,6 +19,7 @@ __all__ = [
     "load_config",
     "RAGConfig",
     "RerankerConfig",
+    "SecurityConfig",
     "StorageConfig",
     "UIConfig",
     "VectorStoreConfig",
@@ -179,6 +180,16 @@ class RAGConfig(BaseSettings):
     relevance_threshold: float = 0.3
 
 
+class SecurityConfig(BaseSettings):
+    """Security configuration — loaded once at startup."""
+
+    model_config = SettingsConfigDict(env_prefix="AI_SECURITY_", extra="allow")
+    api_key: str | None = None
+    rate_limit: str = "100/minute"
+    max_body_size: int = 10_485_760
+    allowed_hosts: list[str] = Field(default_factory=list)
+
+
 class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AI_",
@@ -201,6 +212,7 @@ class AppConfig(BaseSettings):
     vision: VisionConfig = Field(default_factory=VisionConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
 
     @field_validator("rag", mode="before")
     @classmethod

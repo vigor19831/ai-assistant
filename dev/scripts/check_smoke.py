@@ -102,6 +102,13 @@ def make_mock_state():
     mock.tool_registry.register = lambda t: None
     mock.tool_registry.list_tools = lambda: []
     mock.tool_registry.execute = lambda c: MagicMock(output="tool", is_error=False)
+
+    # Bypass API key check for smoke tests (no auth required)
+    os.environ["AI_API_KEY"] = ""
+    from ai_assistant.api.security import reset_security_state
+
+    reset_security_state()
+
     return mock
 
 
@@ -139,7 +146,7 @@ def check_file_structure() -> str:
         pkg / "api",
     ]
     missing = [str(p.relative_to(pkg.parent)) for p in required if not p.exists()]
-    if not (_PROJECT_ROOT.parent / "config.yaml").exists():
+    if not (_PROJECT_ROOT / "config.yaml").exists():
         missing.append("config.yaml")
     if missing:
         raise FileNotFoundError(f"Missing critical paths: {missing}")
@@ -178,13 +185,13 @@ def check_http_endpoints() -> str:
     client = TestClient(app)
     r1 = client.get("/health")
     r2 = client.get("/info")
-    r3 = client.post("/chat", json={"message": "hi", "conversation_id": "t1"})
+    r3 = client.post("/api/v1/chat", json={"message": "hi", "conversation_id": "t1"})
     r4 = client.post(
-        "/chat", json={"message": "hi"}, headers={"Authorization": "Bearer test"}
+        "/api/v1/chat", json={"message": "hi"}, headers={"Authorization": "Bearer test"}
     )
     r5 = client.get("/v1/models")
-    r6 = client.post("/rag/query", json={"query": "test"})
-    r7 = client.post("/chat", json={"bad": "field"})  # 422 validation
+    r6 = client.post("/api/v1/rag/query", json={"query": "test"})
+    r7 = client.post("/api/v1/chat", json={"bad": "field"})  # 422 validation
     return (
         f"health={r1.status_code}, info={r2.status_code}, "
         f"chat_no_auth={r3.status_code}, chat_auth={r4.status_code}, "
@@ -208,7 +215,9 @@ def check_sse_format() -> str:
     app.state.app_state = mock
     app.dependency_overrides[get_state] = lambda: mock
     client = TestClient(app)
-    r = client.post("/chat/stream", json={"message": "hi", "conversation_id": "t1"})
+    r = client.post(
+        "/api/v1/chat/stream", json={"message": "hi", "conversation_id": "t1"}
+    )
     lines = [line for line in r.text.strip().split("\n") if line.strip()]
     has_data = all(line.startswith("data: ") for line in lines)
     has_done = "data: [DONE]" in r.text

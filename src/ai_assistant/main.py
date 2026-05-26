@@ -18,15 +18,27 @@ from ai_assistant.api.router import assemble_routers
 from ai_assistant.api.security import (
     APIKeyMiddleware,
     LimitMiddleware,
-    _load_security_cfg,
     require_api_key,
 )
-from ai_assistant.core.config import load_config
+from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.logger import get_logger
 
 _logger = get_logger("ai_assistant.main")
 
-_config = load_config(os.getenv("AI_CONFIG_PATH", "config.yaml"))
+
+def _load_config_safe() -> AppConfig:
+    """Load config with graceful fallback to defaults.
+
+    Avoids crashing on import if config.yaml is missing or invalid.
+    """
+    try:
+        return load_config(os.getenv("AI_CONFIG_PATH", "config.yaml"))
+    except Exception as exc:
+        _logger.warning("Failed to load config, using defaults: %s", exc)
+        return AppConfig()
+
+
+_config = _load_config_safe()
 
 app = FastAPI(
     title="AI Assistant",
@@ -37,6 +49,7 @@ app = FastAPI(
 
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(APIKeyMiddleware)
+app.add_middleware(LimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,13 +59,11 @@ app.add_middleware(
     allow_headers=_config.cors.allow_headers,
 )
 
-sec_cfg = _load_security_cfg()
-
-app.add_middleware(LimitMiddleware)
-if sec_cfg.get("allowed_hosts") and not _config.debug:
+# Use security.allowed_hosts from loaded config (no YAML reload)
+if _config.security.allowed_hosts and not _config.debug:
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=sec_cfg["allowed_hosts"],
+        allowed_hosts=_config.security.allowed_hosts,
     )
 
 
@@ -67,6 +78,7 @@ async def health_check() -> dict[str, str]:
 
 
 async def _safe_get_state(request: Request) -> AppState | None:
+    """Get state without raising on uninitialized state."""
     fastapi_app = request.app
     override: Any = fastapi_app.dependency_overrides.get(get_state)
     try:
@@ -84,9 +96,12 @@ async def _safe_get_state(request: Request) -> AppState | None:
         return None
 
 
+_safe_get_state_dep = Depends(_safe_get_state)
+
+
 @app.get("/info", dependencies=[Depends(require_api_key)])
 async def get_info(
-    state: AppState | None = Depends(_safe_get_state),
+    state: AppState | None = _safe_get_state_dep,
 ) -> dict[str, str]:
     if state is None:
         return {"provider": "unknown", "model": "unknown"}

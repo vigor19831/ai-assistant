@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import threading
 import warnings
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 __all__ = ["get_step", "step"]
 

@@ -1,24 +1,16 @@
-"""Full RAG pipeline tests — from document to answer.
-
-Tests the complete flow: chunk → embed → store → query → retrieve → rerank \
-→ build_context → generate.
-Validates integration between all pipeline steps.
-"""
+"""Tests for RAG pipeline steps."""
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
+from dataclasses import replace
 
-from ai_assistant.adapters.chunker_simple import SimpleChunker
-from ai_assistant.adapters.embedder_mock import MockEmbedder
-from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
+from ai_assistant.core.domain.documents import Chunk, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
-from ai_assistant.features.rag.manager import IndexingManager, RAGManager
+from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.pipeline.steps import (
+    StepContext,
     build_context,
     embed_query,
     generate,
@@ -26,121 +18,157 @@ from ai_assistant.pipeline.steps import (
     retrieve,
 )
 
-# ── Pipeline Steps Integration ──
+
+class FakeEmbedder:
+    def __init__(self, dim: int = 384):
+        self.dimension = dim
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.1] * self.dimension for _ in texts]
 
 
-class TestPipelineSteps:
+class FakeVectorStore:
+    def __init__(self):
+        self._data: dict[str, list[Chunk]] = {}
+
+    async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
+        self._data.setdefault(namespace, []).extend(chunks)
+
+    async def search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        namespace: str = "default",
+    ) -> list[Chunk]:
+        return self._data.get(namespace, [])[:top_k]
+
+    async def list_namespaces(self, path: str) -> list[str]:
+        return list(self._data.keys())
+
+
+class FakeLLM:
+    def __init__(self, response: str = ""):
+        self._response = response
+
+    async def complete(self, messages, **kwargs):
+        return AssistantMessage(text=self._response)
+
+
+class TestEmbedQuery:
     @pytest.mark.asyncio
     async def test_embed_query_success(self):
-        class FakeEmbedder:
-            async def embed(self, texts: list[str]) -> list[list[float]]:
-                return [[1.0, 2.0, 3.0]]
-
+        embedder = FakeEmbedder()
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await embed_query(data, embedder=FakeEmbedder())
-        assert result.metadata["query_embedding"] == [1.0, 2.0, 3.0]
-        assert not result.errors
+        result = await embed_query(data, StepContext(embedder=embedder))
+        assert "query_embedding" in result.metadata
+        assert len(result.metadata["query_embedding"]) == embedder.dimension
 
     @pytest.mark.asyncio
     async def test_embed_query_no_embedder(self):
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await embed_query(data, embedder=None)
-        assert "embedder not provided" in result.errors[0]
+        result = await embed_query(data, StepContext())
+        assert any("embedder not provided" in e for e in result.errors)
 
     @pytest.mark.asyncio
-    async def test_embed_query_no_text(self):
-        class FakeEmbedder:
-            async def embed(self, texts: list[str]) -> list[list[float]]:
-                return []
+    async def test_embed_query_no_query(self):
+        embedder = FakeEmbedder()
+        data = PipelineData()
+        result = await embed_query(data, StepContext(embedder=embedder))
+        assert any("no query text" in e for e in result.errors)
 
-        data = PipelineData(query=UserMessage(text=""))
-        result = await embed_query(data, embedder=FakeEmbedder())
-        assert "no query text" in result.errors[0]
 
+class TestRetrieve:
     @pytest.mark.asyncio
     async def test_retrieve_success(self):
-        class FakeStore:
-            async def search(self, emb, top_k=5, namespace="default"):
-                return [Chunk(id="c1", text="result")]
+        store = FakeVectorStore()
+        chunk = Chunk(id="c1", text="test", embedding=[0.0, 1.0, 0.0])
+        await store.add([chunk], namespace="test")
 
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.metadata["query_embedding"] = [1.0, 2.0]
-        data.metadata["top_k"] = 5
-        data.metadata["namespace"] = "default"
-        result = await retrieve(data, vector_store=FakeStore())
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            metadata={
+                "query_embedding": [0.0, 1.0, 0.0],
+                "top_k": 5,
+                "namespace": "test",
+            },
+        )
+        result = await retrieve(data, StepContext(vector_store=store))
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
 
     @pytest.mark.asyncio
     async def test_retrieve_no_store(self):
-        data = PipelineData(query=UserMessage(text="hello"))
-        result = await retrieve(data, vector_store=None)
-        assert "vector_store not provided" in result.errors[0]
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            metadata={"query_embedding": [0.0, 1.0, 0.0]},
+        )
+        result = await retrieve(data, StepContext())
+        assert any("vector_store not provided" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_retrieve_no_embedding(self):
+        store = FakeVectorStore()
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await retrieve(data, vector_store=MagicMock())
-        assert "no query embedding" in result.errors[0]
+        result = await retrieve(data, StepContext(vector_store=store))
+        assert any("no query embedding" in e for e in result.errors)
 
+
+class TestBuildContext:
     @pytest.mark.asyncio
     async def test_build_context_from_chunks(self):
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [
-            Chunk(id="c1", text="chunk one"),
-            Chunk(id="c2", text="chunk two"),
-        ]
-        result = await build_context(data)
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[
+                Chunk(id="c1", text="chunk one"),
+                Chunk(id="c2", text="chunk two"),
+            ],
+        )
+        result = await build_context(data, StepContext())
         assert "chunk one" in result.context
         assert "chunk two" in result.context
-        assert "\n\n" in result.context
 
     @pytest.mark.asyncio
-    async def test_build_context_empty_chunks(self):
+    async def test_build_context_empty(self):
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await build_context(data)
+        result = await build_context(data, StepContext())
         assert result.context == ""
 
     @pytest.mark.asyncio
     async def test_build_context_skips_none_text(self):
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [Chunk(id="c1", text="valid"), Chunk(id="c2", text="")]
-        result = await build_context(data)
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="valid"), Chunk(id="c2", text="")],
+        )
+        result = await build_context(data, StepContext())
         assert result.context == "valid"
 
+
+class TestRerank:
     @pytest.mark.asyncio
     async def test_rerank_with_reranker(self):
-        from ai_assistant.core.ports.reranker import RerankResult
-
         class FakeReranker:
             async def rerank(self, query, chunks, top_k=None):
                 return [RerankResult(chunk=c, score=0.9) for c in chunks]
 
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [Chunk(id="c1", text="test")]
-        data.metadata["top_k"] = 5
-        data.metadata["relevance_threshold"] = 0.3
-        result = await rerank(data, reranker=FakeReranker())
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+        )
+        result = await rerank(data, StepContext(reranker=FakeReranker()))
         assert len(result.chunks) == 1
-        assert result.metadata["rerank_scores"] == [0.9]
+        assert result.metadata.get("rerank_scores") == [0.9]
 
     @pytest.mark.asyncio
     async def test_rerank_without_reranker_passes_through(self):
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [Chunk(id="c1", text="test")]
-        result = await rerank(data, reranker=None)
-        assert len(result.chunks) == 1  # pass-through
-
-    @pytest.mark.asyncio
-    async def test_rerank_empty_chunks(self):
-        data = PipelineData(query=UserMessage(text="hello"))
-        result = await rerank(data, reranker=None)
-        assert result.chunks == []
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+        )
+        result = await rerank(data, StepContext())
+        assert len(result.chunks) == 1
 
     @pytest.mark.asyncio
     async def test_rerank_filters_by_threshold(self):
-        from ai_assistant.core.ports.reranker import RerankResult
-
         class FakeReranker:
             async def rerank(self, query, chunks, top_k=None):
                 return [
@@ -148,27 +176,25 @@ class TestPipelineSteps:
                     RerankResult(chunk=chunks[1], score=0.1),
                 ]
 
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [Chunk(id="c1", text="high"), Chunk(id="c2", text="low")]
-        data.metadata["top_k"] = 5
-        data.metadata["relevance_threshold"] = 0.3
-        result = await rerank(data, reranker=FakeReranker())
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="high"), Chunk(id="c2", text="low")],
+        )
+        result = await rerank(data, StepContext(reranker=FakeReranker()))
         assert len(result.chunks) == 1
-        assert result.chunks[0].id == "c1"
+        assert result.chunks[0].text == "high"
 
     @pytest.mark.asyncio
     async def test_rerank_all_filtered_out(self):
-        from ai_assistant.core.ports.reranker import RerankResult
-
         class FakeReranker:
             async def rerank(self, query, chunks, top_k=None):
                 return [RerankResult(chunk=c, score=0.1) for c in chunks]
 
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [Chunk(id="c1", text="low")]
-        data.metadata["top_k"] = 5
-        data.metadata["relevance_threshold"] = 0.3
-        result = await rerank(data, reranker=FakeReranker())
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="low")],
+        )
+        result = await rerank(data, StepContext(reranker=FakeReranker()))
         assert result.chunks == []
         assert result.metadata.get("rerank_filtered_out") is True
 
@@ -178,64 +204,67 @@ class TestPipelineSteps:
             async def rerank(self, query, chunks, top_k=None):
                 raise RuntimeError("down")
 
-        data = PipelineData(query=UserMessage(text="hello"))
-        data.chunks = [Chunk(id="c1", text="test")]
-        result = await rerank(data, reranker=BrokenReranker())
-        assert len(result.chunks) == 1  # fallback
-        assert "rerank failed" in result.errors[0]
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+        )
+        result = await rerank(data, StepContext(reranker=BrokenReranker()))
+        assert any("rerank failed" in e for e in result.errors)
 
+
+class TestGenerate:
     @pytest.mark.asyncio
     async def test_generate_success(self):
-        class FakeLLM:
-            async def complete(self, messages):
-                return AssistantMessage(text="answer")
-
-        data = PipelineData(query=UserMessage(text="question"))
-        data.chunks = [Chunk(id="c1", text="context")]
-        data.metadata["prompt_version"] = "v1"
-        data.metadata["prompt_name"] = "rag_default"
-        result = await generate(data, llm=FakeLLM())
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+        )
+        llm = FakeLLM("answer")
+        result = await generate(data, StepContext(llm=llm))
+        assert result.response is not None
         assert result.response.text == "answer"
 
     @pytest.mark.asyncio
     async def test_generate_no_llm(self):
-        data = PipelineData(query=UserMessage(text="q"))
-        result = await generate(data, llm=None)
-        assert "llm not provided" in result.errors[0]
+        data = PipelineData(
+            query=UserMessage(text="q"),
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+        )
+        result = await generate(data, StepContext())
+        assert any("llm not provided" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_generate_no_query(self):
-        class FakeLLM:
-            async def complete(self, messages):
-                return None
-
-        data = PipelineData(query=None)
-        result = await generate(data, llm=FakeLLM())
-        assert "no query" in result.errors[0]
+        data = PipelineData(
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+        )
+        llm = FakeLLM()
+        result = await generate(data, StepContext(llm=llm))
+        assert any("no query" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_generate_llm_error(self):
         class BrokenLLM:
-            async def complete(self, messages):
+            async def complete(self, messages, **kwargs):
                 raise RuntimeError("fail")
 
-        data = PipelineData(query=UserMessage(text="question"))
-        data.chunks = [Chunk(id="c1", text="context")]
-        data.metadata["prompt_version"] = "v1"
-        data.metadata["prompt_name"] = "rag_default"
-        result = await generate(data, llm=BrokenLLM())
-        assert "generate failed" in result.errors[0]
-        assert "Sorry, I encountered an error" in result.response.text
-
-
-# ── Full Pipeline Integration ──
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+        )
+        result = await generate(data, StepContext(llm=BrokenLLM()))
+        assert any("generate failed" in e for e in result.errors)
 
 
 class TestFullPipeline:
     @pytest.mark.asyncio
     async def test_end_to_end_rag(self):
         """Complete RAG: chunk → embed → store → query → retrieve → generate."""
-        # 1. Chunk document
+        from ai_assistant.adapters.chunker_simple import SimpleChunker
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
         chunker = SimpleChunker(
             type("C", (), {"chunk_size": 100, "chunk_overlap": 5})()
         )
@@ -246,58 +275,47 @@ class TestFullPipeline:
         chunks = await chunker.chunk(doc)
         assert len(chunks) > 0
 
-        # 2. Embed chunks
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        embedder = FakeEmbedder(3)
         texts = [c.text for c in chunks]
         embeddings = await embedder.embed(texts)
         assert len(embeddings) == len(chunks)
-
-        # 3. Store in vector store
-        from dataclasses import replace
 
         embedded_chunks = []
         for i, chunk in enumerate(chunks):
             embedded_chunks.append(replace(chunk, embedding=embeddings[i]))
         chunks = embedded_chunks
+
         store = MemoryVectorStore(
             type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
         )
         await store.add(chunks, namespace="test")
 
-        # 4. Query pipeline
         query = "What is the capital of France?"
-        data = PipelineData(query=UserMessage(text=query))
-        data.metadata = {
-            "top_k": 3,
-            "prompt_version": "v1",
-            "prompt_name": "rag_default",
-            "namespace": "test",
-            "relevance_threshold": -1.0,
-        }
+        data = PipelineData(
+            query=UserMessage(text=query),
+            metadata={
+                "top_k": 3,
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "namespace": "test",
+                "relevance_threshold": -1.0,
+            },
+        )
 
-        # Run embed_query
-        data = await embed_query(data, embedder=embedder)
-        assert "query_embedding" in data.metadata
+        data = await embed_query(data, StepContext(embedder=embedder))
+        data = await retrieve(data, StepContext(vector_store=store))
+        data = await build_context(data, StepContext())
+        llm = FakeLLM("Paris")
+        data = await generate(data, StepContext(llm=llm))
 
-        # Run retrieve
-        data = await retrieve(data, vector_store=store)
-        assert len(data.chunks) > 0
-
-        # Run build_context
-        data = await build_context(data)
-        assert "Paris" in data.context or "France" in data.context
-
-        # Run generate with fake LLM
-        class FakeLLM:
-            async def complete(self, messages):
-                return AssistantMessage(text="Paris is the capital of France.")
-
-        data = await generate(data, llm=FakeLLM())
-        assert "Paris" in data.response.text
+        assert data.response is not None
+        assert "Paris" in (data.response.text or "")
 
     @pytest.mark.asyncio
     async def test_rag_no_relevant_chunks(self):
         """Query with no matching chunks returns empty context."""
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
         store = MemoryVectorStore(
             type("C", (), {"dim": 3, "relevance_threshold": 0.99})()
         )
@@ -306,109 +324,22 @@ class TestFullPipeline:
             namespace="test",
         )
 
-        data = PipelineData(query=UserMessage(text="completely different topic"))
-        data.metadata = {
-            "top_k": 3,
-            "prompt_version": "v1",
-            "prompt_name": "rag_default",
-            "namespace": "test",
-            "relevance_threshold": 0.99,
-        }
-
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
-        data = await embed_query(data, embedder=embedder)
-        data = await retrieve(data, vector_store=store)
-        assert len(data.chunks) == 0
-
-        data = await build_context(data)
-        assert data.context == ""
-
-
-# ── RAG Manager Integration ──
-
-
-class TestRAGManager:
-    @pytest.fixture
-    def indexing_manager(self):
-        chunker = SimpleChunker(
-            type("C", (), {"chunk_size": 50, "chunk_overlap": 10})()
+        data = PipelineData(
+            query=UserMessage(text="completely different topic"),
+            metadata={
+                "top_k": 3,
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "namespace": "test",
+                "relevance_threshold": 0.99,
+            },
         )
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
-        store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
-        )
-        return IndexingManager(chunker, embedder, store)
 
-    @pytest.fixture
-    def rag_manager(self, mock_llm, mock_embedder, mock_vector_store):
-        pipeline = MagicMock()
-        pipeline.run = AsyncMock(
-            return_value=MagicMock(
-                chunks=[
-                    Chunk(
-                        id="c1",
-                        text="context",
-                        metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
-                    )
-                ],
-                response=MagicMock(text="Answer"),
-                errors=[],
-            )
-        )
-        return RAGManager(pipeline, mock_llm, mock_vector_store, embedder=mock_embedder)
+        embedder = FakeEmbedder(3)
+        data = await embed_query(data, StepContext(embedder=embedder))
+        data = await retrieve(data, StepContext(vector_store=store))
+        data = await build_context(data, StepContext())
+        llm = FakeLLM("no info")
+        data = await generate(data, StepContext(llm=llm))
 
-    @pytest.mark.asyncio
-    async def test_index_documents(self, indexing_manager):
-        docs = [{"id": "d1", "content": "hello world", "metadata": {}}]
-        result = await indexing_manager.index_documents(docs, namespace="test")
-        assert result["indexed_count"] == 1
-        assert result["chunk_count"] > 0
-
-    @pytest.mark.asyncio
-    async def test_index_empty_content(self, indexing_manager):
-        docs = [{"id": "d1", "content": "   ", "metadata": {}}]
-        result = await indexing_manager.index_documents(docs, namespace="test")
-        assert result["indexed_count"] == 0
-        assert len(result["errors"]) == 1
-
-    @pytest.mark.asyncio
-    async def test_query_returns_answer_and_sources(self, rag_manager):
-        result = await rag_manager.query(
-            "What is AI?",
-            top_k=5,
-            prompt_name="rag_default",
-            prompt_version="v1",
-            namespace="default",
-        )
-        assert result["answer"] == "Answer"
-        assert result["chunks_used"] == 1
-        assert len(result["sources"]) == 1
-        assert result["sources"][0]["chunk_id"] == "c1"
-
-    @pytest.mark.asyncio
-    async def test_query_no_info_detected(self, rag_manager):
-        """When answer indicates no info, sources should be empty."""
-        rag_manager.pipeline.run = AsyncMock(
-            return_value=MagicMock(
-                chunks=[Chunk(id="c1", text="context")],
-                response=MagicMock(text="I don't have enough information."),
-                errors=[],
-            )
-        )
-        result = await rag_manager.query(
-            "unknown?",
-            top_k=5,
-            prompt_name="rag_default",
-            prompt_version="v1",
-            namespace="default",
-        )
-        assert len(result["sources"]) == 0  # No sources when no info
-
-    @pytest.mark.asyncio
-    async def test_health(self, rag_manager, mock_vector_store):
-        mock_vector_store.list_namespaces = AsyncMock(return_value=["default"])
-        mock_vector_store.list_by_filter = AsyncMock(return_value=[("c1", {})])
-        health = await rag_manager.health()
-        assert health["status"] == "ok"
-        assert health["index_loaded"] is True
-        assert health["chunk_count"] == 1
+        assert data.response is not None

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 import httpx
 
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
 from ai_assistant.core.registry import register
 from ai_assistant.core.retry import with_retry
@@ -22,7 +25,7 @@ _logger = get_logger("llm.openai_compatible")
 
 
 @register("llm", "openai_compatible")
-class OpenAICompatibleLLM(ILLM):
+class OpenAICompatibleLLM(ILLM, IClosable):
     """LLM using OpenAI-compatible REST API."""
 
     def __init__(self, config: Any) -> None:
@@ -38,6 +41,10 @@ class OpenAICompatibleLLM(ILLM):
         self._max_stream_tokens: int = getattr(
             config, "max_stream_tokens", self.max_tokens * 2
         )
+
+    async def shutdown(self) -> None:
+        """No-op: client is created per-request and auto-closed by context manager."""
+        pass
 
     def _build_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -130,53 +137,53 @@ class OpenAICompatibleLLM(ILLM):
             "temperature": kwargs.get("temperature", self.temperature),
             "stream": True,
         }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST", url, headers=headers, json=payload
-            ) as resp:
-                resp.raise_for_status()
-                token_count = 0
-                async for line in resp.aiter_lines():
-                    if not line or line.startswith(":"):
+        async with (
+            httpx.AsyncClient(timeout=self._timeout) as client,
+            client.stream("POST", url, headers=headers, json=payload) as resp,
+        ):
+            resp.raise_for_status()
+            token_count = 0
+            async for line in resp.aiter_lines():
+                if not line or line.startswith(":"):
+                    continue
+                if not line.startswith("data: "):
+                    _logger.debug("Unexpected SSE line: %s", line)
+                    continue
+                chunk = line[6:]
+                if chunk == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(chunk)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    choices = obj.get("choices", [])
+                    if not choices:
                         continue
-                    if not line.startswith("data: "):
-                        _logger.debug("Unexpected SSE line: %s", line)
-                        continue
-                    chunk = line[6:]
-                    if chunk == "[DONE]":
-                        break
-                    try:
-                        obj = json.loads(chunk)
-                    except json.JSONDecodeError:
-                        continue
-                    try:
-                        choices = obj.get("choices", [])
-                        if not choices:
-                            continue
-                        delta = choices[0].get("delta", {})
-                        content = delta.get("content")
-                        if content:
-                            token_count += 1
-                            if token_count > self._max_stream_tokens:
-                                _logger.warning(
-                                    "Stream limit (%d) reached",
-                                    self._max_stream_tokens,
-                                )
-                                return
-                            yield content
-                        tcd = delta.get("tool_calls")
-                        if tcd:
-                            for tc in tcd:
-                                args = tc.get("function", {}).get("arguments")
-                                if args:
-                                    token_count += 1
-                                    if token_count > self._max_stream_tokens:
-                                        _logger.warning(
-                                            "Stream limit (%d) reached",
-                                            self._max_stream_tokens,
-                                        )
-                                        return
-                                    yield args
-                    except (KeyError, IndexError, TypeError) as exc:
-                        _logger.warning("Malformed SSE: %s (%s)", obj, exc)
-                        continue
+                    delta = choices[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        token_count += 1
+                        if token_count > self._max_stream_tokens:
+                            _logger.warning(
+                                "Stream limit (%d) reached",
+                                self._max_stream_tokens,
+                            )
+                            return
+                        yield content
+                    tcd = delta.get("tool_calls")
+                    if tcd:
+                        for tc in tcd:
+                            args = tc.get("function", {}).get("arguments")
+                            if args:
+                                token_count += 1
+                                if token_count > self._max_stream_tokens:
+                                    _logger.warning(
+                                        "Stream limit (%d) reached",
+                                        self._max_stream_tokens,
+                                    )
+                                    return
+                                yield args
+                except (KeyError, IndexError, TypeError) as exc:
+                    _logger.warning("Malformed SSE: %s (%s)", obj, exc)
+                    continue

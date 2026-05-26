@@ -25,6 +25,7 @@ class FastAPITransport(ITransport):
 
     async def start(self) -> None:
         import uvicorn
+
         from ai_assistant.main import app
 
         _logger.info("Starting FastAPI on %s:%d", self.host, self.port)

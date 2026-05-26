@@ -73,6 +73,7 @@ ALWAYS_SKIP_PATTERNS: List[str] = [
     "*context_build_compact.md",
     "*context_build_full.md",
     "dev/README_DEV.md",
+    "dev/TODO.md",
 ]
 
 # P0: Critical — contracts, API, domain, entry point, config, core implementation

@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
-from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ai_assistant.api.deps import AppState, get_state
-from ai_assistant.api.security import require_api_key
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.chat.schemas import (
@@ -26,11 +25,15 @@ from ai_assistant.features.chat.schemas import (
     OAIModelList,
 )
 
-__all__ = ["router"]
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+__all__ = ["router", "router_oai"]
 
 _logger = get_logger("chat.handlers")
 
 router = APIRouter(tags=["chat"])
+router_oai = APIRouter(tags=["chat-oai"])
 
 
 def _get_chat_manager(state: Annotated[AppState, Depends(get_state)]) -> ChatManager:
@@ -38,25 +41,21 @@ def _get_chat_manager(state: Annotated[AppState, Depends(get_state)]) -> ChatMan
         llm=state.llm,
         voice_recognizer=state.voice_recognizer,
         vision=state.vision,
-        storage=getattr(state, "storage", None),
+        storage=state.storage,
         history_limit=state.config.chat.history_limit,
-        max_context_tokens=getattr(state.config.chat, "max_context_tokens", None),
-        tokenizer_model=getattr(state.config.chat, "tokenizer_model", "gpt-4o"),
-        tool_registry=getattr(state, "tool_registry", None),
-        embedder=getattr(state, "embedder", None),
-        vector_store=getattr(state, "vector_store", None),
-        reranker=getattr(state, "reranker", None),
+        max_context_tokens=state.config.chat.max_context_tokens,
+        tokenizer_model=state.config.chat.tokenizer_model,
+        tool_registry=state.tool_registry,
+        embedder=state.embedder,
+        vector_store=state.vector_store,
+        reranker=state.reranker,
     )
 
 
-# --- Legacy endpoints (backward compatible) ---
+# --- Legacy endpoints (under /api/v1 via wrapper) ---
 
 
-@router.post(
-    "/chat",
-    response_model=ChatResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
     manager: Annotated[ChatManager, Depends(_get_chat_manager)],
@@ -75,7 +74,7 @@ async def chat(
         raise
     except Exception as exc:
         _logger.exception("Chat failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return ChatResponse(
         message=response.text or "",
         conversation_id=conv_id,
@@ -83,11 +82,7 @@ async def chat(
     )
 
 
-@router.post(
-    "/chat/stream",
-    response_model=None,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/chat/stream", response_model=None)
 async def chat_stream(
     req: ChatRequest,
     manager: Annotated[ChatManager, Depends(_get_chat_manager)],
@@ -107,20 +102,17 @@ async def chat_stream(
                 yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as exc:
-            _logger.exception("Stream failed: %s", exc)
-            yield f'data: {{"error": "{exc}"}}\n\n'
+            _logger.exception("Stream failed")
+            payload = json.dumps({"error": str(exc)})
+            yield f"data: {payload}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-# --- OpenAI-compatible endpoints ---
+# --- OpenAI-compatible endpoints (stay at root /v1/*) ---
 
 
-@router.get(
-    "/v1/models",
-    response_model=OAIModelList,
-    dependencies=[Depends(require_api_key)],
-)
+@router_oai.get("/v1/models", response_model=OAIModelList)
 async def list_models(state: Annotated[AppState, Depends(get_state)]) -> OAIModelList:
     models = getattr(state.config.llm, "available_models", [])
     if not models:
@@ -128,11 +120,7 @@ async def list_models(state: Annotated[AppState, Depends(get_state)]) -> OAIMode
     return OAIModelList(data=[OAIModel(id=m) for m in models])
 
 
-@router.post(
-    "/v1/chat/completions",
-    response_model=None,
-    dependencies=[Depends(require_api_key)],
-)
+@router_oai.post("/v1/chat/completions", response_model=None)
 async def openai_chat_completions(
     req: OAIChatCompletionRequest,
     manager: Annotated[ChatManager, Depends(_get_chat_manager)],
@@ -168,8 +156,9 @@ async def openai_chat_completions(
                     yield f"data: {delta.model_dump_json()}\n\n"
                 yield "data: [DONE]\n\n"
             except Exception as exc:
-                _logger.exception("OpenAI stream failed: %s", exc)
-                yield f'data: {{"error": "{exc}"}}\n\n'
+               _logger.exception("OpenAI stream failed")
+               payload = json.dumps({"error": str(exc)})
+               yield f"data: {payload}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -182,7 +171,7 @@ async def openai_chat_completions(
         raise
     except Exception as exc:
         _logger.exception("OpenAI chat failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return OAIChatCompletion(
         model=model_id,

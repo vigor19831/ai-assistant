@@ -144,7 +144,7 @@ async def index_namespace(
         if clear:
             try:
                 await client.post(
-                    f"{base}/rag/delete",
+                    f"{base}/api/v1/rag/delete",
                     json={"document_ids": [], "chunk_ids": [], "namespace": namespace},
                     timeout=30.0,
                     headers=headers,
@@ -161,7 +161,7 @@ async def index_namespace(
             batch = docs[i : i + 10]
             try:
                 resp = await client.post(
-                    f"{base}/rag/index",
+                    f"{base}/api/v1/rag/index",
                     json={"documents": batch, "namespace": namespace},
                     timeout=60.0,
                     headers=headers,

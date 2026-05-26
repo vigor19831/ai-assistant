@@ -1,14 +1,17 @@
-"""API security — rate limiting, request size, API key enforcement."""
+"""API security — rate limiting, request size, API key enforcement.
+
+Security config is loaded ONCE at startup into AppState.config.security.
+This module reads from AppState via get_state() or env var fallback.
+No YAML reloading on hot path.
+"""
 
 from __future__ import annotations
 
 import os
 import time
 from collections import defaultdict
-from pathlib import Path
 from typing import Any
 
-import yaml
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -23,79 +26,94 @@ __all__ = [
     "get_expected_api_key",
     "LimitMiddleware",
     "require_api_key",
-    "reset_security_cache",
+    "reset_security_state",
     "SECURITY_MAX_BODY",
 ]
 
 _logger = get_logger("security")
 
-CONFIG_PATH = Path("config.yaml")
 SECURITY_MAX_BODY = 10_485_760
 bearer_scheme = HTTPBearer(auto_error=False)
 
-_security_cache: dict[str, Any] | None = None
-_security_cache_mtime: float = 0.0
+# Mutable state for rare runtime key rotation (admin endpoint)
+_override_api_key: str | None = None
 
-
-def _load_security_cfg() -> dict[str, Any]:
-    """Load security config from YAML with mtime-based caching."""
-    global _security_cache, _security_cache_mtime
-    if CONFIG_PATH.exists():
-        mtime = CONFIG_PATH.stat().st_mtime
-        if _security_cache is not None and mtime == _security_cache_mtime:
-            return _security_cache
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = (yaml.safe_load(f) or {}).get("security", {})
-        _security_cache = cfg
-        _security_cache_mtime = mtime
-        return cfg
-    return {}
-
-
-def reset_security_cache() -> None:
-    """Reset cached security config — used in tests."""
-    global _security_cache, _security_cache_mtime
-    _security_cache = None
-    _security_cache_mtime = 0.0
+_PUBLIC_PATHS: frozenset[str] = frozenset({
+    "/",
+    "/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+})
 
 
 class SecurityLimiter:
-    def __init__(self) -> None:
+    def __init__(self, rate_limit: str = "100/minute") -> None:
         self.requests: dict[str, list[float]] = defaultdict(list)
-        cfg = _load_security_cfg()
-        rate_str = cfg.get("rate_limit", "100/minute")
+        self.max_req, self.window = self._parse_rate_limit(rate_limit)
+
+    def reset(self, rate_limit: str = "100/minute") -> None:
+        """Clear all tracked requests and re-apply rate limit settings."""
+        self.requests.clear()
+        self.max_req, self.window = self._parse_rate_limit(rate_limit)
+
+    @staticmethod
+    def _parse_rate_limit(rate_str: str) -> tuple[int, float]:
         try:
-            self.max_req, period = (
-                int(rate_str.split("/")[0]),
-                rate_str.split("/")[1],
-            )
-            self.window = 60.0 if period == "minute" else 1.0
+            max_req, period = rate_str.split("/")
+            return int(max_req), 60.0 if period == "minute" else 1.0
         except (ValueError, IndexError):
             _logger.warning(
                 "Invalid rate_limit format %r, using default 100/minute",
                 rate_str,
             )
-            self.max_req, self.window = 100, 60.0
+            return 100, 60.0
 
     def is_allowed(self, ip: str) -> bool:
         now = time.time()
         self.requests[ip] = [t for t in self.requests[ip] if t > now - self.window]
-        if len(self.requests[ip]) >= self.max_req:
+        if not self.requests[ip]:
+            del self.requests[ip]
+        current = self.requests.get(ip, [])
+        if len(current) >= self.max_req:
             return False
         self.requests[ip].append(now)
         return True
 
 
+# Global limiter instance — never replaced, only reset
 limiter = SecurityLimiter()
 
 
 def get_expected_api_key() -> str | None:
-    cfg = _load_security_cfg()
+    """Return API key from env var, runtime override, or None.
+
+    Callers that have AppState should prefer state.config.security.api_key.
+    This function exists for code paths without AppState access.
+    """
     env_key: str | None = os.getenv("AI_API_KEY")
     if env_key:
         return env_key
-    cfg_key = cfg.get("api_key")
-    return cfg_key if isinstance(cfg_key, str) else None
+    if _override_api_key is not None:
+        return _override_api_key
+    return None
+
+
+def reset_security_state() -> None:
+    """Reset mutable security state — used in tests and admin endpoints.
+
+    Calls limiter.reset() so the global instance stays the same object,
+    avoiding stale references imported by tests or middleware.
+    """
+    global _override_api_key
+    _override_api_key = None
+    limiter.reset()
+
+
+def set_api_key(key: str | None) -> None:
+    """Runtime API key rotation — called from admin endpoint."""
+    global _override_api_key
+    _override_api_key = key
 
 
 class LimitMiddleware(BaseHTTPMiddleware):
@@ -117,15 +135,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        public_paths = {
-            "/",
-            "/health",
-            "/docs",
-            "/openapi.json",
-            "/redoc",
-        }
         path = request.url.path
-        if path in public_paths or path.startswith(("/docs/", "/redoc")):
+        if path in _PUBLIC_PATHS or path.startswith(("/docs/", "/redoc")):
             return await call_next(request)
 
         expected = get_expected_api_key()
@@ -157,13 +168,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
 async def check_request_size(request: Request) -> None:
     cl = request.headers.get("content-length")
-    max_sz = _load_security_cfg().get("max_body_size", SECURITY_MAX_BODY)
+    # Default max body size — can be overridden by caller with AppState
+    max_sz = SECURITY_MAX_BODY
     if cl and int(cl) > int(max_sz):
         raise HTTPException(status_code=413, detail="Payload too large")
 
 
+_bearer_dependency = Depends(bearer_scheme)
+
+
 async def require_api_key(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = _bearer_dependency,
 ) -> None:
     expected = get_expected_api_key()
     if not expected:

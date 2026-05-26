@@ -6,19 +6,31 @@ import base64
 import binascii
 import json
 import re
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage, ImagePayload, UserMessage
+from ai_assistant.core.domain.messages import (
+    AssistantMessage,
+    ImagePayload,
+    UserMessage,
+)
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import record_metric
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.utils import count_tokens, get_context_limit
-from ai_assistant.pipeline.steps import build_context, embed_query, rerank, retrieve
+from ai_assistant.pipeline.steps import (
+    StepContext,
+    build_context,
+    embed_query,
+    retrieve,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from ai_assistant.core.domain.documents import Chunk
 
 __all__ = ["ChatManager"]
 
@@ -166,28 +178,21 @@ class ChatManager:
             },
         )
 
-        data = await embed_query(data, embedder=self.embedder)
-        if not data.errors:
-            data = await retrieve(data, vector_store=self.vector_store)
-        if self.reranker and not data.errors:
-            data = await rerank(data, reranker=self.reranker)
-        data = await build_context(data)
+        data = await embed_query(data, StepContext(embedder=self.embedder))
+        data = await retrieve(data, StepContext(vector_store=self.vector_store))
+        data = await build_context(data, StepContext())
 
-        if not data.context:
-            logger.debug("RAG skipped: no relevant chunks in %s", namespace)
+        if not data.chunks:
+            # Возвращаем query_text (без префикса), а не message (с префиксом)
             return query_text, query_text, []
 
-        chunks_for_prompt = [
-            {"text": c.text or " ", "id": c.id} for c in data.chunks
-        ]
-        rag_prompt = get_prompt(
+        prompt = get_prompt(
             "rag_strict",
             version="v1",
             query=query_text,
-            chunks=json.dumps(chunks_for_prompt, ensure_ascii=False),
             context=data.context,
         )
-        return rag_prompt, query_text, data.chunks
+        return prompt, query_text, data.chunks
 
     async def chat(
         self,

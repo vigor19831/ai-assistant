@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.ports.llm import ILLM, Message

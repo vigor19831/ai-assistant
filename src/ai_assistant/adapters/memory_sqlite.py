@@ -10,6 +10,7 @@ from typing import Any
 
 import aiosqlite
 
+from ai_assistant.core.ports.initializable import IInitializable
 from ai_assistant.core.ports.memory import ILongTermMemory, MemoryEntry
 from ai_assistant.core.registry import register
 
@@ -18,19 +19,28 @@ __all__ = ["SQLiteMemory"]
 
 def _escape_like(value: str) -> str:
     """Escape % and _ for SQLite LIKE with ESCAPE '\\'."""
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    backslash = chr(92)
+    return value.replace(backslash, backslash * 2).replace("%", backslash + "%").replace("_", backslash + "_")
 
 
 def _sanitize_fts(query: str) -> str:
     """Sanitize user input for SQLite FTS5 phrase queries."""
     if not query:
         return '""'
-    cleaned = re.sub(r"[*^~/\\()\[\]{}:]", "", query)
-    cleaned = re.sub(r"\b(OR|AND|NOT|NEAR)\b", "", cleaned, flags=re.IGNORECASE)
+    # Step 1: Remove FTS5/SQL control chars
+    cleaned = re.sub(r"[*^~/\()\[\]{}:]", "", query)
+    # Step 2: Remove boolean operators (with surrounding whitespace)
+    cleaned = re.sub(r"(?i)\s*\b(OR|AND|NOT|NEAR)\b\s*", " ", cleaned)
+    # Step 3: Remove SQL comments
     cleaned = re.sub(r"--.*$", "", cleaned, flags=re.MULTILINE)
-    cleaned = re.sub(r"\b\d+\s*=\s*\d+\b", "", cleaned)
+    # Step 4: Remove numeric comparisons (injection pattern like 1=1)
+    cleaned = re.sub(r"\d+\s*=\s*\d+", "", cleaned)
+    # Step 5: Escape double quotes for FTS5
     cleaned = cleaned.replace('"', '""')
+    # Step 6: Collapse whitespace
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return '""'
     return f'"{cleaned}"'
 
 
@@ -44,7 +54,7 @@ def _safe_json_loads(value: str | None, default: Any) -> Any:
 
 
 @register("memory", "sqlite")
-class SQLiteMemory(ILongTermMemory):
+class SQLiteMemory(ILongTermMemory, IInitializable):
     """Persistent memory using SQLite with FTS5 full-text search."""
 
     def __init__(self, config: Any) -> None:

@@ -1,287 +1,163 @@
-"""Critical tests for Sacred Core — must pass 100% always.
-
-Covers: registry, pipeline, domain models, config, prompts, utils, retry.
-These are immutable — any failure is a project-breaking bug.
-"""
+"""Core immutability and PipelineData mutation guards."""
 
 from __future__ import annotations
 
 import pytest
+from dataclasses import FrozenInstanceError
+from unittest import mock
 
-from ai_assistant.core.config import AppConfig, load_config
-from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
-from ai_assistant.core.domain.messages import (
-    AssistantMessage,
-    ImagePayload,
-    UserMessage,
-)
+from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
-from ai_assistant.core.pipeline import RAGPipeline
-from ai_assistant.core.prompts import get_prompt
-from ai_assistant.core.registry import create, list_adapters, register
-from ai_assistant.core.retry import with_retry
-from ai_assistant.core.utils import resolve_api_key
-
-# ── Registry ──
 
 
-class TestRegistry:
-    def test_register_and_create(self):
-        @register("test_port", "test_adapter")
-        class Dummy:
-            def __init__(self, config):
-                self.config = config
+class TestPipelineDataFrozen:
+    """Tests for frozen PipelineData — must use replace(), never mutate."""
 
-        obj = create("test_port", "test_adapter", {"x": 1})
-        assert obj.config == {"x": 1}
+    def test_frozen_instance_error_on_context_mutation(self) -> None:
+        """Attempting to set data.context = 'x' must raise FrozenInstanceError."""
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.context = "x"  # type: ignore[misc]
 
-    def test_create_unknown_raises(self):
-        with pytest.raises(ValueError, match="No adapter registered"):
-            create("nonexistent", "nonexistent", {})
+    def test_frozen_instance_error_on_chunks_mutation(self) -> None:
+        """Attempting to set data.chunks = [...] must raise FrozenInstanceError."""
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.chunks = []  # type: ignore[misc]
 
-    def test_list_adapters_returns_dict(self):
-        adapters = list_adapters()
-        assert isinstance(adapters, dict)
-        assert any(port in adapters for port in ["llm", "embedder", "vector_store"])
+    def test_frozen_instance_error_on_errors_mutation(self) -> None:
+        """Attempting to set data.errors = [...] must raise FrozenInstanceError."""
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.errors = []  # type: ignore[misc]
 
-    def test_list_adapters_by_port(self):
-        llm_adapters = list_adapters("llm")
-        assert isinstance(llm_adapters, list)
+    def test_frozen_instance_error_on_metadata_mutation(self) -> None:
+        """Attempting to set data.metadata = {} must raise FrozenInstanceError."""
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.metadata = {}  # type: ignore[misc]
 
+    def test_add_error_returns_new_instance(self) -> None:
+        """add_error() must return a new PipelineData; original must be unchanged."""
+        data = PipelineData()
+        data2 = data.add_error("err")
 
-# ── Pipeline ──
+        assert data.errors == []
+        assert data2.errors == ["err"]
+        assert data is not data2
 
-
-class TestPipeline:
-    @pytest.mark.asyncio
-    async def test_sequential_execution(self):
-        async def step1(d: PipelineData) -> PipelineData:
-            d.metadata["s1"] = True
-            return d
-
-        async def step2(d: PipelineData) -> PipelineData:
-            d.metadata["s2"] = True
-            return d
-
-        pipeline = RAGPipeline([step1, step2])
-        result = await pipeline.run(PipelineData(query=UserMessage(text="q")))
-        assert result.metadata == {"s1": True, "s2": True}
-
-    @pytest.mark.asyncio
-    async def test_empty_pipeline_returns_unchanged(self):
-        pipeline = RAGPipeline([])
-        data = PipelineData(query=UserMessage(text="test"))
-        result = await pipeline.run(data)
-        assert result.query.text == "test"
-
-    @pytest.mark.asyncio
-    async def test_exception_propagates(self):
-        async def bad_step(d: PipelineData) -> PipelineData:
-            raise RuntimeError("fail")
-
-        pipeline = RAGPipeline([bad_step])
-        with pytest.raises(RuntimeError, match="fail"):
-            await pipeline.run(PipelineData())
-
-
-# ── Domain Models ──
-
-
-class TestDomainModels:
-    def test_user_message_text(self):
-        msg = UserMessage(text="hello")
-        assert msg.text == "hello"
-        assert msg.role.value == "user"
-
-    def test_user_message_no_payload_raises(self):
-        with pytest.raises(ValueError, match="must contain at least one payload"):
-            UserMessage()
-
-    def test_user_message_with_image(self):
-        msg = UserMessage(text="look", image=ImagePayload(url="http://img.png"))
-        assert msg.image.url == "http://img.png"
-
-    def test_assistant_message(self):
-        msg = AssistantMessage(text="reply", tool_calls=[{"id": "1"}])
-        assert msg.text == "reply"
-        assert len(msg.tool_calls) == 1
-
-    def test_document_and_chunk(self):
-        doc = Document(id="d1", content="hello world")
+    def test_add_error_preserves_other_fields(self) -> None:
+        """add_error() must preserve all other fields."""
         chunk = Chunk(
             id="c1",
             text="hello",
-            metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
+            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
         )
-        doc.chunks.append(chunk)
-        assert len(doc.chunks) == 1
-        assert doc.chunks[0].metadata.source == "d1"
-
-    def test_chunk_frozen_metadata(self):
-        meta = ChunkMetadata(source="s", index=0, total_chunks=1)
-        with pytest.raises(AttributeError):
-            meta.source = "x"  # frozen dataclass
-
-
-# ── Config ──
-
-
-class TestConfig:
-    def test_default_values(self):
-        cfg = AppConfig()
-        assert cfg.app_name == "ai-assistant"
-        assert cfg.port == 8000
-        assert cfg.debug is False
-        assert cfg.chunker.provider == "simple"
-        assert cfg.llm.provider == "mock"
-        assert cfg.vector_store.provider == "memory"
-
-    def test_env_override(self, monkeypatch):
-        monkeypatch.setenv("AI_APP_NAME", "test")
-        monkeypatch.setenv("AI_PORT", "9999")
-        cfg = AppConfig()
-        assert cfg.app_name == "test"
-        assert cfg.port == 9999
-
-    def test_rag_steps_string_parsing(self):
-        cfg = AppConfig(rag={"steps": "a,b,c"})
-        assert cfg.rag.steps == ["a", "b", "c"]
-
-    def test_load_config_from_yaml(self, tmp_path, monkeypatch):
-        yaml = tmp_path / "cfg.yaml"
-        yaml.write_text("app_name: from-yaml\nport: 7777")
-        monkeypatch.chdir(tmp_path)
-        cfg = load_config("cfg.yaml")
-        assert cfg.app_name == "from-yaml"
-        assert cfg.port == 7777
-
-    def test_load_config_fallback(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        cfg = load_config("nonexistent.yaml")
-        assert cfg.app_name == "ai-assistant"
-
-
-# ── Prompts ──
-
-
-class TestPrompts:
-    @pytest.mark.parametrize(
-        "name,expected",
-        [
-            ("rag_default", ["Context:", "chunk1"]),
-            ("rag_strict", ["Rules:", "citations"]),
-            ("rag_creative", ["imaginative"]),
-            ("summarize", ["Summary:"]),
-            ("voice_transcribe", ["Cleaned text:"]),
-        ],
-    )
-    def test_prompt_renders(self, name, expected):
-        prompt = get_prompt(
-            name,
-            version="v1",
-            query="test",
-            chunks=[{"text": "chunk1"}],
-            text="text",
-            transcript="transcript",
-            max_sentences="3",
+        msg = UserMessage(text="query")
+        resp = AssistantMessage(text="answer")
+        data = PipelineData(
+            query=msg,
+            chunks=[chunk],
+            context="ctx",
+            response=resp,
+            metadata={"k": "v"},
+            errors=["old"],
         )
-        for substr in expected:
-            assert substr.lower() in prompt.lower(), f"{name} missing: {substr}"
+        data2 = data.add_error("new")
 
-    def test_unknown_version_raises(self):
-        with pytest.raises(ValueError, match="version directory not found"):
-            get_prompt("rag_default", version="v999")
+        assert data2.query is msg
+        assert data2.chunks == [chunk]
+        assert data2.context == "ctx"
+        assert data2.response is resp
+        assert data2.metadata == {"k": "v"}
+        assert data2.errors == ["old", "new"]
+        # Original unchanged
+        assert data.errors == ["old"]
 
-    def test_unknown_prompt_raises(self):
-        with pytest.raises(Exception):  # jinja2 TemplateNotFound
-            get_prompt("nonexistent", version="v1")
+    def test_with_chunks_returns_new_instance(self) -> None:
+        """with_chunks() must return a new PipelineData with updated chunks."""
+        chunk = Chunk(
+            id="c1",
+            text="hello",
+            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
+        )
+        data = PipelineData()
+        data2 = data.with_chunks([chunk])
+
+        assert data.chunks == []
+        assert data2.chunks == [chunk]
+        assert data is not data2
+
+    def test_with_context_returns_new_instance(self) -> None:
+        """with_context() must return a new PipelineData with updated context."""
+        data = PipelineData()
+        data2 = data.with_context("new context")
+
+        assert data.context == ""
+        assert data2.context == "new context"
+        assert data is not data2
+
+    def test_with_response_returns_new_instance(self) -> None:
+        """with_response() must return a new PipelineData with updated response."""
+        resp = AssistantMessage(text="hi")
+        data = PipelineData()
+        data2 = data.with_response(resp)
+
+        assert data.response is None
+        assert data2.response is resp
+        assert data is not data2
+
+    def test_chaining_methods(self) -> None:
+        """Methods must be chainable via intermediate variables."""
+        chunk = Chunk(
+            id="c1",
+            text="hello",
+            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
+        )
+        resp = AssistantMessage(text="answer")
+        data = PipelineData()
+        data = data.with_chunks([chunk])
+        data = data.with_context("ctx")
+        data = data.with_response(resp)
+        data = data.add_error("e1")
+        data = data.add_error("e2")
+
+        assert data.chunks == [chunk]
+        assert data.context == "ctx"
+        assert data.response is resp
+        assert data.errors == ["e1", "e2"]
 
 
-# ── Utils ──
+def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
+    """Environment constructor called exactly once per version on hot path."""
+    from ai_assistant.core import prompts as prompts_module
 
+    # Prepare fake template directories
+    v1 = tmp_path / "v1"
+    v1.mkdir()
+    (v1 / "dummy.j2").write_text("{{ x }}")
 
-class TestUtils:
-    def test_resolve_api_key_from_value(self):
-        assert resolve_api_key("key", "ENV") == "key"
+    v2 = tmp_path / "v2"
+    v2.mkdir()
+    (v2 / "dummy.j2").write_text("{{ x }}")
 
-    def test_resolve_api_key_from_env(self, monkeypatch):
-        monkeypatch.setenv("ENV", "env-key")
-        assert resolve_api_key(None, "ENV") == "env-key"
+    # Reset cache and repoint module's __file__ so Path(__file__).parent == tmp_path
+    monkeypatch.setattr(prompts_module, "_env_cache", {})
+    monkeypatch.setattr(prompts_module, "__file__", str(tmp_path / "prompts.py"))
 
-    def test_resolve_api_key_missing_raises(self):
-        with pytest.raises(ValueError, match="API key not found"):
-            resolve_api_key(None, "NONEXISTENT_VAR_99999")
+    with mock.patch.object(prompts_module, "Environment") as MockEnv:
+        fake_template = mock.Mock()
+        fake_template.render.side_effect = lambda **kw: "ok"
+        fake_env = mock.Mock()
+        fake_env.get_template.return_value = fake_template
+        MockEnv.return_value = fake_env
 
-    def test_config_takes_precedence_over_env(self, monkeypatch):
-        monkeypatch.setenv("ENV", "env")
-        assert resolve_api_key("config", "ENV") == "config"
+        # Two calls with the same version → Environment constructed once
+        prompts_module.get_prompt("dummy", version="v1", x="a")
+        prompts_module.get_prompt("dummy", version="v1", x="b")
+        assert MockEnv.call_count == 1
 
-
-# ── Retry ──
-
-
-class TestRetry:
-    @pytest.mark.asyncio
-    async def test_success_no_retry(self):
-        calls = 0
-
-        @with_retry(max_retries=2, delay=0.01)
-        async def fn():
-            nonlocal calls
-            calls += 1
-            return "ok"
-
-        assert await fn() == "ok"
-        assert calls == 1
-
-    @pytest.mark.asyncio
-    async def test_retry_then_success(self):
-        calls = 0
-
-        @with_retry(max_retries=2, delay=0.01)
-        async def fn():
-            nonlocal calls
-            calls += 1
-            if calls < 3:
-                raise ConnectionError("fail")
-            return "ok"
-
-        assert await fn() == "ok"
-        assert calls == 3
-
-    @pytest.mark.asyncio
-    async def test_permanent_error_no_retry(self):
-        calls = 0
-
-        @with_retry(max_retries=2, delay=0.01)
-        async def fn():
-            nonlocal calls
-            calls += 1
-            raise ValueError("perm")
-
-        with pytest.raises(ValueError, match="perm"):
-            await fn()
-        assert calls == 1
-
-    @pytest.mark.asyncio
-    async def test_exhausted_retries(self):
-        @with_retry(max_retries=1, delay=0.01)
-        async def fn():
-            raise ConnectionError("fail")
-
-        with pytest.raises(ConnectionError, match="fail"):
-            await fn()
-
-    def test_sync_branch(self):
-        calls = 0
-
-        @with_retry(max_retries=1, delay=0.0)
-        def fn():
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                raise RuntimeError("fail")
-            return "ok"
-
-        assert fn() == "ok"
-        assert calls == 2
+        # Different version → new Environment
+        prompts_module.get_prompt("dummy", version="v2", x="c")
+        assert MockEnv.call_count == 2

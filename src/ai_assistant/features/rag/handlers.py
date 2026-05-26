@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import asyncio
 import importlib.util
 import sys
@@ -12,7 +11,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.api.deps import AppState, get_state
-from ai_assistant.api.security import require_api_key
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 from ai_assistant.features.rag.schemas import (
@@ -69,12 +67,8 @@ def _get_rag_manager(state: Annotated[AppState, Depends(get_state)]) -> RAGManag
         reranker=state.reranker,
     )
 
-@router.post(
-    "/index",
-    response_model=IndexResponse,
-    dependencies=[Depends(require_api_key)],
-)
 
+@router.post("/index", response_model=IndexResponse)
 async def index_documents(
     req: IndexRequest,
     manager: Annotated[IndexingManager, Depends(_get_indexing_manager)],
@@ -92,11 +86,7 @@ async def index_documents(
     return IndexResponse(**result, namespace=namespace)
 
 
-@router.post(
-    "/query",
-    response_model=QueryResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/query", response_model=QueryResponse)
 async def query_rag(
     req: QueryRequest,
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
@@ -120,11 +110,7 @@ async def query_rag(
     return QueryResponse(**result)
 
 
-@router.post(
-    "/delete",
-    response_model=DeleteResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/delete", response_model=DeleteResponse)
 async def delete_chunks(
     req: DeleteRequest,
     state: Annotated[AppState, Depends(get_state)],
@@ -153,11 +139,7 @@ async def delete_chunks(
     return DeleteResponse(deleted_chunks=deleted, errors=errors)
 
 
-@router.get(
-    "/health",
-    response_model=HealthResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@router.get("/health", response_model=HealthResponse)
 async def rag_health(
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
     state: Annotated[AppState, Depends(get_state)],
@@ -171,11 +153,7 @@ async def rag_health(
     )
 
 
-@router.get(
-    "/namespaces",
-    response_model=NamespaceListResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@router.get("/namespaces", response_model=NamespaceListResponse)
 async def list_namespaces(
     state: Annotated[AppState, Depends(get_state)],
 ) -> NamespaceListResponse:
@@ -191,11 +169,7 @@ async def list_namespaces(
     return NamespaceListResponse(namespaces=namespaces)
 
 
-@router.post(
-    "/save-chat",
-    response_model=None,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/save-chat", response_model=None)
 async def save_chat(
     req: dict[str, Any],
     state: Annotated[AppState, Depends(get_state)],
@@ -233,7 +207,7 @@ async def save_chat(
     try:
         await asyncio.to_thread(file_path.write_text, content, encoding="utf-8")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
 
     # Index the saved chat
     try:
@@ -280,11 +254,7 @@ async def save_chat(
         }
 
 
-@router.post(
-    "/reindex",
-    response_model=None,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/reindex", response_model=None)
 async def reindex_documents(
     req: dict[str, Any],
     state: Annotated[AppState, Depends(get_state)],
@@ -297,7 +267,7 @@ async def reindex_documents(
     try:
         script_path = _resolve_script("scripts.index_documents")
     except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     cmd = [sys.executable, str(script_path)]
     if folder:
@@ -350,6 +320,6 @@ async def reindex_documents(
         }
 
     except TimeoutError:
-        raise HTTPException(status_code=504, detail="Indexing timeout")
+        raise HTTPException(status_code=504, detail="Indexing timeout") from None
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Indexing failed: {e}") from e

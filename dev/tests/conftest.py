@@ -74,21 +74,86 @@ def pytest_collection_modifyitems(
 @pytest.fixture(autouse=True)
 def reset_global_state():
     """Reset singleton state before every test to prevent cross-test pollution."""
+    import asyncio
     from ai_assistant.api import deps
-    from ai_assistant.api.security import reset_security_cache
+    from ai_assistant.api.security import reset_security_state
     from ai_assistant.core.metrics import _request_metrics
 
+    deps._init_lock = asyncio.Lock()
     deps._init_event.clear()
     deps._state = None
-    deps._initializing = False
+    reset_security_state()
     _request_metrics.set({})
-    reset_security_cache()
+
+    # ── Runtime state that leaks between tests ──
+    try:
+        from ai_assistant.api import security as sec_module
+
+        sec_module.limiter.requests.clear()
+    except Exception:
+        pass
+
+    try:
+        from ai_assistant.core import metrics as met_module
+
+        met_module._metrics_logger = None
+    except Exception:
+        pass
+
+    try:
+        from ai_assistant import main as main_module
+
+        main_module.app.dependency_overrides.clear()
+        if hasattr(main_module.app.state, "app_state"):
+            delattr(main_module.app.state, "app_state")
+    except Exception:
+        pass
+
     yield
+
+    # ── Teardown (idempotent) ──
+    deps._init_lock = asyncio.Lock()
     deps._init_event.clear()
     deps._state = None
-    deps._initializing = False
+    reset_security_state()
     _request_metrics.set({})
-    reset_security_cache()
+
+    try:
+        from ai_assistant.api import security as sec_module
+
+        sec_module.limiter.requests.clear()
+    except Exception:
+        pass
+
+    try:
+        from ai_assistant.core import metrics as met_module
+
+        met_module._metrics_logger = None
+    except Exception:
+        pass
+
+    try:
+        from ai_assistant import main as main_module
+
+        main_module.app.dependency_overrides.clear()
+        if hasattr(main_module.app.state, "app_state"):
+            delattr(main_module.app.state, "app_state")
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def reset_prompt_cache():
+    """Clear prompt Environment cache between tests."""
+    from ai_assistant.core import prompts as prompts_module
+
+    original = getattr(prompts_module, "_env_cache", None)
+    prompts_module._env_cache = {}
+    yield
+    if original is not None:
+        prompts_module._env_cache = original
+    else:
+        prompts_module._env_cache = {}
 
 
 @pytest.fixture(autouse=True)

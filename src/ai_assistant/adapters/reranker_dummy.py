@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ai_assistant.core.domain.documents import Chunk
+if TYPE_CHECKING:
+    from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.registry import register
 

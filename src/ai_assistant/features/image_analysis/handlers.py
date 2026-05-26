@@ -7,7 +7,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.api.deps import AppState, get_state
-from ai_assistant.api.security import require_api_key
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.image_analysis.manager import ImageAnalysisManager
 from ai_assistant.features.image_analysis.schemas import AnalyzeRequest, AnalyzeResponse
@@ -28,11 +27,7 @@ def _get_manager(
     )
 
 
-@router.post(
-    "/analyze",
-    response_model=AnalyzeResponse,
-    dependencies=[Depends(require_api_key)],
-)
+@router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_image(
     req: AnalyzeRequest,
     manager: Annotated[ImageAnalysisManager, Depends(_get_manager)],
@@ -58,4 +53,4 @@ async def analyze_image(
         raise
     except Exception as exc:
         _logger.exception("Image analysis failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

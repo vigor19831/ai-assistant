@@ -5,9 +5,13 @@ Validates robustness against:
 - Missing [DONE] terminator
 - Empty/null content chunks
 - Partial/malformed delta objects
+- JSON injection in handler error payloads
 """
 
 from __future__ import annotations
+
+import json
+from unittest.mock import patch
 
 import pytest
 import respx
@@ -83,3 +87,54 @@ class TestOpenAICompatibleMalformedSSE:
             )
             chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
             assert "".join(chunks) == "ab"
+
+
+# ── Handler-level SSE error JSON injection ──
+
+
+async def _malicious_stream(*args, **kwargs):
+    """Raise on first iteration — must be async generator for async for."""
+    raise ValueError('Error with "quotes" and \n newlines')
+    yield ""  # noqa: B901 — unreachable, but forces async generator protocol
+
+
+def test_chat_stream_json_injection(client):
+    """SSE error payload must be valid JSON even if exception contains quotes/newlines."""
+    with patch(
+        "ai_assistant.features.chat.handlers.ChatManager.stream_chat",
+        new=_malicious_stream,
+    ):
+        resp = client.post(
+            "/api/v1/chat/stream",
+            json={"message": 'test "quoted" and newline'},
+        )
+        assert resp.status_code == 200
+
+        lines = [ln for ln in resp.text.strip().splitlines() if ln.startswith("data: ")]
+        assert len(lines) == 1
+        payload = lines[0].removeprefix("data: ")
+        data = json.loads(payload)
+        assert data["error"] == 'Error with "quotes" and \n newlines'
+
+
+def test_openai_chat_stream_json_injection(client):
+    """OpenAI-compatible SSE error payload must be valid JSON."""
+    with patch(
+        "ai_assistant.features.chat.handlers.ChatManager.stream_chat",
+        new=_malicious_stream,
+    ):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "test",
+                "messages": [{"role": "user", "content": 'test "quoted" and newline'}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+
+        lines = [ln for ln in resp.text.strip().splitlines() if ln.startswith("data: ")]
+        assert len(lines) == 1
+        payload = lines[0].removeprefix("data: ")
+        data = json.loads(payload)
+        assert data["error"] == 'Error with "quotes" and \n newlines'

@@ -4,17 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-
-from fastapi import FastAPI
+from typing import TYPE_CHECKING
 
 from ai_assistant.api.deps import init_adapters
 from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.logger import get_logger, setup_logging
 from ai_assistant.core.metrics import get_metrics_logger
-from ai_assistant.core.registry import create as registry_create  # noqa: F401 — для тестируемости
+from ai_assistant.core.ports import IClosable
+from ai_assistant.core.registry import (
+    create as registry_create,  # noqa: F401 — для тестируемости
+)
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from fastapi import FastAPI
 
 __all__ = ["lifespan"]
 
@@ -72,11 +78,8 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 
     await get_metrics_logger().stop()
 
-    for attr, name in (
-        (state.llm, "llm"),
-        (state.embedder, "embedder"),
-    ):
-        if attr and hasattr(attr, "shutdown"):
+    for attr, name in ((state.llm, "llm"), (state.embedder, "embedder")):
+        if attr and isinstance(attr, IClosable):
             try:
                 await attr.shutdown()
             except Exception as exc:

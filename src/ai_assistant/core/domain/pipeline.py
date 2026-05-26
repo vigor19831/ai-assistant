@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
-from .documents import Chunk
-from .messages import AssistantMessage, UserMessage
+if TYPE_CHECKING:
+    from .documents import Chunk
+    from .messages import AssistantMessage, UserMessage
 
 __all__ = ["PipelineData"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class PipelineData:
     query: UserMessage | None = None
     chunks: list[Chunk] = field(default_factory=list)
@@ -20,10 +21,18 @@ class PipelineData:
     metadata: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
-    def rebuild_context(self) -> None:
-        """Rebuild context string from current chunks."""
-        if not self.chunks:
-            self.context = ""
-            return
-        lines = [chunk.text for chunk in self.chunks if chunk.text]
-        self.context = "\n\n".join(lines)
+    def with_chunks(self, chunks: list[Chunk]) -> PipelineData:
+        """Return a new PipelineData with updated chunks."""
+        return replace(self, chunks=chunks)
+
+    def with_context(self, context: str) -> PipelineData:
+        """Return a new PipelineData with updated context."""
+        return replace(self, context=context)
+
+    def with_response(self, response: AssistantMessage | None) -> PipelineData:
+        """Return a new PipelineData with updated response."""
+        return replace(self, response=response)
+
+    def add_error(self, msg: str) -> PipelineData:
+        """Return a new PipelineData with an additional error message."""
+        return replace(self, errors=[*self.errors, msg])

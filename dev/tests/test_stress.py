@@ -32,7 +32,7 @@ async def test_concurrent_chat_requests(mock_state):
             ) as ac:
                 tasks = [
                     ac.post(
-                        "/chat",
+                        "/api/v1/chat",
                         json={
                             "message": f"stress {i}",
                             "conversation_id": f"conv-{i}",

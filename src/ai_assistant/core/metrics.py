@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import threading
@@ -103,10 +104,8 @@ class MetricsLogger:
             except TimeoutError:
                 self._logger.warning("Metrics worker stop timed out")
                 self._task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await self._task
-                except asyncio.CancelledError:
-                    pass
             except asyncio.CancelledError:
                 pass
             except Exception as exc:

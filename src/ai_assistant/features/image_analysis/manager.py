@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ai_assistant.core.domain.messages import AssistantMessage, ImagePayload, UserMessage
+from ai_assistant.core.domain.messages import (
+    AssistantMessage,
+    ImagePayload,
+    UserMessage,
+)
 from ai_assistant.core.logger import get_logger
 
 __all__ = ["ImageAnalysisManager"]

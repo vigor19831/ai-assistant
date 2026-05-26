@@ -1,9 +1,10 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-05-25 09:35 UTC
+> Auto-generated from source code. Updated: 2026-05-26 11:21 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity |
 |-----------|-----------|---------|----------|
+| `api.admin` | `HTTPException` | Unknown error | High |
 | `api.deps` | `RuntimeError` | State not initialized. Call init_adapters() first. | High |
 | `api.security` | `HTTPException` | Unknown error | High |
 | `core.config` | `ValueError` | f-string message | High |
@@ -25,7 +26,8 @@
 | `api.lifespan` | `Exception` | Handled in _async_cleanup | Medium |
 | `api.lifespan` | `OSError` | Handled in lifespan | Medium |
 | `api.lifespan` | `OSError` | Handled in _cleanup | Medium |
-| `api.security` | `ValueError/IndexError` | Handled in SecurityLimiter.__init__ | Medium |
+| `api.router` | `Exception` | Handled in assemble_routers | Medium |
+| `api.security` | `ValueError/IndexError` | Handled in SecurityLimiter._parse_rate_limit | Medium |
 | `core.config` | `Exception` | Handled in load_config | Medium |
 | `core.io_utils` | `Exception` | Handled in _sync | Medium |
 | `core.io_utils` | `OSError` | Handled in _sync | Medium |

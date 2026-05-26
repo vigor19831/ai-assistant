@@ -1,3 +1,5 @@
+import contextlib
+
 __all__ = [
     "chunker_simple",
     "embedder_mock",
@@ -36,17 +38,11 @@ from . import (
 )
 
 # Lazy imports — optional dependencies, fail gracefully if not installed
-try:
+with contextlib.suppress(ImportError):
     from . import memory_sqlite  # noqa: F401
-except ImportError:
-    pass
 
-try:
+with contextlib.suppress(ImportError):
     from . import storage_sqlite  # noqa: F401
-except ImportError:
-    pass
 
-try:
+with contextlib.suppress(ImportError):
     from . import vector_store_faiss  # noqa: F401
-except ImportError:
-    pass

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 Message = UserMessage | AssistantMessage | dict[str, Any]
 

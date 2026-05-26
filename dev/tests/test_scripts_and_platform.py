@@ -104,9 +104,21 @@ class TestLauncherHelpers:
         (venv / sub).touch()
         assert ".venv" in launcher.get_python(tmp_path)
 
-    def test_get_python_fallback(self, tmp_path):
+    def test_get_python_raises_when_venv_missing(self, tmp_path):
+        """get_python must NEVER fall back to sys.executable."""
         launcher = load_launcher()
-        assert launcher.get_python(tmp_path) == sys.executable
+        with pytest.raises(FileNotFoundError):
+            launcher.get_python(tmp_path)
+
+    def test_get_python_returns_venv_python_when_exists(self, tmp_path):
+        launcher = load_launcher()
+        venv_bin = tmp_path / ".venv" / ("Scripts" if os.name == "nt" else "bin")
+        venv_bin.mkdir(parents=True)
+        fake_python = venv_bin / ("python.exe" if os.name == "nt" else "python")
+        fake_python.touch()
+        fake_python.chmod(0o755)
+        result = launcher.get_python(tmp_path)
+        assert result == str(fake_python)
 
     def test_collect_skips_init(self, tmp_path):
         launcher = load_launcher()

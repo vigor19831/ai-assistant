@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.documents import Chunk, Document
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.pipeline import RAGPipeline
+
+if TYPE_CHECKING:
+    from ai_assistant.core.pipeline import RAGPipeline
 
 __all__ = ["IndexingManager", "RAGManager", "NO_INFO_PHRASES"]
 

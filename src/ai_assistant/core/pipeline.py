@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
-from ai_assistant.core.domain.pipeline import PipelineData
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from ai_assistant.core.domain.pipeline import PipelineData
 
 __all__ = ["RAGPipeline"]
 

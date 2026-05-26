@@ -138,7 +138,7 @@ if _FAISS_AVAILABLE:
                 ns = self._get_ns(namespace)
                 ids_to_remove = set(chunk_ids)
                 remaining: list[Chunk] = []
-                for fid, chunk in ns.chunks.items():
+                for _fid, chunk in ns.chunks.items():
                     if chunk.id not in ids_to_remove and chunk.embedding:
                         remaining.append(chunk)
 

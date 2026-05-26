@@ -31,7 +31,7 @@ class TestHealthOffline:
             "ai_assistant.api.security.get_expected_api_key", lambda: "real-key"
         )
         resp = client.post(
-            "/chat",
+            "/api/v1/chat",
             json={"message": "test"},
             headers={"Authorization": "Bearer wrong-key"},
         )
@@ -42,7 +42,7 @@ class TestHealthOffline:
         monkeypatch.setattr(
             "ai_assistant.api.security.limiter.is_allowed", lambda ip: False
         )
-        resp = client.post("/chat", json={"message": "test"})
+        resp = client.post("/api/v1/chat", json={"message": "test"})
         assert resp.status_code == 429
 
 
@@ -92,11 +92,11 @@ class TestInfoOffline:
 
 
 class TestChatOffline:
-    """POST /chat and /chat/stream — full chat feature."""
+    """POST /api/v1/chat and /api/v1/chat/stream — full chat feature."""
 
     def test_text_only(self, client):
         resp = client.post(
-            "/chat", json={"message": "Hello", "conversation_id": "test-123"}
+            "/api/v1/chat", json={"message": "Hello", "conversation_id": "test-123"}
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -105,18 +105,20 @@ class TestChatOffline:
         assert data["role"] == "assistant"
 
     def test_generates_conversation_id(self, client):
-        resp = client.post("/chat", json={"message": "Hello"})
+        resp = client.post("/api/v1/chat", json={"message": "Hello"})
         assert resp.status_code == 200
         assert resp.json()["conversation_id"]  # auto-generated UUID
 
     def test_empty_message(self, client):
         """Empty message should still return 200 (handled by manager)."""
-        resp = client.post("/chat", json={"message": " ", "conversation_id": "test"})
+        resp = client.post(
+            "/api/v1/chat", json={"message": " ", "conversation_id": "test"}
+        )
         assert resp.status_code == 200
 
     def test_with_image_base64(self, client):
         resp = client.post(
-            "/chat",
+            "/api/v1/chat",
             json={
                 "message": "Describe this",
                 "conversation_id": "test",
@@ -127,7 +129,7 @@ class TestChatOffline:
 
     def test_with_image_url(self, client):
         resp = client.post(
-            "/chat",
+            "/api/v1/chat",
             json={
                 "message": "Describe this",
                 "conversation_id": "test",
@@ -146,7 +148,7 @@ class TestChatOffline:
 
         audio = base64.b64encode(b"fake_audio").decode()
         resp = client.post(
-            "/chat",
+            "/api/v1/chat",
             json={
                 "message": "ignored",
                 "conversation_id": "test",
@@ -158,7 +160,7 @@ class TestChatOffline:
 
     def test_stream_returns_sse(self, client):
         resp = client.post(
-            "/chat/stream",
+            "/api/v1/chat/stream",
             json={"message": "Hello", "conversation_id": "test"},
         )
         assert resp.status_code == 200
@@ -169,7 +171,7 @@ class TestChatOffline:
 
     def test_stream_with_image(self, client):
         resp = client.post(
-            "/chat/stream",
+            "/api/v1/chat/stream",
             json={
                 "message": "Describe",
                 "conversation_id": "test",
@@ -222,7 +224,7 @@ class TestOpenAICompatibleOffline:
 
 
 class TestRAGOffline:
-    """POST /rag/* — indexing, query, delete, health, namespaces."""
+    """POST /api/v1/rag/* — indexing, query, delete, health, namespaces."""
 
     def test_index_documents(self, client, mock_state):
         mock_state.chunker.chunk = AsyncMock(
@@ -239,7 +241,7 @@ class TestRAGOffline:
         mock_state.vector_store.save = AsyncMock(return_value=None)
 
         resp = client.post(
-            "/rag/index",
+            "/api/v1/rag/index",
             json={
                 "documents": [{"id": "d1", "content": "hello world", "metadata": {}}],
                 "namespace": "test",
@@ -253,7 +255,7 @@ class TestRAGOffline:
     def test_index_empty_content(self, client, mock_state):
         mock_state.chunker.chunk = AsyncMock(return_value=[])
         resp = client.post(
-            "/rag/index",
+            "/api/v1/rag/index",
             json={
                 "documents": [{"id": "d1", "content": "", "metadata": {}}],
                 "namespace": "test",
@@ -266,7 +268,7 @@ class TestRAGOffline:
     def test_delete_chunks(self, client, mock_state):
         mock_state.vector_store.delete = AsyncMock(return_value=None)
         resp = client.post(
-            "/rag/delete", json={"chunk_ids": ["c1"], "namespace": "test"}
+            "/api/v1/rag/delete", json={"chunk_ids": ["c1"], "namespace": "test"}
         )
         assert resp.status_code == 200
         assert resp.json()["deleted_chunks"] == 1
@@ -277,7 +279,7 @@ class TestRAGOffline:
         )
         mock_state.vector_store.delete = AsyncMock(return_value=None)
         resp = client.post(
-            "/rag/delete",
+            "/api/v1/rag/delete",
             json={"document_ids": ["d1"], "namespace": "test"},
         )
         assert resp.status_code == 200
@@ -287,7 +289,7 @@ class TestRAGOffline:
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default"])
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("c1", {})])
         mock_state.embedder.dimension = 384
-        resp = client.get("/rag/health")
+        resp = client.get("/api/v1/rag/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -299,14 +301,14 @@ class TestRAGOffline:
         mock_state.vector_store.list_namespaces = AsyncMock(
             return_value=["personal", "work"]
         )
-        resp = client.get("/rag/namespaces")
+        resp = client.get("/api/v1/rag/namespaces")
         assert resp.status_code == 200
         assert "personal" in resp.json()["namespaces"]
         assert "work" in resp.json()["namespaces"]
 
     def test_list_namespaces_empty_fallback(self, client, mock_state):
         mock_state.config.vector_store.index_path = None
-        resp = client.get("/rag/namespaces")
+        resp = client.get("/api/v1/rag/namespaces")
         assert resp.status_code == 200
         assert resp.json()["namespaces"] == ["default"]
 
@@ -320,7 +322,7 @@ class TestRAGOffline:
         mock_state.vector_store.save = AsyncMock(return_value=None)
 
         resp = client.post(
-            "/rag/save-chat",
+            "/api/v1/rag/save-chat",
             json={
                 "filename": "chat_test.md",
                 "content": "## User\nHello\n\n---\n\n## Assistant\nHi!",
@@ -335,7 +337,7 @@ class TestRAGOffline:
 
     def test_save_chat_invalid_namespace(self, client):
         resp = client.post(
-            "/rag/save-chat",
+            "/api/v1/rag/save-chat",
             json={
                 "filename": "test.md",
                 "content": "test",
@@ -357,7 +359,7 @@ class TestRAGOffline:
         mock_state.vector_store.save = AsyncMock(return_value=None)
 
         resp = client.post(
-            "/rag/save-chat",
+            "/api/v1/rag/save-chat",
             json={"filename": "chat.md", "content": "test"},
         )
         assert resp.status_code == 200
@@ -378,7 +380,7 @@ class TestRAGOffline:
 
         with mock_patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess):
             resp = client.post(
-                "/rag/reindex",
+                "/api/v1/rag/reindex",
                 json={"folder": "personal", "clear": True},
             )
         assert resp.status_code == 200
@@ -393,19 +395,19 @@ class TestRAGOffline:
             "ai_assistant.features.rag.handlers._resolve_script",
             side_effect=FileNotFoundError("Script 'scripts.index_documents' not found"),
         ):
-            resp = client.post("/rag/reindex", json={})
+            resp = client.post("/api/v1/rag/reindex", json={})
         assert resp.status_code == 500
         assert "not found" in resp.json()["detail"].lower()
 
 
 class TestImageAnalysisOffline:
-    """POST /image/analyze — vision feature."""
+    """POST /api/v1/image/analyze — vision feature."""
 
     def test_analyze_with_base64(self, client, mock_state):
         mock_state.vision = MagicMock()
         mock_state.vision.describe = AsyncMock(return_value="An image of a cat")
         resp = client.post(
-            "/image/analyze",
+            "/api/v1/image/analyze",
             json={
                 "image_base64": "abc123",
                 "prompt": "What is this?",
@@ -418,7 +420,7 @@ class TestImageAnalysisOffline:
         mock_state.vision = MagicMock()
         mock_state.vision.describe = AsyncMock(return_value="An image")
         resp = client.post(
-            "/image/analyze",
+            "/api/v1/image/analyze",
             json={
                 "image_url": "http://example.com/img.png",
             },
@@ -426,7 +428,7 @@ class TestImageAnalysisOffline:
         assert resp.status_code == 200
 
     def test_analyze_no_image_raises_400(self, client):
-        resp = client.post("/image/analyze", json={"prompt": "test"})
+        resp = client.post("/api/v1/image/analyze", json={"prompt": "test"})
         assert resp.status_code == 400
         assert "image_base64 or image_url" in resp.json()["detail"]
 
@@ -437,7 +439,7 @@ class TestImageAnalysisOffline:
             return_value=MagicMock(text="LLM vision result")
         )
         resp = client.post(
-            "/image/analyze",
+            "/api/v1/image/analyze",
             json={"image_base64": "abc", "prompt": "Describe"},
         )
         assert resp.status_code == 200
@@ -537,7 +539,7 @@ class TestRAGOnline:
     """Real RAG with running pipeline."""
 
     def test_health_reports_status(self, httpx_client):
-        resp = httpx_client.get("/rag/health")
+        resp = httpx_client.get("/api/v1/rag/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -545,7 +547,7 @@ class TestRAGOnline:
         assert "embedder_dim" in data
 
     def test_namespaces_list(self, httpx_client):
-        resp = httpx_client.get("/rag/namespaces")
+        resp = httpx_client.get("/api/v1/rag/namespaces")
         assert resp.status_code == 200
         assert isinstance(resp.json()["namespaces"], list)
 
@@ -555,7 +557,7 @@ class TestAdminOnline:
     """Real admin endpoints with running server."""
 
     def test_current_model(self, httpx_client):
-        resp = httpx_client.get("/admin/current-model")
+        resp = httpx_client.get("/api/v1/admin/current-model")
         assert resp.status_code == 200
         data = resp.json()
         assert "model" in data

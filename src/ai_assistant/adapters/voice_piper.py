@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import subprocess
 from typing import Any
@@ -110,10 +111,8 @@ class PiperRealSynthesizer(IVoiceSynthesizer):
                     "Piper subprocess timed out after %.1fs",
                     self._timeout,
                 )
-                try:
+                with contextlib.suppress(ProcessLookupError):
                     proc.kill()
-                except ProcessLookupError:
-                    pass
             except Exception as exc:
                 _logger.warning("Piper subprocess failed: %s", exc)
 
