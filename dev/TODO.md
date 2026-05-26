@@ -1,21 +1,21 @@
 `context_build_compact.md`. в новом чате и блок от начала до конца
 
 
-=== НАЧАЛО БЛОКА: Фаза 2.4 ===
+
+## Промпт для Подфазы 2.4.1 — SaveChatRequest schema
+
+```
+=== НАЧАЛО БЛОКА: Фаза 2.4.1 ===
 
 ## Промпт
+Ты — senior Python-разработчик. Работаешь с проектом AI Assistant.
 
-Ты — senior Python-разработчик. Работаешь с проектом AI Assistant (модульный фреймворк для локальных LLM). Проект работает полностью offline, поддерживает RAG, совместим с OpenAI API.
+## Задача
+В `src/ai_assistant/features/rag/handlers.py` endpoint `save_chat` принимает `req: dict[str, Any]`. Нужно заменить на `req: SaveChatRequest` из `schemas.py`. Убрать ручные проверки namespace и filename — Pydantic `pattern` уже делает это.
 
-## Статус проекта
-Фазы 0, 1, 2.1 выполнены. Все тесты проходят.
-
-## Задача: Фаза 2.4 — SaveChatRequest schema + LLMConfig cleanup
-
-### Контекст
-`src/ai_assistant/features/rag/handlers.py`:
+## Текущий код (из context_build_compact.md)
 ```python
-@router.post("/save-chat", ...)
+@router.post("/save-chat", response_model=None)
 async def save_chat(
     req: dict[str, Any],
     state: Annotated[AppState, Depends(get_state)],
@@ -24,9 +24,10 @@ async def save_chat(
     filename = req.get("filename", "chat.md")
     content = req.get("content", "")
     ...
+    # ручные проверки path traversal (убрать)
 ```
 
-`src/ai_assistant/features/rag/schemas.py`:
+`SaveChatRequest` уже есть в `schemas.py`:
 ```python
 class SaveChatRequest(BaseModel):
     content: str = Field(..., min_length=1)
@@ -34,57 +35,149 @@ class SaveChatRequest(BaseModel):
     filename: str = Field(default="chat.md", pattern=r"^[^/\][^\]*$")
 ```
 
-`src/ai_assistant/core/config.py`:
+## Что сделать
+1. Заменить сигнатуру `save_chat` на `req: SaveChatRequest`
+2. Убрать `req.get(...)` — использовать `req.namespace`, `req.filename`, `req.content`
+3. Убрать ручные проверки `if namespace not in (...)`, проверки `filename.startswith`, `is_absolute()`, `".." in Path(filename).parts`
+4. Оставить только `is_relative_to()` проверку после `.resolve()` — это защита от симлинков
+5. Добавить `SaveChatRequest` в импорт `from ai_assistant.features.rag.schemas import (...)`
+
+## Тест
+В `dev/tests/test_security.py` добавить:
 ```python
-class LLMConfig(BaseSettings):
-    provider: str = "mock"
-    model: str = "gpt-4o-mini"
-    max_tokens: int = 4096
-    temperature: float = 0.7
-    timeout: float = 300.0
-    stop_sequences: list[str] = Field(default_factory=list)
-    top_p: float = Field(default=0.95, ge=0.0, le=1.0)
-    top_k: int = Field(default=40, ge=-1)
-    min_p: float = Field(default=0.05, ge=0.0, le=1.0)
-    repeat_penalty: float = Field(default=1.1, ge=0.0)
-    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
-    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
-    # llama.cpp-specific:
-    n_gpu_layers: int = Field(default=-1, ge=-1, le=999)
-    split_mode: Literal["layer", "row", "none"] = "layer"
-    main_gpu: int = Field(default=0, ge=0)
-    tensor_split: list[float] = Field(default_factory=list)
-    num_threads: int = Field(default=0, ge=0)
-    flash_attn: bool = False
-    mmap: bool = True
-    mlock: bool = False
-    cache_type_k: Literal["f16", "q8_0", "q4_0", "q4_1"] = "f16"
-    cache_type_v: Literal["f16", "q8_0", "q4_0", "q4_1"] = "f16"
-    rope_scaling: float = Field(default=1.0, gt=0.0)
-    yarn_ext_factor: float = -1.0
-    yarn_attn_factor: float = 1.0
-    draft_model: str | None = None
-    draft_n_predict: int = Field(default=16, ge=1)
+def test_save_chat_path_traversal_blocked_by_pydantic(client):
+    payload = {"content": "test", "namespace": "personal", "filename": "../../../etc/passwd"}
+    resp = client.post("/api/v1/rag/save-chat", json=payload, headers={"Authorization": "Bearer test-key"})
+    assert resp.status_code == 422
+
+def test_save_chat_invalid_namespace_blocked_by_pydantic(client):
+    payload = {"content": "test", "namespace": "hacked", "filename": "test.md"}
+    resp = client.post("/api/v1/rag/save-chat", json=payload, headers={"Authorization": "Bearer test-key"})
+    assert resp.status_code == 422
 ```
 
-### Что сделать
-1. `save_chat` endpoint: заменить `req: dict[str, Any]` на `req: SaveChatRequest`. Убрать ручные проверки path traversal (Pydantic `pattern` уже есть).
-2. `LLMConfig`: оставить только generic поля (`provider`, `model`, `max_tokens`, `temperature`, `timeout`, `stop_sequences`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `frequency_penalty`). Все llama.cpp-специфичные перенести в `extra: dict[str, Any]`. Адаптеры читают `config.extra.get(...)`.
-3. Обновить `dev/tests/config.test.yaml` если нужно.
-
-### Тест
-- `test_security.py` — path traversal через `SaveChatRequest`, assert 422 от Pydantic.
-- `test_contracts.py` — `LLMConfig` не содержит llama-specific полей верхнего уровня.
-
 ## Правила
-- Не добавляй сложность ради сложности.
-- Любое изменение core требует обновления всех зависимых адаптеров и тестов.
-- Пиши тесты.
-
+- Не добавляй сложность
+- Любое изменение core требует обновления зависимых тестов
+- Пиши diff-формат: `- старая строка` / `+ новая строка` с номерами строк
 === КОНЕЦ БЛОКА ===
+```
 
 ---
 
+## Промпт для Подфазы 2.4.2 — LLMConfig cleanup
+
+```
+=== НАЧАЛО БЛОКА: Фаза 2.4.2 ===
+
+## Промпт
+Ты — senior Python-разработчик. Работаешь с проектом AI Assistant.
+
+## Задача
+В `src/ai_assistant/core/config.py` класс `LLMConfig` содержит 15+ llama.cpp-специфичных полей. Нужно оставить только generic поля, а llama-специфичные убрать из класса — они будут читаться адаптерами через `config.model_extra.get(...)`.
+
+## Generic поля (оставить)
+provider, model, api_base, api_key, max_tokens, temperature, timeout, server_startup_delay, server_shutdown_timeout, server_context_size, stop_sequences, top_p, top_k, min_p, repeat_penalty, presence_penalty, frequency_penalty
+
+## Llama-поля (убрать из класса)
+n_gpu_layers, split_mode, main_gpu, tensor_split, n_batch, n_ubatch, cache_type_k, cache_type_v, num_threads, flash_attn, mmap, mlock, rope_scaling, yarn_ext_factor, yarn_attn_factor, draft_model, draft_n_predict
+
+## Важно
+- `model_config = SettingsConfigDict(env_prefix="AI_LLM_", extra="allow")` уже стоит — это значит что неизвестные поля из YAML пойдут в `model_extra` dict
+- Не менять `extra="allow"` — это критично для обратной совместимости YAML
+
+## Тест
+В `dev/tests/test_contracts.py` добавить:
+```python
+def test_llm_config_no_llama_specific_fields():
+    from ai_assistant.core.config import LLMConfig
+    llama_fields = ["n_gpu_layers", "split_mode", "main_gpu", "tensor_split",
+                    "n_batch", "n_ubatch", "cache_type_k", "cache_type_v",
+                    "num_threads", "flash_attn", "mmap", "mlock",
+                    "rope_scaling", "yarn_ext_factor", "yarn_attn_factor",
+                    "draft_model", "draft_n_predict"]
+    cfg = LLMConfig()
+    for field in llama_fields:
+        assert not hasattr(cfg, field), f"LLMConfig should not have field: {field}"
+```
+
+## Правила
+- Выдавай diff-формат с номерами строк
+- Проверь что `extra="allow"` остаётся
+- Не забудь убрать `Literal` импорты если они стали неиспользуемыми
+=== КОНЕЦ БЛОКА ===
+```
+
+---
+
+## Промпт для Подфазы 2.4.3 — Адаптеры под extra
+
+```
+=== НАЧАЛО БЛОКА: Фаза 2.4.3 ===
+
+## Промпт
+Ты — senior Python-разработчик. Работаешь с проектом AI Assistant.
+
+## Задача
+В `src/ai_assistant/adapters/llm_openai_compatible.py` адаптер читает llama.cpp-специфичные поля напрямую из `config` (например `config.n_gpu_layers`). После Фазы 2.4.2 эти поля убраны из `LLMConfig` класса — они теперь в `config.model_extra` dict.
+
+## Что найти и заменить
+Все обращения вида `config.<llama_field>` заменить на `config.model_extra.get("<llama_field>", <default>)`:
+
+- `config.n_gpu_layers` → `config.model_extra.get("n_gpu_layers", -1)`
+- `config.n_batch` → `config.model_extra.get("n_batch", 512)`
+- `config.n_ubatch` → `config.model_extra.get("n_ubatch", 64)`
+- `config.mmap` → `config.model_extra.get("mmap", True)`
+- `config.mlock` → `config.model_extra.get("mlock", False)`
+- `config.num_threads` → `config.model_extra.get("num_threads", 0)`
+- `config.flash_attn` → `config.model_extra.get("flash_attn", False)`
+- и т.д.
+
+## Как работать
+1. Запроси код `llm_openai_compatible.py` через `🔍 REQUEST CODE`
+2. Найди все обращения к llama-полям
+3. Выдай diff с заменами
+
+## Правила
+- Не гадай — запрашивай код если нужно
+- Каждое поле должно иметь разумный default
+- Если поле не найдено в model_extra — использовать default, не падать
+=== КОНЕЦ БЛОКА ===
+```
+
+---
+
+## Промпт для Подфазы 2.4.4 — YAML cleanup
+
+```
+=== НАЧАЛО БЛОКА: Фаза 2.4.4 ===
+
+## Промпт
+Ты — senior Python-разработчик. Работаешь с проектом AI Assistant.
+
+## Задача
+Обновить `config.yaml` и `dev/tests/config.test.yaml` — убрать llama.cpp-специфичные поля из основной секции `llm`, оставить их как `extra` поля (они автоматически попадут в `model_extra` благодаря `extra="allow"`).
+
+## config.yaml
+Из секции `llm:` убрать поля: `n_gpu_layers`, `n_batch`, `n_ubatch`, `mmap`, `mlock`, `num_threads`, `flash_attn`. Оставить только generic поля + `server_context_size`.
+
+## config.test.yaml
+Из секции `llm:` убрать те же поля. Убедиться что `system_message` и `stop_sequences` остаются.
+
+## Важно
+- YAML структура — плоский список ключей под `llm:`
+- Не нужно никаких специальных секций — просто убрать ключи из YAML
+- `extra="allow"` в `LLMConfig` подхватит их если они есть, проигнорирует если нет
+
+## Тест
+Запустить `pytest dev/tests/test_contracts.py::test_llm_config_no_llama_specific_fields -v` — должен пройти.
+
+## Правила
+- Выдавай diff-формат для YAML
+- Не меняй отступы без нужды
+- Сохрани комментарии если есть
+=== КОНЕЦ БЛОКА ===
+```
 
 
 
