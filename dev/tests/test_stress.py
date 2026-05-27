@@ -10,41 +10,57 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ai_assistant.api.deps import get_state
+from ai_assistant.api.security import SecurityLimiter
+from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.main import app
 
 
 @pytest.mark.asyncio
 async def test_concurrent_chat_requests(mock_state):
     original_overrides = app.dependency_overrides.copy()
+    original_lifespan = app.lifespan
+    app.lifespan = None
     app.dependency_overrides[get_state] = lambda: mock_state
-    mock_state.llm.complete = AsyncMock(
-        return_value=MagicMock(text="ok", tool_calls=[], metadata={})
-    )
+    app.state.app_state = mock_state
 
     try:
-        with patch(
-            "ai_assistant.api.security.get_expected_api_key", lambda: "test-key"
-        ):
-            async with AsyncClient(
-                transport=ASGITransport(app=app),
-                base_url="http://localhost",
-                headers={"Authorization": "Bearer test-key"},
-            ) as ac:
-                tasks = [
-                    ac.post(
-                        "/api/v1/chat",
-                        json={
-                            "message": f"stress {i}",
-                            "conversation_id": f"conv-{i}",
-                        },
-                    )
-                    for i in range(50)
-                ]
-                responses = await asyncio.gather(*tasks)
+        with patch.object(SecurityLimiter, "is_allowed", return_value=True):
+            with patch(
+                "ai_assistant.api.security.get_expected_api_key",
+                return_value="test-key",
+            ):
+                with patch.object(
+                    ChatManager,
+                    "chat",
+                    new_callable=AsyncMock,
+                    return_value=MagicMock(text="ok", tool_calls=[], metadata={}),
+                ):
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app),
+                        base_url="http://localhost",
+                        headers={"Authorization": "Bearer test-key"},
+                    ) as ac:
+                        tasks = [
+                            ac.post(
+                                "/api/v1/chat",
+                                json={
+                                    "message": f"stress {i}",
+                                    "conversation_id": f"conv-{i}",
+                                },
+                            )
+                            for i in range(50)
+                        ]
+                        responses = await asyncio.gather(*tasks)
 
-            assert all(r.status_code == 200 for r in responses)
+                    bad = [
+                        (i, r.status_code, r.text[:200])
+                        for i, r in enumerate(responses)
+                        if r.status_code != 200
+                    ]
+                    assert not bad, f"Non-200 responses: {bad[:3]}"
     finally:
         app.dependency_overrides = original_overrides
+        app.lifespan = original_lifespan
 
 
 @pytest.mark.asyncio

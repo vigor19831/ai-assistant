@@ -72,9 +72,9 @@ async def chat(
         )
     except HTTPException:
         raise
-    except Exception as exc:
-        _logger.exception("Chat failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception:
+        _logger.exception("Chat failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from None
     return ChatResponse(
         message=response.text or "",
         conversation_id=conv_id,
@@ -101,9 +101,9 @@ async def chat_stream(
             ):
                 yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
-        except Exception as exc:
+        except Exception:
             _logger.exception("Stream failed")
-            payload = json.dumps({"error": str(exc)})
+            payload = json.dumps({"error": "Internal server error"})
             yield f"data: {payload}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -155,10 +155,10 @@ async def openai_chat_completions(
                     )
                     yield f"data: {delta.model_dump_json()}\n\n"
                 yield "data: [DONE]\n\n"
-            except Exception as exc:
-               _logger.exception("OpenAI stream failed")
-               payload = json.dumps({"error": str(exc)})
-               yield f"data: {payload}\n\n"
+            except Exception:
+                _logger.exception("OpenAI stream failed")
+                payload = json.dumps({"error": "Internal server error"})
+                yield f"data: {payload}\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -169,9 +169,9 @@ async def openai_chat_completions(
         )
     except HTTPException:
         raise
-    except Exception as exc:
-        _logger.exception("OpenAI chat failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception:
+        _logger.exception("OpenAI chat failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
     return OAIChatCompletion(
         model=model_id,

@@ -182,3 +182,39 @@ class TestDiskErrors:
             pass  # Expected
         finally:
             os.chmod(str(db_path), 0o644)
+
+
+# ── Lifespan cleanup logging ──
+
+
+class TestLifespanCleanup:
+    @pytest.mark.asyncio
+    async def test_async_cleanup_logs_traceback(self, caplog):
+        """_async_cleanup must log exception with traceback on shutdown failure."""
+        import logging
+        from unittest.mock import AsyncMock, MagicMock
+        from fastapi import FastAPI
+        from ai_assistant.api.lifespan import _async_cleanup
+        from ai_assistant.core.ports.closable import IClosable
+
+        app = FastAPI()
+
+        class FailingClosable(IClosable):
+            async def shutdown(self) -> None:
+                raise RuntimeError("shutdown boom")
+
+        mock_state = MagicMock()
+        mock_state.llm = FailingClosable()
+        mock_state.embedder = None
+        mock_state.vector_store = None
+        app.state.app_state = mock_state
+
+        config = MagicMock()
+        type(config).vector_store = MagicMock()
+        config.vector_store.index_path = None
+
+        with caplog.at_level(logging.ERROR, logger="ai_assistant.lifespan"):
+            await _async_cleanup(app, config)
+
+        assert "Traceback (most recent call last)" in caplog.text
+        assert "shutdown boom" in caplog.text

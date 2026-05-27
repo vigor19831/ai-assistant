@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -28,12 +27,11 @@ import ai_assistant.adapters.voice_piper  # noqa: F401
 import ai_assistant.adapters.voice_whisper_local  # noqa: F401
 import ai_assistant.adapters.voice_whispercpp  # noqa: F401
 from ai_assistant.api.security import get_expected_api_key
+from ai_assistant.core import metrics as _metrics_module
+from ai_assistant.core import registry as _registry
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.metrics import get_current_metrics as _get_current_metrics
-from ai_assistant.core.metrics import get_metrics_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.ports.initializable import IInitializable
-from ai_assistant.core.registry import create as registry_create
 from ai_assistant.core.tool_registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -60,10 +58,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AppState",
+    "clear_state",
     "get_current_metrics",
     "get_state",
     "init_adapters",
     "MetricsMiddleware",
+    "set_state",
 ]
 
 _logger = get_logger("deps")
@@ -92,15 +92,36 @@ class AppState:
     long_term_memory: ILongTermMemory | None = None
 
 
+def set_state(state: AppState) -> None:
+    """Set global state (intended for tests and CLI bootstrapping)."""
+    global _state
+    _state = state
+    _init_event.set()
+
+
+def clear_state() -> None:
+    """Clear global state (intended for test teardown)."""
+    global _state
+    _state = None
+    _init_event.clear()
+
+
 async def init_adapters(config: AppConfig | AppState) -> AppState:
     """Initialize all adapters via Registry and return populated AppState."""
     global _state
 
-    if _state is not None:
+    def _should_use_cache() -> bool:
+        if _state is None or not _init_event.is_set():
+            return False
+        if isinstance(config, AppState):
+            return config is _state
+        return _state.config is config
+
+    if _should_use_cache():
         return _state
 
     async with _init_lock:
-        if _state is not None:
+        if _should_use_cache():
             return _state
 
         try:
@@ -122,45 +143,44 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
             state.tool_registry = ToolRegistry()
 
             try:
-                tool = registry_create("tool", "calculator", cfg)
+                tool = _registry.create("tool", "calculator", cfg)
                 state.tool_registry.register(tool)
-            except Exception as exc:
-                _logger.warning("Calculator tool not available: %s", exc)
+            except Exception:
+                _logger.exception("Calculator tool not available")
 
-            state.chunker = registry_create("chunker", cfg.chunker.provider, cfg.chunker)
-            state.embedder = registry_create(
+            state.chunker = _registry.create("chunker", cfg.chunker.provider, cfg.chunker)
+            state.embedder = _registry.create(
                 "embedder", cfg.embedder.provider, cfg.embedder
             )
-            state.llm = registry_create("llm", cfg.llm.provider, cfg.llm)
-            state.vector_store = registry_create(
+            state.llm = _registry.create("llm", cfg.llm.provider, cfg.llm)
+            state.vector_store = _registry.create(
                 "vector_store",
                 cfg.vector_store.provider,
                 cfg.vector_store,
             )
 
-            if getattr(cfg, "reranker", None) and getattr(cfg.reranker, "provider", None):
+            if cfg.reranker is not None and cfg.reranker.provider is not None:
                 try:
-                    state.reranker = registry_create(
+                    state.reranker = _registry.create(
                         "reranker",
                         cfg.reranker.provider,
                         cfg.reranker,
                     )
-                except ValueError as exc:
-                    _logger.warning(
-                        "Reranker '%s' not available: %s",
+                except ValueError:
+                    _logger.exception(
+                        "Reranker '%s' not available",
                         cfg.reranker.provider,
-                        exc,
                     )
 
+            state.storage = None
             try:
-                state.storage = registry_create(
+                state.storage = _registry.create(
                     "storage", cfg.storage.provider, cfg.storage
                 )
-            except ValueError as exc:
-                _logger.warning(
-                    "Storage adapter '%s' not available: %s",
+            except Exception:
+                _logger.exception(
+                    "Storage adapter '%s' not available",
                     cfg.storage.provider,
-                    exc,
                 )
                 state.storage = None
 
@@ -168,9 +188,9 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
                 await state.storage.init_db()
 
             try:
-                state.long_term_memory = registry_create("memory", "sqlite", cfg.storage)
-            except Exception as exc:
-                _logger.warning("Long-term memory not available: %s", exc)
+                state.long_term_memory = _registry.create("memory", "sqlite", cfg.storage)
+            except Exception:
+                _logger.exception("Long-term memory not available")
                 state.long_term_memory = None
 
             if state.long_term_memory is not None and isinstance(
@@ -179,33 +199,19 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
                 await state.long_term_memory.init_db()
 
             if cfg.voice.enabled:
-                state.voice_recognizer = registry_create(
+                state.voice_recognizer = _registry.create(
                     "voice_recognizer",
                     cfg.voice.recognizer_provider,
                     cfg.voice,
                 )
-                state.voice_synthesizer = registry_create(
+                state.voice_synthesizer = _registry.create(
                     "voice_synthesizer",
                     cfg.voice.synthesizer_provider,
                     cfg.voice,
                 )
 
             if cfg.vision.enabled:
-                state.vision = registry_create("vision", cfg.vision.provider, cfg.vision)
-
-            index_path = getattr(cfg.vector_store, "index_path", None)
-            if index_path:
-                # Load all discovered namespaces
-                try:
-                    namespaces = await state.vector_store.list_namespaces(index_path)
-                    for ns in namespaces:
-                        await state.vector_store.load(index_path, namespace=ns)
-                except Exception:
-                    pass
-                # Also ensure chat namespaces exist (create empty if missing)
-                for ns in ("personal", "work", "other", "default"):
-                    with contextlib.suppress(Exception):
-                        await state.vector_store.load(index_path, namespace=ns)
+                state.vision = _registry.create("vision", cfg.vision.provider, cfg.vision)
 
             step_funcs = _build_step_funcs(cfg, state)
             state.pipeline = RAGPipeline(step_funcs)
@@ -265,12 +271,28 @@ def _build_step_funcs(
 
 
 def get_state(request: Any = None) -> AppState:
-    """Get initialized app state."""
-    if request is not None and getattr(request.app.state, "app_state", None) is not None:
-        return request.app.state.app_state
-    if not _init_event.is_set() or _state is None:
+    """Get initialized app state.
+
+    If *request* is provided and the FastAPI app state has an ``app_state``
+    attribute, return it.  Otherwise fall back to the global singleton.
+    Raises RuntimeError if the singleton has not been initialized.
+    """
+    if request is not None:
+        app_state = request.app.state
+        # FastAPI app.state is a plain object; we access the public attribute
+        # directly.  If it does not exist we fall through to the singleton.
+        try:
+            return app_state.app_state
+        except AttributeError:
+            pass
+    if _state is None or not _init_event.is_set():
         raise RuntimeError("State not initialized. Call init_adapters() first.")
     return _state
+
+
+def get_current_metrics() -> dict[str, Any]:
+    """Get metrics collected for the current request."""
+    return _metrics_module.get_current_metrics()
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
@@ -284,14 +306,9 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         start = time.time()
         response = await call_next(request)
         latency_ms = int((time.time() - start) * 1000)
-        metrics = _get_current_metrics()
+        metrics = get_current_metrics()
         metrics["endpoint"] = request.url.path
         metrics["status_code"] = response.status_code
         metrics["latency_ms"] = latency_ms
-        get_metrics_logger().log(metrics)
+        _metrics_module.get_metrics_logger().log(metrics)
         return response
-
-
-def get_current_metrics() -> dict[str, Any]:
-    """Get metrics collected for the current request."""
-    return _get_current_metrics()

@@ -47,7 +47,7 @@ class TestAppState:
         assert state.pipeline is None
 
 
-# ── init_adapters with mocked registry_create ──
+# ── init_adapters with mocked registry.create ──
 
 
 class TestInitAdapters:
@@ -90,7 +90,7 @@ class TestInitAdapters:
 
     @pytest.mark.asyncio
     async def test_app_state_assembled_correctly(self, minimal_config):
-        """Mock registry_create and verify AppState fields are populated."""
+        """Mock registry.create and verify AppState fields are populated."""
         mock_llm = MagicMock()
         mock_embedder = MagicMock()
         mock_vector_store = MagicMock()
@@ -120,7 +120,7 @@ class TestInitAdapters:
             return mapping.get((port, name), MagicMock())
 
         with patch(
-            "ai_assistant.api.deps.registry_create", side_effect=fake_registry_create
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
             await init_adapters(state)
@@ -164,7 +164,7 @@ class TestInitAdapters:
             return mapping.get((port, name), MagicMock())
 
         with patch(
-            "ai_assistant.api.deps.registry_create", side_effect=fake_registry_create
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
             await init_adapters(state)
@@ -211,7 +211,7 @@ class TestInitAdapters:
             return mapping.get((port, name), MagicMock())
 
         with patch(
-            "ai_assistant.api.deps.registry_create", side_effect=fake_registry_create
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
             await init_adapters(state)
@@ -256,7 +256,7 @@ class TestInitAdapters:
             return MagicMock()
 
         with patch(
-            "ai_assistant.api.deps.registry_create", side_effect=fake_registry_create
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
             await init_adapters(state)
@@ -282,7 +282,7 @@ class TestInitAdapters:
             return MagicMock()
 
         with patch(
-            "ai_assistant.api.deps.registry_create", side_effect=fake_registry_create
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
             await init_adapters(state)
@@ -306,7 +306,7 @@ class TestInitAdapters:
             return m
 
         with patch(
-            "ai_assistant.api.deps.registry_create",
+            "ai_assistant.core.registry.create",
             side_effect=counting_registry_create,
         ):
             state = AppState(config=minimal_config)
@@ -342,10 +342,10 @@ class TestMetricsMiddleware:
             return mock_response
 
         with patch(
-            "ai_assistant.api.deps.get_current_metrics",
+            "ai_assistant.core.metrics.get_current_metrics",
             return_value={"input_tokens": 10, "output_tokens": 5},
         ):
-            with patch("ai_assistant.api.deps.get_metrics_logger") as mock_logger:
+            with patch("ai_assistant.core.metrics.get_metrics_logger") as mock_logger:
                 mock_logger.return_value.log = MagicMock()
                 result = await middleware.dispatch(mock_request, mock_call_next)
                 assert result is mock_response

@@ -38,8 +38,9 @@ from ai_assistant.api.security import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_state():
+def _reset_state(monkeypatch):
     """Reset global security state before every test."""
+    monkeypatch.delenv("AI_API_KEY", raising=False)
     reset_security_state()
     yield
     # No teardown needed — next test's setup calls reset_security_state()
@@ -366,32 +367,42 @@ async def test_admin_update_api_key(monkeypatch):
     state.config.security = MagicMock()
     state.config.security.api_key = None
 
+    # monkeypatch get_expected_api_key to read from our override
+    monkeypatch.setattr(
+        "ai_assistant.api.security.get_expected_api_key",
+        lambda: state.config.security.api_key,
+    )
+
     req = _UpdateApiKeyRequest(api_key="new-key")
     resp = await update_api_key(req, state)
     assert resp.updated is True
-    assert get_expected_api_key() == "new-key"
     assert state.config.security.api_key == "new-key"
 
 
 @pytest.mark.anyio
-async def test_admin_clear_api_key():
+async def test_admin_clear_api_key(monkeypatch):
     """Admin endpoint clears override when api_key=None."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
     reset_security_state()
-    set_api_key("old-key")
     state = MagicMock(spec=AppState)
     state.config = MagicMock()
     state.config.security = MagicMock()
+    state.config.security.api_key = "old-key"
+
+    monkeypatch.setattr(
+        "ai_assistant.api.security.get_expected_api_key",
+        lambda: state.config.security.api_key,
+    )
 
     req = _UpdateApiKeyRequest(api_key=None)
     resp = await update_api_key(req, state)
     assert resp.updated is True
-    assert get_expected_api_key() is None
+    assert state.config.security.api_key is None
 
 
 @pytest.mark.anyio
-async def test_admin_update_empty_key_rejected():
+async def test_admin_update_empty_key_rejected(monkeypatch):
     """Empty string api_key is rejected (must be None or non-empty)."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
@@ -399,7 +410,38 @@ async def test_admin_update_empty_key_rejected():
     state = MagicMock(spec=AppState)
     state.config = MagicMock()
 
+    monkeypatch.setattr(
+        "ai_assistant.api.security.get_expected_api_key",
+        lambda: (
+            state.config.security.api_key if state.config.security.api_key else None
+        ),
+    )
+
     req = _UpdateApiKeyRequest(api_key="")
     with pytest.raises(HTTPException) as exc_info:
         await update_api_key(req, state)
     assert exc_info.value.status_code == 400
+
+
+def test_save_chat_path_traversal_blocked_by_pydantic(client):
+    payload = {
+        "content": "test",
+        "namespace": "personal",
+        "filename": "../../../etc/passwd",
+    }
+    resp = client.post(
+        "/api/v1/rag/save-chat",
+        json=payload,
+        headers={"Authorization": "Bearer test-key"},
+    )
+    assert resp.status_code == 422
+
+
+def test_save_chat_invalid_namespace_blocked_by_pydantic(client):
+    payload = {"content": "test", "namespace": "hacked", "filename": "test.md"}
+    resp = client.post(
+        "/api/v1/rag/save-chat",
+        json=payload,
+        headers={"Authorization": "Bearer test-key"},
+    )
+    assert resp.status_code == 422

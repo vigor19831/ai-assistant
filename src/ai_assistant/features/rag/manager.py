@@ -6,6 +6,7 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
 from ai_assistant.core.domain.documents import Chunk, Document
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
@@ -14,27 +15,9 @@ from ai_assistant.core.logger import get_logger
 if TYPE_CHECKING:
     from ai_assistant.core.pipeline import RAGPipeline
 
-__all__ = ["IndexingManager", "RAGManager", "NO_INFO_PHRASES"]
+__all__ = ["IndexingManager", "RAGManager"]
 
 _logger = get_logger("rag.manager")
-
-NO_INFO_PHRASES = [
-    "не достаточно",
-    "недостаточно",
-    "не имею",
-    "не знаю",
-    "not enough",
-    "don't have",
-    "no information",
-    "не найдено",
-    "not found",
-    "i don't have",
-    "i do not have",
-    "don't know",
-    "do not know",
-    "у меня недостаточно",
-    "у меня нет",
-]
 
 
 class IndexingManager:
@@ -138,7 +121,7 @@ class RAGManager:
         if answer is None:
             return True
         answer_lower = answer.lower()
-        return any(phrase in answer_lower for phrase in NO_INFO_PHRASES)
+        return any(phrase in answer_lower for phrase in FROZEN_NO_INFO_PHRASES)
 
     async def query(
         self,

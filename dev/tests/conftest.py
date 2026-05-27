@@ -79,9 +79,8 @@ def reset_global_state():
     from ai_assistant.api.security import reset_security_state
     from ai_assistant.core.metrics import _request_metrics
 
+    deps.clear_state()
     deps._init_lock = asyncio.Lock()
-    deps._init_event.clear()
-    deps._state = None
     reset_security_state()
     _request_metrics.set({})
 
@@ -102,19 +101,18 @@ def reset_global_state():
 
     try:
         from ai_assistant import main as main_module
+        from ai_assistant.api.lifespan import lifespan as real_lifespan
 
+        main_module.app.lifespan = real_lifespan
         main_module.app.dependency_overrides.clear()
-        if hasattr(main_module.app.state, "app_state"):
-            delattr(main_module.app.state, "app_state")
     except Exception:
         pass
 
     yield
 
     # ── Teardown (idempotent) ──
+    deps.clear_state()
     deps._init_lock = asyncio.Lock()
-    deps._init_event.clear()
-    deps._state = None
     reset_security_state()
     _request_metrics.set({})
 
@@ -134,10 +132,10 @@ def reset_global_state():
 
     try:
         from ai_assistant import main as main_module
+        from ai_assistant.api.lifespan import lifespan as real_lifespan
 
+        main_module.app.lifespan = real_lifespan
         main_module.app.dependency_overrides.clear()
-        if hasattr(main_module.app.state, "app_state"):
-            delattr(main_module.app.state, "app_state")
     except Exception:
         pass
 
@@ -336,26 +334,32 @@ def client(mock_state, monkeypatch):
     from ai_assistant.api.deps import get_state
     from ai_assistant.main import app
 
+    # Отключаем lifespan, чтобы TestClient не запускал реальный init_adapters
+    original_lifespan = app.lifespan
+    app.lifespan = None
+
     # Отключаем проверку API key для тестов
     monkeypatch.setattr(
         "ai_assistant.api.security.get_expected_api_key", lambda: "test-key"
     )
 
-    # Устанавливаем state НАПРЯМУЮ в app.state, а не только через override
-    # Это нужно для get_state(), который читает request.app.state.app_state
-    app.state.app_state = mock_state
+    # Устанавливаем state через dependency_overrides (чистый DI)
+    # И напрямую в app.state для endpoint'ов, которые читают оттуда
     app.dependency_overrides[get_state] = lambda: mock_state
+    app.state.app_state = mock_state
 
-    with TestClient(
-        app,
-        base_url="http://localhost",
-        headers={"Authorization": "Bearer test-key"},
-    ) as c:
-        yield c
-
-    app.dependency_overrides.clear()
-    if hasattr(app.state, "app_state"):
-        delattr(app.state, "app_state")
+    try:
+        with TestClient(
+            app,
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer test-key"},
+            raise_server_exceptions=True,
+        ) as c:
+            yield c
+    finally:
+        app.lifespan = original_lifespan
+        app.dependency_overrides.clear()
+        app.state.app_state = mock_state
 
 
 @pytest.fixture

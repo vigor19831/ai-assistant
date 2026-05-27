@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Launcher — two columns, green active marker, timestamps."""
+"""Launcher — two columns, green active marker, timestamps, auto-logs, double-Enter exit."""
 
 from __future__ import annotations
 
-import logging.handlers
+import argparse
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -61,7 +62,6 @@ TERMINAL_CMD: dict[str, Callable[[str, str], list[str]]] = {
         f'tell application "Terminal" to do script "source {venv}/bin/activate && cd {root}"',
     ],
     "posix": lambda venv, root: [
-        # Fallback chain: try common terminals
         "bash",
         "-c",
         f"for t in gnome-terminal konsole alacritty xterm; do "
@@ -103,10 +103,7 @@ def pad_ansi(text: str, width: int) -> str:
 
 
 def get_python(root: Path) -> str:
-    """Return the Python interpreter inside the project's virtual env.
-
-    Never falls back to sys.executable — explicit isolation is mandatory.
-    """
+    """Return the Python interpreter inside the project's virtual env."""
     exe = root / VENV_NAME / PYTHON_SUBPATH
     if not exe.exists():
         raise FileNotFoundError(
@@ -224,16 +221,24 @@ def print_menu(scripts, tests, last):
     print("=" * total)
 
 
-def run(python, target, root, extra, mode_extra):
+# --- run ------------------------------------------------------------------
+
+
+def run(python, target, root, extra, mode_extra, *, is_test: bool = False):
     ts = timestamp()
     if target.startswith("pytest:"):
+        test_path = target.split(":", 1)[1]
         cmd = (
             [
                 python,
                 "-m",
                 "pytest",
-                target.split(":", 1)[1],
+                test_path,
                 "-v",
+                "--tb=long",
+                "--color=yes",
+                "--showlocals",
+                "--capture=tee-sys",
             ]
             + extra
             + mode_extra
@@ -246,53 +251,157 @@ def run(python, target, root, extra, mode_extra):
                 "-m": "e2e",
             }.get(mode_extra[0], "custom")
             print(f">>> [{ts}] Mode: {mode_label}")
+
+        # --- auto-log to dev/ with full traceback ---
+        log_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_path = root / "dev" / f"tests_run_{log_ts}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        print(f">>> [{ts}] Logging to: {log_path.relative_to(root)}")
+        print(f">>> [{ts}] {' '.join(cmd)}")
+
+        with open(log_path, "w", encoding="utf-8") as log_fp:
+            log_fp.write(f"=== Test run {log_ts} ===\n")
+            log_fp.write(f"Command: {' '.join(cmd)}\n\n")
+            log_fp.flush()
+
+            proc = subprocess.Popen(
+                cmd,
+                cwd=root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                text=True,
+            )
+
+            # Parse pytest output in real-time
+            failed_tests = []  # Full names for file
+            failed_by_class = {}  # For terminal: class -> count
+            passed = failed = skipped = 0
+
+            for line in proc.stdout:
+                # Strip color codes for file, keep for terminal if needed
+                clean_line = re.sub(r"\033\[[0-9;]*m", "", line).rstrip()
+
+                # Count results
+                if " PASSED " in clean_line:
+                    passed += 1
+                elif " FAILED " in clean_line:
+                    failed += 1
+                    # Extract: "dev/tests/foo.py::TestClass::test_method FAILED"
+                    match = re.search(r"([\w/\\]+\.py::[\w:]+)", clean_line)
+                    if match:
+                        full_name = match.group(1)
+                        failed_tests.append(full_name)
+
+                        # Group by class for terminal
+                        parts = full_name.split("::")
+                        if len(parts) >= 3:
+                            class_name = parts[1]  # TestClass::test_method
+                        elif len(parts) == 2:
+                            class_name = parts[1] + " (fn)"  # module::test_function
+                        else:
+                            class_name = parts[0]  # fallback to filename
+                        failed_by_class[class_name] = (
+                            failed_by_class.get(class_name, 0) + 1
+                        )
+                elif " SKIPPED " in clean_line:
+                    skipped += 1
+                elif " XFAIL " in clean_line or " XPASS " in clean_line:
+                    pass  # Ignore for now
+
+                # Write to file with timestamp
+                file_ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                log_fp.write(f"[{file_ts}] {clean_line}\n")
+                log_fp.flush()
+
+            proc.wait()
+            res_returncode = proc.returncode
+
+            # Write summary to file
+            log_fp.write(f"\n{'=' * 60}\n")
+            log_fp.write(
+                f"SUMMARY: {passed} passed, {failed} failed, {skipped} skipped\n"
+            )
+            if failed_tests:
+                log_fp.write(f"\nFAILED TESTS ({len(failed_tests)}):\n")
+                for ft in failed_tests:
+                    log_fp.write(f"  - {ft}\n")
+            log_fp.write(f"{'=' * 60}\n")
+
+        # Terminal output: brief summary only
+        total = passed + failed + skipped
+        print(
+            f"\n>>> [{timestamp()}] {total} tests: {passed} passed, {failed} failed, {skipped} skipped"
+        )
+
+        if failed_by_class:
+            # Sort by count descending
+            sorted_classes = sorted(
+                failed_by_class.items(), key=lambda x: x[1], reverse=True
+            )
+            class_strs = [f"{cls} ({cnt})" for cls, cnt in sorted_classes]
+
+            print(f">>> [{timestamp()}] {RED}FAILED by class:{RESET}")
+            # Print in groups of ~50 chars, wrapped
+            line_parts = []
+            current_len = 0
+            for cs in class_strs:
+                if current_len + len(cs) > 50 and line_parts:
+                    print(f">>> [{timestamp()}]   {RED}{', '.join(line_parts)}{RESET}")
+                    line_parts = [cs]
+                    current_len = len(cs)
+                else:
+                    line_parts.append(cs)
+                    current_len += len(cs) + 2
+            if line_parts:
+                print(f">>> [{timestamp()}]   {RED}{', '.join(line_parts)}{RESET}")
+
+            # One example of specific test
+            if failed_tests:
+                print(f">>> [{timestamp()}] Example: {failed_tests[0]}")
+
+        status = (
+            f"{GREEN}OK{RESET}"
+            if res_returncode == 0
+            else f"{RED}FAILED (exit {res_returncode}){RESET}"
+        )
+        print(f">>> [{timestamp()}] {status}")
+        print(f">>> [{timestamp()}] Full log saved: {log_path.relative_to(root)}")
+
     else:
         cmd = [python, target] + extra
         print(f"\n>>> [{ts}] {Path(target).relative_to(root)}")
         if extra:
             print(f">>> [{ts}] (extra: {' '.join(extra)})")
+        print(f">>> [{ts}] {' '.join(cmd)}\n")
 
-    print(f">>> [{ts}] {' '.join(cmd)}\n")
-    res = subprocess.run(cmd, cwd=root)
+        res = subprocess.run(cmd, cwd=root, stdin=subprocess.DEVNULL)
+        res_returncode = res.returncode
 
-    # Color-coded exit status
-    if res.returncode == 0:
-        status = f"{GREEN}OK{RESET}"
-    else:
-        status = f"{RED}FAILED (exit {res.returncode}){RESET}"
-
-    print(f"\n>>> [{timestamp()}] {status}")
+        status = (
+            f"{GREEN}OK{RESET}"
+            if res_returncode == 0
+            else f"{RED}FAILED (exit {res_returncode}){RESET}"
+        )
+        print(f"\n>>> [{timestamp()}] {status}")
 
     try:
         input(">>> Press Enter to return to menu... ")
     except EOFError:
-        print(">>> (non-interactive, pausing 15s)")
-        time.sleep(15)
+        pass
 
-    return res.returncode
-
-
-def _get_rotating_log(log_file: Path) -> logging.handlers.RotatingFileHandler:
-    handler = logging.handlers.RotatingFileHandler(
-        log_file,
-        maxBytes=10 * 1024 * 1024,  # 10 MB
-        backupCount=5,
-        encoding="utf-8",
-    )
-    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
-    return handler
+    return res_returncode
 
 
 def run_bg(python, target, root, extra):
+    """Background launch: no PID files, no rotating logs. Just health-check + status."""
     target_path = Path(target)
     data_dir = root / "data"
     data_dir.mkdir(exist_ok=True)
 
     log_file = data_dir / f"{target_path.stem}.log"
-    pid_file = data_dir / f"{target_path.stem}.pid"
-
-    handler = _get_rotating_log(log_file)
-    log_fp = handler.stream
+    log_fp = open(log_file, "a", encoding="utf-8")
 
     kwargs = {
         "cwd": root,
@@ -305,24 +414,22 @@ def run_bg(python, target, root, extra):
 
     proc = subprocess.Popen([python, str(target_path)] + extra, **kwargs)
 
-    pid_file.write_text(str(proc.pid), encoding="utf-8")
-
     ts = timestamp()
     print(f"\n>>> [{ts}] {GREEN}{target_path.name} running in background{RESET}")
     print(f">>> [{ts}] PID: {proc.pid}")
     print(f">>> [{ts}] Log: {log_file.relative_to(root)}")
 
     # Wait for server to be ready
-    import urllib.request
-
-    url = "http://127.0.0.1:8000/health"
-    time.sleep(0.3)  # дать серверу фору
-    for i in range(50):  # 50 попыток × 0.2с = 10 сек макс
+    time.sleep(0.3)
+    for _ in range(50):
         try:
-            urllib.request.urlopen(url, timeout=0.5)
-            print(f">>> [{ts}] {GREEN}Server ready at {url}{RESET}")
+            with socket.create_connection(("127.0.0.1", 8000), timeout=0.5):
+                pass
+            print(
+                f">>> [{ts}] {GREEN}Server ready at http://127.0.0.1:8000/health{RESET}"
+            )
             break
-        except Exception:
+        except (OSError, ConnectionRefusedError, TimeoutError):
             time.sleep(0.2)
     else:
         print(
@@ -330,6 +437,7 @@ def run_bg(python, target, root, extra):
             f"check {log_file.relative_to(root)}{RESET}"
         )
 
+    # Keep log_fp open so the child can write; it will be closed on launcher exit
     return 0
 
 
@@ -355,8 +463,42 @@ def find_target(num, scripts, tests):
     return None, None
 
 
+def _shutdown(root: Path, python: str, scripts: list, tests: list) -> int:
+    """Double-Enter exit: try to stop server gracefully."""
+    # Find stop.py
+    stop_target = None
+    for _, _, target in scripts + tests:
+        if Path(target).stem == "stop":
+            stop_target = target
+            break
+
+    if stop_target:
+        print(f"\n{YELLOW}>>> Stopping server...{RESET}")
+        res = subprocess.run([python, stop_target], cwd=root)
+        if res.returncode == 0:
+            print(f"{GREEN}>>> Server stopped.{RESET}")
+        else:
+            print(f"{RED}>>> Stop script exited with code {res.returncode}.{RESET}")
+
+    print("\nBye.")
+    return 0
+
+
+# --- main -----------------------------------------------------------------
+
+
 def main() -> int:
     enable_ansi()
+
+    parser = argparse.ArgumentParser(description="AI Assistant Launcher")
+    parser.add_argument(
+        "--no-menu", action="store_true", help="Non-interactive mode (CI)"
+    )
+    parser.add_argument("target", nargs="?", help="Number, 'r', or script name")
+    parser.add_argument(
+        "extra", nargs=argparse.REMAINDER, help="Extra arguments after --"
+    )
+    args = parser.parse_args()
 
     root = Path(__file__).parent.parent.resolve()
     py = ensure_venv(root)
@@ -374,7 +516,6 @@ def main() -> int:
         scripts.append((n, f.name, str(f)))
         n += 1
 
-    # Terminal launcher
     scripts.append((n, "TERMINAL (.venv)", "__terminal__"))
     n += 1
 
@@ -394,6 +535,50 @@ def main() -> int:
     last_extra = []
     last_mode_extra: list[str] = []
 
+    # --- non-interactive mode ------------------------------------------------
+    if args.no_menu:
+        target_str = args.target or ""
+        extra_raw = [e for e in args.extra if e != "--"]
+
+        if target_str.lower() == "r":
+            if (
+                last_target
+            ):  # not available in first no-menu run, but keep for consistency
+                print("No previous run.")
+                return 1
+            print("No previous run.")
+            return 1
+
+        # Try to resolve by number
+        try:
+            num = int(target_str)
+        except ValueError:
+            print(f"Invalid target: {target_str}")
+            return 1
+
+        label, target = find_target(num, scripts, tests)
+        if target is None:
+            print("Number not found.")
+            return 1
+
+        sanitized = _sanitize_extra(extra_raw)
+        if sanitized is None:
+            return 1
+
+        mode_extra: list[str] = []
+        # In non-interactive mode, always use default test mode
+
+        if target == "__terminal__":
+            return run_terminal(root)
+
+        if Path(target).stem in BACKGROUND and not target.startswith("pytest:"):
+            return run_bg(py, target, root, sanitized)
+        else:
+            return run(py, target, root, sanitized, mode_extra)
+
+    # --- interactive mode ----------------------------------------------------
+    last_empty = False
+
     while True:
         print_menu(scripts, tests, last_num)
 
@@ -401,11 +586,17 @@ def main() -> int:
             choice = input("\nEnter number: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye.")
-            return 0
+            return _shutdown(root, py, scripts, tests)
 
-        if not choice or choice in ("0", "exit", "quit"):
-            print("Bye.")
-            return 0
+        if not choice:
+            if last_empty:
+                return _shutdown(root, py, scripts, tests)
+            last_empty = True
+            continue
+        last_empty = False
+
+        if choice in ("0", "exit", "quit"):
+            return _shutdown(root, py, scripts, tests)
 
         if choice.lower() == "r":
             if last_target:
@@ -435,7 +626,6 @@ def main() -> int:
         if not target.startswith("pytest:") and not extra:
             extra = ask_flags(target)
 
-        # Для "RUN ALL TESTS" спрашиваем режим
         mode_extra: list[str] = []
         if target.startswith("pytest:"):
             test_path = Path(target.split(":", 1)[1])

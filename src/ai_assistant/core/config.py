@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 from pydantic import Field, field_validator
@@ -64,14 +64,6 @@ class EmbedderConfig(BaseSettings):
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
-    server_startup_delay: int = 3
-    server_shutdown_timeout: int = 5
-    # === GPU/CPU offload ===
-    n_gpu_layers: int = Field(default=0, ge=-1, le=999)
-    n_batch: int = Field(default=512, ge=1)
-    n_ubatch: int = Field(default=64, ge=1)
-    mmap: bool = True
-    mlock: bool = False
 
 
 class LLMConfig(BaseSettings):
@@ -83,9 +75,6 @@ class LLMConfig(BaseSettings):
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout: float = 300.0
-    server_startup_delay: int = 3
-    server_shutdown_timeout: int = 5
-    server_context_size: int = 4096
     stop_sequences: list[str] = Field(default_factory=list)
     # === Sampling ===
     top_p: float = Field(default=0.95, ge=0.0, le=1.0)
@@ -94,34 +83,6 @@ class LLMConfig(BaseSettings):
     repeat_penalty: float = Field(default=1.1, ge=0.0)
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
-
-    # === Context ===
-    n_batch: int = Field(default=512, ge=1)
-    n_ubatch: int = Field(default=64, ge=1)
-    cache_type_k: Literal["f16", "q8_0", "q4_0", "q4_1"] = "f16"
-    cache_type_v: Literal["f16", "q8_0", "q4_0", "q4_1"] = "f16"
-
-    # === GPU/CPU ===
-    n_gpu_layers: int = Field(default=-1, ge=-1, le=999)
-    split_mode: Literal["layer", "row", "none"] = "layer"
-    main_gpu: int = Field(default=0, ge=0)
-    tensor_split: list[float] = Field(default_factory=list)
-
-    # === Performance ===
-    num_threads: int = Field(default=0, ge=0)
-    flash_attn: bool = False
-    mmap: bool = True
-    mlock: bool = False
-
-    # === RoPE/YaRN ===
-    rope_scaling: float = Field(default=1.0, gt=0.0)
-    yarn_ext_factor: float = -1.0
-    yarn_attn_factor: float = 1.0
-
-    # === Speculative decoding ===
-    draft_model: str | None = None
-    draft_n_predict: int = Field(default=16, ge=1)
-
 
 class VectorStoreConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_VECTOR_STORE_", extra="allow")
@@ -200,6 +161,7 @@ class AppConfig(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     config_version: str = "1.0.0"
+    log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     chat: ChatConfig = Field(default_factory=ChatConfig)

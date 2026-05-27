@@ -143,18 +143,96 @@ class TestLauncherMenu:
         assert "[ 1]" in out
 
 
-class TestLauncherRun:
-    def test_run_bg_creates_pid(self, tmp_path, monkeypatch):
+class TestLauncherNoMenu:
+    def test_no_menu_flag_parses(self, monkeypatch):
+        launcher = load_launcher()
+
+        # Build parser exactly as main() does
+        parser = launcher.argparse.ArgumentParser(description="AI Assistant Launcher")
+        parser.add_argument(
+            "--no-menu", action="store_true", help="Non-interactive mode (CI)"
+        )
+        parser.add_argument("target", nargs="?", help="Number, 'r', or script name")
+        parser.add_argument(
+            "extra", nargs=launcher.argparse.REMAINDER, help="Extra arguments after --"
+        )
+
+        args = parser.parse_args(["--no-menu", "1"])
+        assert args.no_menu is True
+        assert args.target == "1"
+
+    def test_run_creates_test_log(self, tmp_path, monkeypatch):
         launcher = load_launcher()
         monkeypatch.chdir(tmp_path)
         py = sys.executable
-        target = str(tmp_path / "scripts" / "dummy.py")
-        (tmp_path / "scripts").mkdir()
-        Path(target).write_text("print(1)")
-        launcher.run_bg(py, target, tmp_path, [])
-        pid_file = tmp_path / "data" / "dummy.pid"
-        assert pid_file.exists()
-        assert pid_file.read_text().strip().isdigit()
+
+        # Mock input() so run() doesn't wait for Enter in test environment
+        monkeypatch.setattr("builtins.input", lambda _: "")
+
+        # Create a dummy pytest target
+        test_dir = tmp_path / "dev" / "tests"
+        test_dir.mkdir(parents=True)
+        (test_dir / "dummy_test.py").write_text("def test_dummy(): pass\n")
+
+        target = f"pytest:{test_dir}"
+
+        # Mock subprocess.Popen to avoid nested pytest + capture the command
+        popen_calls = []
+        original_popen = launcher.subprocess.Popen
+
+        def mock_popen(cmd, **kwargs):
+            popen_calls.append(cmd)
+
+            # Return a mock process that exits immediately with code 0
+            class MockProc:
+                stdout = []
+
+                def wait(self):
+                    return 0
+
+                @property
+                def returncode(self):
+                    return 0
+
+            return MockProc()
+
+        monkeypatch.setattr(launcher.subprocess, "Popen", mock_popen)
+
+        result = launcher.run(py, target, tmp_path, [], [], is_test=True)
+
+        # Verify pytest command was constructed correctly
+        assert len(popen_calls) == 1
+        cmd = popen_calls[0]
+        assert "pytest" in cmd
+        assert "--tb=long" in cmd
+        assert "--color=yes" in cmd
+        assert "-v" in cmd
+
+        # Verify log file was created with header
+        log_files = list((tmp_path / "dev").glob("tests_run_*.log"))
+        assert len(log_files) == 1
+        log_content = log_files[0].read_text()
+        assert "Test run" in log_content
+        assert "Command:" in log_content
+
+
+class TestLauncherShutdown:
+    def test_shutdown_calls_stop(self, tmp_path, monkeypatch):
+        launcher = load_launcher()
+        monkeypatch.chdir(tmp_path)
+
+        # Create dummy stop.py
+        stop_script = tmp_path / "ops" / "scripts" / "stop.py"
+        stop_script.parent.mkdir(parents=True)
+        stop_script.write_text("print('stopped')\n")
+
+        # Create dummy scripts list
+        scripts = [(1, "stop.py", str(stop_script))]
+        tests = []
+
+        py = sys.executable
+        rc = launcher._shutdown(tmp_path, py, scripts, tests)
+        assert rc == 0
 
 
 # ── check scripts ──

@@ -101,6 +101,6 @@ class SaveChatRequest(BaseModel):
     )
     filename: str = Field(
         default="chat.md",
-        pattern=r"^[^/\\][^\\]*$",
+        pattern=r"^[^./\\][^/\\]*$",
         description="Filename without path traversal",
     )

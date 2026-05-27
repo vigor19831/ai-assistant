@@ -8,6 +8,7 @@ No YAML reloading on hot path.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections import defaultdict
 from typing import Any
@@ -37,6 +38,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 # Mutable state for rare runtime key rotation (admin endpoint)
 _override_api_key: str | None = None
+_lock = threading.Lock()
 
 _PUBLIC_PATHS: frozenset[str] = frozenset({
     "/",
@@ -94,9 +96,8 @@ def get_expected_api_key() -> str | None:
     env_key: str | None = os.getenv("AI_API_KEY")
     if env_key:
         return env_key
-    if _override_api_key is not None:
+    with _lock:
         return _override_api_key
-    return None
 
 
 def reset_security_state() -> None:
@@ -106,14 +107,16 @@ def reset_security_state() -> None:
     avoiding stale references imported by tests or middleware.
     """
     global _override_api_key
-    _override_api_key = None
+    with _lock:
+        _override_api_key = None
     limiter.reset()
 
 
 def set_api_key(key: str | None) -> None:
     """Runtime API key rotation — called from admin endpoint."""
     global _override_api_key
-    _override_api_key = key
+    with _lock:
+        _override_api_key = key
 
 
 class LimitMiddleware(BaseHTTPMiddleware):

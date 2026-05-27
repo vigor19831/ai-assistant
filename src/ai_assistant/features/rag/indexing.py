@@ -1,0 +1,163 @@
+"""Shared indexing logic — direct adapter calls, no subprocess."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from ai_assistant.core.logger import get_logger
+
+__all__ = ["index_folder"]
+
+_logger = get_logger("rag.indexing")
+
+DOCUMENTS_ROOT = Path("documents")
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
+CHUNK_SIZE = 100_000  # Max chars per document chunk
+
+
+def _read_file(path: Path) -> str:
+    """Read text file with encoding fallback."""
+    encodings = ["utf-8", "utf-8-sig", "cp1251", "cp1252", "latin-1"]
+    for enc in encodings:
+        try:
+            return path.read_text(encoding=enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return ""
+
+
+def _discover_documents(folder: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """Discover documents in folders. Returns {namespace: [docs]}."""
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    if folder:
+        folders = [DOCUMENTS_ROOT / folder]
+    else:
+        if not DOCUMENTS_ROOT.exists():
+            return {}
+        folders = [d for d in DOCUMENTS_ROOT.iterdir() if d.is_dir()]
+
+    for folder_path in folders:
+        namespace = folder_path.name
+        docs: list[dict[str, Any]] = []
+
+        for file_path in folder_path.rglob("*"):
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                continue
+
+            content = _read_file(file_path)
+            if not content.strip():
+                continue
+
+            rel_source = str(file_path.relative_to(DOCUMENTS_ROOT))
+
+            if len(content) > CHUNK_SIZE:
+                for i, start in enumerate(range(0, len(content), CHUNK_SIZE)):
+                    chunk = content[start : start + CHUNK_SIZE]
+                    docs.append(
+                        {
+                            "id": f"{file_path.stem}_chunk{i}",
+                            "content": chunk,
+                            "metadata": {
+                                "source": rel_source,
+                                "folder": namespace,
+                                "chunk": i,
+                            },
+                        }
+                    )
+            else:
+                docs.append(
+                    {
+                        "id": file_path.stem,
+                        "content": content,
+                        "metadata": {
+                            "source": rel_source,
+                            "folder": namespace,
+                        },
+                    }
+                )
+
+        if docs:
+            result[namespace] = docs
+
+    return result
+
+
+async def index_folder(
+    folder: str | None,
+    clear: bool,
+    chunker: Any,
+    embedder: Any,
+    vector_store: Any,
+) -> dict[str, Any]:
+    """Index documents from disk folders directly into vector store.
+
+    Args:
+        folder: Specific folder to index, or None for all.
+        clear: If True, clear existing chunks in each namespace before indexing.
+        chunker: IChunker instance.
+        embedder: IEmbedder instance.
+        vector_store: IVectorStore instance.
+
+    Returns:
+        Dict with results per namespace and any errors.
+    """
+    from ai_assistant.features.rag.manager import IndexingManager
+
+    docs_by_ns = _discover_documents(folder)
+    if not docs_by_ns:
+        return {"success": True, "results": {}, "errors": ["No documents found"]}
+
+    manager = IndexingManager(
+        chunker=chunker,
+        embedder=embedder,
+        vector_store=vector_store,
+    )
+
+    all_results: dict[str, Any] = {}
+    all_errors: list[str] = []
+
+    for namespace, docs in docs_by_ns.items():
+        if clear:
+            try:
+                existing = await vector_store.list_by_filter({}, namespace=namespace)
+                to_delete = [cid for cid, _meta in existing]
+                if to_delete:
+                    await vector_store.delete(to_delete, namespace=namespace)
+                    _logger.info(
+                        "Cleared %d chunks from namespace %s", len(to_delete), namespace
+                    )
+            except Exception as exc:
+                _logger.warning("Failed to clear namespace %s: %s", namespace, exc)
+                all_errors.append(f"Clear failed for {namespace}: {exc}")
+
+        try:
+            result = await manager.index_documents(docs, namespace=namespace)
+            all_results[namespace] = {
+                "indexed": result.get("indexed_count", 0),
+                "chunks": result.get("chunk_count", 0),
+            }
+            if result.get("errors"):
+                all_errors.extend(result["errors"])
+
+            index_path = getattr(vector_store.config, "index_path", None)
+            if index_path:
+                try:
+                    await vector_store.save(index_path, namespace=namespace)
+                except Exception as exc:
+                    _logger.warning("Auto-save failed for %s: %s", namespace, exc)
+                    all_errors.append(f"Auto-save failed for {namespace}: {exc}")
+
+        except Exception as exc:
+            _logger.exception("Indexing failed for namespace %s", namespace)
+            all_errors.append(f"Indexing failed for {namespace}: {exc}")
+            all_results[namespace] = {"indexed": 0, "chunks": 0}
+
+    return {
+        "success": not any("failed" in e for e in all_errors),
+        "results": all_results,
+        "errors": all_errors,
+    }

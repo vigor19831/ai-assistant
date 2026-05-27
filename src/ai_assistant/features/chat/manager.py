@@ -8,6 +8,7 @@ import json
 import re
 from typing import TYPE_CHECKING, Any
 
+from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
@@ -39,31 +40,13 @@ logger = get_logger("chat")
 _NS_MAP = {"p": "personal", "w": "work", "o": "other"}
 _PREFIX_RE = re.compile(r"^\[(p|w|o)\]\s*(.*)", re.IGNORECASE)
 
-NO_INFO_PHRASES = [
-    "не достаточно",
-    "недостаточно",
-    "не имею",
-    "не знаю",
-    "not enough",
-    "don't have",
-    "no information",
-    "не найдено",
-    "not found",
-    "i don't have",
-    "i do not have",
-    "don't know",
-    "do not know",
-    "у меня недостаточно",
-    "у меня нет",
-]
-
 
 class ChatManager:
     """Universal chat router."""
 
     @staticmethod
     def _append_rag_sources(answer: str, chunks: list[Chunk]) -> str:
-        if not chunks or any(ph in answer.lower() for ph in NO_INFO_PHRASES):
+        if not chunks or any(ph in answer.lower() for ph in FROZEN_NO_INFO_PHRASES):
             return answer
         cited: set[int] = set()
         for m in re.finditer(r"\[(\d+)\]", answer):

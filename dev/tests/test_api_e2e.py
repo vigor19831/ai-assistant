@@ -6,11 +6,12 @@ Online: real HTTP calls when server detected — validates actual deployment.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
-from unittest.mock import patch as mock_patch
 
 import pytest
 
+from ai_assistant.core.config import AppConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 
 # ── Offline Tests (TestClient) ──
@@ -344,8 +345,11 @@ class TestRAGOffline:
                 "namespace": "invalid",
             },
         )
-        assert resp.status_code == 400
-        assert "Invalid namespace" in resp.json()["detail"]
+        assert resp.status_code == 422
+        # Pydantic 422: detail is a list of validation errors
+        errors = resp.json()["detail"]
+        assert isinstance(errors, list)
+        assert any(e.get("loc") == ["body", "namespace"] for e in errors)
 
     def test_save_chat_default_namespace(
         self, client, mock_state, tmp_path, monkeypatch
@@ -365,39 +369,56 @@ class TestRAGOffline:
         assert resp.status_code == 200
         assert resp.json()["namespace"] == "personal"
 
-    def test_reindex(self, client, tmp_path):
-        async def fake_subprocess(*cmd, **kwargs):
-            mock_proc = MagicMock()
-            mock_proc.communicate = AsyncMock(
-                return_value=(
-                    b"[personal] Done: 3 docs, 15 chunks\n"
-                    b"[work] Done: 2 docs, 8 chunks",
-                    b"",
-                )
-            )
-            mock_proc.returncode = 0
-            return mock_proc
+    def test_reindex_returns_started_immediately(self, client, tmp_path, monkeypatch):
+        """POST /api/v1/rag/reindex returns task_id immediately without blocking."""
+        from ai_assistant.features.rag import indexing as indexing_module
 
-        with mock_patch("asyncio.create_subprocess_exec", side_effect=fake_subprocess):
-            resp = client.post(
-                "/api/v1/rag/reindex",
-                json={"folder": "personal", "clear": True},
-            )
+        monkeypatch.setattr(indexing_module, "DOCUMENTS_ROOT", tmp_path)
+        (tmp_path / "personal").mkdir()
+        (tmp_path / "personal" / "test.md").write_text("hello world")
+
+        resp = client.post(
+            "/api/v1/rag/reindex", json={"folder": "personal", "clear": False}
+        )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["success"] is True
-        assert "personal" in data["results"]
-        assert data["results"]["personal"]["indexed"] == 3
-        assert data["results"]["personal"]["chunks"] == 15
+        assert data["status"] == "started"
+        assert "task_id" in data
 
-    def test_reindex_script_not_found(self, client):
-        with mock_patch(
-            "ai_assistant.features.rag.handlers._resolve_script",
-            side_effect=FileNotFoundError("Script 'scripts.index_documents' not found"),
-        ):
-            resp = client.post("/api/v1/rag/reindex", json={})
-        assert resp.status_code == 500
-        assert "not found" in resp.json()["detail"].lower()
+    def test_reindex_status_unknown_task(self, client):
+        resp = client.get("/api/v1/rag/reindex/status/nonexistent")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "unknown"
+        assert data["task_id"] == "nonexistent"
+
+    def test_reindex_status_running(self, client, tmp_path, monkeypatch):
+        from ai_assistant.features.rag import handlers as handlers_module
+        from ai_assistant.features.rag import indexing as indexing_module
+
+        monkeypatch.setattr(indexing_module, "DOCUMENTS_ROOT", tmp_path)
+        (tmp_path / "personal").mkdir()
+        (tmp_path / "personal" / "test.md").write_text("hello world")
+
+        # Ensure semaphore is free for this test
+        original_sem = handlers_module._reindex_semaphore
+        handlers_module._reindex_semaphore = asyncio.Semaphore(1)
+
+        try:
+            resp = client.post(
+                "/api/v1/rag/reindex", json={"folder": "personal", "clear": False}
+            )
+            assert resp.status_code == 200
+            task_id = resp.json()["task_id"]
+
+            # Status should be running or completed (fast with mocks)
+            status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
+            assert status_resp.status_code == 200
+            status_data = status_resp.json()
+            assert status_data["status"] in ("running", "completed")
+            assert status_data["task_id"] == task_id
+        finally:
+            handlers_module._reindex_semaphore = original_sem
 
 
 class TestImageAnalysisOffline:
@@ -562,3 +583,70 @@ class TestAdminOnline:
         data = resp.json()
         assert "model" in data
         assert "provider" in data
+
+
+def test_main_import_does_not_trigger_load_config(monkeypatch):
+    """Phase 4.4: importing main.py must not call load_config at module level."""
+    import sys
+
+    import ai_assistant.core.config
+
+    call_count = 0
+
+    def counting_load_config(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return ai_assistant.core.config.AppConfig()
+
+    monkeypatch.setattr(ai_assistant.core.config, "load_config", counting_load_config)
+
+    # Выгоняем ТОЛЬКО main.py — api.* и core.config оставляем в кэше,
+    # иначе monkeypatch'и security/deps слетают для следующих тестов.
+    removed = {}
+    for key in list(sys.modules):
+        if key == "ai_assistant.main" or key.startswith("ai_assistant.main."):
+            removed[key] = sys.modules.pop(key, None)
+
+    try:
+        import ai_assistant.main
+
+        assert call_count == 0, (
+            f"load_config was called {call_count} time(s) during import of main.py. "
+            "Module-level config loading is forbidden after phase 4.4."
+        )
+    finally:
+        for key, mod in removed.items():
+            if mod is not None:
+                sys.modules[key] = mod
+
+
+def test_lifespan_reconfigures_middleware_and_mounts_static(client):
+    """Lifespan should reconfigure CORS from config and attempt static mount."""
+    from ai_assistant.main import _static_mounted, app
+
+    # client fixture запустил lifespan → config должен быть в state
+    assert hasattr(app.state, "config")
+    assert isinstance(app.state.config, AppConfig)
+
+    # Middleware должен содержать наши классы (возможно, дублировано,
+    # но главное — не упало с RuntimeError)
+    middleware_names = [m.cls.__name__ for m in app.user_middleware]
+    assert "MetricsMiddleware" in middleware_names
+    assert "APIKeyMiddleware" in middleware_names
+    assert "LimitMiddleware" in middleware_names
+    assert "CORSMiddleware" in middleware_names
+
+    # _static_mounted может быть True или False — зависит от наличия ./ui
+    # Но он должен быть bool, не вызвать ошибку
+    assert isinstance(_static_mounted, bool)
+
+
+def test_middleware_present_at_import_time():
+    """Middleware must be registered when main.py is imported, without load_config."""
+    from ai_assistant.main import app
+
+    middleware_names = [m.cls.__name__ for m in app.user_middleware]
+    assert "MetricsMiddleware" in middleware_names
+    assert "APIKeyMiddleware" in middleware_names
+    assert "LimitMiddleware" in middleware_names
+    assert "CORSMiddleware" in middleware_names

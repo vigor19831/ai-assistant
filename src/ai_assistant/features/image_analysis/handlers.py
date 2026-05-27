@@ -51,6 +51,6 @@ async def analyze_image(
         )
     except HTTPException:
         raise
-    except Exception as exc:
-        _logger.exception("Image analysis failed: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception:
+        _logger.exception("Image analysis failed")
+        raise HTTPException(status_code=500, detail="Internal server error") from None

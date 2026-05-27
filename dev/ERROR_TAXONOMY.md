@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-05-26 11:21 UTC
+> Auto-generated from source code. Updated: 2026-05-27 20:04 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity |
@@ -21,6 +21,7 @@
 | `features.image_analysis.handlers` | `HTTPException` | Unknown error | High |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High |
 | `pipeline.decorators` | `ValueError` | f-string message | High |
+| `api.deps` | `AttributeError` | Handled in get_state | Medium |
 | `api.deps` | `Exception` | Handled in init_adapters | Medium |
 | `api.deps` | `ValueError` | Handled in init_adapters | Medium |
 | `api.lifespan` | `Exception` | Handled in _async_cleanup | Medium |
@@ -72,10 +73,7 @@
 | `features.rag.handlers` | `Exception` | Handled in delete_chunks | Medium |
 | `features.rag.handlers` | `Exception` | Handled in list_namespaces | Medium |
 | `features.rag.handlers` | `Exception` | Handled in save_chat | Medium |
-| `features.rag.handlers` | `Exception` | Handled in reindex_documents | Medium |
-| `features.rag.handlers` | `FileNotFoundError` | Handled in reindex_documents | Medium |
-| `features.rag.handlers` | `TimeoutError` | Handled in reindex_documents | Medium |
-| `features.rag.handlers` | `ValueError/IndexError` | Handled in reindex_documents | Medium |
+| `features.rag.handlers` | `Exception` | Handled in _run | Medium |
 | `features.rag.manager` | `Exception` | Handled in IndexingManager.index_documents | Medium |
 | `features.rag.manager` | `Exception` | Handled in RAGManager.health | Medium |
 | `features.rag.manager` | `ValueError/IndexError` | Handled in RAGManager.query | Medium |
@@ -83,6 +81,5 @@
 | `pipeline.steps` | `Exception` | Handled in retrieve | Medium |
 | `pipeline.steps` | `Exception` | Handled in rerank | Medium |
 | `pipeline.steps` | `Exception` | Handled in generate | Medium |
-| `features.rag.handlers` | `FileNotFoundError` | f-string message | Low |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.

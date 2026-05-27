@@ -114,7 +114,7 @@ def test_chat_stream_json_injection(client):
         assert len(lines) == 1
         payload = lines[0].removeprefix("data: ")
         data = json.loads(payload)
-        assert data["error"] == 'Error with "quotes" and \n newlines'
+        assert data["error"] == "Internal server error"
 
 
 def test_openai_chat_stream_json_injection(client):
@@ -137,4 +137,4 @@ def test_openai_chat_stream_json_injection(client):
         assert len(lines) == 1
         payload = lines[0].removeprefix("data: ")
         data = json.loads(payload)
-        assert data["error"] == 'Error with "quotes" and \n newlines'
+        assert data["error"] == "Internal server error"

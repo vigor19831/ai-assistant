@@ -66,14 +66,7 @@ llm:
   frequency_penalty: 0.0
   stop_sequences: []
   timeout: 300.0
-  n_gpu_layers: 99        # -1 = все на GPU, 0 = CPU only, N = N слоёв на GPU
-  n_batch: 512
-  n_ubatch: 64
-  mmap: true
-  mlock: false
   server_context_size: 4096
-  num_threads: 0          # 0 = авто (все ядра), N = N потоков
-  flash_attn: false       # Flash Attention (ускорение, требует поддержки)
 
 # ── Vector Store ──
 vector_store:

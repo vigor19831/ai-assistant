@@ -62,10 +62,11 @@ class ToolRegistry(IToolRegistry):
             return await tool.execute(call.call_id, call.arguments)
         except (SystemExit, KeyboardInterrupt):
             raise
-        except Exception as e:
+        except Exception:
+            _logger.exception("Tool %s failed", call.tool_name)
             return ToolResult(
                 call_id=call.call_id,
                 output="",
-                error=str(e),
+                error="Tool execution failed",
                 is_error=True,
             )

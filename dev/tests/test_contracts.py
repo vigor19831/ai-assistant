@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -17,11 +17,13 @@ from ai_assistant.core.ports import (
     IVoiceSynthesizer,
     IVectorStore,
 )
+from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.chat.schemas import (
     ChatRequest,
     ChatResponse,
     OAIChatCompletionRequest,
 )
+from ai_assistant.features.rag.manager import RAGManager
 from ai_assistant.features.rag.schemas import IndexRequest, QueryRequest, QueryResponse
 
 
@@ -39,11 +41,18 @@ class TestChatContracts:
         assert OAIChatCompletionRequest(messages=[{"role": "user", "content": None}])
 
     def test_chat_response_structure(self, client):
-        resp = client.post(
-            "/api/v1/chat", json={"message": "contract test", "conversation_id": "t1"}
-        )
-        assert resp.status_code == 200
-        ChatResponse(**resp.json())  # strict pydantic validation
+        with patch.object(
+            ChatManager,
+            "chat",
+            new_callable=AsyncMock,
+            return_value=MagicMock(text="ok", metadata={}, tool_calls=[]),
+        ):
+            resp = client.post(
+                "/api/v1/chat",
+                json={"message": "contract test", "conversation_id": "t1"},
+            )
+            assert resp.status_code == 200
+            ChatResponse(**resp.json())  # strict pydantic validation
 
 
 class TestRAGContracts:
@@ -64,27 +73,40 @@ class TestRAGContracts:
         assert IndexRequest(documents=[{"id": "1"}])
 
     def test_rag_query_response_structure(self, client, mock_state):
-        mock_state.pipeline.run.return_value = MagicMock(
-            chunks=[], response=MagicMock(text="ok"), errors=[]
-        )
-        resp = client.post("/api/v1/rag/query", json={"query": "test"})
-        assert resp.status_code == 200
-        QueryResponse(**resp.json())
+        with patch.object(
+            RAGManager,
+            "query",
+            new_callable=AsyncMock,
+            return_value={
+                "answer": "ok",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+            },
+        ):
+            resp = client.post("/api/v1/rag/query", json={"query": "test"})
+            assert resp.status_code == 200
+            QueryResponse(**resp.json())
 
 
 class TestSSEContract:
     def test_sse_format_compliance(self, client):
-        resp = client.post(
-            "/api/v1/chat/stream", json={"message": "sse test", "conversation_id": "t1"}
-        )
-        assert resp.status_code == 200
-        assert "text/event-stream" in resp.headers["content-type"]
+        async def _fake_stream(*args, **kwargs):
+            yield "hello"
 
-        lines = resp.text.strip().splitlines()
-        for line in lines:
-            if line.startswith("data:"):
-                # Validate SSE data payload isn't raw text leak
-                assert line[5:].strip(), "Empty SSE data chunk"
+        with patch.object(ChatManager, "stream_chat", _fake_stream):
+            resp = client.post(
+                "/api/v1/chat/stream",
+                json={"message": "sse test", "conversation_id": "t1"},
+            )
+            assert resp.status_code == 200
+            assert "text/event-stream" in resp.headers["content-type"]
+
+            lines = resp.text.strip().splitlines()
+            for line in lines:
+                if line.startswith("data:"):
+                    # Validate SSE data payload isn't raw text leak
+                    assert line[5:].strip(), "Empty SSE data chunk"
 
 
 class TestHasattrBan:
@@ -172,3 +194,58 @@ class TestInitAdaptersContracts:
         assert state.long_term_memory is None or isinstance(
             state.long_term_memory, ILongTermMemory
         )
+
+
+def test_llm_config_no_llama_specific_fields():
+    """Verify llama.cpp-specific fields are NOT explicit Pydantic fields."""
+    from ai_assistant.core.config import LLMConfig
+
+    # Patterns that indicate llama.cpp-specific configuration
+    llama_patterns = (
+        "n_gpu",
+        "n_batch",
+        "n_ubatch",
+        "mmap",
+        "mlock",
+        "flash_attn",
+        "split_mode",
+        "cache_type",
+        "rope_scaling",
+        "yarn_",
+        "draft_",
+        "server_context_size",
+        "server_startup_delay",
+        "server_shutdown_timeout",
+        "num_threads",
+        "main_gpu",
+        "tensor_split",
+    )
+
+    for name in LLMConfig.model_fields:
+        assert not any(p in name for p in llama_patterns), (
+            f"LLMConfig.model_fields contains llama field: {name}"
+        )
+
+    # Also verify no such fields exist in instance __dict__ (explicit fields only)
+    cfg = LLMConfig()
+    for attr in dir(cfg):
+        if attr.startswith("_"):
+            continue
+        if any(p in attr for p in llama_patterns):
+            # Must be in model_extra (from YAML), not explicit field
+            assert attr not in cfg.__dict__, (
+                f"LLMConfig has explicit field (not model_extra): {attr}"
+            )
+
+
+from pathlib import Path
+
+PORTS_DIR = (
+    Path(__file__).parent.parent.parent / "src" / "ai_assistant" / "core" / "ports"
+)
+
+
+def test_dead_ports_removed() -> None:
+    """Phase 4.2: events.py and modality.py must be physically deleted."""
+    assert not (PORTS_DIR / "events.py").exists()
+    assert not (PORTS_DIR / "modality.py").exists()

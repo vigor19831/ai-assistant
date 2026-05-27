@@ -108,8 +108,12 @@ def get_context_limit(llm: Any) -> int | None:
     cfg = getattr(llm, "config", None)
     if cfg is None:
         return None
-    for attr in ("server_context_size", "context_size", "max_tokens"):
+        # llama.cpp legacy fields via model_extra (extra="allow")
+    server_ctx = getattr(cfg, "model_extra", {}).get("server_context_size", None)
+    for attr in ("context_size", "max_tokens"):
         limit = getattr(cfg, attr, None)
+        if limit is None and attr == "context_size":
+            limit = server_ctx
         if isinstance(limit, (int, float)) and limit > 0:
             return int(limit)
     return None

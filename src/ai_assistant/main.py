@@ -3,42 +3,17 @@
 from __future__ import annotations
 
 import inspect
-import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from ai_assistant.api.deps import AppState, MetricsMiddleware, get_state
 from ai_assistant.api.lifespan import lifespan
 from ai_assistant.api.router import assemble_routers
-from ai_assistant.api.security import (
-    APIKeyMiddleware,
-    LimitMiddleware,
-    require_api_key,
-)
-from ai_assistant.core.config import AppConfig, load_config
-from ai_assistant.core.logger import get_logger
-
-_logger = get_logger("ai_assistant.main")
-
-
-def _load_config_safe() -> AppConfig:
-    """Load config with graceful fallback to defaults.
-
-    Avoids crashing on import if config.yaml is missing or invalid.
-    """
-    try:
-        return load_config(os.getenv("AI_CONFIG_PATH", "config.yaml"))
-    except Exception as exc:
-        _logger.warning("Failed to load config, using defaults: %s", exc)
-        return AppConfig()
-
-
-_config = _load_config_safe()
+from ai_assistant.api.security import APIKeyMiddleware, LimitMiddleware, require_api_key
 
 app = FastAPI(
     title="AI Assistant",
@@ -47,26 +22,44 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# --- Middleware (added ONCE at import time) ---
 app.add_middleware(MetricsMiddleware)
 app.add_middleware(APIKeyMiddleware)
 app.add_middleware(LimitMiddleware)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_config.cors.allow_origins,
-    allow_credentials=_config.cors.allow_credentials,
-    allow_methods=_config.cors.allow_methods,
-    allow_headers=_config.cors.allow_headers,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Use security.allowed_hosts from loaded config (no YAML reload)
-if _config.security.allowed_hosts and not _config.debug:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=_config.security.allowed_hosts,
-    )
+# --- Routes ---
+for router in assemble_routers():
+    app.include_router(router)
+
+# --- Static files (lazy mount) ---
+_static_mounted = False
 
 
+def _mount_static(config: Any) -> None:
+    """Mount /ui once, only if directory exists."""
+    global _static_mounted
+    if _static_mounted:
+        return
+    static_dir = Path(config.ui.static_path)
+    if not static_dir.is_absolute():
+        static_dir = Path(__file__).parent / static_dir
+    if static_dir.exists():
+        app.mount(
+            "/ui",
+            StaticFiles(directory=str(static_dir), html=True),
+            name="static",
+        )
+        _static_mounted = True
+
+
+# --- Endpoints ---
 @app.get("/")
 async def root() -> dict[str, str]:
     return {"status": "ok"}
@@ -91,8 +84,7 @@ async def _safe_get_state(request: Request) -> AppState | None:
         if inspect.isawaitable(result):
             return await result
         return result
-    except RuntimeError as exc:
-        _logger.debug("Failed to get app state: %s", exc)
+    except RuntimeError:
         return None
 
 
@@ -113,17 +105,3 @@ async def get_info(
     else:
         model = provider
     return {"provider": provider, "model": model}
-
-
-for router in assemble_routers():
-    app.include_router(router)
-
-static_dir = Path(_config.ui.static_path)
-if not static_dir.is_absolute():
-    static_dir = Path(__file__).parent / static_dir
-if static_dir.exists():
-    app.mount(
-        "/ui",
-        StaticFiles(directory=str(static_dir), html=True),
-        name="static",
-    )

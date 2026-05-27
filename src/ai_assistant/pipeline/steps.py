@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import record_metric
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
@@ -46,6 +47,9 @@ class StepContext:
     tool_registry: ToolRegistry | None = None
 
 
+_logger = get_logger("pipeline.steps")
+
+
 def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
     return count_tokens(text, model)
 
@@ -65,8 +69,9 @@ async def embed_query(data: PipelineData, ctx: StepContext) -> PipelineData:
         embeddings = await ctx.embedder.embed([data.query.text])
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
         return replace(data, metadata=new_metadata)
-    except Exception as e:
-        return data.add_error(f"embed_query failed: {e}")
+    except Exception:
+        _logger.exception("embed_query failed")
+        return data.add_error("Internal server error")
 
 
 @step("retrieve")
@@ -83,8 +88,9 @@ async def retrieve(data: PipelineData, ctx: StepContext) -> PipelineData:
         chunks = await ctx.vector_store.search(embedding, top_k=top_k, namespace=namespace)
         record_metric("rag_chunks", len(chunks))
         return data.with_chunks(chunks)
-    except Exception as e:
-        return data.add_error(f"retrieve failed: {e}")
+    except Exception:
+        _logger.exception("retrieve failed")
+        return data.add_error("Internal server error")
 
 
 @step("rerank")
@@ -125,8 +131,9 @@ async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
                 metadata=new_metadata,
             )
 
-    except Exception as e:
-        return data.add_error(f"rerank failed: {e}")
+    except Exception:
+        _logger.exception("rerank failed")
+        return data.add_error("Internal server error")
 
 
 @step("build_context")
@@ -215,8 +222,9 @@ async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
     for _ in range(3):
         try:
             response = await ctx.llm.complete(messages)
-        except Exception as e:
-            return data.add_error(f"generate failed: {e}").with_response(
+        except Exception:
+            _logger.exception("generate failed")
+            return data.add_error("Internal server error").with_response(
                 AssistantMessage(
                     text=("Sorry, I encountered an error generating the response.")
                 )

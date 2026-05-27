@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 
 root = Path(__file__).parent.parent
-cfg_path = root / "config.yaml"
+cfg_path = root.parent / "config.yaml"
 
 print(f"Config exists: {cfg_path.exists()}")
 
@@ -67,6 +67,6 @@ else:
 
 print("\nTroubleshooting:")
 print("  1. Ensure your LLM server is running")
-print("  2. Check config.yaml → llm.api_base or set AI_LLM_API_BASE env var")
+print("  2. Check config.yaml -> llm.api_base or set AI_LLM_API_BASE env var")
 print("  3. Verify the model name matches what the server expects")
 print("  4. Check server logs for errors")

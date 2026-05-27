@@ -13,9 +13,6 @@ from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.logger import get_logger, setup_logging
 from ai_assistant.core.metrics import get_metrics_logger
 from ai_assistant.core.ports import IClosable
-from ai_assistant.core.registry import (
-    create as registry_create,  # noqa: F401 — для тестируемости
-)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -37,9 +34,16 @@ def _load_config() -> AppConfig:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle."""
     config = _load_config()
+    app.state.config = config
+
+    # Mount static files (safe to call here, not middleware)
+    from ai_assistant.main import _mount_static
+
+    _mount_static(config)
+
     setup_logging(
         level="DEBUG" if config.debug else "INFO",
-        log_file=getattr(config, "log_file", "./data/app.log"),
+        log_file=config.log_file if config.log_file is not None else "./data/app.log",
     )
     get_metrics_logger().start()
     state = await init_adapters(config)
@@ -79,17 +83,17 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     await get_metrics_logger().stop()
 
     for attr, name in ((state.llm, "llm"), (state.embedder, "embedder")):
-        if attr and isinstance(attr, IClosable):
+        if attr is not None and isinstance(attr, IClosable):
             try:
                 await attr.shutdown()
-            except Exception as exc:
-                logger.warning("%s shutdown failed: %s", name, exc)
+            except Exception:
+                logger.exception("%s shutdown failed", name)
 
-    index_path = getattr(config.vector_store, "index_path", None)
-    if index_path and state.vector_store:
+    index_path = config.vector_store.index_path if config.vector_store is not None else None
+    if index_path and state.vector_store is not None:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
             for ns in namespaces:
                 await state.vector_store.save(index_path, namespace=ns)
-        except Exception as exc:
-            logger.warning("Index save failed: %s", exc)
+        except Exception:
+            logger.exception("Index save failed")

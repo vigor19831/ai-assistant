@@ -161,3 +161,44 @@ def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
         # Different version → new Environment
         prompts_module.get_prompt("dummy", version="v2", x="c")
         assert MockEnv.call_count == 2
+
+
+class TestConstants:
+    """Tests for core constants."""
+
+    def test_no_info_phrases_is_frozenset(self) -> None:
+        """FROZEN_NO_INFO_PHRASES must be a frozenset of strings."""
+        from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
+
+        assert isinstance(FROZEN_NO_INFO_PHRASES, frozenset)
+        assert all(isinstance(ph, str) for ph in FROZEN_NO_INFO_PHRASES)
+        assert "not enough" in FROZEN_NO_INFO_PHRASES
+        assert "у меня недостаточно" in FROZEN_NO_INFO_PHRASES
+
+
+class TestToolRegistryErrorHandling:
+    """Tests for ToolRegistry.dispatch error handling."""
+
+    async def test_dispatch_logs_exception_on_tool_failure(self) -> None:
+        """Tool raising ValueError must trigger logger.exception with tool name."""
+        from unittest.mock import MagicMock, patch
+
+        from ai_assistant.core.ports.tools import ToolCall
+        from ai_assistant.core.tool_registry import ToolRegistry
+
+        registry = ToolRegistry()
+        mock_tool = MagicMock()
+        mock_tool.spec.name = "failing_tool"
+        mock_tool.execute.side_effect = ValueError("boom")
+
+        registry.register(mock_tool)
+
+        call = ToolCall(tool_name="failing_tool", arguments={}, call_id="call-1")
+
+        with patch("ai_assistant.core.tool_registry._logger.exception") as mock_exc:
+            result = await registry.dispatch(call)
+
+        assert result.is_error is True
+        assert result.error == "Tool execution failed"
+        assert result.output == ""
+        mock_exc.assert_called_once_with("Tool %s failed", "failing_tool")

@@ -358,31 +358,36 @@ def main() -> int:
 
     python = get_python_exe(project_root)
 
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(project_root / "src") + os.pathsep + env.get("PYTHONPATH", "")
+
     print(f"[start] Starting uvicorn on {host}:{port}")
     print("[start] Press Ctrl+C to stop all servers")
 
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(project_root / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.Popen(
+        [
+            python,
+            "-m",
+            "uvicorn",
+            "ai_assistant.main:app",
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        cwd=project_root,
+        env=env,
+    )
+
+    # Write PID so launcher/stop.py can find us
+    server_pid_file = project_root / "data" / "server.pid"
+    server_pid_file.write_text(str(proc.pid), encoding="utf-8")
+
     try:
-        return subprocess.run(
-            [
-                python,
-                "-m",
-                "uvicorn",
-                "ai_assistant.main:app",
-                "--host",
-                host,
-                "--port",
-                str(port),
-            ],
-            cwd=project_root,
-            env=env,
-        ).returncode
+        return proc.wait()
     except KeyboardInterrupt:
         print("\n[start] Shutting down...")
         _cleanup_servers()
         return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    finally:
+        server_pid_file.unlink(missing_ok=True)

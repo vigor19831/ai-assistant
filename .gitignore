@@ -61,3 +61,4 @@ ops/*.pid
 ops/*.log
 dev/.pytest_cache/
 dev/context_build_*.md
+dev/tests_run_*.log

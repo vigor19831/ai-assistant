@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
-import sys
+import time
+import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.api.deps import AppState, get_state
 from ai_assistant.core.logger import get_logger
+from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 from ai_assistant.features.rag.schemas import (
     DeleteRequest,
@@ -22,6 +23,7 @@ from ai_assistant.features.rag.schemas import (
     NamespaceListResponse,
     QueryRequest,
     QueryResponse,
+    SaveChatRequest,
 )
 
 __all__ = ["router"]
@@ -32,18 +34,10 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 
 DOCUMENTS_ROOT = Path("documents")
 
-
-def _resolve_script(name: str) -> Path:
-    """Find script path — src-layout safe."""
-    project_root = Path(__file__).resolve().parents[4]
-    for base in (project_root, project_root / "src", project_root / "ops"):
-        script_path = base / Path(*name.split(".")).with_suffix(".py")
-        if script_path.exists():
-            return script_path
-    spec = importlib.util.find_spec(name)
-    if spec and spec.origin:
-        return Path(spec.origin)
-    raise FileNotFoundError(f"Script {name!r} not found")
+# ── Background reindex coordination ─────────────────────────────────────────
+_reindex_semaphore = asyncio.Semaphore(1)
+_reindex_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
+_reindex_status: dict[str, dict[str, Any]] = {}
 
 
 def _get_indexing_manager(
@@ -81,8 +75,9 @@ async def index_documents(
     if index_path:
         try:
             await state.vector_store.save(index_path, namespace=namespace)
-        except Exception as e:
-            result["errors"].append(f"Auto-save failed: {e}")
+        except Exception:
+            _logger.exception("Auto-save failed")
+            result["errors"].append("Internal server error")
     return IndexResponse(**result, namespace=namespace)
 
 
@@ -133,9 +128,9 @@ async def delete_chunks(
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
-    except Exception as e:
-        _logger.warning("Delete chunks failed: %s", e)
-        errors.append(str(e))
+    except Exception:
+        _logger.exception("Delete chunks failed")
+        errors.append("Internal server error")
     return DeleteResponse(deleted_chunks=deleted, errors=errors)
 
 
@@ -162,8 +157,8 @@ async def list_namespaces(
     if index_path:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
-        except Exception as exc:
-            _logger.debug("List namespaces failed: %s", exc)
+        except Exception:
+            _logger.exception("List namespaces failed")
     if not namespaces:
         namespaces = ["default"]
     return NamespaceListResponse(namespaces=namespaces)
@@ -171,29 +166,12 @@ async def list_namespaces(
 
 @router.post("/save-chat", response_model=None)
 async def save_chat(
-    req: dict[str, Any],
+    req: SaveChatRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> dict[str, Any]:
-    """Save chat content to documents folder and index it."""
-    namespace = req.get("namespace", "personal")
-    filename = req.get("filename", "chat.md")
-    content = req.get("content", "")
-
-    # Validate namespace
-    if namespace not in ("personal", "work", "other"):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid namespace. Use: personal, work, other",
-        )
-
-    # Validate filename: no absolute paths, no traversal
-    if (
-        not filename
-        or filename.startswith(("/", "\\"))
-        or Path(filename).is_absolute()
-        or ".." in Path(filename).parts
-    ):
-        raise HTTPException(status_code=400, detail="Invalid filename")
+    namespace = req.namespace
+    filename = req.filename
+    content = req.content
 
     # Save to documents folder
     folder = DOCUMENTS_ROOT / namespace
@@ -206,8 +184,9 @@ async def save_chat(
 
     try:
         await asyncio.to_thread(file_path.write_text, content, encoding="utf-8")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}") from e
+    except Exception:
+        _logger.exception("Failed to save file")
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
     # Index the saved chat
     try:
@@ -259,67 +238,50 @@ async def reindex_documents(
     req: dict[str, Any],
     state: Annotated[AppState, Depends(get_state)],
 ) -> dict[str, Any]:
-    """Reindex documents from folders. Called from UI button."""
+    """Reindex documents from folders. Returns immediately, runs in background."""
     folder = req.get("folder")
     clear = req.get("clear", False)
 
-    # Dynamic script resolution via importlib
-    try:
-        script_path = _resolve_script("scripts.index_documents")
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    task_id = str(uuid.uuid4())
 
-    cmd = [sys.executable, str(script_path)]
-    if folder:
-        cmd.extend(["--folder", folder])
-    if clear:
-        cmd.append("--clear")
+    async def _run() -> dict[str, Any]:
+        async with _reindex_semaphore:
+            _reindex_status[task_id] = {
+                "status": "running",
+                "started_at": time.time(),
+            }
+            try:
+                result = await index_folder(
+                    folder=folder,
+                    clear=clear,
+                    chunker=state.chunker,
+                    embedder=state.embedder,
+                    vector_store=state.vector_store,
+                )
+                _reindex_status[task_id] = {
+                    "status": "completed",
+                    "result": result,
+                    "finished_at": time.time(),
+                }
+                return result
+            except Exception:
+                _logger.exception("Background reindex failed")
+                _reindex_status[task_id] = {
+                    "status": "failed",
+                    "error": "Internal server error",
+                    "finished_at": time.time(),
+                }
+                raise
 
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(), timeout=300
-        )
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
+    task = asyncio.create_task(_run())
+    _reindex_tasks[task_id] = task
+    return {"status": "started", "task_id": task_id}
 
-        # Parse output
-        output = stdout
-        errors: list[str] = []
-        results: dict[str, Any] = {}
 
-        if proc.returncode != 0:
-            errors.append(stderr or "Unknown error")
-
-        # Parse simple output format: "[namespace] X docs, Y chunks"
-        for line in output.split("\n"):
-            if "Done:" in line:
-                parts = line.strip().split()
-                if len(parts) >= 4:
-                    ns = parts[0].strip("[]")
-                    try:
-                        idx = parts.index("docs,")
-                        docs = int(parts[idx - 1])
-                        chunks = int(parts[idx + 1])
-                        results[ns] = {
-                            "indexed": docs,
-                            "chunks": chunks,
-                        }
-                    except (ValueError, IndexError):
-                        pass
-
-        return {
-            "success": proc.returncode == 0,
-            "results": results,
-            "errors": errors,
-            "output": output,
-        }
-
-    except TimeoutError:
-        raise HTTPException(status_code=504, detail="Indexing timeout") from None
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {e}") from e
+@router.get("/reindex/status/{task_id}", response_model=None)
+async def reindex_status(task_id: str) -> dict[str, Any]:
+    """Get status of a background reindex task."""
+    if task_id in _reindex_status:
+        info = _reindex_status[task_id]
+        return {"task_id": task_id, **info}
+    return {"task_id": task_id, "status": "unknown"}

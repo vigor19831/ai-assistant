@@ -209,7 +209,7 @@ class TestRerank:
             chunks=[Chunk(id="c1", text="test")],
         )
         result = await rerank(data, StepContext(reranker=BrokenReranker()))
-        assert any("rerank failed" in e for e in result.errors)
+        assert any("Internal server error" in e for e in result.errors)
 
 
 class TestGenerate:
@@ -255,7 +255,7 @@ class TestGenerate:
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
         result = await generate(data, StepContext(llm=BrokenLLM()))
-        assert any("generate failed" in e for e in result.errors)
+        assert any("Internal server error" in e for e in result.errors)
 
 
 class TestFullPipeline:
