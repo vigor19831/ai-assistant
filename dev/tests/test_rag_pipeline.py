@@ -10,7 +10,6 @@ from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.pipeline.steps import (
-    StepContext,
     build_context,
     embed_query,
     generate,
@@ -59,21 +58,23 @@ class TestEmbedQuery:
     async def test_embed_query_success(self):
         embedder = FakeEmbedder()
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await embed_query(data, StepContext(embedder=embedder))
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        result = await embed_query(data)
         assert "query_embedding" in result.metadata
         assert len(result.metadata["query_embedding"]) == embedder.dimension
 
     @pytest.mark.asyncio
     async def test_embed_query_no_embedder(self):
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await embed_query(data, StepContext())
+        result = await embed_query(data)
         assert any("embedder not provided" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_embed_query_no_query(self):
         embedder = FakeEmbedder()
         data = PipelineData()
-        result = await embed_query(data, StepContext(embedder=embedder))
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        result = await embed_query(data)
         assert any("no query text" in e for e in result.errors)
 
 
@@ -92,7 +93,8 @@ class TestRetrieve:
                 "namespace": "test",
             },
         )
-        result = await retrieve(data, StepContext(vector_store=store))
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        result = await retrieve(data)
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
 
@@ -102,14 +104,15 @@ class TestRetrieve:
             query=UserMessage(text="hello"),
             metadata={"query_embedding": [0.0, 1.0, 0.0]},
         )
-        result = await retrieve(data, StepContext())
+        result = await retrieve(data)
         assert any("vector_store not provided" in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_retrieve_no_embedding(self):
         store = FakeVectorStore()
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await retrieve(data, StepContext(vector_store=store))
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        result = await retrieve(data)
         assert any("no query embedding" in e for e in result.errors)
 
 
@@ -123,14 +126,14 @@ class TestBuildContext:
                 Chunk(id="c2", text="chunk two"),
             ],
         )
-        result = await build_context(data, StepContext())
+        result = await build_context(data)
         assert "chunk one" in result.context
         assert "chunk two" in result.context
 
     @pytest.mark.asyncio
     async def test_build_context_empty(self):
         data = PipelineData(query=UserMessage(text="hello"))
-        result = await build_context(data, StepContext())
+        result = await build_context(data)
         assert result.context == ""
 
     @pytest.mark.asyncio
@@ -139,7 +142,7 @@ class TestBuildContext:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="valid"), Chunk(id="c2", text="")],
         )
-        result = await build_context(data, StepContext())
+        result = await build_context(data)
         assert result.context == "valid"
 
 
@@ -154,7 +157,8 @@ class TestRerank:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="test")],
         )
-        result = await rerank(data, StepContext(reranker=FakeReranker()))
+        data = replace(data, metadata={**data.metadata, "reranker": FakeReranker()})
+        result = await rerank(data)
         assert len(result.chunks) == 1
         assert result.metadata.get("rerank_scores") == [0.9]
 
@@ -164,7 +168,7 @@ class TestRerank:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="test")],
         )
-        result = await rerank(data, StepContext())
+        result = await rerank(data)
         assert len(result.chunks) == 1
 
     @pytest.mark.asyncio
@@ -180,7 +184,8 @@ class TestRerank:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="high"), Chunk(id="c2", text="low")],
         )
-        result = await rerank(data, StepContext(reranker=FakeReranker()))
+        data = replace(data, metadata={**data.metadata, "reranker": FakeReranker()})
+        result = await rerank(data)
         assert len(result.chunks) == 1
         assert result.chunks[0].text == "high"
 
@@ -194,7 +199,8 @@ class TestRerank:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="low")],
         )
-        result = await rerank(data, StepContext(reranker=FakeReranker()))
+        data = replace(data, metadata={**data.metadata, "reranker": FakeReranker()})
+        result = await rerank(data)
         assert result.chunks == []
         assert result.metadata.get("rerank_filtered_out") is True
 
@@ -208,7 +214,8 @@ class TestRerank:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="test")],
         )
-        result = await rerank(data, StepContext(reranker=BrokenReranker()))
+        data = replace(data, metadata={**data.metadata, "reranker": BrokenReranker()})
+        result = await rerank(data)
         assert any("Internal server error" in e for e in result.errors)
 
 
@@ -221,7 +228,8 @@ class TestGenerate:
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
         llm = FakeLLM("answer")
-        result = await generate(data, StepContext(llm=llm))
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        result = await generate(data)
         assert result.response is not None
         assert result.response.text == "answer"
 
@@ -231,7 +239,7 @@ class TestGenerate:
             query=UserMessage(text="q"),
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
-        result = await generate(data, StepContext())
+        result = await generate(data)
         assert any("llm not provided" in e for e in result.errors)
 
     @pytest.mark.asyncio
@@ -240,7 +248,8 @@ class TestGenerate:
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
         llm = FakeLLM()
-        result = await generate(data, StepContext(llm=llm))
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        result = await generate(data)
         assert any("no query" in e for e in result.errors)
 
     @pytest.mark.asyncio
@@ -254,7 +263,8 @@ class TestGenerate:
             chunks=[Chunk(id="c1", text="context")],
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
-        result = await generate(data, StepContext(llm=BrokenLLM()))
+        data = replace(data, metadata={**data.metadata, "llm": BrokenLLM()})
+        result = await generate(data)
         assert any("Internal server error" in e for e in result.errors)
 
 
@@ -302,11 +312,14 @@ class TestFullPipeline:
             },
         )
 
-        data = await embed_query(data, StepContext(embedder=embedder))
-        data = await retrieve(data, StepContext(vector_store=store))
-        data = await build_context(data, StepContext())
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        data = await embed_query(data)
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        data = await retrieve(data)
+        data = await build_context(data)
         llm = FakeLLM("Paris")
-        data = await generate(data, StepContext(llm=llm))
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        data = await generate(data)
 
         assert data.response is not None
         assert "Paris" in (data.response.text or "")
@@ -336,10 +349,13 @@ class TestFullPipeline:
         )
 
         embedder = FakeEmbedder(3)
-        data = await embed_query(data, StepContext(embedder=embedder))
-        data = await retrieve(data, StepContext(vector_store=store))
-        data = await build_context(data, StepContext())
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        data = await embed_query(data)
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        data = await retrieve(data)
+        data = await build_context(data)
         llm = FakeLLM("no info")
-        data = await generate(data, StepContext(llm=llm))
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        data = await generate(data)
 
         assert data.response is not None

@@ -41,9 +41,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _mount_static(config)
 
+    log_file = getattr(config, "log_file", None)
+    if log_file is None:
+        log_file = "./data/app.log"
     setup_logging(
-        level="DEBUG" if config.debug else "INFO",
-        log_file=config.log_file if config.log_file is not None else "./data/app.log",
+        level="DEBUG" if getattr(config, "debug", False) else "INFO",
+        log_file=log_file,
     )
     get_metrics_logger().start()
     state = await init_adapters(config)
@@ -80,16 +83,9 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         await get_metrics_logger().stop()
         return
 
-    await get_metrics_logger().stop()
-
-    for attr, name in ((state.llm, "llm"), (state.embedder, "embedder")):
-        if attr is not None and isinstance(attr, IClosable):
-            try:
-                await attr.shutdown()
-            except Exception:
-                logger.exception("%s shutdown failed", name)
-
-    index_path = config.vector_store.index_path if config.vector_store is not None else None
+    # 1. Persist indices FIRST — metrics/adapter shutdown may block/hang
+    vs_cfg = getattr(config, "vector_store", None)
+    index_path = vs_cfg.index_path if vs_cfg is not None else None
     if index_path and state.vector_store is not None:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
@@ -97,3 +93,14 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                 await state.vector_store.save(index_path, namespace=ns)
         except Exception:
             logger.exception("Index save failed")
+
+    # 2. Graceful adapter shutdown
+    for attr, name in ((state.llm, "llm"), (state.embedder, "embedder")):
+        if attr is not None and isinstance(attr, IClosable):
+            try:
+                await attr.shutdown()
+            except Exception:
+                logger.exception("%s shutdown failed", name)
+
+    # 3. Metrics last — may hang until timeout
+    await get_metrics_logger().stop()

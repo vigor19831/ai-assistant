@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
@@ -22,7 +23,6 @@ from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.utils import count_tokens, get_context_limit
 from ai_assistant.pipeline.steps import (
-    StepContext,
     build_context,
     embed_query,
     retrieve,
@@ -161,9 +161,17 @@ class ChatManager:
             },
         )
 
-        data = await embed_query(data, StepContext(embedder=self.embedder))
-        data = await retrieve(data, StepContext(vector_store=self.vector_store))
-        data = await build_context(data, StepContext())
+        data = replace(
+            data,
+            metadata={
+                **data.metadata,
+                "embedder": self.embedder,
+                "vector_store": self.vector_store,
+            },
+        )
+        data = await embed_query(data)
+        data = await retrieve(data)
+        data = await build_context(data)
 
         if not data.chunks:
             # Возвращаем query_text (без префикса), а не message (с префиксом)
@@ -322,7 +330,11 @@ class ChatManager:
             len(response.text or ""),
         )
 
-        response = AssistantMessage(text=self._append_rag_sources(response.text or "", rag_chunks), metadata=response.metadata, tool_calls=response.tool_calls)
+        response = AssistantMessage(
+            text=self._append_rag_sources(response.text or "", rag_chunks),
+            metadata=response.metadata,
+            tool_calls=response.tool_calls,
+        )
 
         if self.storage:
             try:

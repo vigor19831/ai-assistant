@@ -146,7 +146,14 @@ class RAGManager:
                 "relevance_threshold": relevance_threshold,
             },
         )
-        result = await self.pipeline.run(data)
+        # Inject pipeline dependencies into metadata
+        deps = {
+            "embedder": self.embedder,
+            "vector_store": self.vector_store,
+            "reranker": self.reranker,
+            "llm": self.llm,
+        }
+        result = await self.pipeline.run(data, metadata=deps)
 
         answer: str = (result.response.text or "") if result.response else " "
 
@@ -164,7 +171,11 @@ class RAGManager:
             for idx in sorted(cited_indices):
                 if 0 <= idx < len(result.chunks):
                     chunk = result.chunks[idx]
-                    src = chunk.metadata.source if chunk.metadata is not None else "unknown"  # type: ignore[union-attr]
+                    src = (
+                        chunk.metadata.source
+                        if chunk.metadata is not None
+                        else "unknown"
+                    )  # type: ignore[union-attr]
                     src_lines.append(f"[{idx + 1}] {src}")
 
             if src_lines:

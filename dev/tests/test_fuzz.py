@@ -10,7 +10,6 @@ from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.pipeline.steps import build_context
-from ai_assistant.pipeline.steps import StepContext
 
 
 class TestFuzzPipeline:
@@ -23,7 +22,7 @@ class TestFuzzPipeline:
     async def test_build_context_edge_cases(self, text):
         """build_context handles any text safely."""
         data = PipelineData(query=UserMessage(text="q"))
-        result = await build_context(data, StepContext())
+        result = await build_context(data)
         assert isinstance(result.context, str)
 
     @seed(42)
@@ -36,7 +35,7 @@ class TestFuzzPipeline:
             query=UserMessage(text="q"),
             chunks=[Chunk(id=f"c{i}", text=t) for i, t in enumerate(chunks)],
         )
-        result = await build_context(data, StepContext())
+        result = await build_context(data)
         assert isinstance(result.context, str)
         # Context is empty if all chunks have empty/None text
         non_empty_texts = [t for t in chunks if t]

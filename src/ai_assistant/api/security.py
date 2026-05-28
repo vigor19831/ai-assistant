@@ -40,13 +40,18 @@ bearer_scheme = HTTPBearer(auto_error=False)
 _override_api_key: str | None = None
 _lock = threading.Lock()
 
-_PUBLIC_PATHS: frozenset[str] = frozenset({
-    "/",
-    "/health",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
-})
+_PUBLIC_PATHS: frozenset[str] = frozenset(
+    {
+        "/",
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+    }
+)
+
+
+_MAX_TRACKED_IPS = 10_000
 
 
 class SecurityLimiter:
@@ -76,6 +81,20 @@ class SecurityLimiter:
         self.requests[ip] = [t for t in self.requests[ip] if t > now - self.window]
         if not self.requests[ip]:
             del self.requests[ip]
+
+        # OOM protection: evict stale entries and enforce hard cap
+        if len(self.requests) >= _MAX_TRACKED_IPS:
+            expired = [
+                k
+                for k, ts in self.requests.items()
+                if not ts or ts[-1] <= now - self.window
+            ]
+            for k in expired:
+                del self.requests[k]
+            if len(self.requests) >= _MAX_TRACKED_IPS:
+                oldest_ip = min(self.requests, key=lambda k: self.requests[k][-1])
+                del self.requests[oldest_ip]
+
         current = self.requests.get(ip, [])
         if len(current) >= self.max_req:
             return False

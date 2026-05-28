@@ -11,6 +11,7 @@
 If you catch yourself doing any of the following in an adapter or feature:
 - Using `**kwargs` to pass data that should be typed in `PipelineData`
 - `hasattr()` checks to bypass a port contract
+- `isinstance()` checks to verify port compliance in production code (tests may use it for contract validation only)
 - `try/except` around expected port behavior
 - Ignoring a port's return type or mutating input dataclasses in-place
 - Adding `if adapter_name == "specific"` branching inside a feature
@@ -29,6 +30,13 @@ If you catch yourself doing any of the following in an adapter or feature:
 - Features (`chat`, `rag`, `image_analysis`) import only from `api.deps`, `core.*`, and their own package.
 - Cross-feature imports are forbidden.
 - Features do not instantiate adapters directly; they receive them via `AppState`.
+
+## Import Discipline
+- `api/` may import `core/` and `adapters/` (for eager registration side-effects)
+- `adapters/` may import `core/` only
+- `features/` may import `api.deps`, `core.*`, and their own package
+- `core/` imports nothing from `api/`, `features/`, `adapters/`
+- Circular imports between layers are forbidden
 
 ## When Core Must Change
 - A new feature is physically impossible without extending a port (e.g., streaming embeddings).
@@ -50,6 +58,22 @@ If you catch yourself doing any of the following in an adapter or feature:
    - Update `test_core_critical.py`, `test_contracts.py`
    - Add `## Breaking Changes` section in response
    - Run `python dev/scripts/context_build.py`
+   - Update `dev/AI_RULES.md` if guardrails changed
+
+## Resilience & Retries
+- All external network calls must have hard timeout
+- All external calls must use retry with exponential backoff (`core/retry.py`)
+- Operations must be idempotent (safe to call twice with same data)
+
+## Error Mapping
+- Adapters catch library-specific exceptions (httpx.TimeoutException, sqlite3.Error, faiss.Error)
+- Wrap into core domain exceptions (`AdapterError`, `ConfigurationError`, `VersionMismatchError`)
+- Business logic knows only core exceptions, never infrastructure ones
+
+## Graceful Shutdown
+- On SIGINT/SIGTERM: stop accepting requests, finish active tasks, close DB connections, persist indices
+- `IClosable.shutdown()` for adapters requiring cleanup
+- Metrics logger stopped last (may hang until timeout)
 
 ## Solo Project Guardrails — What Not To Do
 &gt; These constraints exist to keep the project maintainable by a single developer for decades.  

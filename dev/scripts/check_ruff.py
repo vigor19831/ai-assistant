@@ -1,54 +1,51 @@
 #!/usr/bin/env python3
-"""Run ruff linter and formatter – auto-fix by default (excludes .venv).
+"""Run ruff linter and formatter — auto-fix by default.
 
 Usage:
     python dev/scripts/check_ruff.py            # auto-fix lint + format
     python dev/scripts/check_ruff.py --check    # only check, no auto-fix
-    python dev/scripts/check_ruff.py --watch    # additional ruff arguments
 """
 
-from __future__ import annotations
-
+import argparse
 import subprocess
 import sys
 from pathlib import Path
 
 
-def run_ruff(command: list[str], cwd: Path) -> int:
-    print(f"Running: {' '.join(command)}")
-    result = subprocess.run(command, cwd=cwd)
-    return result.returncode
-
-
 def main() -> int:
-    project_root = Path(__file__).resolve().parent.parent
+    parser = argparse.ArgumentParser(description="Run ruff linter and formatter")
+    parser.add_argument("--check", action="store_true", help="Only check, no auto-fix")
+    args = parser.parse_args()
 
-    # Определяем режим: если есть --check, то только проверка
-    args = sys.argv[1:]
-    check_mode = "--check" in args
-    # Убираем --check из аргументов, чтобы не передавать его ruff
-    extra_args = [a for a in args if a != "--check"]
+    project_root = Path(__file__).resolve().parent.parent.parent
 
     exit_code = 0
 
     # 1. Lint
-    lint_cmd = [sys.executable, "-m", "ruff", "check"]
-    if check_mode:
-        # просто проверка без исправлений
-        lint_cmd.append("--check")
-    else:
-        lint_cmd.append("--fix")
-    lint_cmd.append(str(project_root))
-    lint_cmd.extend(extra_args)
-    lint_cmd.append(str(project_root.parent))
+    lint_cmd = [
+        sys.executable,
+        "-m",
+        "ruff",
+        "check",
+        "--fix" if not args.check else "--no-fix",
+        str(project_root),
+    ]
+    print(f"Running: {' '.join(lint_cmd)}")
+    result = subprocess.run(lint_cmd, cwd=project_root)
+    exit_code |= result.returncode
 
     # 2. Format
-    format_cmd = [sys.executable, "-m", "ruff", "format"]
-    if check_mode:
-        format_cmd.append("--check")
-    format_cmd.append(str(project_root))
-    format_cmd.extend(extra_args)  # не все флаги подходят, но пусть пробрасывает
-    exit_code |= run_ruff(format_cmd, project_root)
+    format_cmd = [
+        sys.executable,
+        "-m",
+        "ruff",
+        "format",
+        "--check" if args.check else "--",
+        str(project_root),
+    ]
+    print(f"Running: {' '.join(format_cmd)}")
+    result = subprocess.run(format_cmd, cwd=project_root)
+    exit_code |= result.returncode
 
     return exit_code
 

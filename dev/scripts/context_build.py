@@ -10,22 +10,18 @@ Modes:
 Output: dev/context_build_{mode}.md (relative to project root).
 """
 
-from __future__ import annotations
-
 import argparse
 import ast
 import fnmatch
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
 
-# ──────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION
-# ──────────────────────────────────────────────────────────────────────────────
 
-EXCLUDED_DIRS: Set[str] = {
+EXCLUDED_DIRS: set[str] = {
     ".git",
     "__pycache__",
     ".pytest_cache",
@@ -45,7 +41,7 @@ EXCLUDED_DIRS: Set[str] = {
     "build",
 }
 
-ALWAYS_SKIP_PATTERNS: List[str] = [
+ALWAYS_SKIP_PATTERNS: list[str] = [
     "*.pyc",
     "*.pyo",
     "*.so",
@@ -78,7 +74,7 @@ ALWAYS_SKIP_PATTERNS: List[str] = [
 ]
 
 # P0: Critical — contracts, API, domain, entry point, config, core implementation
-CRITICAL_PATTERNS: List[str] = [
+CRITICAL_PATTERNS: list[str] = [
     "config.yaml",
     "pyproject.toml",
     ".gitignore",
@@ -100,7 +96,7 @@ CRITICAL_PATTERNS: List[str] = [
 ]
 
 # P1: Adapters and tests — AST signatures with 🔒 markers
-SIGNATURE_PATTERNS: List[str] = [
+SIGNATURE_PATTERNS: list[str] = [
     "src/ai_assistant/adapters/*.py",
     "src/ai_assistant/features/**/manager.py",
     "dev/tests/test_*.py",
@@ -109,7 +105,7 @@ SIGNATURE_PATTERNS: List[str] = [
 ]
 
 # Known unknowns: files with hidden complexity that AI MUST request before modifying
-KNOWN_UNKNOWNS: List[Tuple[str, str]] = [
+KNOWN_UNKNOWNS: list[tuple[str, str]] = [
     (
         "src/ai_assistant/adapters/llm_openai_compatible.py",
         "SSE parsing, retry logic, tool call extraction, JSON schema validation",
@@ -176,9 +172,9 @@ KNOWN_UNKNOWNS: List[Tuple[str, str]] = [
     ),
 ]
 
-ALREADY_EMBEDDED: Set[str] = {"README.md", "dev/AI_RULES.md"}
+ALREADY_EMBEDDED: set[str] = {"README.md", "dev/AI_RULES.md", "dev/README_DEV.md"}
 
-DEFAULT_OUTPUT: Dict[str, str] = {
+DEFAULT_OUTPUT: dict[str, str] = {
     "compact": "context_build_compact.md",
     "full": "context_build_full.md",
 }
@@ -197,9 +193,7 @@ Configuration resolution order (highest to lowest priority):
 > Never commit API keys to `config.yaml`.
 """
 
-# ──────────────────────────────────────────────────────────────────────────────
 # HELPERS
-# ──────────────────────────────────────────────────────────────────────────────
 
 
 def find_project_root() -> Path:
@@ -223,8 +217,8 @@ def should_skip_file(rel_path: str) -> bool:
     return False
 
 
-def resolve_patterns(root: Path, patterns: List[str]) -> Set[str]:
-    matched: Set[str] = set()
+def resolve_patterns(root: Path, patterns: list[str]) -> set[str]:
+    matched: set[str] = set()
     for pat in patterns:
         pat_os = pat.replace("/", os.sep)
         if "**" in pat:
@@ -248,9 +242,9 @@ def count_loc(text: str) -> int:
 
 def _extract_tags(
     node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
-) -> List[str]:
+) -> list[str]:
     """Extract inline semantic tags from decorators and naming heuristics."""
-    tags: List[str] = []
+    tags: list[str] = []
     name = getattr(node, "name", "")
 
     for dec in node.decorator_list:
@@ -287,7 +281,7 @@ def _is_known_unknown(rel_path: str) -> str | None:
 
 
 # Methods that typically have hidden complex implementation
-_HIDDEN_IMPL_METHODS: Set[str] = {
+_HIDDEN_IMPL_METHODS: set[str] = {
     "complete",
     "stream",
     "embed",
@@ -307,8 +301,6 @@ _HIDDEN_IMPL_METHODS: Set[str] = {
     "chunk",
     "shutdown",
     "init_db",
-    "transcribe",
-    "synthesize",
     "analyze",
     "index_documents",
     "query",
@@ -325,7 +317,7 @@ def extract_api_surface(source: str, rel_path: str) -> str:
     except SyntaxError as exc:
         return f"# ⚠️ Syntax error in {rel_path}: {exc}\n"
 
-    lines: List[str] = [f"# API Surface: {rel_path}", ""]
+    lines: list[str] = [f"# API Surface: {rel_path}", ""]
 
     # Add known unknown hint if applicable
     unknown_hint = _is_known_unknown(rel_path)
@@ -398,8 +390,8 @@ def extract_api_surface(source: str, rel_path: str) -> str:
     return "\n".join(lines)
 
 
-def get_excluded_manifest(root: Path) -> List[Tuple[str, str, List[str]]]:
-    manifests: List[Tuple[str, str, List[str]]] = []
+def get_excluded_manifest(root: Path) -> list[tuple[str, str, list[str]]]:
+    manifests: list[tuple[str, str, list[str]]] = []
     purposes = {
         "data": "Indexed documents, tokenizers, metrics, PID files",
         "documents": "Source documents for RAG indexing (personal, work, other)",
@@ -410,7 +402,7 @@ def get_excluded_manifest(root: Path) -> List[Tuple[str, str, List[str]]]:
         p = root / name
         if not p.exists():
             continue
-        items: List[str] = []
+        items: list[str] = []
         try:
             for child in sorted(p.iterdir()):
                 items.append(f"{child.name}/" if child.is_dir() else child.name)
@@ -447,18 +439,18 @@ def get_file_group(rel_path: str) -> str:
     return "📦 Other"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # SCAN & BUILD
-# ──────────────────────────────────────────────────────────────────────────────
 
 
-def scan_project(root: Path, mode: str) -> Tuple[List, List, List, dict]:
+def scan_project(
+    root: Path, mode: str
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[tuple[str, str | None]], dict]:
     critical_set = resolve_patterns(root, CRITICAL_PATTERNS)
     signature_set = resolve_patterns(root, SIGNATURE_PATTERNS)
 
-    critical_files: List[Tuple[str, str]] = []
-    signature_files: List[Tuple[str, str]] = []
-    other_files: List[Tuple[str, str | None]] = []
+    critical_files: list[tuple[str, str]] = []
+    signature_files: list[tuple[str, str]] = []
+    other_files: list[tuple[str, str | None]] = []
     metrics = {"total_files": 0, "py_files": 0, "total_loc": 0, "py_loc": 0}
 
     for dirpath, dirnames, filenames in os.walk(root):
@@ -502,9 +494,9 @@ def scan_project(root: Path, mode: str) -> Tuple[List, List, List, dict]:
 def build_markdown(
     root: Path,
     mode: str,
-    critical: List[Tuple[str, str]],
-    signature: List[Tuple[str, str]],
-    other: List[Tuple[str, str | None]],
+    critical: list[tuple[str, str]],
+    signature: list[tuple[str, str]],
+    other: list[tuple[str, str | None]],
     metrics: dict,
 ) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -525,7 +517,7 @@ def build_markdown(
 
     excluded_manifests = get_excluded_manifest(root)
 
-    lines: List[str] = []
+    lines: list[str] = []
 
     # Header
     lines.append("# AI Context: AI Assistant")
@@ -564,6 +556,24 @@ def build_markdown(
     lines.append("---")
     lines.append("")
 
+    # README_DEV.md block
+    readme_dev_path = root / "dev" / "README_DEV.md"
+    readme_dev = (
+        readme_dev_path.read_text(encoding="utf-8", errors="replace")
+        if readme_dev_path.exists()
+        else "*README_DEV.md not found*"
+    )
+    lines.append("## 🛠️ DEVELOPER WORKSPACE")
+    lines.append("> Auto-extracted from: `dev/README_DEV.md`")
+    lines.append("> **Workflow, scripts, troubleshooting for solo development.**")
+    lines.append("")
+    lines.append("```markdown")
+    lines.append(readme_dev)
+    lines.append("```")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
     # 3. Env Priority
     lines.append(ENV_PRIORITY_BLOCK)
     lines.append("")
@@ -577,8 +587,9 @@ def build_markdown(
     included = {r for r, _ in critical}
     if mode == "compact":
         included.update(r for r, _ in signature)
-    included.update(r for r, _ in other if mode == "full")
-    included.update(r for r, c in other if mode == "compact")
+        included.update(r for r, c in other if c is not None)
+    else:
+        included.update(r for r, c in other if c is not None)
     for r in sorted(included):
         lines.append(f"- `{r}`")
     lines.append("")
@@ -765,19 +776,15 @@ def build_markdown(
     return "\n".join(lines)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 # MAIN
-# ──────────────────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
-    # ── Auto-update ERROR_TAXONOMY.md before building context ──
+def main() -> int:
+    # Auto-update ERROR_TAXONOMY.md before building context
     try:
         script_dir = Path(__file__).resolve().parent
         taxonomy_script = script_dir / "error_taxonomy_build.py"
         if taxonomy_script.exists():
-            import subprocess
-
             result = subprocess.run(
                 [sys.executable, str(taxonomy_script)],
                 capture_output=True,
@@ -801,7 +808,6 @@ def main() -> None:
             f"[context_build] WARNING: Could not auto-update taxonomy: {exc}",
             file=sys.stderr,
         )
-    # ── End auto-update ──
 
     parser = argparse.ArgumentParser(
         description="Build AI context document for the project."
@@ -876,7 +882,8 @@ def main() -> None:
     # Print relative path for readability
     rel_out = out_path.relative_to(root)
     print(f"[context_build] Written: {rel_out} ({len(md):,} chars)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

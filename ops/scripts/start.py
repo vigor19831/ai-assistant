@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import sys
+print(f"[DEBUG] Python: {sys.executable}", flush=True)
+print(f"[DEBUG] sys.path: {sys.path[:3]}", flush=True)
+
 import atexit
 import os
 import shutil
@@ -15,8 +19,21 @@ from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
 
-import httpx
-import yaml
+print("[DEBUG] stdlib imports ok", flush=True)
+
+try:
+    import httpx
+    print("[DEBUG] httpx imported", flush=True)
+except Exception as e:
+    print(f"[DEBUG] httpx import FAILED: {e}", flush=True)
+    sys.exit(1)
+
+try:
+    import yaml
+    print("[DEBUG] yaml imported", flush=True)
+except Exception as e:
+    print(f"[DEBUG] yaml import FAILED: {e}", flush=True)
+    sys.exit(1)
 
 # ── Platform-specific executable name ──
 LLAMA_SERVER_EXE = "llama-server.exe" if os.name == "nt" else "llama-server"
@@ -58,8 +75,11 @@ def _cleanup_servers() -> None:
         pid_file.unlink(missing_ok=True)
 
     for proc in list(_spawned_procs):
-        if proc.poll() is None:
-            _kill_process_tree(proc.pid)
+        try:
+            if proc.poll() is None:
+                _kill_process_tree(proc.pid)
+        except Exception:
+            pass
         try:
             _spawned_procs.remove(proc)
         except ValueError:
@@ -332,6 +352,7 @@ def _check_embedder_server(config: dict[str, Any]) -> bool:
 
 
 def main() -> int:
+    print("[start] Launcher starting...", flush=True)
     atexit.register(_cleanup_servers)
 
     project_root = Path(__file__).parent.parent.parent.resolve()
@@ -341,19 +362,23 @@ def main() -> int:
     port = config.get("port", 8000)
     host = config.get("host", "127.0.0.1")
 
+    print(f"[start] Config loaded: host={host}, port={port}", flush=True)
+    print(f"[start] LLM provider: {config.get('llm', {}).get('provider', 'unknown')}", flush=True)
+    print(f"[start] Embedder provider: {config.get('embedder', {}).get('provider', 'unknown')}", flush=True)
+
     import concurrent.futures
 
     def _ensure_llm() -> bool:
         if _check_llm_server(config):
             return True
-        print("[start] LLM server not detected — attempting auto-start...")
+        print("[start] LLM server not detected — attempting auto-start...", flush=True)
         _start_llm_server(config)
         return _check_llm_server(config)
 
     def _ensure_emb() -> bool:
         if _check_embedder_server(config):
             return True
-        print("[start] Embedder server not detected — attempting auto-start...")
+        print("[start] Embedder server not detected — attempting auto-start...", flush=True)
         _start_embedder_server(config)
         return _check_embedder_server(config)
 
@@ -364,24 +389,27 @@ def main() -> int:
         emb_ok = emb_future.result()
 
     if not llm_ok:
-        print("[start] WARNING: LLM server unavailable. Framework will use mock/fallback.")
-        print(f"[start] Start manually: {LLAMA_SERVER_EXE} -m model.gguf --port 8080")
+        print("[start] WARNING: LLM server unavailable. Framework will use mock/fallback.", flush=True)
+        print(f"[start] Start manually: {LLAMA_SERVER_EXE} -m model.gguf --port 8080", flush=True)
 
     if not emb_ok:
-        print("[start] WARNING: Embedder server unavailable. RAG features disabled.")
+        print("[start] WARNING: Embedder server unavailable. RAG features disabled.", flush=True)
 
     # ── Start uvicorn ──
     if is_port_in_use(port):
-        print(f"WARNING: Port {port} is already in use!")
+        print(f"[start] WARNING: Port {port} is already in use!", flush=True)
+        print("[start] Kill existing process or use a different port", flush=True)
         return 1
+
+    print(f"[start] Port {port} is free", flush=True)
 
     python = get_python_exe(project_root)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(project_root / "src") + os.pathsep + env.get("PYTHONPATH", "")
 
-    print(f"[start] Starting uvicorn on {host}:{port}")
-    print("[start] Press Ctrl+C to stop all servers")
+    print(f"[start] Starting uvicorn on {host}:{port}", flush=True)
+    print("[start] Press Ctrl+C to stop all servers", flush=True)
 
     proc = subprocess.Popen(
         [
@@ -402,11 +430,19 @@ def main() -> int:
     server_pid_file = project_root / "data" / "server.pid"
     server_pid_file.write_text(str(proc.pid), encoding="utf-8")
 
+    print(f"[start] Uvicorn PID: {proc.pid}", flush=True)
+    print(f"[start] Server ready at http://{host}:{port}", flush=True)
+
     try:
         return proc.wait()
     except KeyboardInterrupt:
-        print("\n[start] Shutting down...")
+        print("\n[start] Shutting down...", flush=True)
         _cleanup_servers()
         return 0
     finally:
         server_pid_file.unlink(missing_ok=True)
+        print("[start] Cleanup complete", flush=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

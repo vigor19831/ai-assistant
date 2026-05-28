@@ -54,7 +54,6 @@ if TYPE_CHECKING:
         IVoiceRecognizer,
         IVoiceSynthesizer,
     )
-    from ai_assistant.pipeline.steps import StepContext
 
 __all__ = [
     "AppState",
@@ -150,7 +149,9 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
             except Exception:
                 _logger.exception("Calculator tool not available")
 
-            state.chunker = _registry.create("chunker", cfg.chunker.provider, cfg.chunker)
+            state.chunker = _registry.create(
+                "chunker", cfg.chunker.provider, cfg.chunker
+            )
             state.embedder = _registry.create(
                 "embedder", cfg.embedder.provider, cfg.embedder
             )
@@ -190,7 +191,9 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
                 await state.storage.init_db()
 
             try:
-                state.long_term_memory = _registry.create("memory", "sqlite", cfg.storage)
+                state.long_term_memory = _registry.create(
+                    "memory", "sqlite", cfg.storage
+                )
             except Exception:
                 _logger.exception("Long-term memory not available")
                 state.long_term_memory = None
@@ -213,7 +216,9 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
                 )
 
             if cfg.vision.enabled:
-                state.vision = _registry.create("vision", cfg.vision.provider, cfg.vision)
+                state.vision = _registry.create(
+                    "vision", cfg.vision.provider, cfg.vision
+                )
 
             step_funcs = _build_step_funcs(cfg, state)
             state.pipeline = RAGPipeline(step_funcs)
@@ -226,49 +231,16 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
             raise
 
 
-class _BoundStep:
-    """Bound pipeline step — avoids stale closure on hot-reload."""
-
-    def __init__(
-        self,
-        ctx: StepContext,
-        func: Callable[[PipelineData, StepContext], Awaitable[PipelineData]],
-    ) -> None:
-        self._ctx = ctx
-        self._func = func
-
-    async def __call__(self, data: PipelineData) -> PipelineData:
-        return await self._func(data, self._ctx)
-
-
-# Built-in steps that accept StepContext
-_BUILTIN_STEPS: frozenset[str] = frozenset(
-    {"embed_query", "retrieve", "rerank", "build_context", "generate"}
-)
-
-
 def _build_step_funcs(
     cfg: AppConfig, state: AppState
 ) -> list[Callable[[PipelineData], Awaitable[PipelineData]]]:
-    """Build pipeline step functions with bound dependencies."""
+    """Build pipeline step functions. Dependencies injected via metadata."""
     from ai_assistant.pipeline.decorators import get_step
-    from ai_assistant.pipeline.steps import StepContext
-
-    ctx = StepContext(
-        embedder=state.embedder,
-        vector_store=state.vector_store,
-        reranker=state.reranker,
-        llm=state.llm,
-        tool_registry=state.tool_registry,
-    )
 
     step_funcs: list[Callable[[PipelineData], Awaitable[PipelineData]]] = []
     for name in cfg.rag.steps:
         func = get_step(name)
-        if name in _BUILTIN_STEPS:
-            step_funcs.append(_BoundStep(ctx, func))
-        else:
-            step_funcs.append(func)
+        step_funcs.append(func)
     return step_funcs
 
 

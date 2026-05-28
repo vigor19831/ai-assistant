@@ -11,8 +11,6 @@ Scans P0 critical files for:
 Output: dev/ERROR_TAXONOMY.md
 """
 
-from __future__ import annotations
-
 import ast
 import os
 import re
@@ -20,7 +18,6 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 # Files to scan (same as context_build.py CRITICAL_PATTERNS + adapters)
 SCAN_PATTERNS = [
@@ -42,9 +39,7 @@ class ExceptionFinder(ast.NodeVisitor):
     def __init__(self, source: str, rel_path: str):
         self.source = source
         self.rel_path = rel_path
-        self.findings: List[
-            Tuple[str, str, str, int]
-        ] = []  # (exception, trigger, severity, line)
+        self.findings: list[tuple[str, str, str, int]] = []
         self.current_function = ""
         self.current_class = ""
 
@@ -96,7 +91,6 @@ class ExceptionFinder(ast.NodeVisitor):
             exc_name = node.exc.id
 
         severity = self._infer_severity(exc_name, trigger)
-        location = f"{self.rel_path}:{line}"
         self.findings.append((exc_name, trigger, severity, line))
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler):
@@ -151,8 +145,8 @@ def find_project_root() -> Path:
     return current.parent.parent
 
 
-def resolve_patterns(root: Path, patterns: List[str]) -> List[Path]:
-    matched: set = set()
+def resolve_patterns(root: Path, patterns: list[str]) -> list[Path]:
+    matched: set[Path] = set()
     for pat in patterns:
         pat_os = pat.replace("/", os.sep)
         if "**" in pat:
@@ -172,7 +166,7 @@ def resolve_patterns(root: Path, patterns: List[str]) -> List[Path]:
 
 def extract_docstring_raises(
     source: str, rel_path: str
-) -> List[Tuple[str, str, str, int]]:
+) -> list[tuple[str, str, str, int]]:
     """Extract :raises: declarations from docstrings."""
     findings = []
     try:
@@ -199,7 +193,7 @@ def extract_docstring_raises(
 
 def extract_tech_debt_comments(
     source: str, rel_path: str
-) -> List[Tuple[str, str, str, int]]:
+) -> list[tuple[str, str, str, int]]:
     """Extract # TECH DEBT and # FIXME comments."""
     findings = []
     for i, line in enumerate(source.splitlines(), 1):
@@ -209,7 +203,7 @@ def extract_tech_debt_comments(
     return findings
 
 
-def build_taxonomy(findings: List[Tuple[str, str, str, str, int]]) -> str:
+def build_taxonomy(findings: list[tuple[str, str, str, str, int]]) -> str:
     """Build markdown table from findings."""
     lines = []
     lines.append("## 🧨 ERROR TAXONOMY")
@@ -224,7 +218,7 @@ def build_taxonomy(findings: List[Tuple[str, str, str, str, int]]) -> str:
     lines.append("|-----------|-----------|---------|----------|")
 
     # Group by component (file path)
-    by_component: Dict[str, List[Tuple[str, str, str]]] = defaultdict(list)
+    by_component: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
 
     for rel_path, exc_name, trigger, severity, line in findings:
         # Simplify component name
@@ -232,8 +226,8 @@ def build_taxonomy(findings: List[Tuple[str, str, str, str, int]]) -> str:
         if comp.endswith(".py"):
             comp = comp[:-3]
 
-        # Deduplicate similar triggers
-        key = (comp, exc_name, trigger[:40])
+        # Deduplicate by component + exception (ignore trigger variations)
+        key = (comp, exc_name)
         if key not in by_component:
             by_component[key] = (comp, exc_name, trigger, severity)
 
@@ -264,9 +258,7 @@ def main() -> int:
     files = resolve_patterns(root, SCAN_PATTERNS)
     print(f"[error_taxonomy] Scanning {len(files)} files...")
 
-    all_findings: List[
-        Tuple[str, str, str, str, int]
-    ] = []  # (path, exc, trigger, severity, line)
+    all_findings: list[tuple[str, str, str, str, int]] = []
 
     for fpath in files:
         rel = os.path.relpath(fpath, root).replace(os.sep, "/")
@@ -295,11 +287,11 @@ def main() -> int:
         for exc, trigger, severity, line in extract_tech_debt_comments(source, rel):
             all_findings.append((rel, exc, trigger, severity, line))
 
-    # Remove duplicates (same file, same exception, similar trigger)
+    # Remove duplicates (same file, same exception)
     seen = set()
     deduped = []
     for item in all_findings:
-        key = (item[0], item[1], item[2][:30])  # path, exc, trigger prefix
+        key = (item[0], item[1])  # path, exc only — ignore trigger for dedup
         if key not in seen:
             seen.add(key)
             deduped.append(item)

@@ -47,7 +47,10 @@ def _mount_static(config: Any) -> None:
     global _static_mounted
     if _static_mounted:
         return
-    static_dir = Path(config.ui.static_path)
+    ui_cfg = getattr(config, "ui", None)
+    if ui_cfg is None:
+        return
+    static_dir = Path(ui_cfg.static_path)
     if not static_dir.is_absolute():
         static_dir = Path(__file__).parent / static_dir
     if static_dir.exists():

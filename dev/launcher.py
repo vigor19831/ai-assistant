@@ -224,7 +224,7 @@ def print_menu(scripts, tests, last):
 # --- run ------------------------------------------------------------------
 
 
-def run(python, target, root, extra, mode_extra, *, is_test: bool = False):
+def run(python, target, root, extra, mode_extra):
     ts = timestamp()
     if target.startswith("pytest:"):
         test_path = target.split(":", 1)[1]
@@ -464,7 +464,7 @@ def find_target(num, scripts, tests):
 
 
 def _shutdown(root: Path, python: str, scripts: list, tests: list) -> int:
-    """Double-Enter exit: try to stop server gracefully."""
+    """Exit handler: stop server gracefully via stop.py if available."""
     # Find stop.py
     stop_target = None
     for _, _, target in scripts + tests:
@@ -541,11 +541,6 @@ def main() -> int:
         extra_raw = [e for e in args.extra if e != "--"]
 
         if target_str.lower() == "r":
-            if (
-                last_target
-            ):  # not available in first no-menu run, but keep for consistency
-                print("No previous run.")
-                return 1
             print("No previous run.")
             return 1
 
@@ -577,8 +572,6 @@ def main() -> int:
             return run(py, target, root, sanitized, mode_extra)
 
     # --- interactive mode ----------------------------------------------------
-    last_empty = False
-
     while True:
         print_menu(scripts, tests, last_num)
 
@@ -589,11 +582,7 @@ def main() -> int:
             return _shutdown(root, py, scripts, tests)
 
         if not choice:
-            if last_empty:
-                return _shutdown(root, py, scripts, tests)
-            last_empty = True
             continue
-        last_empty = False
 
         if choice in ("0", "exit", "quit"):
             return _shutdown(root, py, scripts, tests)

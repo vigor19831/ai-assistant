@@ -220,7 +220,9 @@ async def save_chat(
         index_path = getattr(state.config.vector_store, "index_path", None)
         if index_path:
             if state.vector_store is None:
-                raise HTTPException(status_code=500, detail="Vector store not initialized")
+                raise HTTPException(
+                    status_code=500, detail="Vector store not initialized"
+                )
             await state.vector_store.save(index_path, namespace=namespace)
 
         return {

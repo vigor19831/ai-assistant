@@ -6,8 +6,9 @@ No in-place mutation.
 
 from __future__ import annotations
 
+import asyncio
 import json
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
@@ -20,32 +21,14 @@ from ai_assistant.pipeline.decorators import step
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
-    from ai_assistant.core.ports.embedder import IEmbedder
-    from ai_assistant.core.ports.llm import ILLM
-    from ai_assistant.core.ports.reranker import IReranker
-    from ai_assistant.core.ports.vector_store import IVectorStore
-    from ai_assistant.core.tool_registry import ToolRegistry
 
 __all__: list[str] = [
-    "StepContext",
     "build_context",
     "embed_query",
     "generate",
     "rerank",
     "retrieve",
 ]
-
-
-@dataclass
-class StepContext:
-    """Typed container for step dependencies."""
-
-    embedder: IEmbedder | None = None
-    vector_store: IVectorStore | None = None
-    reranker: IReranker | None = None
-    llm: ILLM | None = None
-    tool_registry: ToolRegistry | None = None
-
 
 _logger = get_logger("pipeline.steps")
 
@@ -59,14 +42,15 @@ def _get_llm_context_limit(llm: Any) -> int | None:
 
 
 @step("embed_query")
-async def embed_query(data: PipelineData, ctx: StepContext) -> PipelineData:
+async def embed_query(data: PipelineData) -> PipelineData:
     """Embed the user query text."""
-    if ctx.embedder is None:
+    embedder = data.metadata.get("embedder")
+    if embedder is None:
         return data.add_error("embed_query: embedder not provided")
     if data.query is None or not data.query.text:
         return data.add_error("embed_query: no query text")
     try:
-        embeddings = await ctx.embedder.embed([data.query.text])
+        embeddings = await embedder.embed([data.query.text])
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
         return replace(data, metadata=new_metadata)
     except Exception:
@@ -75,9 +59,10 @@ async def embed_query(data: PipelineData, ctx: StepContext) -> PipelineData:
 
 
 @step("retrieve")
-async def retrieve(data: PipelineData, ctx: StepContext) -> PipelineData:
+async def retrieve(data: PipelineData) -> PipelineData:
     """Retrieve relevant chunks from vector store (namespace-aware)."""
-    if ctx.vector_store is None:
+    vector_store = data.metadata.get("vector_store")
+    if vector_store is None:
         return data.add_error("retrieve: vector_store not provided")
     embedding = data.metadata.get("query_embedding")
     if embedding is None:
@@ -85,7 +70,7 @@ async def retrieve(data: PipelineData, ctx: StepContext) -> PipelineData:
     try:
         top_k = data.metadata.get("top_k", 5)
         namespace = data.metadata.get("namespace") or "default"
-        chunks = await ctx.vector_store.search(embedding, top_k=top_k, namespace=namespace)
+        chunks = await vector_store.search(embedding, top_k=top_k, namespace=namespace)
         record_metric("rag_chunks", len(chunks))
         return data.with_chunks(chunks)
     except Exception:
@@ -94,7 +79,7 @@ async def retrieve(data: PipelineData, ctx: StepContext) -> PipelineData:
 
 
 @step("rerank")
-async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
+async def rerank(data: PipelineData) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
     If reranker is not configured (None), acts as transparent pass-through.
@@ -102,7 +87,8 @@ async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
     if not data.chunks:
         return data
 
-    if ctx.reranker is None:
+    reranker = data.metadata.get("reranker")
+    if reranker is None:
         return data
 
     try:
@@ -111,7 +97,7 @@ async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
         top_k = data.metadata.get("top_k", 5)
         threshold = data.metadata.get("relevance_threshold", 0.3)
 
-        results = await ctx.reranker.rerank(query, data.chunks, top_k=top_k)
+        results = await reranker.rerank(query, data.chunks, top_k=top_k)
 
         filtered = [r for r in results if r.score >= threshold]
 
@@ -138,7 +124,7 @@ async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
 
 
 @step("build_context")
-async def build_context(data: PipelineData, ctx: StepContext) -> PipelineData:
+async def build_context(data: PipelineData) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks."""
     if not data.chunks:
         return data.with_context("")
@@ -147,9 +133,10 @@ async def build_context(data: PipelineData, ctx: StepContext) -> PipelineData:
 
 
 @step("generate")
-async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
+async def generate(data: PipelineData) -> PipelineData:
     """Generate response using LLM with context."""
-    if ctx.llm is None:
+    llm = data.metadata.get("llm")
+    if llm is None:
         return data.add_error("generate: llm not provided")
     if data.query is None:
         return data.add_error("generate: no query")
@@ -176,7 +163,7 @@ async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
 
     record_metric("input_tokens", _estimate_tokens(prompt))
 
-    max_ctx = _get_llm_context_limit(ctx.llm)
+    max_ctx = _get_llm_context_limit(llm)
     if isinstance(max_ctx, int) and max_ctx > 0:
         prompt_tokens = _estimate_tokens(prompt)
         margin = max(256, int(max_ctx * 0.1))
@@ -222,7 +209,9 @@ async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
 
     for _ in range(3):
         try:
-            response = await ctx.llm.complete(messages)
+            response = await llm.complete(messages)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             _logger.exception("generate failed")
             return data.add_error("Internal server error").with_response(
@@ -236,7 +225,8 @@ async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
 
         messages.append(response)
 
-        if ctx.tool_registry:
+        tool_registry = data.metadata.get("tool_registry")
+        if tool_registry:
             for call in response.tool_calls:
                 try:
                     func = call.get("function", {})
@@ -247,7 +237,7 @@ async def generate(data: PipelineData, ctx: StepContext) -> PipelineData:
                         arguments=arguments,
                         call_id=call.get("id", ""),
                     )
-                    result = await ctx.tool_registry.dispatch(tc)
+                    result = await tool_registry.dispatch(tc)
                     content = (
                         result.output
                         if not result.is_error

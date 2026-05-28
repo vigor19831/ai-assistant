@@ -9,9 +9,6 @@ cors:
   allow_methods: ["*"]
   allow_headers: ["*"]
 
-ui:
-  static_path: "./ui"
-
 chat:
   history_limit: 10
 
@@ -32,8 +29,6 @@ llm:
   max_tokens: 128
   temperature: 0.7
   timeout: 5.0
-  server_startup_delay: 1
-  server_shutdown_timeout: 1
   server_context_size: 2048
   system_message: "Test system message."
   stop_sequences: []
@@ -50,17 +45,12 @@ storage:
 
 voice:
   enabled: false
-  recognizer_provider: whispercpp
-  synthesizer_provider: piper
 
 vision:
   enabled: false
-  provider: clip_local
 
 reranker:
   provider: dummy
-  model: test-model
-  api_base: http://127.0.0.1:9992
   timeout: 5.0
   threshold: 0.3
 

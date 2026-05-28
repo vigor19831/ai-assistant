@@ -198,7 +198,7 @@ class TestLauncherNoMenu:
 
         monkeypatch.setattr(launcher.subprocess, "Popen", mock_popen)
 
-        result = launcher.run(py, target, tmp_path, [], [], is_test=True)
+        result = launcher.run(py, target, tmp_path, [], [])
 
         # Verify pytest command was constructed correctly
         assert len(popen_calls) == 1
@@ -291,9 +291,15 @@ class TestCheckScripts:
 
     def test_check_llm_no_config(self, tmp_path, monkeypatch):
         check_llm = load_script("check_llm")
-        monkeypatch.setattr(check_llm, "root", tmp_path)
-        monkeypatch.setattr(check_llm, "cfg_path", tmp_path / "config.yaml")
-        assert not check_llm.cfg_path.exists()
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("AI_CONFIG_PATH", raising=False)
+
+        def _fake_load_config(path: str):
+            raise FileNotFoundError(f"Config not found: {path}")
+
+        monkeypatch.setattr(check_llm, "load_config", _fake_load_config)
+        rc = check_llm.check_llm()
+        assert rc == 1
 
 
 # ── Windows-specific ──

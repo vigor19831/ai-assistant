@@ -7,111 +7,24 @@ Usage:
     python dev/scripts/check_vulture.py --exclude tests,scripts  # custom exclude
 """
 
-from __future__ import annotations
-
 import argparse
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
-# ── Absolute project root ──
-SCRIPT_PATH = Path(__file__).resolve()
-PROJECT_ROOT = SCRIPT_PATH.parent.parent
 
-# ── Find ai_assistant package ──
-if (PROJECT_ROOT / "ai_assistant").exists():
-    AI_ROOT = PROJECT_ROOT / "ai_assistant"
-elif (PROJECT_ROOT / "src" / "ai_assistant").exists():
-    AI_ROOT = PROJECT_ROOT / "src" / "ai_assistant"
-elif (PROJECT_ROOT.parent / "src" / "ai_assistant").exists():
-    AI_ROOT = PROJECT_ROOT.parent / "src" / "ai_assistant"
-else:
-    AI_ROOT = PROJECT_ROOT.parent / "ai_assistant"
-
-DEFAULT_PATHS = [
-    str(AI_ROOT / "core"),
-    str(AI_ROOT / "adapters"),
-    str(AI_ROOT / "features"),
-    str(AI_ROOT / "api"),
-    str(AI_ROOT / "pipeline"),
-]
-
-DEFAULT_EXCLUDE = [
-    ".venv",
-    "venv",
-    "__pycache__",
-    "tests",
-    "scripts",
-    "data",
-    "logs",
-    "tmp",
-    "temp",
-    "vendor",
-    "ui",
-]
-
-DEFAULT_IGNORE_NAMES = [
-    "handler",
-    "entry",
-    "user_id",
-    "entry_id",
-    "session_id",
-    "event",
-    "details",
-    "token",
-]
-
-
-def run_vulture(
-    paths: list[str],
-    exclude: list[str],
-    min_confidence: int,
-    sort_by_size: bool,
-    ignore_names: list[str],
-) -> int:
-    """Execute vulture with given parameters."""
-    # Filter out non-existent directories
-    existing_paths = [p for p in paths if Path(p).exists()]
-    missing = [p for p in paths if not Path(p).exists()]
-
-    for m in missing:
-        print(f"Warning: skipping missing directory: {m}")
-
-    if not existing_paths:
-        print("Error: no valid directories to check")
-        return 1
-
-    cmd = [
-        sys.executable,
-        "-m",
-        "vulture",
-    ]
-
-    cmd.extend(existing_paths)
-
-    if exclude:
-        cmd.extend(["--exclude", ",".join(exclude)])
-
-    cmd.extend(["--min-confidence", str(min_confidence)])
-
-    if sort_by_size:
-        cmd.append("--sort-by-size")
-
-    if ignore_names:
-        cmd.extend(["--ignore-names", ",".join(ignore_names)])
-
-    print(f"Running: {' '.join(cmd)}")
-    print(f"Project root: {PROJECT_ROOT}")
-    print("-" * 55)
-
-    result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
-    return result.returncode
+def _vulture_available() -> bool:
+    """Check if vulture is installed."""
+    return importlib.util.find_spec("vulture") is not None
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Dead code checker — vulture wrapper",
-    )
+    if not _vulture_available():
+        print("vulture is not installed. Install: pip install vulture")
+        return 0
+
+    parser = argparse.ArgumentParser(description="Dead code checker — vulture wrapper")
     parser.add_argument(
         "--min-confidence",
         type=int,
@@ -121,19 +34,14 @@ def main() -> int:
     parser.add_argument(
         "--exclude",
         type=str,
-        default=",".join(DEFAULT_EXCLUDE),
-        help=(
-            f"Comma-separated exclude patterns. Default: {','.join(DEFAULT_EXCLUDE)}"
-        ),
+        default=".venv,venv,__pycache__,tests,scripts,data,logs,tmp,temp,vendor,ui",
+        help="Comma-separated exclude patterns",
     )
     parser.add_argument(
         "--ignore-names",
         type=str,
-        default=",".join(DEFAULT_IGNORE_NAMES),
-        help=(
-            "Comma-separated names to ignore. "
-            f"Default: {','.join(DEFAULT_IGNORE_NAMES)}"
-        ),
+        default="handler,entry,user_id,entry_id,session_id,event,details,token",
+        help="Comma-separated names to ignore",
     )
     parser.add_argument(
         "--no-sort-by-size",
@@ -148,26 +56,59 @@ def main() -> int:
     parser.add_argument(
         "paths",
         nargs="*",
-        help="Custom paths to check (default: core, adapters, features, api, pipeline)",
+        help="Custom paths to check (default: src/ai_assistant subdirs)",
     )
 
     args = parser.parse_args()
 
-    paths = args.paths if args.paths else DEFAULT_PATHS
-    exclude = [e.strip() for e in args.exclude.split(",") if e.strip()]
-
-    if args.no_ignore_defaults:
-        ignore_names = []
+    # Determine paths
+    if args.paths:
+        paths = args.paths
     else:
-        ignore_names = [n.strip() for n in args.ignore_names.split(",") if n.strip()]
+        import ai_assistant
 
-    return run_vulture(
-        paths=paths,
-        exclude=exclude,
-        min_confidence=args.min_confidence,
-        sort_by_size=not args.no_sort_by_size,
-        ignore_names=ignore_names,
-    )
+        pkg = Path(ai_assistant.__file__).parent
+        paths = [
+            str(pkg / "core"),
+            str(pkg / "adapters"),
+            str(pkg / "features"),
+            str(pkg / "api"),
+            str(pkg / "pipeline"),
+        ]
+
+    # Filter existing
+    existing = [p for p in paths if Path(p).exists()]
+    for p in paths:
+        if not Path(p).exists():
+            print(f"Warning: skipping missing directory: {p}")
+
+    if not existing:
+        print("Error: no valid directories to check")
+        return 1
+
+    # Build command
+    cmd = [sys.executable, "-m", "vulture"]
+    cmd.extend(existing)
+
+    exclude = [e.strip() for e in args.exclude.split(",") if e.strip()]
+    if exclude:
+        cmd.extend(["--exclude", ",".join(exclude)])
+
+    cmd.extend(["--min-confidence", str(args.min_confidence)])
+
+    if not args.no_sort_by_size:
+        cmd.append("--sort-by-size")
+
+    if not args.no_ignore_defaults:
+        ignore = [n.strip() for n in args.ignore_names.split(",") if n.strip()]
+        if ignore:
+            cmd.extend(["--ignore-names", ",".join(ignore)])
+
+    print(f"Running: {' '.join(cmd)}")
+    print("-" * 55)
+
+    result = subprocess.run(cmd)
+    return result.returncode
 
 
 if __name__ == "__main__":

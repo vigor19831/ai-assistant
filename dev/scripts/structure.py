@@ -2,8 +2,6 @@
 """structure.py — project tree with .gitignore support, metrics,
 and human-readable sizes."""
 
-from __future__ import annotations
-
 import argparse
 import fnmatch
 import sys
@@ -14,7 +12,6 @@ from typing import Any
 # Hard exclusions — never traversed
 HARD_EXCLUDE = {
     ".git",
-    # ".venv",  # shown as single marker line, never traversed inside
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",
@@ -25,7 +22,6 @@ HARD_EXCLUDE = {
     "dist",
     "build",
     ".eggs",
-    "*.egg-info",
     "htmlcov",
 }
 
@@ -36,7 +32,7 @@ def load_patterns(root: Path, filename: str) -> list[str]:
     if not path.exists():
         return []
     patterns: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
             patterns.append(line)
@@ -82,11 +78,9 @@ def fmt_size(n: int) -> str:
     size = float(n)
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024:
-            return (
-                f"{size:.1f} {unit}"
-                if unit != "B" and size != int(size)
-                else f"{int(size)} {unit}"
-            )
+            if unit == "B":
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}" if size != int(size) else f"{int(size)} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
 
@@ -94,7 +88,7 @@ def fmt_size(n: int) -> str:
 def count_lines(path: Path) -> int:
     """Count lines in a text file."""
     try:
-        return len(path.read_text(encoding="utf-8").splitlines())
+        return len(path.read_text(encoding="utf-8", errors="replace").splitlines())
     except Exception:
         return 0
 
@@ -172,7 +166,7 @@ def build(root: Path, use_color: bool = False) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+def main() -> int:
     ap = argparse.ArgumentParser(description="Generate project structure file")
     ap.add_argument("--root", "-r", type=Path, default=None)
     ap.add_argument(
@@ -192,7 +186,7 @@ def main() -> None:
 
     _dev = Path(__file__).parent.parent.resolve()
     if args.root is None:
-        # Scan real project root (D:\ai), write output to dev/
+        # Scan real project root, write output to dev/
         if (_dev.parent / "src" / "ai_assistant").exists() or (
             _dev.parent / "pyproject.toml"
         ).exists():
@@ -208,6 +202,7 @@ def main() -> None:
         out = args.output or _dev / "structure.txt"
         out.write_text(text, encoding="utf-8")
         print(f"✅ {out}")
+    return 0
 
 
 if __name__ == "__main__":

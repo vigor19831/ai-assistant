@@ -20,7 +20,11 @@ __all__ = ["SQLiteMemory"]
 def _escape_like(value: str) -> str:
     """Escape % and _ for SQLite LIKE with ESCAPE '\\'."""
     backslash = chr(92)
-    return value.replace(backslash, backslash * 2).replace("%", backslash + "%").replace("_", backslash + "_")
+    return (
+        value.replace(backslash, backslash * 2)
+        .replace("%", backslash + "%")
+        .replace("_", backslash + "_")
+    )
 
 
 def _sanitize_fts(query: str) -> str:

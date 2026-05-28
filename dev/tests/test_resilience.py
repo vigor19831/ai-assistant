@@ -51,10 +51,10 @@ class TestGracefulDegradation:
     async def test_generate_without_llm(self):
         from ai_assistant.core.domain.messages import UserMessage
         from ai_assistant.core.domain.pipeline import PipelineData
-        from ai_assistant.pipeline.steps import generate, StepContext
+        from ai_assistant.pipeline.steps import generate
 
         data = PipelineData(query=UserMessage(text="q"))
-        result = await generate(data, StepContext())
+        result = await generate(data)
         assert any("llm not provided" in e for e in result.errors)
 
 

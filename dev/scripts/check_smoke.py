@@ -2,8 +2,6 @@
 """Unified smoke check — imports, config, state, HTTP, RAG, chat,
 tools, security, lifespan."""
 
-from __future__ import annotations
-
 import asyncio
 import json
 import os
@@ -12,15 +10,13 @@ import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
-# ── Ensure project root is on path (works from any cwd) ─────────────────────
+# Ensure project root is on path (works from any cwd)
 _DEV_ROOT = Path(__file__).resolve().parent.parent
-_PROJECT_ROOT = _DEV_ROOT.parent  # D:\ai
+_PROJECT_ROOT = _DEV_ROOT.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-import ai_assistant.adapters.chunker_simple  # noqa
-
-# ── Windows: force UTF-8 output ─────────────────────────────────────────────
+# Windows: force UTF-8 output
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -59,7 +55,7 @@ def run_check(name: str, fn) -> None:
         )
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# Helpers
 def make_mock_state():
     from unittest.mock import MagicMock
 
@@ -112,7 +108,7 @@ def make_mock_state():
     return mock
 
 
-# ── Checks ───────────────────────────────────────────────────────────────────
+# Checks
 def check_imports_registry() -> str:
     from ai_assistant.core.registry import create, list_adapters
 
@@ -128,7 +124,7 @@ def check_imports_registry() -> str:
 def check_config() -> str:
     from ai_assistant.core.config import AppConfig, load_config
 
-    cfg = load_config(str(_PROJECT_ROOT / "tests" / "config.test.yaml"))
+    cfg = load_config(str(_DEV_ROOT / "tests" / "config.test.yaml"))
     assert isinstance(cfg, AppConfig)
     assert cfg.embedder.dim == cfg.vector_store.dim
     return f"config parsed, dim={cfg.embedder.dim}, steps={len(cfg.rag.steps)}"
@@ -159,7 +155,7 @@ def check_app_state() -> str:
     from ai_assistant.api.deps import init_adapters
     from ai_assistant.core.config import load_config
 
-    cfg = load_config(str(_PROJECT_ROOT / "tests" / "config.test.yaml"))
+    cfg = load_config(str(_DEV_ROOT / "tests" / "config.test.yaml"))
     state = asyncio.run(init_adapters(cfg))
     state2 = asyncio.run(init_adapters(cfg))
     assert state is state2, "init_adapters not idempotent"
@@ -182,25 +178,27 @@ def check_http_endpoints() -> str:
     mock = make_mock_state()
     app.state.app_state = mock
     app.dependency_overrides[get_state] = lambda: mock
-    client = TestClient(app)
-    r1 = client.get("/health")
-    r2 = client.get("/info")
-    r3 = client.post("/api/v1/chat", json={"message": "hi", "conversation_id": "t1"})
-    r4 = client.post(
-        "/api/v1/chat", json={"message": "hi"}, headers={"Authorization": "Bearer test"}
-    )
-    r5 = client.get("/v1/models")
-    r6 = client.post("/api/v1/rag/query", json={"query": "test"})
-    r7 = client.post("/api/v1/chat", json={"bad": "field"})  # 422 validation
-    return (
-        f"health={r1.status_code}, info={r2.status_code}, "
-        f"chat_no_auth={r3.status_code}, chat_auth={r4.status_code}, "
-        f"models={r5.status_code}, rag={r6.status_code}, bad_req={r7.status_code}"
-    )
+    try:
+        client = TestClient(app)
+        r1 = client.get("/health")
+        r2 = client.get("/info")
+        r3 = client.post("/api/v1/chat", json={"message": "hi", "conversation_id": "t1"})
+        r4 = client.post(
+            "/api/v1/chat", json={"message": "hi"}, headers={"Authorization": "Bearer test"}
+        )
+        r5 = client.get("/v1/models")
+        r6 = client.post("/api/v1/rag/query", json={"query": "test"})
+        r7 = client.post("/api/v1/chat", json={"bad": "field"})
+        return (
+            f"health={r1.status_code}, info={r2.status_code}, "
+            f"chat_no_auth={r3.status_code}, chat_auth={r4.status_code}, "
+            f"models={r5.status_code}, rag={r6.status_code}, bad_req={r7.status_code}"
+        )
+    finally:
+        app.dependency_overrides.clear()
 
 
 def check_sse_format() -> str:
-
     from fastapi.testclient import TestClient
 
     from ai_assistant.api.deps import get_state
@@ -214,14 +212,17 @@ def check_sse_format() -> str:
     mock.llm.stream = fake_stream
     app.state.app_state = mock
     app.dependency_overrides[get_state] = lambda: mock
-    client = TestClient(app)
-    r = client.post(
-        "/api/v1/chat/stream", json={"message": "hi", "conversation_id": "t1"}
-    )
-    lines = [line for line in r.text.strip().split("\n") if line.strip()]
-    has_data = all(line.startswith("data: ") for line in lines)
-    has_done = "data: [DONE]" in r.text
-    return f"status={r.status_code}, sse_ok={has_data}, done_ok={has_done}"
+    try:
+        client = TestClient(app)
+        r = client.post(
+            "/api/v1/chat/stream", json={"message": "hi", "conversation_id": "t1"}
+        )
+        lines = [line for line in r.text.strip().split("\n") if line.strip()]
+        has_data = all(line.startswith("data: ") for line in lines)
+        has_done = "data: [DONE]" in r.text
+        return f"status={r.status_code}, sse_ok={has_data}, done_ok={has_done}"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def check_rag_pipeline() -> str:
@@ -375,11 +376,9 @@ def check_lifespan() -> str:
     return asyncio.run(run())
 
 
-# ── Runner ───────────────────────────────────────────────────────────────────
+# Runner
 def main() -> int:
-    print("\n" + "=" * 60)
-    print("  U N I F I E D   S M O K E   C H E C K")
-    print("=" * 60)
+    print("\n" + " Unified Smoke Check ".center(60, "="))
 
     run_check("imports_registry", check_imports_registry)
     run_check("file_structure", check_file_structure)
@@ -403,7 +402,7 @@ def main() -> int:
         if r.details:
             print(f"      {r.details}")
         if r.error:
-            print(f"      ERROR: {r.error.split(chr(10))[0]}")
+            print(f"      ERROR: {r.error.splitlines()[0]}")
 
     print("-" * 60)
     print(f"  Total: {passed} passed, {failed} failed")

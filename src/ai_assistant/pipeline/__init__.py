@@ -1,7 +1,5 @@
-"""Pipeline steps and decorators."""
-
 from .decorators import get_step, step
-from .steps import StepContext, build_context, embed_query, generate, rerank, retrieve
+from .steps import build_context, embed_query, generate, rerank, retrieve
 
 __all__ = [
     "step",
@@ -11,5 +9,4 @@ __all__ = [
     "build_context",
     "generate",
     "rerank",
-    "StepContext",
 ]

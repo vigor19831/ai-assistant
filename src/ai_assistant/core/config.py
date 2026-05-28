@@ -84,6 +84,7 @@ class LLMConfig(BaseSettings):
     presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
 
+
 class VectorStoreConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_VECTOR_STORE_", extra="allow")
     provider: str = "memory"
