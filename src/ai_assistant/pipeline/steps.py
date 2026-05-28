@@ -106,7 +106,8 @@ async def rerank(data: PipelineData, ctx: StepContext) -> PipelineData:
         return data
 
     try:
-        query = data.query.text if data.query else ""
+        _raw_query = data.query.text if data.query is not None else None
+        query = _raw_query if _raw_query is not None else ""
         top_k = data.metadata.get("top_k", 5)
         threshold = data.metadata.get("relevance_threshold", 0.3)
 

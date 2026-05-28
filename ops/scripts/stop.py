@@ -89,27 +89,7 @@ def main() -> int:
             pid_file.unlink(missing_ok=True)
             return 0
 
-    # Also kill the start.py wrapper if it is still running in background
-    start_pid_file = project_root / "data" / "start.pid"
-    if start_pid_file.exists():
-        try:
-            start_pid = int(start_pid_file.read_text(encoding="utf-8").strip())
-            if start_pid != pid and is_running(start_pid):
-                print(f"Stopping start wrapper (PID {start_pid})...")
-                if os.name == "nt":
-                    subprocess.run(
-                        ["taskkill", "/F", "/T", "/PID", str(start_pid)],
-                        capture_output=True,
-                    )
-                else:
-                    try:
-                        os.kill(start_pid, signal.SIGTERM)
-                        time.sleep(0.5)
-                        os.kill(start_pid, signal.SIGKILL)
-                    except Exception:
-                        pass
-        except ValueError:
-            pass
+    # NOTE: start.py does not write start.pid, so no wrapper PID to kill here
 
     print(f"Stopping server (PID {pid})...")
 
@@ -152,7 +132,34 @@ def main() -> int:
 
     pid_file.unlink(missing_ok=True)
 
-    # Kill any remaining llama-server processes by executable name
+    # Kill llama-server by PID first (from llama-server.pid), fallback by name
+    llama_pid_file = project_root / "data" / "llama-server.pid"
+    if llama_pid_file.exists():
+        try:
+            for line in llama_pid_file.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                lpid = int(line.strip())
+                if is_running(lpid):
+                    print(f"Stopping llama-server (PID {lpid})...")
+                    if os.name == "nt":
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(lpid)],
+                            capture_output=True,
+                        )
+                    else:
+                        try:
+                            os.kill(lpid, signal.SIGTERM)
+                            time.sleep(0.5)
+                            if is_running(lpid):
+                                os.kill(lpid, signal.SIGKILL)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        llama_pid_file.unlink(missing_ok=True)
+
+    # Fallback: kill any remaining llama-server processes by executable name
     if os.name == "nt":
         subprocess.run(
             ["taskkill", "/F", "/IM", "llama-server.exe"],

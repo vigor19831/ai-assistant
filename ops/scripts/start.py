@@ -50,8 +50,9 @@ def _cleanup_servers() -> None:
     pid_file = project_root / "data" / "llama-server.pid"
     if pid_file.exists():
         try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip())
-            _kill_process_tree(pid)
+            for line in pid_file.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    _kill_process_tree(int(line.strip()))
         except Exception:
             pass
         pid_file.unlink(missing_ok=True)
@@ -78,7 +79,7 @@ def wait_for_port(port: int, timeout: float = 30.0, host: str = "127.0.0.1") -> 
             time.sleep(0.2)
             continue
         try:
-            resp = httpx.get(f"http://{host}:{port}/health", timeout=2.0)
+            resp = httpx.get(f"http://{host}:{port}/models", timeout=2.0)
             if resp.status_code < 500:
                 return True
         except Exception:
@@ -192,6 +193,8 @@ def _start_llama_server(
         str(exe_path),
         "-m",
         str(model_path),
+        "--host",
+        "127.0.0.1",
         "--port",
         str(port),
         "-ngl",
@@ -201,7 +204,7 @@ def _start_llama_server(
     ]
 
     if embeddings:
-        cmd.append("--embeddings")
+        cmd.append("--embedding")
         if pooling:
             cmd.extend(["--pooling", pooling])
 
@@ -227,7 +230,11 @@ def _start_llama_server(
         _spawned_procs.append(proc)
         # Persist PID so stop.py / launcher can kill us even if this process crashes
         pid_file = project_root / "data" / "llama-server.pid"
-        pid_file.write_text(str(proc.pid), encoding="utf-8")
+        existing = []
+        if pid_file.exists():
+            existing = [line for line in pid_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        existing.append(str(proc.pid))
+        pid_file.write_text("\n".join(existing) + "\n", encoding="utf-8")
 
         if wait_for_port(port, timeout=60.0):
             print(f"[start] {LLAMA_SERVER_EXE} ready on port {port} (PID {proc.pid})")
@@ -303,8 +310,10 @@ def _check_llm_server(config: dict[str, Any]) -> bool:
         "AI_LLM_API_BASE",
         llm.get("api_base", "http://127.0.0.1:8080/v1"),
     ).rstrip("/")
+    if not is_port_in_use(_get_port(api_base)):
+        return False
     try:
-        resp = httpx.get(f"{api_base}/models", timeout=5.0)
+        resp = httpx.get(f"{api_base}/models", timeout=2.0)
         return resp.status_code < 500
     except Exception:
         return False
@@ -313,8 +322,10 @@ def _check_llm_server(config: dict[str, Any]) -> bool:
 def _check_embedder_server(config: dict[str, Any]) -> bool:
     embedder = config.get("embedder", {})
     api_base = embedder.get("api_base", "http://127.0.0.1:8081/v1").rstrip("/")
+    if not is_port_in_use(_get_port(api_base)):
+        return False
     try:
-        resp = httpx.get(f"{api_base}/models", timeout=5.0)
+        resp = httpx.get(f"{api_base}/models", timeout=2.0)
         return resp.status_code < 500
     except Exception:
         return False
@@ -330,23 +341,31 @@ def main() -> int:
     port = config.get("port", 8000)
     host = config.get("host", "127.0.0.1")
 
-    # ── Auto-start LLM server ──
-    llm_ok = _check_llm_server(config)
-    if not llm_ok:
+    import concurrent.futures
+
+    def _ensure_llm() -> bool:
+        if _check_llm_server(config):
+            return True
         print("[start] LLM server not detected — attempting auto-start...")
         _start_llm_server(config)
-        llm_ok = _check_llm_server(config)
+        return _check_llm_server(config)
+
+    def _ensure_emb() -> bool:
+        if _check_embedder_server(config):
+            return True
+        print("[start] Embedder server not detected — attempting auto-start...")
+        _start_embedder_server(config)
+        return _check_embedder_server(config)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        llm_future = pool.submit(_ensure_llm)
+        emb_future = pool.submit(_ensure_emb)
+        llm_ok = llm_future.result()
+        emb_ok = emb_future.result()
 
     if not llm_ok:
         print("[start] WARNING: LLM server unavailable. Framework will use mock/fallback.")
         print(f"[start] Start manually: {LLAMA_SERVER_EXE} -m model.gguf --port 8080")
-
-    # ── Auto-start embedder server ──
-    emb_ok = _check_embedder_server(config)
-    if not emb_ok:
-        print("[start] Embedder server not detected — attempting auto-start...")
-        _start_embedder_server(config)
-        emb_ok = _check_embedder_server(config)
 
     if not emb_ok:
         print("[start] WARNING: Embedder server unavailable. RAG features disabled.")

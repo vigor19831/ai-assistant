@@ -73,6 +73,8 @@ async def index_documents(
     # Auto-save after indexing
     index_path = getattr(state.config.vector_store, "index_path", None)
     if index_path:
+        if state.vector_store is None:
+            raise HTTPException(status_code=500, detail="Vector store not initialized")
         try:
             await state.vector_store.save(index_path, namespace=namespace)
         except Exception:
@@ -110,6 +112,8 @@ async def delete_chunks(
     req: DeleteRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> DeleteResponse:
+    if state.vector_store is None:
+        raise HTTPException(status_code=500, detail="Vector store not initialized")
     namespace = req.namespace or state.config.rag.default_namespace
     errors: list[str] = []
     deleted = 0
@@ -155,6 +159,8 @@ async def list_namespaces(
     index_path = getattr(state.config.vector_store, "index_path", None)
     namespaces: list[str] = []
     if index_path:
+        if state.vector_store is None:
+            raise HTTPException(status_code=500, detail="Vector store not initialized")
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
         except Exception:
@@ -213,6 +219,8 @@ async def save_chat(
         # Auto-save index
         index_path = getattr(state.config.vector_store, "index_path", None)
         if index_path:
+            if state.vector_store is None:
+                raise HTTPException(status_code=500, detail="Vector store not initialized")
             await state.vector_store.save(index_path, namespace=namespace)
 
         return {

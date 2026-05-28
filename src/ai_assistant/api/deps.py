@@ -118,10 +118,12 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
         return _state.config is config
 
     if _should_use_cache():
+        assert _state is not None
         return _state
 
     async with _init_lock:
         if _should_use_cache():
+            assert _state is not None
             return _state
 
         try:
