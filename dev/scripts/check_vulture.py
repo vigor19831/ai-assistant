@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run vulture dead code checker for the project.
+"""Run vulture dead code checker for the project (src/ only).
+
+Scans the main source tree (src/ai_assistant/) for unused code.
+Respects pyproject.toml conventions but does not parse it.
+Paths are computed from script location, so no package installation is required.
 
 Usage:
     python dev/scripts/check_vulture.py              # default check (70% confidence)
@@ -17,6 +21,15 @@ from pathlib import Path
 def _vulture_available() -> bool:
     """Check if vulture is installed."""
     return importlib.util.find_spec("vulture") is not None
+
+
+def _default_source_paths() -> list[str]:
+    """Return absolute paths to source subpackages under src/ai_assistant."""
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent.parent
+    src = project_root / "src" / "ai_assistant"
+    subdirs = ["core", "adapters", "features", "api", "pipeline"]
+    return [str(src / d) for d in subdirs if (src / d).exists()]
 
 
 def main() -> int:
@@ -61,20 +74,14 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    # Determine paths
+    # Determine paths: custom or default source tree
     if args.paths:
         paths = args.paths
     else:
-        import ai_assistant
-
-        pkg = Path(ai_assistant.__file__).parent
-        paths = [
-            str(pkg / "core"),
-            str(pkg / "adapters"),
-            str(pkg / "features"),
-            str(pkg / "api"),
-            str(pkg / "pipeline"),
-        ]
+        paths = _default_source_paths()
+        if not paths:
+            print("Error: no source directories found under src/ai_assistant")
+            return 1
 
     # Filter existing
     existing = [p for p in paths if Path(p).exists()]

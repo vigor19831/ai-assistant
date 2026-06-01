@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Run mypy static type checker for the project.
+"""Run mypy static type checker for the project (src/ only, tests excluded).
+
+Checks the main source tree (src/ai_assistant/).
+Tests (dev/tests/) are excluded by pyproject.toml and not passed to mypy,
+avoiding false positives from untyped test fixtures.
 
 Usage:
     python dev/scripts/check_mypy.py                 # default check

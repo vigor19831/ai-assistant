@@ -166,7 +166,7 @@ async def rerank(data: PipelineData) -> PipelineData:
                 **data.metadata,
                 "rerank_filtered_out": True,
             }
-            return replace(data, chunks=[], metadata=new_metadata)
+            return replace(data, chunks=(), metadata=new_metadata)
         else:
             new_metadata = {
                 **data.metadata,
@@ -174,7 +174,7 @@ async def rerank(data: PipelineData) -> PipelineData:
             }
             return replace(
                 data,
-                chunks=[r.chunk for r in filtered],
+                chunks=tuple(r.chunk for r in filtered),
                 metadata=new_metadata,
             )
 

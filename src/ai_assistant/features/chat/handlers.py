@@ -43,9 +43,12 @@ async def chat(
     req: ChatRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> ChatResponse:
+    if state.chat_manager is None:
+        raise HTTPException(status_code=500, detail="Chat manager not initialized")
+    chat_manager = state.chat_manager
     conv_id = req.conversation_id or str(uuid.uuid4())
     try:
-        response = await state.chat_manager.chat(
+        response = await chat_manager.chat(
             message=req.message,
             conversation_id=conv_id,
             image_url=req.image_url,
@@ -70,11 +73,14 @@ async def chat_stream(
     req: ChatRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> StreamingResponse:
+    if state.chat_manager is None:
+        raise HTTPException(status_code=500, detail="Chat manager not initialized")
+    chat_manager = state.chat_manager
     conv_id = req.conversation_id or str(uuid.uuid4())
 
     async def event_generator() -> AsyncIterator[str]:
         try:
-            async for chunk in state.chat_manager.stream_chat(
+            async for chunk in chat_manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
                 image_url=req.image_url,
@@ -118,6 +124,10 @@ async def openai_chat_completions(
     req: OAIChatCompletionRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
+    if state.chat_manager is None:
+        raise HTTPException(status_code=500, detail="Chat manager not initialized")
+    chat_manager = state.chat_manager
+
     last_user_msg = ""
     for m in reversed(req.messages):
         if m.role == "user" and m.content is not None:
@@ -131,7 +141,7 @@ async def openai_chat_completions(
 
         async def event_generator() -> AsyncIterator[str]:
             try:
-                async for chunk in state.chat_manager.stream_chat(
+                async for chunk in chat_manager.stream_chat(
                     message=last_user_msg,
                     conversation_id=conv_id,
                 ):
@@ -155,7 +165,7 @@ async def openai_chat_completions(
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     try:
-        response = await state.chat_manager.chat(
+        response = await chat_manager.chat(
             message=last_user_msg,
             conversation_id=conv_id,
         )

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Run ruff linter and formatter — auto-fix by default.
+"""Run ruff linter and formatter over the entire project.
+
+Respects exclude patterns in pyproject.toml (dev/, ops/, vendor/).
+By default auto-fixes both lint issues and formatting.
 
 Usage:
     python dev/scripts/check_ruff.py            # auto-fix lint + format
-    python dev/scripts/check_ruff.py --check    # only check, no auto-fix
+    python dev/scripts/check_ruff.py --check    # only check, no changes
 """
 
 import argparse
 import subprocess
 import sys
 from pathlib import Path
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run ruff linter and formatter")
@@ -35,14 +37,10 @@ def main() -> int:
     exit_code |= result.returncode
 
     # 2. Format
-    format_cmd = [
-        sys.executable,
-        "-m",
-        "ruff",
-        "format",
-        "--check" if args.check else "--",
-        str(project_root),
-    ]
+    format_cmd = [sys.executable, "-m", "ruff", "format"]
+    if args.check:
+        format_cmd.append("--check")
+    format_cmd.append(str(project_root))
     print(f"Running: {' '.join(format_cmd)}")
     result = subprocess.run(format_cmd, cwd=project_root)
     exit_code |= result.returncode
