@@ -96,6 +96,57 @@ class TestLifespan:
                         )
 
     @pytest.mark.asyncio
+    async def test_shutdown_logs_successful_save(self):
+        """Successful index saves during shutdown must be logged."""
+        app = MagicMock()
+        mock_state = MagicMock()
+        mock_state.llm = None
+        mock_state.embedder = None
+        mock_state.vector_store = MagicMock()
+        mock_state.vector_store.list_namespaces = AsyncMock(
+            return_value=["default", "personal"]
+        )
+        mock_state.vector_store.save = AsyncMock(return_value=None)
+
+        with patch(
+            "ai_assistant.api.lifespan._load_config",
+            return_value=AppConfig(
+                vector_store={
+                    "provider": "memory",
+                    "dim": 384,
+                    "metric": "l2",
+                    "index_path": "./data/indices/test",
+                }
+            ),
+        ):
+            with patch(
+                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
+            ):
+                with patch.object(MetricsLogger, "start"):
+                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
+                        with patch(
+                            "ai_assistant.api.lifespan.logger.info"
+                        ) as mock_log_info:
+                            async with lifespan(app) as _:
+                                app.state.app_state = mock_state
+                                pass  # trigger shutdown
+
+                            mock_log_info.assert_any_call(
+                                "Index saved: %s/%s",
+                                "./data/indices/test",
+                                "default",
+                            )
+                            mock_log_info.assert_any_call(
+                                "Index saved: %s/%s",
+                                "./data/indices/test",
+                                "personal",
+                            )
+                            mock_log_info.assert_any_call(
+                                "Indices persisted: %d namespace(s)",
+                                2,
+                            )
+
+    @pytest.mark.asyncio
     async def test_shutdown_handles_missing_state(self):
         """If get_state raises RuntimeError, shutdown should not crash."""
         app = MagicMock()

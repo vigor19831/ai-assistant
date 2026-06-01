@@ -196,46 +196,22 @@ class TestInitAdaptersContracts:
         )
 
 
-def test_llm_config_no_llama_specific_fields():
-    """Verify llama.cpp-specific fields are NOT explicit Pydantic fields."""
+def test_llm_config_rejects_unknown_fields():
+    """With extra='forbid', LLMConfig must reject typos like temperatur."""
+    from pydantic import ValidationError
     from ai_assistant.core.config import LLMConfig
 
-    # Patterns that indicate llama.cpp-specific configuration
-    llama_patterns = (
-        "n_gpu",
-        "n_batch",
-        "n_ubatch",
-        "mmap",
-        "mlock",
-        "flash_attn",
-        "split_mode",
-        "cache_type",
-        "rope_scaling",
-        "yarn_",
-        "draft_",
-        "server_context_size",
-        "server_startup_delay",
-        "server_shutdown_timeout",
-        "num_threads",
-        "main_gpu",
-        "tensor_split",
-    )
+    with pytest.raises(ValidationError, match="temperatur"):
+        LLMConfig(temperatur=0.5)
 
-    for name in LLMConfig.model_fields:
-        assert not any(p in name for p in llama_patterns), (
-            f"LLMConfig.model_fields contains llama field: {name}"
-        )
 
-    # Also verify no such fields exist in instance __dict__ (explicit fields only)
-    cfg = LLMConfig()
-    for attr in dir(cfg):
-        if attr.startswith("_"):
-            continue
-        if any(p in attr for p in llama_patterns):
-            # Must be in model_extra (from YAML), not explicit field
-            assert attr not in cfg.__dict__, (
-                f"LLMConfig has explicit field (not model_extra): {attr}"
-            )
+def test_embedder_config_rejects_unknown_fields():
+    """With extra='forbid', EmbedderConfig must reject typos like chunck_size."""
+    from pydantic import ValidationError
+    from ai_assistant.core.config import EmbedderConfig
+
+    with pytest.raises(ValidationError, match="chunck_size"):
+        EmbedderConfig(chunck_size=512)
 
 
 from pathlib import Path
@@ -249,3 +225,24 @@ def test_dead_ports_removed() -> None:
     """Phase 4.2: events.py and modality.py must be physically deleted."""
     assert not (PORTS_DIR / "events.py").exists()
     assert not (PORTS_DIR / "modality.py").exists()
+
+
+class TestToolRegistryContracts:
+    async def test_dispatch_propagates_cancelled_error(self):
+        """asyncio.CancelledError must propagate, not be swallowed as ToolResult."""
+        import asyncio
+
+        from ai_assistant.core.ports.tools import ITool, ToolCall, ToolSpec
+        from ai_assistant.core.tool_registry import ToolRegistry
+
+        registry = ToolRegistry()
+
+        mock_tool = MagicMock(spec=ITool)
+        mock_tool.spec = ToolSpec(name="test_tool", description="test", parameters={})
+        mock_tool.execute = AsyncMock(side_effect=asyncio.CancelledError("cancelled"))
+
+        registry.register(mock_tool)
+
+        call = ToolCall(tool_name="test_tool", arguments={}, call_id="test-1")
+        with pytest.raises(asyncio.CancelledError):
+            await registry.dispatch(call)

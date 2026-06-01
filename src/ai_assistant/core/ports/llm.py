@@ -25,10 +25,18 @@ class ILLM(ABC):
 
     @abstractmethod
     async def complete(
-        self, messages: list[Message], **kwargs: Any
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> AssistantMessage:
         """Non-streaming completion."""
         ...
 
     @abstractmethod
-    def stream(self, messages: list[Message], **kwargs: Any) -> AsyncIterator[str]: ...
+    def stream(
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]: ...

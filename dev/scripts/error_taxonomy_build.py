@@ -15,7 +15,6 @@ import ast
 import os
 import re
 import sys
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -69,9 +68,10 @@ class ExceptionFinder(ast.NodeVisitor):
         line = node.lineno
 
         if node.exc is None:
-            return  # bare raise
+            return  # bare raise (re-raise)
 
         if isinstance(node.exc, ast.Call):
+            # raise Something(...)
             # raise ValueError("message")
             if isinstance(node.exc.func, ast.Name):
                 exc_name = node.exc.func.id
@@ -86,9 +86,13 @@ class ExceptionFinder(ast.NodeVisitor):
                 ):
                     trigger = first_arg.value[:80]
                 elif isinstance(first_arg, ast.JoinedStr):
-                    trigger = "f-string message"
+                    trigger = self._format_joined_str(first_arg)[:80]
         elif isinstance(node.exc, ast.Name):
-            exc_name = node.exc.id
+            # Skip `raise e` (re-raise of a caught instance)
+            # We cannot reliably determine the type, so ignore to avoid noise.
+            return
+        elif isinstance(node.exc, ast.Attribute):
+            exc_name = node.exc.attr
 
         severity = self._infer_severity(exc_name, trigger)
         self.findings.append((exc_name, trigger, severity, line))
@@ -98,14 +102,40 @@ class ExceptionFinder(ast.NodeVisitor):
         if node.type:
             if isinstance(node.type, ast.Name):
                 exc_name = node.type.id
+            elif isinstance(node.type, ast.Attribute):
+                exc_name = node.type.attr
             elif isinstance(node.type, ast.Tuple):
-                names = [e.id for e in node.type.elts if isinstance(e, ast.Name)]
+                names = []
+                for e in node.type.elts:
+                    if isinstance(e, ast.Name):
+                        names.append(e.id)
+                    elif isinstance(e, ast.Attribute):
+                        names.append(e.attr)
                 exc_name = "/".join(names) if names else "Exception"
 
         trigger = f"Handled in {self.current_function or 'module'}"
-        severity = "Medium"  # Handled exceptions are less severe
+        # Critical exceptions (SystemExit, KeyboardInterrupt) remain Critical even when handled
+        _critical_exc = {"SystemExit", "KeyboardInterrupt"}
+        if exc_name in _critical_exc or any(
+            part.strip() in _critical_exc for part in exc_name.split("/")
+        ):
+            severity = "Critical"
+        else:
+            severity = "Medium"  # Handled exceptions are less severe
         self.findings.append((exc_name, trigger, severity, node.lineno))
         self.generic_visit(node)
+
+    def _format_joined_str(self, node: ast.JoinedStr) -> str:
+        """Reconstruct a readable string from an f-string AST node."""
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            elif isinstance(value, ast.FormattedValue):
+                parts.append("{...}")
+            else:
+                parts.append("...")
+        return "".join(parts)
 
     def _infer_severity(self, exc_name: str, trigger: str) -> str:
         """Infer severity from exception type and message."""
@@ -145,27 +175,31 @@ def find_project_root() -> Path:
     return current.parent.parent
 
 
+def _is_excluded(path: Path) -> bool:
+    """Check if any path component is in EXCLUDED_DIRS."""
+    return any(part in EXCLUDED_DIRS for part in path.parts)
+
+
 def resolve_patterns(root: Path, patterns: list[str]) -> list[Path]:
     matched: set[Path] = set()
     for pat in patterns:
-        pat_os = pat.replace("/", os.sep)
-        if "**" in pat:
-            for p in root.glob(pat_os):
-                if p.is_file():
+        if "**" in pat or "*" in pat:
+            for p in root.glob(pat):
+                if p.is_file() and not _is_excluded(p):
                     matched.add(p)
         else:
-            p = root / pat_os
-            if p.exists() and p.is_file():
+            p = root / pat
+            if p.is_file() and not _is_excluded(p):
                 matched.add(p)
-            elif p.exists() and p.is_dir():
-                for child in p.rglob("*"):
-                    if child.is_file():
+            elif p.is_dir():
+                for child in p.rglob("*.py"):
+                    if child.is_file() and not _is_excluded(child):
                         matched.add(child)
     return sorted(matched)
 
 
 def extract_docstring_raises(
-    source: str, rel_path: str
+    source: str, rel_path: str = ""
 ) -> list[tuple[str, str, str, int]]:
     """Extract :raises: declarations from docstrings."""
     findings = []
@@ -181,7 +215,7 @@ def extract_docstring_raises(
                 continue
 
             # Find :raises Exception: description patterns
-            raises_pattern = r":raises\s+(\w+):\s*(.+?)(?=\n\s*:|\Z)"
+            raises_pattern = r":raises\s+([\w\.]+):\s*(.+?)(?=\n\s*:|\Z)"
             for match in re.finditer(raises_pattern, doc, re.DOTALL):
                 exc_name = match.group(1)
                 trigger = match.group(2).strip().replace("\n", " ")[:80]
@@ -192,7 +226,7 @@ def extract_docstring_raises(
 
 
 def extract_tech_debt_comments(
-    source: str, rel_path: str
+    source: str, rel_path: str = ""
 ) -> list[tuple[str, str, str, int]]:
     """Extract # TECH DEBT and # FIXME comments."""
     findings = []
@@ -217,18 +251,17 @@ def build_taxonomy(findings: list[tuple[str, str, str, str, int]]) -> str:
     lines.append("| Component | Exception | Trigger | Severity |")
     lines.append("|-----------|-----------|---------|----------|")
 
-    # Group by component (file path)
-    by_component: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    # Group by component (file path) – keep highest severity
+    severity_rank = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
+    by_component: dict[tuple[str, str], tuple[str, str, str, str]] = {}
 
     for rel_path, exc_name, trigger, severity, line in findings:
-        # Simplify component name
         comp = rel_path.replace("src/ai_assistant/", "").replace("/", ".")
         if comp.endswith(".py"):
             comp = comp[:-3]
 
-        # Deduplicate by component + exception (ignore trigger variations)
         key = (comp, exc_name)
-        if key not in by_component:
+        if key not in by_component or severity_rank.get(severity, 0) > severity_rank.get(by_component[key][3], 0):
             by_component[key] = (comp, exc_name, trigger, severity)
 
     # Sort by severity then component

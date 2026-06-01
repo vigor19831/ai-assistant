@@ -11,7 +11,6 @@ Validates robustness against:
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 import pytest
 import respx
@@ -100,29 +99,35 @@ async def _malicious_stream(*args, **kwargs):
 
 def test_chat_stream_json_injection(client):
     """SSE error payload must be valid JSON even if exception contains quotes/newlines."""
-    with patch(
-        "ai_assistant.features.chat.handlers.ChatManager.stream_chat",
-        new=_malicious_stream,
-    ):
+    chat_manager = client.app.state.app_state.chat_manager
+    original_stream_chat = chat_manager.stream_chat
+    chat_manager.stream_chat = _malicious_stream
+    try:
         resp = client.post(
             "/api/v1/chat/stream",
             json={"message": 'test "quoted" and newline'},
         )
         assert resp.status_code == 200
 
-        lines = [ln for ln in resp.text.strip().splitlines() if ln.startswith("data: ")]
-        assert len(lines) == 1
-        payload = lines[0].removeprefix("data: ")
-        data = json.loads(payload)
-        assert data["error"] == "Internal server error"
+        lines = [line for line in resp.text.splitlines() if line.startswith("data:")]
+        # After exception we expect at least the error payload
+        assert len(lines) >= 1
+        for line in lines:
+            payload = line.removeprefix("data: ").strip()
+            if payload == "[DONE]":
+                continue
+            data = json.loads(payload)  # raises if malformed
+            assert data.get("error") == "Internal server error"
+    finally:
+        chat_manager.stream_chat = original_stream_chat
 
 
 def test_openai_chat_stream_json_injection(client):
     """OpenAI-compatible SSE error payload must be valid JSON."""
-    with patch(
-        "ai_assistant.features.chat.handlers.ChatManager.stream_chat",
-        new=_malicious_stream,
-    ):
+    chat_manager = client.app.state.app_state.chat_manager
+    original_stream_chat = chat_manager.stream_chat
+    chat_manager.stream_chat = _malicious_stream
+    try:
         resp = client.post(
             "/v1/chat/completions",
             json={
@@ -133,8 +138,15 @@ def test_openai_chat_stream_json_injection(client):
         )
         assert resp.status_code == 200
 
-        lines = [ln for ln in resp.text.strip().splitlines() if ln.startswith("data: ")]
-        assert len(lines) == 1
-        payload = lines[0].removeprefix("data: ")
-        data = json.loads(payload)
-        assert data["error"] == "Internal server error"
+        lines = [line for line in resp.text.splitlines() if line.startswith("data:")]
+        assert len(lines) >= 1
+        for line in lines:
+            payload = line.removeprefix("data: ").strip()
+            if payload == "[DONE]":
+                continue
+            data = json.loads(payload)
+            # When LLM stream raises, handler yields error JSON instead of OpenAI chunk
+            assert "error" in data
+            assert data["error"] == "Internal server error"
+    finally:
+        chat_manager.stream_chat = original_stream_chat

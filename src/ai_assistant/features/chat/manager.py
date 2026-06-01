@@ -9,7 +9,15 @@ import re
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
+from ai_assistant.core.constants import (
+    FROZEN_NO_INFO_PHRASES,
+)
+from ai_assistant.core.constants import (
+    RAG_NS_MAP as _NS_MAP,
+)
+from ai_assistant.core.constants import (
+    RAG_PREFIX_RE as _PREFIX_RE,
+)
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
@@ -37,8 +45,7 @@ __all__ = ["ChatManager"]
 
 logger = get_logger("chat")
 
-_NS_MAP = {"p": "personal", "w": "work", "o": "other"}
-_PREFIX_RE = re.compile(r"^\[(p|w|o)\]\s*(.*)", re.IGNORECASE)
+# RAG prefix constants imported from core.constants as _NS_MAP / _PREFIX_RE
 
 
 class ChatManager:
@@ -72,6 +79,7 @@ class ChatManager:
         vision: Any | None = None,
         storage: Any | None = None,
         history_limit: int = 10,
+        max_history_messages: int = 10_000,
         max_context_tokens: int | None = None,
         tokenizer_model: str = "gpt-4o",
         tool_registry: Any | None = None,
@@ -84,6 +92,7 @@ class ChatManager:
         self.vision = vision
         self.storage = storage
         self.history_limit = history_limit
+        self.max_history_messages = max_history_messages
         self.max_context_tokens = max_context_tokens
         self.tokenizer_model = tokenizer_model
         self.tool_registry = tool_registry
@@ -218,6 +227,12 @@ class ChatManager:
         elif image_base64:
             image_payload = ImagePayload(base64_data=image_base64)
 
+        # Graceful degradation: RAG requested but infrastructure unavailable
+        if _PREFIX_RE.match(message) and not (self.embedder and self.vector_store):
+            return AssistantMessage(
+                text="Поиск по документам (RAG) временно недоступен."
+            )
+
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
         record_metric("rag_chunks", len(rag_chunks))
 
@@ -235,7 +250,8 @@ class ChatManager:
             try:
                 history = await self.storage.get_history(
                     conversation_id,
-                    limit=self.history_limit,
+                    limit=min(self.history_limit, self.max_history_messages),
+                    offset=0,
                 )
                 try:
                     history = self._trim_history(history, user_msg)
@@ -390,6 +406,11 @@ class ChatManager:
         elif image_base64:
             image_payload = ImagePayload(base64_data=image_base64)
 
+        # Graceful degradation: RAG requested but infrastructure unavailable
+        if _PREFIX_RE.match(message) and not (self.embedder and self.vector_store):
+            yield "Поиск по документам (RAG) временно недоступен."
+            return
+
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
         record_metric("rag_chunks", len(rag_chunks))
 
@@ -406,7 +427,7 @@ class ChatManager:
             try:
                 history = await self.storage.get_history(
                     conversation_id,
-                    limit=self.history_limit,
+                    limit=min(self.history_limit, self.max_history_messages),
                 )
                 try:
                     history = self._trim_history(history, user_msg)

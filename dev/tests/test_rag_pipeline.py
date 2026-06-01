@@ -4,8 +4,18 @@ from __future__ import annotations
 
 import pytest
 from dataclasses import replace
+from unittest.mock import AsyncMock, patch
 
 from ai_assistant.core.domain.documents import Chunk, Document
+from ai_assistant.core.domain.errors import (
+    EMBEDDER_NOT_PROVIDED,
+    INTERNAL_SERVER_ERROR,
+    LLM_NOT_PROVIDED,
+    QUERY_EMBEDDING_MISSING,
+    QUERY_MISSING,
+    QUERY_TEXT_MISSING,
+    VECTOR_STORE_NOT_PROVIDED,
+)
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.ports.reranker import RerankResult
@@ -49,7 +59,12 @@ class FakeLLM:
     def __init__(self, response: str = ""):
         self._response = response
 
-    async def complete(self, messages, **kwargs):
+    async def complete(
+        self,
+        messages: list[Any],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> AssistantMessage:
         return AssistantMessage(text=self._response)
 
 
@@ -67,7 +82,7 @@ class TestEmbedQuery:
     async def test_embed_query_no_embedder(self):
         data = PipelineData(query=UserMessage(text="hello"))
         result = await embed_query(data)
-        assert any("embedder not provided" in e for e in result.errors)
+        assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_embed_query_no_query(self):
@@ -75,7 +90,7 @@ class TestEmbedQuery:
         data = PipelineData()
         data = replace(data, metadata={**data.metadata, "embedder": embedder})
         result = await embed_query(data)
-        assert any("no query text" in e for e in result.errors)
+        assert any(QUERY_TEXT_MISSING in e for e in result.errors)
 
 
 class TestRetrieve:
@@ -105,7 +120,7 @@ class TestRetrieve:
             metadata={"query_embedding": [0.0, 1.0, 0.0]},
         )
         result = await retrieve(data)
-        assert any("vector_store not provided" in e for e in result.errors)
+        assert any(VECTOR_STORE_NOT_PROVIDED in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_retrieve_no_embedding(self):
@@ -113,7 +128,7 @@ class TestRetrieve:
         data = PipelineData(query=UserMessage(text="hello"))
         data = replace(data, metadata={**data.metadata, "vector_store": store})
         result = await retrieve(data)
-        assert any("no query embedding" in e for e in result.errors)
+        assert any(QUERY_EMBEDDING_MISSING in e for e in result.errors)
 
 
 class TestBuildContext:
@@ -201,7 +216,7 @@ class TestRerank:
         )
         data = replace(data, metadata={**data.metadata, "reranker": FakeReranker()})
         result = await rerank(data)
-        assert result.chunks == []
+        assert result.chunks == ()
         assert result.metadata.get("rerank_filtered_out") is True
 
     @pytest.mark.asyncio
@@ -216,7 +231,7 @@ class TestRerank:
         )
         data = replace(data, metadata={**data.metadata, "reranker": BrokenReranker()})
         result = await rerank(data)
-        assert any("Internal server error" in e for e in result.errors)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
 
 
 class TestGenerate:
@@ -240,7 +255,7 @@ class TestGenerate:
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
         result = await generate(data)
-        assert any("llm not provided" in e for e in result.errors)
+        assert any(LLM_NOT_PROVIDED in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_generate_no_query(self):
@@ -250,12 +265,17 @@ class TestGenerate:
         llm = FakeLLM()
         data = replace(data, metadata={**data.metadata, "llm": llm})
         result = await generate(data)
-        assert any("no query" in e for e in result.errors)
+        assert any(QUERY_MISSING in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_generate_llm_error(self):
         class BrokenLLM:
-            async def complete(self, messages, **kwargs):
+            async def complete(
+                self,
+                messages: list[Any],
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+            ) -> AssistantMessage:
                 raise RuntimeError("fail")
 
         data = PipelineData(
@@ -264,8 +284,44 @@ class TestGenerate:
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
         data = replace(data, metadata={**data.metadata, "llm": BrokenLLM()})
-        result = await generate(data)
-        assert any("Internal server error" in e for e in result.errors)
+        with patch("ai_assistant.pipeline.steps.asyncio.sleep", new_callable=AsyncMock):
+            result = await generate(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_generate_retries_on_transient_error(self):
+        """Transient errors in LLM.complete should be retried with backoff."""
+        class FlakyLLM:
+            def __init__(self, fails: int = 2):
+                self._fails = fails
+                self._calls = 0
+
+            async def complete(
+                self,
+                messages: list[Any],
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+            ) -> AssistantMessage:
+                self._calls += 1
+                if self._calls <= self._fails:
+                    raise RuntimeError("network down")
+                return AssistantMessage(text="recovered")
+
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+        )
+        llm = FlakyLLM(fails=2)
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+
+        with patch("ai_assistant.pipeline.steps.asyncio.sleep", new_callable=AsyncMock):
+            result = await generate(data)
+
+        assert llm._calls == 3
+        assert result.response is not None
+        assert result.response.text == "recovered"
+        assert not result.errors
 
 
 class TestFullPipeline:
@@ -359,3 +415,157 @@ class TestFullPipeline:
         data = await generate(data)
 
         assert data.response is not None
+
+
+class TestEmbedQueryRetry:
+    @pytest.mark.asyncio
+    async def test_embed_query_retries_on_transient_error(self):
+        """Transient errors (RuntimeError) in embedder should be retried."""
+        class FlakyEmbedder:
+            def __init__(self, fails: int = 2):
+                self.dimension = 384
+                self._fails = fails
+                self._calls = 0
+
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                self._calls += 1
+                if self._calls <= self._fails:
+                    raise RuntimeError("network down")
+                return [[0.1] * self.dimension for _ in texts]
+
+        embedder = FlakyEmbedder(fails=2)
+        data = PipelineData(query=UserMessage(text="hello"))
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+
+        with patch("ai_assistant.core.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await embed_query(data)
+
+        assert embedder._calls == 3
+        assert "query_embedding" in result.metadata
+        assert len(result.metadata["query_embedding"]) == embedder.dimension
+        assert not result.errors
+
+    @pytest.mark.asyncio
+    async def test_embed_query_no_retry_on_permanent_error(self):
+        """Permanent errors (ValueError) in embedder should NOT be retried."""
+        class PermanentFailEmbedder:
+            def __init__(self):
+                self.dimension = 384
+                self._calls = 0
+
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                self._calls += 1
+                raise ValueError("bad config")
+
+        embedder = PermanentFailEmbedder()
+        data = PipelineData(query=UserMessage(text="hello"))
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+
+        result = await embed_query(data)
+
+        assert embedder._calls == 1
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+
+
+class TestRetrieveRetry:
+    @pytest.mark.asyncio
+    async def test_retrieve_retries_on_transient_error(self):
+        """Transient errors (RuntimeError) in vector_store.search should be retried."""
+        class FlakyVectorStore:
+            def __init__(self, fails: int = 2):
+                self._fails = fails
+                self._calls = 0
+
+            async def search(self, query_embedding, top_k=5, namespace="default"):
+                self._calls += 1
+                if self._calls <= self._fails:
+                    raise RuntimeError("connection lost")
+                return [Chunk(id="c1", text="recovered", embedding=query_embedding)]
+
+        store = FlakyVectorStore(fails=2)
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            metadata={
+                "query_embedding": [0.0, 1.0, 0.0],
+                "top_k": 5,
+                "namespace": "test",
+            },
+        )
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+
+        with patch("ai_assistant.core.retry.asyncio.sleep", new_callable=AsyncMock):
+            result = await retrieve(data)
+
+        assert store._calls == 3
+        assert len(result.chunks) == 1
+        assert result.chunks[0].id == "c1"
+        assert not result.errors
+
+    @pytest.mark.asyncio
+    async def test_retrieve_no_retry_on_permanent_error(self):
+        """Permanent errors (ValueError) in vector_store.search should NOT be retried."""
+        class PermanentFailStore:
+            def __init__(self):
+                self._calls = 0
+
+            async def search(self, query_embedding, top_k=5, namespace="default"):
+                self._calls += 1
+                raise ValueError("bad index")
+
+        store = PermanentFailStore()
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            metadata={
+                "query_embedding": [0.0, 1.0, 0.0],
+                "top_k": 5,
+                "namespace": "test",
+            },
+        )
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+
+        result = await retrieve(data)
+
+        assert store._calls == 1
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+
+class TestPromptCache:
+    def test_get_prompt_cache_hit(self):
+        """Same kwargs should return cached result."""
+        from ai_assistant.core.prompts import _render, get_prompt
+
+        _render.cache_clear()
+
+        result1 = get_prompt("summarize", version="v1", text="hello", max_sentences="3")
+        result2 = get_prompt("summarize", version="v1", text="hello", max_sentences="3")
+
+        assert result1 == result2
+        assert _render.cache_info().hits >= 1
+
+    def test_get_prompt_cache_miss_different_kwargs(self):
+        """Different kwargs should be separate cache entries."""
+        from ai_assistant.core.prompts import _render, get_prompt
+
+        _render.cache_clear()
+
+        result1 = get_prompt("summarize", version="v1", text="hello", max_sentences="3")
+        result2 = get_prompt("summarize", version="v1", text="hello", max_sentences="5")
+
+        assert result1 != result2
+        assert _render.cache_info().misses >= 2
+
+    def test_get_prompt_cache_with_chunks(self):
+        """Cache should handle hashable Chunk objects."""
+        from ai_assistant.core.prompts import _render, get_prompt
+
+        _render.cache_clear()
+
+        chunks = [Chunk(id="c1", text="chunk one"), Chunk(id="c2", text="chunk two")]
+        result1 = get_prompt(
+            "rag_default", version="v1", query="q", context="ctx", chunks=chunks
+        )
+        result2 = get_prompt(
+            "rag_default", version="v1", query="q", context="ctx", chunks=chunks
+        )
+
+        assert result1 == result2
+        assert _render.cache_info().hits >= 1

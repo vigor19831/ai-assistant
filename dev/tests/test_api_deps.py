@@ -37,6 +37,7 @@ class TestAppState:
         assert hasattr(state, "storage")
         assert hasattr(state, "tool_registry")
         assert hasattr(state, "long_term_memory")
+        assert hasattr(state, "chat_manager")
 
     def test_defaults_are_none_except_config(self):
         cfg = AppConfig()
@@ -45,6 +46,7 @@ class TestAppState:
         assert state.embedder is None
         assert state.vector_store is None
         assert state.pipeline is None
+        assert state.chat_manager is None
 
 
 # ── init_adapters with mocked registry.create ──
@@ -133,6 +135,7 @@ class TestInitAdapters:
         assert state.storage is mock_storage
         assert state.reranker is mock_reranker
         assert state.tool_registry is not None
+        assert state.chat_manager is not None
 
     @pytest.mark.asyncio
     async def test_pipeline_created_with_correct_steps(self, minimal_config):
@@ -393,3 +396,108 @@ class TestGetState:
         }
         request = Request(scope)
         assert get_state(request) is mock_state
+
+    def test_fallback_to_singleton_when_app_state_is_wrong_type(self):
+        from fastapi import FastAPI, Request
+        from ai_assistant.api.deps import set_state
+
+        app = FastAPI()
+        app.state.app_state = "not an AppState"
+
+        mock_state = AppState(config=AppConfig())
+        set_state(mock_state)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "app": app,
+        }
+        request = Request(scope)
+        assert get_state(request) is mock_state
+
+    def test_raises_when_app_state_is_wrong_type_and_singleton_uninitialized(self):
+        from fastapi import FastAPI, Request
+
+        app = FastAPI()
+        app.state.app_state = "not an AppState"
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "app": app,
+        }
+        request = Request(scope)
+        with pytest.raises(RuntimeError, match="State not initialized"):
+            get_state(request)
+
+# ── IChatStorage pagination ──
+
+
+class TestChatStoragePagination:
+    @pytest.mark.asyncio
+    async def test_get_history_accepts_offset(self):
+        """IChatStorage.get_history must accept offset parameter."""
+        from ai_assistant.core.ports.storage import IChatStorage
+
+        class DummyStorage(IChatStorage):
+            async def save_message(self, conversation_id: str, message: dict[str, Any]) -> None:
+                pass
+
+            async def get_history(
+                self, conversation_id: str, limit: int = 50, offset: int = 0
+            ) -> list[dict[str, Any]]:
+                return [{"offset": offset, "limit": limit}]
+
+        storage = DummyStorage(config=MagicMock())
+        result = await storage.get_history("conv-1", limit=10, offset=5)
+        assert result[0]["offset"] == 5
+        assert result[0]["limit"] == 10
+
+    @pytest.mark.asyncio
+    async def test_sqlite_storage_pagination(self, tmp_path):
+        """SQLiteStorage.get_history respects LIMIT and OFFSET.
+
+        ORDER BY id DESC + reversed(rows) means:
+        - Pages go from newest to oldest.
+        - Within a page, messages are oldest-first.
+        """
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+
+        cfg = MagicMock()
+        cfg.db_path = str(tmp_path / "test_pag.db")
+        storage = SQLiteStorage(cfg)
+        await storage.init_db()
+
+        # Insert 5 messages: id 1..5
+        for i in range(5):
+            await storage.save_message(
+                "conv-1",
+                {"role": "user", "content": f"msg-{i}", "metadata": {}},
+            )
+
+        # Page 1: limit=2, offset=0 → ids 5,4 (newest) → reversed → 4,5
+        page1 = await storage.get_history("conv-1", limit=2, offset=0)
+        assert len(page1) == 2
+        assert page1[0]["content"] == "msg-3"
+        assert page1[1]["content"] == "msg-4"
+
+        # Page 2: limit=2, offset=2 → ids 3,2 → reversed → 2,3
+        page2 = await storage.get_history("conv-1", limit=2, offset=2)
+        assert len(page2) == 2
+        assert page2[0]["content"] == "msg-1"
+        assert page2[1]["content"] == "msg-2"
+
+        # Page 3: limit=2, offset=4 → id 1 → reversed → 1
+        page3 = await storage.get_history("conv-1", limit=2, offset=4)
+        assert len(page3) == 1
+        assert page3[0]["content"] == "msg-0"
+
+        # Page 4: limit=2, offset=6 → empty
+        page4 = await storage.get_history("conv-1", limit=2, offset=6)
+        assert page4 == []

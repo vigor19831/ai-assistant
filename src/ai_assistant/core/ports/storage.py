@@ -21,9 +21,15 @@ class IChatStorage(ABC):
 
     @abstractmethod
     async def get_history(
-        self, conversation_id: str, limit: int = 50
+        self, conversation_id: str, limit: int = 50, offset: int = 0
     ) -> list[dict[str, Any]]:
-        """Return recent messages for a conversation, oldest first."""
+        """Return recent messages for a conversation, oldest first.
+
+        Args:
+            conversation_id: Conversation identifier.
+            limit: Maximum number of messages to return.
+            offset: Number of messages to skip (for pagination).
+        """
         ...
 
 

@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import os
 import threading
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
+
+import aiofiles
 
 from ai_assistant.core.logger import get_logger
 
@@ -29,10 +31,18 @@ class MetricsLogger:
     """Non-blocking JSONL metrics logger using asyncio queue + background task."""
 
     def __init__(self, path: str | Path = "./data/metrics.jsonl") -> None:
-        self._path = Path(path)
+        self._base_path = Path(path)
         self._queue: asyncio.Queue[dict[str, Any] | None] | None = None
         self._task: asyncio.Task[None] | None = None
         self._logger = _logger
+
+    def _current_path(self) -> Path:
+        """Return the rotated path for today's date."""
+        today = datetime.now(UTC).date().isoformat()
+        return (
+            self._base_path.parent
+            / f"{self._base_path.stem}-{today}{self._base_path.suffix}"
+        )
 
     def start(self) -> None:
         """Start background writer task."""
@@ -47,14 +57,6 @@ class MetricsLogger:
         self._queue = asyncio.Queue(maxsize=1000)
         self._task = loop.create_task(self._worker())
 
-    def _append_line(self, line: str) -> None:
-        """Synchronous durable file append."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "a", encoding="utf-8") as fh:
-            fh.write(line)
-            fh.flush()
-            os.fsync(fh.fileno())
-
     async def _worker(self) -> None:
         """Consume queue and append JSON lines."""
         if self._queue is None:
@@ -65,7 +67,10 @@ class MetricsLogger:
                 break
             try:
                 payload = json.dumps(item, ensure_ascii=False, default=str) + "\n"
-                await asyncio.to_thread(self._append_line, payload)
+                path = self._current_path()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                async with aiofiles.open(path, mode="a", encoding="utf-8") as f:
+                    await f.write(payload)
             except (SystemExit, KeyboardInterrupt):
                 raise
             except Exception as exc:
@@ -136,7 +141,16 @@ except TypeError:
 
 
 def record_metric(key: str, value: Any) -> None:
-    """Record a metric for the current request context."""
+    """Record a metric for the current request context.
+
+    Raises:
+        TypeError: If *value* is not a JSON-serializable primitive.
+    """
+    if not isinstance(value, (str, int, float, bool, type(None), list, dict)):
+        raise TypeError(
+            f"Metric value must be a JSON-serializable primitive, "
+            f"got {type(value).__name__} for key {key!r}"
+        )
     metrics = _request_metrics.get()
     if metrics is None:
         metrics = {}

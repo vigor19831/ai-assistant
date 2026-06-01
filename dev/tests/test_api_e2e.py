@@ -142,9 +142,26 @@ class TestChatOffline:
     def test_with_voice(self, client, mock_state):
         import base64
 
+        from ai_assistant.features.chat.manager import ChatManager
+
         mock_state.voice_recognizer = MagicMock()
         mock_state.voice_recognizer.transcribe = AsyncMock(
             return_value="transcribed voice"
+        )
+
+        # Пересоздаём chat_manager с актуальным voice_recognizer
+        mock_state.chat_manager = ChatManager(
+            llm=mock_state.llm,
+            voice_recognizer=mock_state.voice_recognizer,
+            vision=mock_state.vision,
+            storage=mock_state.storage,
+            history_limit=mock_state.config.chat.history_limit,
+            max_context_tokens=mock_state.config.chat.max_context_tokens,
+            tokenizer_model=mock_state.config.chat.tokenizer_model,
+            tool_registry=mock_state.tool_registry,
+            embedder=mock_state.embedder,
+            vector_store=mock_state.vector_store,
+            reranker=mock_state.reranker,
         )
 
         audio = base64.b64encode(b"fake_audio").decode()
@@ -411,12 +428,18 @@ class TestRAGOffline:
             assert resp.status_code == 200
             task_id = resp.json()["task_id"]
 
-            # Status should be running or completed (fast with mocks)
-            status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
-            assert status_resp.status_code == 200
-            status_data = status_resp.json()
-            assert status_data["status"] in ("running", "completed")
+            # Poll until finished (with mocks it's near-instant)
+            for _ in range(100):
+                status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
+                status_data = status_resp.json()
+                if status_data["status"] in ("completed", "failed"):
+                    break
+            else:
+                pytest.fail("Background reindex did not finish in time")
+
             assert status_data["task_id"] == task_id
+            # Memory-leak guard: task must be removed from _reindex_tasks
+            assert task_id not in handlers_module._reindex_tasks
         finally:
             handlers_module._reindex_semaphore = original_sem
 

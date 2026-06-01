@@ -14,6 +14,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+
 # --- config ---------------------------------------------------------------
 
 SCRIPT_ORDER = [
@@ -27,9 +28,9 @@ SCRIPT_ORDER = [
 BACKGROUND = {"start"}
 TEST_FLAGS = {
     "clean_cache": ["--clean"],
-    "context_build": ["--full"],
     "download_tokenizers": ["--auto"],
 }
+# context_build has its own ask function, not in TEST_FLAGS
 TEST_MODES = {
     "default": [],
     "reverse": ["--reverse"],
@@ -152,8 +153,25 @@ def flag_hint(target: str) -> str:
     return " ".join(flags) if flags else ""
 
 
+def ask_context_build_mode() -> list[str]:
+    """Ask user which context build mode to use."""
+    print(f"\n{YELLOW}Select context build mode:{RESET}")
+    print("  [1] super    — rules + signatures only (~20 KB, daily use)")
+    print("  [2] compact  — critical code + signatures + inventory (~200 KB)")
+    print("  [3] full     — absolute everything (~800 KB, audit only)")
+    try:
+        ans = input("Mode [1]: ").strip()
+    except EOFError:
+        return ["--super"]
+    mapping = {"1": "--super", "2": "--compact", "3": "--full"}
+    return [mapping.get(ans, "--super")]
+
+
 def ask_flags(target: str) -> list[str]:
-    flags = TEST_FLAGS.get(Path(target).stem)
+    stem = Path(target).stem
+    if stem == "context_build":
+        return ask_context_build_mode()
+    flags = TEST_FLAGS.get(stem)
     if not flags:
         return []
     try:
@@ -561,7 +579,7 @@ def main() -> int:
             return 1
 
         mode_extra: list[str] = []
-        # In non-interactive mode, always use default test mode
+        # In non-interactive mode, use default modes
 
         if target == "__terminal__":
             return run_terminal(root)

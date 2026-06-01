@@ -1,4 +1,4 @@
-"""Compatibility tests for frozen PipelineData with RAG pipeline."""
+"""Tests ensuring frozen PipelineData compatibility with downstream code."""
 
 from __future__ import annotations
 
@@ -11,28 +11,28 @@ from ai_assistant.core.domain.pipeline import PipelineData
 
 
 class TestPipelineDataCompatibility:
-    """Ensure frozen PipelineData works with existing pipeline patterns."""
+    """Backward-compat tests: frozen must not break existing patterns."""
 
     def test_pipeline_data_is_frozen(self) -> None:
-        """PipelineData must be immutable."""
+        """FrozenInstanceError on direct field assignment."""
         data = PipelineData()
         with pytest.raises(FrozenInstanceError):
-            data.context = "test"
+            data.context = "x"  # type: ignore[misc]
 
     def test_frozen_instance_error_on_chunks_mutation(self) -> None:
-        """Attempting to set data.chunks = [...] must raise FrozenInstanceError."""
+        """Setting chunks directly must raise."""
         data = PipelineData()
         with pytest.raises(FrozenInstanceError):
-            data.chunks = []  # type: ignore[misc]
+            data.chunks = ()  # type: ignore[misc]
 
     def test_frozen_instance_error_on_errors_mutation(self) -> None:
-        """Attempting to set data.errors = [...] must raise FrozenInstanceError."""
+        """Setting errors directly must raise."""
         data = PipelineData()
         with pytest.raises(FrozenInstanceError):
-            data.errors = []  # type: ignore[misc]
+            data.errors = ()  # type: ignore[misc]
 
     def test_frozen_instance_error_on_metadata_mutation(self) -> None:
-        """Attempting to set data.metadata = {} must raise FrozenInstanceError."""
+        """Setting metadata directly must raise."""
         data = PipelineData()
         with pytest.raises(FrozenInstanceError):
             data.metadata = {}  # type: ignore[misc]
@@ -51,20 +51,24 @@ class TestPipelineDataCompatibility:
 
         # Test each method preserves original
         data2 = data.with_chunks([chunk])
-        assert data.chunks == []
-        assert data2.chunks == [chunk]
+        assert data.chunks == ()
+        assert data2.chunks == (chunk,)
+        assert data is not data2
 
-        data3 = data.with_context("ctx")
-        assert data.context == ""
+        data3 = data2.with_context("ctx")
+        assert data2.context == ""
         assert data3.context == "ctx"
+        assert data2 is not data3
 
-        data4 = data.with_response(resp)
-        assert data.response is None
+        data4 = data3.with_response(resp)
+        assert data3.response is None
         assert data4.response is resp
+        assert data3 is not data4
 
-        data5 = data.add_error("err")
-        assert data.errors == []
-        assert data5.errors == ["err"]
+        data5 = data4.add_error("e1")
+        assert data4.errors == ()
+        assert data5.errors == ("e1",)
+        assert data4 is not data5
 
     def test_chaining_compatibility(self) -> None:
         """Methods must be chainable in pipeline style."""
@@ -83,28 +87,26 @@ class TestPipelineDataCompatibility:
             .add_error("e1")
         )
 
-        assert data.chunks == [chunk]
+        assert data.chunks == (chunk,)
         assert data.context == "ctx"
         assert data.response is resp
-        assert data.errors == ["e1"]
+        assert data.errors == ("e1",)
 
     def test_metadata_merge_compatibility(self) -> None:
-        """Metadata must be mergeable via replace pattern."""
+        """replace() must work for metadata merging (pipeline pattern)."""
         from dataclasses import replace
 
         data = PipelineData(metadata={"a": 1})
-        new_metadata = {**data.metadata, "b": 2}
-        data2 = replace(data, metadata=new_metadata)
-
-        assert data.metadata == {"a": 1}
+        data2 = replace(data, metadata={**data.metadata, "b": 2})
         assert data2.metadata == {"a": 1, "b": 2}
+        assert data.metadata == {"a": 1}
 
     def test_default_values_compatible(self) -> None:
         """Default values must work as before."""
         data = PipelineData()
         assert data.query is None
-        assert data.chunks == []
+        assert data.chunks == ()
         assert data.context == ""
         assert data.response is None
         assert data.metadata == {}
-        assert data.errors == []
+        assert data.errors == ()

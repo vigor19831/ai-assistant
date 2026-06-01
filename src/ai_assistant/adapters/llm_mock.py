@@ -22,20 +22,29 @@ class MockLLM(ILLM):
         super().__init__(config)
 
     async def complete(
-        self, messages: list[Message], **kwargs: Any
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> AssistantMessage:
         if not messages:
             last = "..."
         else:
             msg = messages[-1]
-            if isinstance(msg, dict):
-                last = msg.get("text") or "..."
-            else:
+            try:
                 last = msg.text if msg.text is not None else "..."
+            except AttributeError:
+                try:
+                    last = msg.get("text") or "..."
+                except AttributeError:
+                    last = "..."
         return AssistantMessage(text=f"[MOCK LLM] Echo: {last}")
 
     async def stream(
-        self, messages: list[Message], **kwargs: Any
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[str]:
         yield (
             "[MOCK] Server is running. Switch config.yaml to "

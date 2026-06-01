@@ -16,6 +16,7 @@ import ai_assistant.adapters.vector_store_faiss  # noqa: F401, E402
 import ai_assistant.adapters.vector_store_memory  # noqa: F401, E402
 from ai_assistant.core.config import load_config  # noqa: E402
 from ai_assistant.core.domain.messages import UserMessage  # noqa: E402
+from ai_assistant.core.constants import RAG_NS_MAP, RAG_PREFIX_RE  # noqa: E402
 from ai_assistant.core.domain.pipeline import PipelineData  # noqa: E402
 from ai_assistant.core.logger import get_logger  # noqa: E402
 from ai_assistant.core.registry import create as registry_create  # noqa: E402
@@ -26,9 +27,6 @@ from ai_assistant.pipeline.steps import (  # noqa: E402
 )
 
 logger = get_logger("check_rag")
-
-_NS_MAP = {"p": "personal", "w": "work", "o": "other"}
-_PREFIX_RE = re.compile(r"^\[(p|w|o)\]\s*(.*)", re.IGNORECASE)
 
 
 async def main() -> int:
@@ -72,7 +70,7 @@ async def main() -> int:
 
     # Check namespaces
     print("\n  --- Namespace inventory ---")
-    for short, ns in _NS_MAP.items():
+    for short, ns in RAG_NS_MAP.items():
         try:
             dummy = [0.0] * dim
             results = await vector_store.search(dummy, top_k=1, namespace=ns)
@@ -92,14 +90,14 @@ async def main() -> int:
     for raw_query, _ in test_queries:
         print(f"\n  Query: '{raw_query}'")
 
-        m = _PREFIX_RE.match(raw_query)
+        m = RAG_PREFIX_RE.match(raw_query)
         if not m:
             print("        → No RAG prefix, skipping pipeline")
             continue
 
         ns_short = m.group(1).lower()
         query_text = m.group(2)
-        namespace = _NS_MAP.get(ns_short, "default")
+        namespace = RAG_NS_MAP.get(ns_short, "default")
 
         data = PipelineData(
             query=UserMessage(text=query_text),

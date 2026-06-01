@@ -10,8 +10,9 @@ if TYPE_CHECKING:
 
 import httpx
 
+from ai_assistant.core.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, MessageRole
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -42,6 +43,24 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             config, "max_stream_tokens", self.max_tokens * 2
         )
 
+        # Circuit breaker: fast-fail when the server is down to avoid retry storms
+        cb_cfg = getattr(config, "circuit_breaker", None)
+        if cb_cfg is not None:
+            self._cb = CircuitBreaker(cb_cfg)
+        else:
+            self._cb = CircuitBreaker(
+                CircuitBreakerConfig(
+                    failure_threshold=getattr(config, "cb_failure_threshold", 5),
+                    recovery_timeout=getattr(config, "cb_recovery_timeout", 30.0),
+                    expected_exception=(
+                        httpx.TimeoutException,
+                        httpx.ConnectError,
+                        httpx.NetworkError,
+                        httpx.HTTPStatusError,
+                    ),
+                )
+            )
+
     async def shutdown(self) -> None:
         """No-op: client is created per-request and auto-closed by context manager."""
         pass
@@ -49,59 +68,66 @@ class OpenAICompatibleLLM(ILLM, IClosable):
     def _build_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for m in messages:
-            if isinstance(m, dict):
+            role_attr = getattr(m, "role", None)
+            if role_attr is None:
                 out.append(m)
-            elif isinstance(m, UserMessage):
+                continue
+            if role_attr == MessageRole.USER:
                 content = m.text or ""
-                if m.image:
+                image = getattr(m, "image", None)
+                if image is not None:
                     parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
-                    if m.image.url:
+                    image_url = getattr(image, "url", None)
+                    if image_url:
                         parts.append(
                             {
                                 "type": "image_url",
-                                "image_url": {"url": m.image.url},
+                                "image_url": {"url": image_url},
                             }
                         )
-                    elif m.image.base64_data:
-                        data_url = (
-                            f"data:{m.image.mime_type};base64,{m.image.base64_data}"
-                        )
-                        parts.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": data_url},
-                            }
-                        )
+                    else:
+                        base64_data = getattr(image, "base64_data", None)
+                        if base64_data:
+                            mime_type = getattr(image, "mime_type", "image/png")
+                            data_url = f"data:{mime_type};base64,{base64_data}"
+                            parts.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": data_url},
+                                }
+                            )
                     out.append({"role": "user", "content": parts})
                 else:
                     out.append({"role": "user", "content": content})
-            elif isinstance(m, AssistantMessage):
+            else:
                 msg: dict[str, Any] = {
                     "role": "assistant",
                     "content": m.text or "",
                 }
-                if m.tool_calls:
-                    msg["tool_calls"] = m.tool_calls
+                tool_calls = getattr(m, "tool_calls", None)
+                if tool_calls:
+                    msg["tool_calls"] = tool_calls
                 out.append(msg)
         return out
 
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
-    async def complete(
+    async def _complete_impl(
         self,
         messages: list[Message],
-        **kwargs: Any,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> AssistantMessage:
         url = f"{self.api_base}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        max_tok = kwargs.get("max_tokens", self.max_tokens)
+        max_tok = max_tokens if max_tokens is not None else self.max_tokens
         payload = {
             "model": self.model,
             "messages": self._build_messages(messages),
             "max_tokens": max_tok,
-            "temperature": kwargs.get("temperature", self.temperature),
+            "temperature": temperature if temperature is not None else self.temperature,
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.post(url, headers=headers, json=payload)
@@ -118,23 +144,38 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         text = msg.get("content", "") or ""
         return AssistantMessage(text=text, tool_calls=tool_calls)
 
-    async def stream(
+    async def complete(
         self,
         messages: list[Message],
-        **kwargs: Any,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> AssistantMessage:
+        """Non-streaming completion with circuit breaker + retry."""
+        return await self._cb.call(
+            self._complete_impl,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    async def _stream_impl(
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[str]:
-        """Stream tokens. No automatic retry on network errors."""
+        """Actual streaming implementation."""
         url = f"{self.api_base}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        max_tok = kwargs.get("max_tokens", self.max_tokens)
+        max_tok = max_tokens if max_tokens is not None else self.max_tokens
         payload = {
             "model": self.model,
             "messages": self._build_messages(messages),
             "max_tokens": max_tok,
-            "temperature": kwargs.get("temperature", self.temperature),
+            "temperature": temperature if temperature is not None else self.temperature,
             "stream": True,
         }
         async with (
@@ -187,3 +228,24 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 except (KeyError, IndexError, TypeError) as exc:
                     _logger.warning("Malformed SSE: %s (%s)", obj, exc)
                     continue
+
+    async def stream(
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream tokens with circuit breaker on connection setup.
+
+        Errors during iteration are not tripped into the breaker to avoid
+        flapping on long-lived streams.
+        """
+        await self._cb.check()
+        try:
+            async for chunk in self._stream_impl(
+                messages, max_tokens=max_tokens, temperature=temperature
+            ):
+                yield chunk
+        except self._cb.config.expected_exception:
+            await self._cb.record_failure()
+            raise

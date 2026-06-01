@@ -3,6 +3,8 @@
 context_build.py — Build AI context document for the project.
 
 Modes:
+  super    — Rules + P0 signatures only. Ultra-compact for daily tasks.
+             Excludes: implementations, tests, adapters, scripts.
   compact  — P0 full code + P1 AST signatures + P2 inventory.
              Excludes: .git, venv, data, documents, vendor.
   full     — Absolute everything (warning: huge; auto-falls back to compact if >16k Python LOC).
@@ -66,12 +68,16 @@ ALWAYS_SKIP_PATTERNS: list[str] = [
     ".DS_Store",
     "Thumbs.db",
     "*.egg-info",
-    "*context_build_compact.md",
-    "*context_build_full.md",
+    "*context_build_*.md",
     "dev/README_DEV.md",
     "dev/TODO.md",
     "tests_run_*.log",
 ]
+
+# DEBUG: temporarily add this to verify pattern resolution
+# def _debug_patterns(root: Path, patterns: list[str], label: str) -> None:
+#     resolved = resolve_patterns(root, patterns)
+#     print(f"[debug] {label}: {sorted(resolved)[:5]}... ({len(resolved)} total)")
 
 # P0: Critical — contracts, API, domain, entry point, config, core implementation
 CRITICAL_PATTERNS: list[str] = [
@@ -93,6 +99,29 @@ CRITICAL_PATTERNS: list[str] = [
     "dev/tests/conftest.py",
     "dev/tests/config.test.yaml",
     "dev/tests/__init__.py",
+]
+
+# P0-SUPER: Ultra-compact — only signatures and contracts, no implementations
+SUPER_PATTERNS: list[str] = [
+    "config.yaml",
+    "pyproject.toml",
+    "src/ai_assistant/core/domain/**/*.py",
+    "src/ai_assistant/core/ports/**/*.py",
+    "src/ai_assistant/core/pipeline.py",
+    "src/ai_assistant/core/registry.py",
+    "src/ai_assistant/core/retry.py",
+    "src/ai_assistant/core/circuit_breaker.py",
+    "src/ai_assistant/core/config.py",
+    "src/ai_assistant/core/constants.py",
+    "src/ai_assistant/api/deps.py",
+    "src/ai_assistant/api/router.py",
+    "src/ai_assistant/api/lifespan.py",
+    "src/ai_assistant/api/security.py",
+    "src/ai_assistant/main.py",
+    "src/ai_assistant/__init__.py",
+    "src/ai_assistant/adapters/__init__.py",
+    "src/ai_assistant/features/**/schemas.py",
+    "src/ai_assistant/pipeline/decorators.py",
 ]
 
 # P1: Adapters and tests — AST signatures with 🔒 markers
@@ -177,6 +206,7 @@ ALREADY_EMBEDDED: set[str] = {"README.md", "dev/AI_RULES.md", "dev/README_DEV.md
 DEFAULT_OUTPUT: dict[str, str] = {
     "compact": "context_build_compact.md",
     "full": "context_build_full.md",
+    "super": "context_build_super.md",
 }
 
 ENV_PRIORITY_BLOCK: str = """## 🌍 Env Priority
@@ -445,8 +475,12 @@ def get_file_group(rel_path: str) -> str:
 def scan_project(
     root: Path, mode: str
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[tuple[str, str | None]], dict]:
-    critical_set = resolve_patterns(root, CRITICAL_PATTERNS)
-    signature_set = resolve_patterns(root, SIGNATURE_PATTERNS)
+    if mode == "super":
+        critical_set = resolve_patterns(root, SUPER_PATTERNS)
+        signature_set: set[str] = set()  # No signatures in super mode
+    else:
+        critical_set = resolve_patterns(root, CRITICAL_PATTERNS)
+        signature_set = resolve_patterns(root, SIGNATURE_PATTERNS)
 
     critical_files: list[tuple[str, str]] = []
     signature_files: list[tuple[str, str]] = []
@@ -478,6 +512,9 @@ def scan_project(
 
             if rel in critical_set:
                 critical_files.append((rel, content))
+            elif mode == "super":
+                # In super mode, everything else goes to inventory
+                other_files.append((rel, None))
             elif rel in signature_set and rel.endswith(".py"):
                 signature_files.append((rel, content))
                 if mode == "full":
@@ -585,7 +622,7 @@ def build_markdown(
     lines.append("")
     lines.append("### Included Files")
     included = {r for r, _ in critical}
-    if mode == "compact":
+    if mode in ("compact", "super"):
         included.update(r for r, _ in signature)
         included.update(r for r, c in other if c is not None)
     else:
@@ -648,8 +685,8 @@ def build_markdown(
         lines.append("```")
         lines.append("")
 
-    # 6. Signatures (P1) — compact only
-    if mode == "compact" and signature:
+    # 6. Signatures (P1) — compact and super
+    if mode in ("compact", "super") and signature:
         lines.append("---")
         lines.append("")
         lines.append("## 🧩 ADAPTER & TEST SIGNATURES (P1)")
@@ -708,7 +745,7 @@ def build_markdown(
 
     # 7.5. Error Taxonomy (auto-injected from dev/ERROR_TAXONOMY.md)
     taxonomy_path = root / "dev" / "ERROR_TAXONOMY.md"
-    if taxonomy_path.exists():
+    if taxonomy_path.exists() and mode != "super":
         lines.append("---")
         lines.append("")
         lines.append(taxonomy_path.read_text(encoding="utf-8", errors="replace"))
@@ -814,9 +851,9 @@ def main() -> int:
     )
     parser.add_argument(
         "--mode",
-        choices=["compact", "full"],
+        choices=["compact", "full", "super"],
         default="compact",
-        help="compact: critical + signatures + inventory. full: everything.",
+        help="compact: critical + signatures + inventory. full: everything. super: rules + signatures only.",
     )
     parser.add_argument(
         "--full",
@@ -831,6 +868,13 @@ def main() -> int:
         dest="mode",
         const="compact",
         help="Shorthand for --mode compact",
+    )
+    parser.add_argument(
+        "--super",
+        action="store_const",
+        dest="mode",
+        const="super",
+        help="Shorthand for --mode super",
     )
     parser.add_argument(
         "--output",

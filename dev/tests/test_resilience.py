@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sqlite3
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -155,9 +155,15 @@ class TestDiskErrors:
             logger = MetricsLogger(path=str(tmp_path / "metrics.jsonl"))
             logger.start()
 
-            # Simulate write failure
-            with patch.object(
-                logger, "_append_line", side_effect=PermissionError("denied")
+            # Simulate write failure via aiofiles.open
+            mock_file = AsyncMock()
+            mock_file.write.side_effect = PermissionError("denied")
+            mock_cm = MagicMock()
+            mock_cm.__aenter__ = AsyncMock(return_value=mock_file)
+            mock_cm.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "ai_assistant.core.metrics.aiofiles.open", return_value=mock_cm
             ):
                 logger.log({"test": 1})
                 await asyncio.sleep(0.2)

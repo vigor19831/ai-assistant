@@ -7,7 +7,7 @@ and edge cases.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -289,3 +289,84 @@ class TestTrimHistory:
         ]
         trimmed = manager._trim_history(history, UserMessage(text="q"))
         assert len(trimmed) <= 2
+
+
+# ── Graceful degradation: RAG unavailable ──
+
+
+class TestRAGGracefulDegradation:
+    @pytest.fixture
+    def manager_no_rag(self):
+        """ChatManager without embedder/vector_store."""
+        mock_llm = MagicMock()
+        mock_llm.complete = AsyncMock(
+            return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
+        )
+
+        async def _fake_stream(*args, **kwargs):
+            for chunk in ["Hello", " world"]:
+                yield chunk
+
+        mock_llm.stream = _fake_stream
+        return ChatManager(
+            llm=mock_llm,
+            embedder=None,
+            vector_store=None,
+            storage=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_chat_with_prefix_no_vector_store(self, manager_no_rag):
+        """[p] prefix with no vector_store returns graceful message."""
+        result = await manager_no_rag.chat(
+            message="[p] capital of France",
+            conversation_id="test-1",
+        )
+        assert "недоступен" in result.text.lower() or "unavailable" in result.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_chat_without_prefix_works_without_vector_store(self, manager_no_rag):
+        """Plain message without prefix should still call LLM even without vector_store."""
+        from unittest.mock import AsyncMock
+
+        manager_no_rag.llm.complete = AsyncMock(
+            return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
+        )
+        result = await manager_no_rag.chat(
+            message="Hello",
+            conversation_id="test-2",
+        )
+        assert result.text == "Hello!"
+        manager_no_rag.llm.complete.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_with_prefix_no_vector_store(self, manager_no_rag):
+        """[p] prefix in stream mode with no vector_store yields graceful message."""
+        chunks = []
+        async for chunk in manager_no_rag.stream_chat(
+            message="[p] capital of France",
+            conversation_id="test-3",
+        ):
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        assert "недоступен" in chunks[0].lower() or "unavailable" in chunks[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_stream_chat_without_prefix_works_without_vector_store(self, manager_no_rag):
+        """Plain message in stream mode without prefix should still stream from LLM."""
+
+        async def _fake_stream(*args, **kwargs):
+            for chunk in ["Hello", " world"]:
+                yield chunk
+
+        manager_no_rag.llm.stream = _fake_stream
+
+        chunks = []
+        async for chunk in manager_no_rag.stream_chat(
+            message="Hello",
+            conversation_id="test-4",
+        ):
+            chunks.append(chunk)
+
+        assert chunks == ["Hello", " world"]

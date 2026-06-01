@@ -69,7 +69,34 @@ async def index_documents(
     state: Annotated[AppState, Depends(get_state)],
 ) -> IndexResponse:
     namespace = req.namespace or state.config.rag.default_namespace
-    result = await manager.index_documents(req.documents, namespace=namespace)
+
+    # ── Resource guard: document size ──
+    max_doc_size = getattr(state.config.vector_store, "max_document_size", 10_485_760)
+    filtered_docs: list[dict[str, Any]] = []
+    pre_errors: list[str] = []
+    for doc in req.documents:
+        content = doc.get("content", "")
+        size = len(content.encode("utf-8"))
+        if size > max_doc_size:
+            doc_id = doc.get("id", "unknown")
+            pre_errors.append(
+                f"Document {doc_id} exceeds max size ({size} > {max_doc_size})"
+            )
+        else:
+            filtered_docs.append(doc)
+
+    if not filtered_docs:
+        return IndexResponse(
+            indexed_count=0,
+            chunk_count=0,
+            namespace=namespace,
+            errors=pre_errors,
+        )
+
+    result = await manager.index_documents(filtered_docs, namespace=namespace)
+    if pre_errors:
+        result.setdefault("errors", []).extend(pre_errors)
+
     # Auto-save after indexing
     index_path = getattr(state.config.vector_store, "index_path", None)
     if index_path:
@@ -79,7 +106,7 @@ async def index_documents(
             await state.vector_store.save(index_path, namespace=namespace)
         except Exception:
             _logger.exception("Auto-save failed")
-            result["errors"].append("Internal server error")
+            result.setdefault("errors", []).append("Internal server error")
     return IndexResponse(**result, namespace=namespace)
 
 
@@ -282,6 +309,8 @@ async def reindex_documents(
                     "finished_at": time.time(),
                 }
                 raise
+            finally:
+                _reindex_tasks.pop(task_id, None)
 
     task = asyncio.create_task(_run())
     _reindex_tasks[task_id] = task

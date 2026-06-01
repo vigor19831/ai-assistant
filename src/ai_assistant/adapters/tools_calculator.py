@@ -58,7 +58,10 @@ class CalculatorTool(ITool):
     async def execute(self, call_id: str, arguments: dict[str, Any]) -> ToolResult:
         """Execute the calculation."""
         op_name = arguments.get("operation")
-        if not isinstance(op_name, str) or op_name not in self._ops:
+        try:
+            if op_name not in self._ops:
+                raise KeyError
+        except (TypeError, KeyError):
             return ToolResult(
                 call_id=call_id,
                 output="",

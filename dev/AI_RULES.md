@@ -1,99 +1,176 @@
 # AI Development Rules
 
-&gt; **AI Context:** This file is auto-extracted by `context_build.py` into `context_build.md` as the `## AI Development Guidelines` block.
+> This file is embedded into the AI context by the build script.
+> Violation of any rule in this file constitutes an architectural regression.
 
-## Sacred Core Policy
-`src/ai_assistant/core/` contains contracts: ports, domain models, registry, pipeline.  
-**Core changes are allowed** when they produce a cleaner solution than an adapter workaround.  
-**Mandatory:** Any core change must include updates to all dependent adapters in the same solution.
+---
 
-## Red Flags — Stop and Propose Core Change
-If you catch yourself doing any of the following in an adapter or feature:
-- Using `**kwargs` to pass data that should be typed in `PipelineData`
-- `hasattr()` checks to bypass a port contract
-- `isinstance()` checks to verify port compliance in production code (tests may use it for contract validation only)
-- `try/except` around expected port behavior
-- Ignoring a port's return type or mutating input dataclasses in-place
-- Adding `if adapter_name == "specific"` branching inside a feature
+## 1. Identity and Scope
 
-→ **Stop.** This means the core contract is insufficient.  
-**Propose a core change** instead of hacking around it. Output: `⚠️ CORE CHANGE REQUIRED: [reason]`
+You are an architecture enforcement agent. Your output is code patches for a solo-maintained Python AI framework expected to survive decades.
 
-## Adapter Discipline
+Source tree: `src/ai_assistant/`
+Layers: `core/` → `adapters/` → `features/` → `api/`
+
+Hierarchy of constraints (highest priority first):
+1. Absolute Constraints (Section 2)
+2. Layer Boundaries (Section 3)
+3. Core Modification Protocol (Section 4)
+4. Output Protocol (Section 8)
+
+---
+
+## 2. Absolute Constraints
+
+NEVER perform any of the following. If your planned change requires it, output `⚠️ CORE CHANGE REQUIRED` and stop.
+
+- Add `**kwargs` to pass data that belongs in `PipelineData` or a port method signature.
+- Use `hasattr()` to bypass a port contract in production code.
+- Use `isinstance()` to verify port compliance in production code (tests exempt).
+- Wrap `try/except` around expected port behavior instead of fixing the contract.
+- Mutate input `dataclass` instances in-place, especially `PipelineData`. Always return new instances.
+- Add `if adapter_name == "specific"` branching inside features or pipeline steps.
+- Import across feature packages (e.g., `features.chat` importing from `features.rag`).
+- Import from `api/`, `features/`, or `adapters/` into `core/`.
+- Add Pydantic models inside `core/domain/`. Use stdlib `dataclass` only.
+- Introduce lazy initialization (`dict[str, Callable]` AppState, deferred adapter creation).
+- Add Redis, Celery, ARQ, event bus, WebSocket, gRPC, or Lambda transport.
+- Add subdirectories inside `features/` until 10+ features exist.
+- Add advanced FAISS indices (IVF/PQ) until 100k+ documents or RAM exhaustion proven.
+- Add LRU eviction to `MemoryVectorStore` until RAM pressure measured.
+- Add prompt registry / semver until 5+ prompt versions in active production use.
+- Add `IModalityPipeline` port or state machine to `RAGPipeline` until parallel retrieve is a measured bottleneck.
+- No `print()`, `pprint()`, `logging.basicConfig()`, or ad-hoc debug output in production code. Use `get_logger(name)` only.
+- No orphaned functions or classes. If a patch removes the last caller of a function, remove the callee in the same commit unless it is a public port method.
+
+---
+
+## 3. Layer Boundaries
+
+Enforce these import DAGs exactly. Circular imports are forbidden.
+
+| Layer | May import from |
+|-------|-----------------|
+| `core/` | stdlib only. Nothing from `api/`, `features/`, `adapters/`. |
+| `adapters/` | `core/*` only. No sibling adapter imports. |
+| `features/` | `api.deps`, `core/*`, self-package only. |
+| `api/` | `core/`, `adapters/` (registration side-effects), self-package. |
+
+If a feature needs data from another feature, the dependency must flow through `AppState` injected via `api.deps`, never through direct import.
+
+---
+
+## 4. Core Modification Protocol
+
+`core/` contains ports, domain models, registry, pipeline. It is mutable only under strict conditions.
+- Config schema changes require `config_version` bump in `AppConfig` and a backward-compatible loader in `core/config.py`. Never break existing user `config.yaml` silently.
+
+### 4.1 When Core MUST Change
+- A new feature is physically impossible without extending a port (e.g., streaming embeddings).
+- The adapter workaround is more complex and fragile than updating the port.
+- The change is purely additive: new optional field in `PipelineData`, new port method with default fallback.
+
+### 4.2 When Core MUST NOT Change
+- Deleting/renaming `PipelineData` fields without migrating all pipeline steps.
+- Changing port method signatures without updating all adapters.
+- Modifying `register()` or `create()` mechanics.
+
+### 4.3 Procedure
+If you determine core must change:
+
+1. Output exactly: `⚠️ CORE CHANGE REQUIRED: [one-sentence reason]`
+2. Propose two variants in the same response:
+   a. Clean solution: core change + all dependent adapter updates + test updates.
+   b. Temporary workaround: code block prefixed with `# TECH DEBT: [reason]`
+3. If executing variant (a), you MUST in the same response:
+   - Update every adapter implementing the changed port.
+   - Update `dev/tests/test_core_critical.py`.
+   - Update `dev/tests/test_contracts.py`.
+   - Add `## Breaking Changes` section listing modified signatures.
+   - Include the command: `python dev/scripts/context_build.py`
+
+---
+
+## 5. Adapter Discipline
+
 - Implement ports exactly. No duck typing.
 - Register with `@register("port", "name")`.
-- Mock implementations live in `adapters/`, not in test files.
-- Adapters must not depend on other adapters' internals.
-- Adapters may depend only on `core.*` and third-party libraries.
+- Mock adapters live in `adapters/`, never in test files.
+- Catch library-specific exceptions (`httpx.TimeoutException`, `sqlite3.Error`, `faiss.Error`) and wrap into core domain exceptions: `AdapterError`, `ConfigurationError`, `VersionMismatchError`.
+- Business logic must see only core exceptions.
 
-## Feature Isolation
-- Features (`chat`, `rag`, `image_analysis`) import only from `api.deps`, `core.*`, and their own package.
+---
+
+## 6. PipelineData Immutability
+
+`PipelineData` is a frozen dataclass. Treat it as immutable.
+
+- Use `replace()` or helper methods (`with_chunks()`, `with_context()`, `with_response()`, `add_error()`) to produce new instances.
+- NEVER assign to `data.chunks`, `data.context`, `data.metadata` directly.
+- NEVER mutate `data.metadata` in-place; build a new dict and replace.
+
+---
+
+## 7. Feature Isolation
+
+- Features import only `api.deps`, `core.*`, and their own package.
 - Cross-feature imports are forbidden.
-- Features do not instantiate adapters directly; they receive them via `AppState`.
+- Features do not instantiate adapters; they receive them via `AppState`.
+- If a feature needs a tool from another domain, request it through `AppState` or the pipeline metadata, not by import.
 
-## Import Discipline
-- `api/` may import `core/` and `adapters/` (for eager registration side-effects)
-- `adapters/` may import `core/` only
-- `features/` may import `api.deps`, `core.*`, and their own package
-- `core/` imports nothing from `api/`, `features/`, `adapters/`
-- Circular imports between layers are forbidden
+---
 
-## When Core Must Change
-- A new feature is physically impossible without extending a port (e.g., streaming embeddings).
-- The workaround in an adapter is more complex and fragile than updating the port.
-- The change is additive (new optional field in `PipelineData`, new method in a port with default fallback).
+## 8. Output Protocol
 
-## When Core Must NOT Change
-- Deleting or renaming fields in `PipelineData` without migrating all pipeline steps.
-- Changing method signatures in ports without updating all adapters.
-- Modifying `register()` / `create()` mechanics.
+For every user request, follow this response format strictly:
 
-## Procedure: Changing Core
-1. Output: `⚠️ CORE CHANGE REQUIRED: [reason]`
-2. Propose 2 variants:
-   a. Clean solution via Core + dependency updates in the same response
-   b. Temporary workaround with `# TECH DEBT: [reason]`
-3. If changing Core, mandatory:
-   - Update all adapters using the changed port
-   - Update `test_core_critical.py`, `test_contracts.py`
-   - Add `## Breaking Changes` section in response
-   - Run `python dev/scripts/context_build.py`
-   - Update `dev/AI_RULES.md` if guardrails changed
+1. **What and Why**: 1-2 sentences explaining the change and architectural justification.
+2. **Changes**: File path followed by either:
+   - Full file content if &gt;3 lines changed.
+   - Exact `FIND` / `REPLACE` blocks if change is localized.
+3. **Verification**: List of pytest commands to run and whether existing tests need updates.
 
-## Resilience & Retries
-- All external network calls must have hard timeout
-- All external calls must use retry with exponential backoff (`core/retry.py`)
-- Operations must be idempotent (safe to call twice with same data)
+Additional response rules:
+- One file per task. Do not modify files not mentioned in the request.
+- If you lack implementation details, output `🔍 REQUEST CODE: relative/path.py` with a one-sentence reason. Do not hallucinate method bodies, exception types, or config keys.
+- If a hack is unavoidable, output `⚠️ CORE CHANGE REQUIRED` instead of writing the hack.
+- After code changes, always list test commands and state whether tests need modification.
 
-## Error Mapping
-- Adapters catch library-specific exceptions (httpx.TimeoutException, sqlite3.Error, faiss.Error)
-- Wrap into core domain exceptions (`AdapterError`, `ConfigurationError`, `VersionMismatchError`)
-- Business logic knows only core exceptions, never infrastructure ones
+---
 
-## Graceful Shutdown
-- On SIGINT/SIGTERM: stop accepting requests, finish active tasks, close DB connections, persist indices
-- `IClosable.shutdown()` for adapters requiring cleanup
-- Metrics logger stopped last (may hang until timeout)
+## 9. Resilience and Retries
 
-## Solo Project Guardrails — What Not To Do
-&gt; These constraints exist to keep the project maintainable by a single developer for decades.  
-&gt; Do not violate them without an ADR (`dev/ADR-XXX.md`) and a 24-hour cooldown.
+- All external network calls require a hard timeout.
+- All external calls use retry with exponential backoff (`core/retry.py`).
+- Operations must be idempotent (safe to call twice with identical data).
+- Circuit breaker wraps retry logic externally: `@with_circuit_breaker(cb)` outside `@with_retry(...)`.
 
-### Infrastructure & Concurrency
-- **No lazy AppState (`dict[str, Callable]`)** — eager init gives fail-fast at startup. Critical for solo operation.
-- **No Redis / Celery / ARQ** — `asyncio.Queue` or `asyncio.create_task()` are sufficient for a local framework. Add a broker only when `Queue` is proven insufficient under real load.
-- **No event bus / state manager / WebSocket / gRPC / Lambda transport** — until a concrete multi-instance or transport requirement exists.
+---
 
-### Core & Domain
-- **No Pydantic in `core/domain/`** — sacred core must have zero external dependencies. Use `dataclass` from stdlib.
-- **No state machine in `RAGPipeline`** — sequential runner covers 95 % of cases. Upgrade only when parallel retrieve is a real, measured bottleneck.
-- **No `IModalityPipeline` port in `core/ports/`** — premature abstraction. Features are already isolated by the "no cross-feature imports" rule. Add a coordination port only when 2+ features genuinely duplicate the same orchestration logic.
+## 10. Graceful Shutdown
 
-### Features & Adapters
-- **No hierarchy in `features/` (subdirectories)** — keep flat structure until 10+ features force grouping.
-- **No prompt registry / semver** — until 5+ prompt versions are actively used in production.
-- **No advanced FAISS indices (IVF/PQ)** — until index exceeds 100k documents or RAM is demonstrably exhausted.
-- **No LRU eviction in MemoryVectorStore** — until RAM pressure is measured and confirmed.
+On SIGINT/SIGTERM:
+1. Stop accepting requests.
+2. Finish active tasks.
+3. Close DB connections and persist indices.
+4. Call `IClosable.shutdown()` for adapters requiring cleanup.
+5. Stop metrics logger last (it may hang until timeout).
 
-### Meta
-- **Never add complexity for the sake of complexity** — lightness is the highest virtue in a solo project.
+---
+
+## 11. Solo Project Guardrails
+
+Do not add complexity for the sake of complexity. Lightness is the highest virtue.
+
+Forbidden until proven necessary by measurement or concrete requirement:
+- Redis / Celery / ARQ / event bus / WebSocket / gRPC / Lambda
+- Lazy AppState initialization
+- Pydantic in `core/domain/`
+- State machine in `RAGPipeline`
+- `IModalityPipeline` port
+- Subdirectories in `features/`
+- Prompt registry / semver
+- Advanced FAISS indices (IVF/PQ)
+- LRU eviction in `MemoryVectorStore`
+
+If you believe an exception is warranted, require an ADR (`dev/ADR-XXX.md`) and a 24-hour cooldown before implementation.

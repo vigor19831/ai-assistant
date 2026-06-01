@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections import defaultdict
 from typing import Any
 
 from fastapi import Depends, HTTPException, Request
@@ -56,12 +55,14 @@ _MAX_TRACKED_IPS = 10_000
 
 class SecurityLimiter:
     def __init__(self, rate_limit: str = "100/minute") -> None:
-        self.requests: dict[str, list[float]] = defaultdict(list)
+        self.requests: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
         self.max_req, self.window = self._parse_rate_limit(rate_limit)
 
     def reset(self, rate_limit: str = "100/minute") -> None:
         """Clear all tracked requests and re-apply rate limit settings."""
-        self.requests.clear()
+        with self._lock:
+            self.requests.clear()
         self.max_req, self.window = self._parse_rate_limit(rate_limit)
 
     @staticmethod
@@ -78,28 +79,43 @@ class SecurityLimiter:
 
     def is_allowed(self, ip: str) -> bool:
         now = time.time()
-        self.requests[ip] = [t for t in self.requests[ip] if t > now - self.window]
-        if not self.requests[ip]:
-            del self.requests[ip]
+        with self._lock:
+            # 1. Clean stale entries for this IP
+            timestamps = self.requests.get(ip)
+            if timestamps is not None:
+                fresh = [t for t in timestamps if t > now - self.window]
+                if not fresh:
+                    self.requests.pop(ip, None)
+                else:
+                    self.requests[ip] = fresh
 
-        # OOM protection: evict stale entries and enforce hard cap
-        if len(self.requests) >= _MAX_TRACKED_IPS:
-            expired = [
-                k
-                for k, ts in self.requests.items()
-                if not ts or ts[-1] <= now - self.window
-            ]
-            for k in expired:
-                del self.requests[k]
+            # 2. OOM protection: evict stale entries and enforce hard cap
             if len(self.requests) >= _MAX_TRACKED_IPS:
-                oldest_ip = min(self.requests, key=lambda k: self.requests[k][-1])
-                del self.requests[oldest_ip]
+                expired = [
+                    k
+                    for k, ts in self.requests.items()
+                    if not ts or ts[-1] <= now - self.window
+                ]
+                for k in expired:
+                    self.requests.pop(k, None)
 
-        current = self.requests.get(ip, [])
-        if len(current) >= self.max_req:
-            return False
-        self.requests[ip].append(now)
-        return True
+                if len(self.requests) >= _MAX_TRACKED_IPS:
+                    # Safe linear scan instead of min() to avoid IndexError
+                    oldest_ip = None
+                    oldest_time = float("inf")
+                    for k, ts in self.requests.items():
+                        if ts and ts[-1] < oldest_time:
+                            oldest_time = ts[-1]
+                            oldest_ip = k
+                    if oldest_ip is not None:
+                        self.requests.pop(oldest_ip, None)
+
+            # 3. Rate check and record
+            current = self.requests.get(ip, [])
+            if len(current) >= self.max_req:
+                return False
+            self.requests.setdefault(ip, []).append(now)
+            return True
 
 
 # Global limiter instance — never replaced, only reset
@@ -112,9 +128,9 @@ def get_expected_api_key() -> str | None:
     Callers that have AppState should prefer state.config.security.api_key.
     This function exists for code paths without AppState access.
     """
-    env_key: str | None = os.getenv("AI_API_KEY")
-    if env_key:
-        return env_key
+    env_key = os.getenv("AI_API_KEY")
+    if env_key is not None:
+        return env_key or None
     with _lock:
         return _override_api_key
 

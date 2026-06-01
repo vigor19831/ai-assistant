@@ -89,6 +89,7 @@ class AppState:
     vision: IVisionProcessor | None = None
     tool_registry: ToolRegistry | None = None
     long_term_memory: ILongTermMemory | None = None
+    chat_manager: Any | None = None
 
 
 def set_state(state: AppState) -> None:
@@ -220,6 +221,22 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
                     "vision", cfg.vision.provider, cfg.vision
                 )
 
+            from ai_assistant.features.chat.manager import ChatManager
+
+            state.chat_manager = ChatManager(
+                llm=state.llm,
+                voice_recognizer=state.voice_recognizer,
+                vision=state.vision,
+                storage=state.storage,
+                history_limit=cfg.chat.history_limit,
+                max_context_tokens=cfg.chat.max_context_tokens,
+                tokenizer_model=cfg.chat.tokenizer_model,
+                tool_registry=state.tool_registry,
+                embedder=state.embedder,
+                vector_store=state.vector_store,
+                reranker=state.reranker,
+            )
+
             step_funcs = _build_step_funcs(cfg, state)
             state.pipeline = RAGPipeline(step_funcs)
             _state = state
@@ -252,13 +269,10 @@ def get_state(request: Any = None) -> AppState:
     Raises RuntimeError if the singleton has not been initialized.
     """
     if request is not None:
-        app_state = request.app.state
-        # FastAPI app.state is a plain object; we access the public attribute
-        # directly.  If it does not exist we fall through to the singleton.
-        try:
-            return app_state.app_state
-        except AttributeError:
-            pass
+        fastapi_state = request.app.state
+        app_state = getattr(fastapi_state, "app_state", None)
+        if isinstance(app_state, AppState):
+            return app_state
     if _state is None or not _init_event.is_set():
         raise RuntimeError("State not initialized. Call init_adapters() first.")
     return _state

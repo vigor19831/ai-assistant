@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from dataclasses import FrozenInstanceError
+from types import MappingProxyType
 from unittest import mock
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
@@ -21,16 +22,16 @@ class TestPipelineDataFrozen:
             data.context = "x"  # type: ignore[misc]
 
     def test_frozen_instance_error_on_chunks_mutation(self) -> None:
-        """Attempting to set data.chunks = [...] must raise FrozenInstanceError."""
+        """Attempting to set data.chunks = (...) must raise FrozenInstanceError."""
         data = PipelineData()
         with pytest.raises(FrozenInstanceError):
-            data.chunks = []  # type: ignore[misc]
+            data.chunks = ()  # type: ignore[misc]
 
     def test_frozen_instance_error_on_errors_mutation(self) -> None:
-        """Attempting to set data.errors = [...] must raise FrozenInstanceError."""
+        """Attempting to set data.errors = (...) must raise FrozenInstanceError."""
         data = PipelineData()
         with pytest.raises(FrozenInstanceError):
-            data.errors = []  # type: ignore[misc]
+            data.errors = ()  # type: ignore[misc]
 
     def test_frozen_instance_error_on_metadata_mutation(self) -> None:
         """Attempting to set data.metadata = {} must raise FrozenInstanceError."""
@@ -38,13 +39,36 @@ class TestPipelineDataFrozen:
         with pytest.raises(FrozenInstanceError):
             data.metadata = {}  # type: ignore[misc]
 
+    def test_deep_immutability_chunks_append_blocked(self) -> None:
+        """data.chunks.append() must raise AttributeError (tuple)."""
+        chunk = Chunk(
+            id="c1",
+            text="hello",
+            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
+        )
+        data = PipelineData(chunks=[chunk])
+        with pytest.raises(AttributeError):
+            data.chunks.append(chunk)  # type: ignore[attr-defined]
+
+    def test_deep_immutability_errors_append_blocked(self) -> None:
+        """data.errors.append() must raise AttributeError (tuple)."""
+        data = PipelineData(errors=["old"])
+        with pytest.raises(AttributeError):
+            data.errors.append("new")  # type: ignore[attr-defined]
+
+    def test_deep_immutability_metadata_write_blocked(self) -> None:
+        """data.metadata["key"] = value must raise TypeError (MappingProxyType)."""
+        data = PipelineData(metadata={"k": "v"})
+        with pytest.raises(TypeError):
+            data.metadata["x"] = "y"  # type: ignore[index]
+
     def test_add_error_returns_new_instance(self) -> None:
         """add_error() must return a new PipelineData; original must be unchanged."""
         data = PipelineData()
         data2 = data.add_error("err")
 
-        assert data.errors == []
-        assert data2.errors == ["err"]
+        assert data.errors == ()
+        assert data2.errors == ("err",)
         assert data is not data2
 
     def test_add_error_preserves_other_fields(self) -> None:
@@ -67,13 +91,13 @@ class TestPipelineDataFrozen:
         data2 = data.add_error("new")
 
         assert data2.query is msg
-        assert data2.chunks == [chunk]
+        assert data2.chunks == (chunk,)
         assert data2.context == "ctx"
         assert data2.response is resp
         assert data2.metadata == {"k": "v"}
-        assert data2.errors == ["old", "new"]
+        assert data2.errors == ("old", "new")
         # Original unchanged
-        assert data.errors == ["old"]
+        assert data.errors == ("old",)
 
     def test_with_chunks_returns_new_instance(self) -> None:
         """with_chunks() must return a new PipelineData with updated chunks."""
@@ -85,8 +109,8 @@ class TestPipelineDataFrozen:
         data = PipelineData()
         data2 = data.with_chunks([chunk])
 
-        assert data.chunks == []
-        assert data2.chunks == [chunk]
+        assert data.chunks == ()
+        assert data2.chunks == (chunk,)
         assert data is not data2
 
     def test_with_context_returns_new_instance(self) -> None:
@@ -123,10 +147,25 @@ class TestPipelineDataFrozen:
         data = data.add_error("e1")
         data = data.add_error("e2")
 
-        assert data.chunks == [chunk]
+        assert data.chunks == (chunk,)
         assert data.context == "ctx"
         assert data.response is resp
-        assert data.errors == ["e1", "e2"]
+        assert data.errors == ("e1", "e2")
+
+    def test_metadata_type_is_mapping_proxy(self) -> None:
+        """metadata must be MappingProxyType, not plain dict."""
+        data = PipelineData(metadata={"a": 1})
+        assert isinstance(data.metadata, MappingProxyType)
+
+    def test_chunks_type_is_tuple(self) -> None:
+        """chunks must be tuple even when initialized with list."""
+        data = PipelineData(chunks=[Chunk(id="c", text="t")])
+        assert isinstance(data.chunks, tuple)
+
+    def test_errors_type_is_tuple(self) -> None:
+        """errors must be tuple even when initialized with list."""
+        data = PipelineData(errors=["e1"])
+        assert isinstance(data.errors, tuple)
 
 
 def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
@@ -202,3 +241,95 @@ class TestToolRegistryErrorHandling:
         assert result.error == "Tool execution failed"
         assert result.output == ""
         mock_exc.assert_called_once_with("Tool %s failed", "failing_tool")
+
+    async def test_dispatch_logs_warning_on_missing_tool(self) -> None:
+        """Dispatching an unregistered tool must log a warning with the tool name."""
+        from unittest.mock import patch
+
+        from ai_assistant.core.ports.tools import ToolCall
+        from ai_assistant.core.tool_registry import ToolRegistry
+
+        registry = ToolRegistry()
+        call = ToolCall(tool_name="missing_tool", arguments={}, call_id="call-2")
+
+        with patch("ai_assistant.core.tool_registry._logger.warning") as mock_warn:
+            result = await registry.dispatch(call)
+
+        assert result.is_error is True
+        assert "missing_tool" in result.error
+        mock_warn.assert_called_once_with("Tool '%s' not found", "missing_tool")
+
+
+def test_config_rejects_mismatched_dimensions():
+    from ai_assistant.core.config import AppConfig
+
+    with pytest.raises(ValueError, match="embedder.dim .* must equal vector_store.dim"):
+        AppConfig(
+            embedder={"provider": "mock", "dim": 384},
+            vector_store={"provider": "memory", "dim": 768},
+        )
+
+
+### Найти:
+def test_config_rejects_mismatched_dimensions():
+    from ai_assistant.core.config import AppConfig
+
+    with pytest.raises(ValueError, match="embedder.dim .* must equal vector_store.dim"):
+        AppConfig(
+            embedder={"provider": "mock", "dim": 384},
+            vector_store={"provider": "memory", "dim": 768},
+        )
+
+### Заменить на:
+def test_config_rejects_mismatched_dimensions():
+    from ai_assistant.core.config import AppConfig
+
+    with pytest.raises(ValueError, match="embedder.dim .* must equal vector_store.dim"):
+        AppConfig(
+            embedder={"provider": "mock", "dim": 384},
+            vector_store={"provider": "memory", "dim": 768},
+        )
+
+
+def test_config_rejects_typo_in_nested_model():
+    """Extra='forbid' must catch typos like chunck_size in nested configs."""
+    from pydantic import ValidationError
+    from ai_assistant.core.config import ChunkerConfig
+
+    with pytest.raises(ValidationError, match="chunck_size"):
+        ChunkerConfig(chunk_size=512, chunck_size=50)
+
+
+class TestResourceLimits:
+    """Tests for resource limit defaults and validation."""
+
+    def test_chat_config_default_max_history_messages(self) -> None:
+        from ai_assistant.core.config import ChatConfig
+
+        cfg = ChatConfig()
+        assert cfg.max_history_messages == 10_000
+
+    def test_vector_store_config_default_resource_limits(self) -> None:
+        from ai_assistant.core.config import VectorStoreConfig
+
+        cfg = VectorStoreConfig()
+        assert cfg.max_chunks == 100_000
+        assert cfg.max_document_size == 10_485_760
+
+    def test_vector_store_config_env_override(self, monkeypatch) -> None:
+        monkeypatch.setenv("AI_VECTOR_STORE_MAX_CHUNKS", "500")
+        monkeypatch.setenv("AI_VECTOR_STORE_MAX_DOCUMENT_SIZE", "2048")
+
+        from ai_assistant.core.config import VectorStoreConfig
+
+        cfg = VectorStoreConfig()
+        assert cfg.max_chunks == 500
+        assert cfg.max_document_size == 2048
+
+    def test_chat_config_env_override(self, monkeypatch) -> None:
+        monkeypatch.setenv("AI_CHAT_MAX_HISTORY_MESSAGES", "500")
+
+        from ai_assistant.core.config import ChatConfig
+
+        cfg = ChatConfig()
+        assert cfg.max_history_messages == 500

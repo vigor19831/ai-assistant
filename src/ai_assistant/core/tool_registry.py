@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 
 from ai_assistant.core.logger import get_logger
@@ -52,6 +53,7 @@ class ToolRegistry(IToolRegistry):
         """Execute a tool call."""
         tool = self._tools.get(call.tool_name)
         if tool is None:
+            _logger.warning("Tool '%s' not found", call.tool_name)
             return ToolResult(
                 call_id=call.call_id,
                 output="",
@@ -60,6 +62,8 @@ class ToolRegistry(IToolRegistry):
             )
         try:
             return await tool.execute(call.call_id, call.arguments)
+        except asyncio.CancelledError:
+            raise
         except (SystemExit, KeyboardInterrupt):
             raise
         except Exception:

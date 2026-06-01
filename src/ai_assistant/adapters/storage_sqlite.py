@@ -84,7 +84,7 @@ class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
             await conn.commit()
 
     async def get_history(
-        self, conversation_id: str, limit: int = 50
+        self, conversation_id: str, limit: int = 50, offset: int = 0
     ) -> list[dict[str, Any]]:
         async with aiosqlite.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -94,9 +94,9 @@ class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
                 FROM chat_messages
                 WHERE conversation_id = ?
                 ORDER BY id DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (conversation_id, limit),
+                (conversation_id, limit, offset),
             )
             rows = list(await cur.fetchall())
             return [

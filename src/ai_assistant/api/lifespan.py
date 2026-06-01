@@ -91,6 +91,8 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
             namespaces = await state.vector_store.list_namespaces(index_path)
             for ns in namespaces:
                 await state.vector_store.save(index_path, namespace=ns)
+                logger.info("Index saved: %s/%s", index_path, ns)
+            logger.info("Indices persisted: %d namespace(s)", len(namespaces))
         except Exception:
             logger.exception("Index save failed")
 
@@ -103,4 +105,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                 logger.exception("%s shutdown failed", name)
 
     # 3. Metrics last — may hang until timeout
-    await get_metrics_logger().stop()
+    try:
+        await asyncio.wait_for(get_metrics_logger().stop(), timeout=10.0)
+    except TimeoutError:
+        logger.warning("Metrics logger stop timed out after 10s; forcing exit")

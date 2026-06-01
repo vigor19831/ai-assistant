@@ -1,11 +1,12 @@
-"""Tests for core.metrics — bare except fix validation."""
+"""Tests for core.metrics — append-only with daily rotation."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, date, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -24,14 +25,22 @@ def tmp_metrics_path(tmp_path: Path) -> Path:
 
 class TestMetricsLogger:
     async def test_worker_logs_write_errors(self, tmp_metrics_path: Path) -> None:
-        """Bare except fix: _worker must log errors instead of swallowing."""
+        """_worker must log errors instead of swallowing."""
         logger = MetricsLogger(path=str(tmp_metrics_path))
         logger.start()
 
         log_mock = MagicMock()
         logger._logger = log_mock
 
-        with patch.object(logger, "_append_line", side_effect=OSError("disk full")):
+        mock_file = AsyncMock()
+        mock_file.write.side_effect = OSError("disk full")
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_file)
+        mock_cm.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "ai_assistant.core.metrics.aiofiles.open", return_value=mock_cm
+        ):
             logger.log({"event": "test"})
             await asyncio.sleep(0.15)
             await logger.stop()
@@ -96,18 +105,80 @@ class TestMetricsLogger:
                 pass
 
     async def test_log_and_read_back(self, tmp_metrics_path: Path) -> None:
-        """Happy path: logged metrics are written to file."""
+        """Happy path: logged metrics are written to rotated file."""
         logger = MetricsLogger(path=str(tmp_metrics_path))
         logger.start()
         logger.log({"endpoint": "/health", "latency_ms": 42})
         await logger.stop()
 
-        raw = await asyncio.to_thread(tmp_metrics_path.read_text, encoding="utf-8")
+        rotated = list(
+            tmp_metrics_path.parent.glob(f"{tmp_metrics_path.stem}-*.jsonl")
+        )
+        assert len(rotated) == 1
+        raw = await asyncio.to_thread(rotated[0].read_text, encoding="utf-8")
         lines = raw.strip().split("\n")
         assert len(lines) == 1
         data = json.loads(lines[0])
         assert data["endpoint"] == "/health"
         assert data["latency_ms"] == 42
+
+    async def test_append_preserves_existing_lines(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """Append must not overwrite prior metrics on the same day."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        logger.log({"event": "first"})
+        await logger.stop()
+
+        # Simulate restart with same file
+        logger2 = MetricsLogger(path=str(tmp_metrics_path))
+        logger2.start()
+        logger2.log({"event": "second"})
+        await logger2.stop()
+
+        rotated = sorted(
+            tmp_metrics_path.parent.glob(f"{tmp_metrics_path.stem}-*.jsonl")
+        )
+        assert len(rotated) == 1
+        raw = await asyncio.to_thread(rotated[0].read_text, encoding="utf-8")
+        lines = [line for line in raw.strip().split("\n") if line]
+        assert len(lines) == 2
+        assert json.loads(lines[0])["event"] == "first"
+        assert json.loads(lines[1])["event"] == "second"
+
+    async def test_rotation_creates_new_file_next_day(
+        self, tmp_metrics_path: Path
+    ) -> None:
+        """A new day must produce a new rotated file."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        logger.log({"event": "day1"})
+        await logger.stop()
+
+        tomorrow = date.today() + timedelta(days=1)
+        with patch("ai_assistant.core.metrics.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.date.return_value = tomorrow
+            mock_dt.now.return_value = mock_now
+            mock_dt.UTC = UTC
+
+            logger2 = MetricsLogger(path=str(tmp_metrics_path))
+            logger2.start()
+            logger2.log({"event": "day2"})
+            await logger2.stop()
+
+        rotated = sorted(
+            tmp_metrics_path.parent.glob(f"{tmp_metrics_path.stem}-*.jsonl")
+        )
+        assert len(rotated) == 2
+        events = set()
+        for r in rotated:
+            raw = await asyncio.to_thread(r.read_text, encoding="utf-8")
+            lines = [line for line in raw.strip().split("\n") if line]
+            assert len(lines) == 1
+            events.add(json.loads(lines[0])["event"])
+        assert events == {"day1", "day2"}
 
     def test_record_metric_context_var(self) -> None:
         record_metric("key", "value")
@@ -119,6 +190,11 @@ class TestMetricsLogger:
         a = get_metrics_logger()
         b = get_metrics_logger()
         assert a is b
+
+    def test_record_metric_rejects_invalid_type(self) -> None:
+        """record_metric must reject non-JSON-serializable values immediately."""
+        with pytest.raises(TypeError, match="JSON-serializable"):
+            record_metric("bad", object())
 
     def test_get_current_metrics_outside_context_returns_fresh_empty_dict(self) -> None:
         """Outside a request context get_current_metrics() must return a fresh

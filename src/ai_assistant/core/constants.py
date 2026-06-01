@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-__all__ = ["FROZEN_NO_INFO_PHRASES"]
+import re
+
+__all__ = ["FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
+
+RAG_NS_MAP: dict[str, str] = {"p": "personal", "w": "work", "o": "other"}
+RAG_PREFIX_RE: re.Pattern[str] = re.compile(r"^\[(p|w|o)\]\s*(.*)", re.IGNORECASE)
 
 FROZEN_NO_INFO_PHRASES: frozenset[str] = frozenset(
     {

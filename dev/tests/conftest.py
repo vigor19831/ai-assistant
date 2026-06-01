@@ -102,9 +102,13 @@ def reset_global_state():
     try:
         from ai_assistant import main as main_module
         from ai_assistant.api.lifespan import lifespan as real_lifespan
-
         main_module.app.lifespan = real_lifespan
         main_module.app.dependency_overrides.clear()
+        if hasattr(main_module.app.state, "app_state"):
+            app_state = main_module.app.state.app_state
+            if hasattr(app_state, "chat_manager"):
+                object.__setattr__(app_state, "chat_manager", MagicMock())
+            delattr(main_module.app.state, "app_state")
     except Exception:
         pass
 
@@ -133,23 +137,31 @@ def reset_global_state():
     try:
         from ai_assistant import main as main_module
         from ai_assistant.api.lifespan import lifespan as real_lifespan
-
         main_module.app.lifespan = real_lifespan
         main_module.app.dependency_overrides.clear()
+        if hasattr(main_module.app.state, "app_state"):
+            app_state = main_module.app.state.app_state
+            if hasattr(app_state, "chat_manager"):
+                object.__setattr__(app_state, "chat_manager", MagicMock())
+            delattr(main_module.app.state, "app_state")
     except Exception:
         pass
 
 
 @pytest.fixture(autouse=True)
 def reset_prompt_cache():
-    """Clear prompt Environment cache between tests."""
+    """Clear prompt Environment and render cache between tests."""
     from ai_assistant.core import prompts as prompts_module
 
-    original = getattr(prompts_module, "_env_cache", None)
+    original_env = getattr(prompts_module, "_env_cache", None)
     prompts_module._env_cache = {}
+
+    if hasattr(prompts_module, "_render"):
+        prompts_module._render.cache_clear()
+
     yield
-    if original is not None:
-        prompts_module._env_cache = original
+    if original_env is not None:
+        prompts_module._env_cache = original_env
     else:
         prompts_module._env_cache = {}
 
@@ -199,7 +211,11 @@ def mock_llm():
         )
     )
 
-    async def _stream(*args, **kwargs):
+    async def _stream(
+        messages: list[Any],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ):
         for chunk in ["Mocked", " streaming", " response"]:
             yield chunk
 
@@ -252,6 +268,7 @@ def mock_storage():
     """Storage mock with history tracking."""
     m = MagicMock()
     m.get_history = AsyncMock(return_value=[])
+    # Signature: get_history(conversation_id, limit=50, offset=0)
     m.save_message = AsyncMock(return_value=None)
     m.get = AsyncMock(return_value=None)
     m.set = AsyncMock(return_value=None)
@@ -323,20 +340,42 @@ def mock_state(
     state.vision = None
     state.tool_registry = mock_tool_registry
     state.long_term_memory = None
+
+    # Прямое присваивание — slots=True у AppState, __dict__ недоступен
+    object.__setattr__(state, "chat_manager", MagicMock())
+    state.chat_manager.chat = AsyncMock(
+        return_value=MagicMock(text="Mocked AI response", metadata={}, tool_calls=[])
+    )
+
+    async def _fake_stream(*args, **kwargs):
+        for chunk in ["Mocked", " streaming", " response"]:
+            yield chunk
+
+    state.chat_manager.stream_chat = _fake_stream
     return state
 
 
 @pytest.fixture
 def client(mock_state, monkeypatch):
     """FastAPI TestClient with fully mocked state — 100% offline."""
+    from unittest.mock import patch
+
     from fastapi.testclient import TestClient
 
     from ai_assistant.api.deps import get_state
     from ai_assistant.main import app
 
-    # Отключаем lifespan, чтобы TestClient не запускал реальный init_adapters
-    original_lifespan = app.lifespan
-    app.lifespan = None
+    # Защита: если singleton-AppState пришёл мутированным из test_with_voice,
+    # принудительно сбрасываем chat_manager
+    if not isinstance(mock_state.chat_manager, MagicMock):
+        object.__setattr__(mock_state, "chat_manager", MagicMock())
+        mock_state.chat_manager.chat = AsyncMock(
+            return_value=MagicMock(text="Mocked AI response", metadata={}, tool_calls=[])
+        )
+        async def _fresh_stream(*args, **kwargs):
+            for chunk in ["Mocked", " streaming", " response"]:
+                yield chunk
+        mock_state.chat_manager.stream_chat = _fresh_stream
 
     # Отключаем проверку API key для тестов
     monkeypatch.setattr(
@@ -348,18 +387,24 @@ def client(mock_state, monkeypatch):
     app.dependency_overrides[get_state] = lambda: mock_state
     app.state.app_state = mock_state
 
-    try:
-        with TestClient(
-            app,
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer test-key"},
-            raise_server_exceptions=True,
-        ) as c:
-            yield c
-    finally:
-        app.lifespan = original_lifespan
-        app.dependency_overrides.clear()
-        app.state.app_state = mock_state
+    # Мокаем init_adapters, чтобы предотвратить перезапись app.state.app_state
+    # при возможном вызове lifespan (autouse фикстуры восстанавливают lifespan).
+    with patch(
+        "ai_assistant.api.lifespan.init_adapters",
+        new=AsyncMock(return_value=mock_state),
+    ):
+        try:
+            with TestClient(
+                app,
+                base_url="http://localhost",
+                headers={"Authorization": "Bearer test-key"},
+                raise_server_exceptions=True,
+            ) as c:
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+            if hasattr(app.state, "app_state"):
+                delattr(app.state, "app_state")
 
 
 @pytest.fixture
