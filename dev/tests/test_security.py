@@ -4,7 +4,6 @@ Design goals:
 - get_expected_api_key() never touches filesystem.
 - Rate limiter uses config loaded at startup.
 - Admin endpoint can rotate key at runtime.
-- reset_security_state() clears mutable state for test isolation.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -23,12 +22,11 @@ from ai_assistant.api.security import (
     APIKeyMiddleware,
     LimitMiddleware,
     SECURITY_MAX_BODY,
+    SecurityLimiter,
     apply_rate_limit,
     check_request_size,
     get_expected_api_key,
-    limiter,
     require_api_key,
-    reset_security_state,
     set_api_key,
 )
 
@@ -41,9 +39,9 @@ from ai_assistant.api.security import (
 def _reset_state(monkeypatch):
     """Reset global security state before every test."""
     monkeypatch.delenv("AI_API_KEY", raising=False)
-    reset_security_state()
+    set_api_key(None)
     yield
-    # No teardown needed — next test's setup calls reset_security_state()
+    set_api_key(None)
 
 
 @pytest.fixture
@@ -55,6 +53,24 @@ def mock_request():
     req.client = MagicMock(host="127.0.0.1")
     req.headers = {}
     return req
+
+
+def _make_request_with_limiter(limiter: SecurityLimiter | None = None) -> Request:
+    app = FastAPI()
+    state = AppState(config=MagicMock())
+    state.limiter = limiter
+    app.state.app_state = state
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/chat",
+            "headers": [],
+            "query_string": b"",
+            "app": app,
+            "client": ("127.0.0.1", 12345),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -95,44 +111,26 @@ def test_get_expected_api_key_no_yaml_loading():
 
 
 # ---------------------------------------------------------------------------
-# reset_security_state
-# ---------------------------------------------------------------------------
-
-
-def test_reset_security_state_clears_override():
-    set_api_key("key")
-    reset_security_state()
-    assert get_expected_api_key() is None
-
-
-def test_reset_security_state_clears_limiter():
-    reset_security_state()
-    limiter.requests["1.2.3.4"] = [1.0, 2.0, 3.0]
-    reset_security_state()
-    assert dict(limiter.requests) == {}
-
-
-# ---------------------------------------------------------------------------
 # SecurityLimiter
 # ---------------------------------------------------------------------------
 
 
 def test_limiter_allows_under_cap():
-    lim = sec_module.SecurityLimiter("3/minute")
+    lim = SecurityLimiter("3/minute")
     assert lim.is_allowed("ip")
     assert lim.is_allowed("ip")
     assert lim.is_allowed("ip")
 
 
 def test_limiter_blocks_over_cap():
-    lim = sec_module.SecurityLimiter("2/minute")
+    lim = SecurityLimiter("2/minute")
     lim.is_allowed("ip")
     lim.is_allowed("ip")
     assert not lim.is_allowed("ip")
 
 
 def test_limiter_sliding_window():
-    lim = sec_module.SecurityLimiter("1/minute")
+    lim = SecurityLimiter("1/minute")
     lim.is_allowed("ip")
     assert not lim.is_allowed("ip")
     # Expire old entry manually
@@ -141,7 +139,7 @@ def test_limiter_sliding_window():
 
 
 def test_limiter_invalid_rate_limit_falls_back():
-    lim = sec_module.SecurityLimiter("bad-format")
+    lim = SecurityLimiter("bad-format")
     assert lim.max_req == 100
     assert lim.window == 60.0
 
@@ -149,7 +147,7 @@ def test_limiter_invalid_rate_limit_falls_back():
 def test_limiter_evicts_empty_ip_entries_no_bloat():
     """10_000 unique IPs with stale timestamps: empty lists are evicted,
     and dict size stays bounded to active IPs only."""
-    lim = sec_module.SecurityLimiter("100/minute")
+    lim = SecurityLimiter("100/minute")
     # Seed 10_000 IPs with expired timestamps
     for i in range(10_000):
         ip = f"10.0.{i // 256}.{i % 256}"
@@ -184,23 +182,25 @@ def test_limiter_evicts_empty_ip_entries_no_bloat():
 
 
 @pytest.mark.anyio
-async def test_limit_middleware_allows(mock_request):
-    reset_security_state()
+async def test_limit_middleware_allows():
+    lim = SecurityLimiter("100/minute")
+    req = _make_request_with_limiter(lim)
     mw = LimitMiddleware(MagicMock())
     call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(mock_request, call_next)
+    resp = await mw.dispatch(req, call_next)
     assert resp.status_code == 200
 
 
 @pytest.mark.anyio
-async def test_limit_middleware_blocks(mock_request):
-    reset_security_state()
+async def test_limit_middleware_blocks():
+    lim = SecurityLimiter("2/minute")
+    req = _make_request_with_limiter(lim)
+    # Exhaust limit for the SAME IP as request
+    for _ in range(lim.max_req):
+        lim.is_allowed("127.0.0.1")
     mw = LimitMiddleware(MagicMock())
-    # Exhaust limit for the SAME IP as mock_request
-    for _ in range(limiter.max_req):
-        limiter.is_allowed("127.0.0.1")
     call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(mock_request, call_next)
+    resp = await mw.dispatch(req, call_next)
     assert resp.status_code == 429
     call_next.assert_not_called()
 
@@ -213,7 +213,6 @@ async def test_limit_middleware_blocks(mock_request):
 @pytest.mark.anyio
 async def test_api_key_middleware_public_path(mock_request):
     """Public paths skip auth."""
-    reset_security_state()
     mw = APIKeyMiddleware(MagicMock())
     mock_request.url.path = "/health"
     call_next = AsyncMock(return_value=Response("ok"))
@@ -224,7 +223,6 @@ async def test_api_key_middleware_public_path(mock_request):
 @pytest.mark.anyio
 async def test_api_key_middleware_options(mock_request):
     """OPTIONS requests skip auth."""
-    reset_security_state()
     mw = APIKeyMiddleware(MagicMock())
     mock_request.method = "OPTIONS"
     call_next = AsyncMock(return_value=Response("ok"))
@@ -235,7 +233,6 @@ async def test_api_key_middleware_options(mock_request):
 @pytest.mark.anyio
 async def test_api_key_middleware_no_key_configured(mock_request):
     """When no key configured, return 401."""
-    reset_security_state()
     mw = APIKeyMiddleware(MagicMock())
     call_next = AsyncMock()
     resp = await mw.dispatch(mock_request, call_next)
@@ -245,7 +242,6 @@ async def test_api_key_middleware_no_key_configured(mock_request):
 
 @pytest.mark.anyio
 async def test_api_key_middleware_missing_auth(mock_request):
-    reset_security_state()
     set_api_key("secret")
     mw = APIKeyMiddleware(MagicMock())
     call_next = AsyncMock()
@@ -256,7 +252,6 @@ async def test_api_key_middleware_missing_auth(mock_request):
 
 @pytest.mark.anyio
 async def test_api_key_middleware_invalid_key(mock_request):
-    reset_security_state()
     set_api_key("secret")
     mw = APIKeyMiddleware(MagicMock())
     mock_request.headers["Authorization"] = "Bearer wrong"
@@ -268,7 +263,6 @@ async def test_api_key_middleware_invalid_key(mock_request):
 
 @pytest.mark.anyio
 async def test_api_key_middleware_valid_key(mock_request):
-    reset_security_state()
     set_api_key("secret")
     mw = APIKeyMiddleware(MagicMock())
     mock_request.headers["Authorization"] = "Bearer secret"
@@ -284,7 +278,6 @@ async def test_api_key_middleware_valid_key(mock_request):
 
 @pytest.mark.anyio
 async def test_require_api_key_success():
-    reset_security_state()
     set_api_key("secret")
     creds = MagicMock()
     creds.credentials = "secret"
@@ -293,7 +286,7 @@ async def test_require_api_key_success():
 
 @pytest.mark.anyio
 async def test_require_api_key_not_configured():
-    reset_security_state()
+    set_api_key(None)
     creds = MagicMock()
     with pytest.raises(HTTPException) as exc_info:
         await require_api_key(creds)
@@ -302,7 +295,6 @@ async def test_require_api_key_not_configured():
 
 @pytest.mark.anyio
 async def test_require_api_key_invalid():
-    reset_security_state()
     set_api_key("secret")
     creds = MagicMock()
     creds.credentials = "wrong"
@@ -342,19 +334,21 @@ async def test_check_request_size_no_header(mock_request):
 
 
 @pytest.mark.anyio
-async def test_apply_rate_limit_allows(mock_request):
-    reset_security_state()
-    await apply_rate_limit(mock_request)
+async def test_apply_rate_limit_allows():
+    lim = SecurityLimiter("100/minute")
+    req = _make_request_with_limiter(lim)
+    await apply_rate_limit(req)
 
 
 @pytest.mark.anyio
-async def test_apply_rate_limit_blocks(mock_request):
-    reset_security_state()
-    # Exhaust limit for the SAME IP as mock_request
-    for _ in range(limiter.max_req):
-        limiter.is_allowed("127.0.0.1")
+async def test_apply_rate_limit_blocks():
+    lim = SecurityLimiter("2/minute")
+    req = _make_request_with_limiter(lim)
+    # Exhaust limit for the SAME IP as request
+    for _ in range(lim.max_req):
+        lim.is_allowed("127.0.0.1")
     with pytest.raises(HTTPException) as exc_info:
-        await apply_rate_limit(mock_request)
+        await apply_rate_limit(req)
     assert exc_info.value.status_code == 429
 
 
@@ -368,7 +362,7 @@ async def test_admin_update_api_key(monkeypatch):
     """Admin endpoint rotates key and updates AppState config."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
-    reset_security_state()
+    set_api_key(None)
     state = MagicMock(spec=AppState)
     state.config = MagicMock()
     state.config.security = MagicMock()
@@ -391,7 +385,7 @@ async def test_admin_clear_api_key(monkeypatch):
     """Admin endpoint clears override when api_key=None."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
-    reset_security_state()
+    set_api_key(None)
     state = MagicMock(spec=AppState)
     state.config = MagicMock()
     state.config.security = MagicMock()
@@ -413,7 +407,7 @@ async def test_admin_update_empty_key_rejected(monkeypatch):
     """Empty string api_key is rejected (must be None or non-empty)."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
-    reset_security_state()
+    set_api_key(None)
     state = MagicMock(spec=AppState)
     state.config = MagicMock()
 

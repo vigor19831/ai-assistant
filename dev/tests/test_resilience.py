@@ -219,8 +219,11 @@ class TestLifespanCleanup:
         type(config).vector_store = MagicMock()
         config.vector_store.index_path = None
 
+        metrics_logger = MagicMock()
+        metrics_logger.stop = AsyncMock()
+
         with caplog.at_level(logging.ERROR, logger="ai_assistant.lifespan"):
-            await _async_cleanup(app, config)
+            await _async_cleanup(app, config, metrics_logger)
 
         assert "Traceback (most recent call last)" in caplog.text
         assert "shutdown boom" in caplog.text

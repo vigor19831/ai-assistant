@@ -101,9 +101,9 @@ def make_mock_state():
 
     # Bypass API key check for smoke tests (no auth required)
     os.environ["AI_API_KEY"] = ""
-    from ai_assistant.api.security import reset_security_state
+    from ai_assistant.api.security import set_api_key
 
-    reset_security_state()
+    set_api_key(None)
 
     return mock
 
@@ -314,6 +314,7 @@ def check_lifespan() -> str:
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from ai_assistant.api.lifespan import lifespan
+    from ai_assistant.core.metrics import MetricsLogger
 
     async def run():
         class MinimalApp:
@@ -337,6 +338,8 @@ def check_lifespan() -> str:
         st.embedder = None
         st.vector_store = MinimalVS()
         st.llm_server_manager = None
+
+        metrics_logger = MetricsLogger()
 
         with patch("ai_assistant.api.lifespan._load_config") as mock_cfg:
             cfg = type(
@@ -364,12 +367,8 @@ def check_lifespan() -> str:
             ) as mock_init:
                 mock_init.return_value = st
 
-                with patch("ai_assistant.api.lifespan.get_metrics_logger") as mock_met:
-                    mock_met.return_value.start = MagicMock()
-                    mock_met.return_value.stop = AsyncMock()
-
-                    async with lifespan(app) as _:
-                        pass
+                async with lifespan(app) as _:
+                    pass
 
         return f"shutdown_called={MinimalLLM.shutdown.await_count}"
 

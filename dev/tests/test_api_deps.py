@@ -38,6 +38,8 @@ class TestAppState:
         assert hasattr(state, "tool_registry")
         assert hasattr(state, "long_term_memory")
         assert hasattr(state, "chat_manager")
+        assert hasattr(state, "limiter")
+        assert hasattr(state, "metrics")
 
     def test_defaults_are_none_except_config(self):
         cfg = AppConfig()
@@ -47,6 +49,8 @@ class TestAppState:
         assert state.vector_store is None
         assert state.pipeline is None
         assert state.chat_manager is None
+        assert state.limiter is None
+        assert state.metrics is None
 
 
 # ── init_adapters with mocked registry.create ──
@@ -329,34 +333,45 @@ class TestInitAdapters:
 class TestMetricsMiddleware:
     @pytest.mark.asyncio
     async def test_logs_request_metrics(self):
-        """Middleware should record latency and token metrics."""
+        """Middleware should record latency and token metrics via state.metrics."""
+        from fastapi import FastAPI
         from starlette.requests import Request
         from starlette.responses import Response as StarletteResponse
 
-        middleware = MetricsMiddleware(MagicMock())
+        app = FastAPI()
+        mock_state = AppState(config=AppConfig())
+        mock_state.metrics = MagicMock()
+        app.state.app_state = mock_state
 
-        mock_request = MagicMock(spec=Request)
-        mock_request.url.path = "/test"
-
-        mock_response = MagicMock(spec=StarletteResponse)
-        mock_response.status_code = 200
+        middleware = MetricsMiddleware(app)
 
         async def mock_call_next(request: Request):
-            return mock_response
+            return StarletteResponse(content="ok", status_code=200)
+
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/test",
+                "headers": [],
+                "query_string": b"",
+                "app": app,
+            }
+        )
 
         with patch(
-            "ai_assistant.core.metrics.get_current_metrics",
+            "ai_assistant.api.deps.get_current_metrics",
             return_value={"input_tokens": 10, "output_tokens": 5},
         ):
-            with patch("ai_assistant.core.metrics.get_metrics_logger") as mock_logger:
-                mock_logger.return_value.log = MagicMock()
-                result = await middleware.dispatch(mock_request, mock_call_next)
-                assert result is mock_response
-                mock_logger.return_value.log.assert_called_once()
-                record = mock_logger.return_value.log.call_args[0][0]
-                assert record["endpoint"] == "/test"
-                assert record["status_code"] == 200
-                assert "latency_ms" in record
+            result = await middleware.dispatch(request, mock_call_next)
+            assert result.status_code == 200
+            mock_state.metrics.log.assert_called_once()
+            record = mock_state.metrics.log.call_args[0][0]
+            assert record["endpoint"] == "/test"
+            assert record["status_code"] == 200
+            assert "latency_ms" in record
+            assert record["input_tokens"] == 10
+            assert record["output_tokens"] == 5
 
 
 # ── get_state error handling ──
@@ -397,28 +412,7 @@ class TestGetState:
         request = Request(scope)
         assert get_state(request) is mock_state
 
-    def test_fallback_to_singleton_when_app_state_is_wrong_type(self):
-        from fastapi import FastAPI, Request
-        from ai_assistant.api.deps import set_state
-
-        app = FastAPI()
-        app.state.app_state = "not an AppState"
-
-        mock_state = AppState(config=AppConfig())
-        set_state(mock_state)
-
-        scope = {
-            "type": "http",
-            "method": "GET",
-            "path": "/",
-            "headers": [],
-            "query_string": b"",
-            "app": app,
-        }
-        request = Request(scope)
-        assert get_state(request) is mock_state
-
-    def test_raises_when_app_state_is_wrong_type_and_singleton_uninitialized(self):
+    def test_raises_when_app_state_is_wrong_type(self):
         from fastapi import FastAPI, Request
 
         app = FastAPI()
@@ -435,6 +429,7 @@ class TestGetState:
         request = Request(scope)
         with pytest.raises(RuntimeError, match="State not initialized"):
             get_state(request)
+
 
 # ── IChatStorage pagination ──
 

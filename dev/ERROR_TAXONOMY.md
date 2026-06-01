@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-01 08:07 UTC
+> Auto-generated from source code. Updated: 2026-06-01 10:09 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity |
@@ -33,12 +33,12 @@
 | `dev.tests.test_rag_pipeline` | `RuntimeError` | down | High |
 | `dev.tests.test_rag_pipeline` | `ValueError` | bad config | High |
 | `dev.tests.test_resilience` | `RuntimeError` | shutdown boom | High |
+| `features.chat.handlers` | `HTTPException` | Unknown error | High |
 | `features.chat.manager` | `AdapterError` | Voice recognizer not configured | High |
 | `features.image_analysis.handlers` | `HTTPException` | Unknown error | High |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High |
 | `pipeline.decorators` | `ValueError` | Unknown step: {...} | High |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | Handled in OpenAICompatibleEmbedder.embed | Medium |
-| `adapters.llm_mock` | `AttributeError` | Handled in MockLLM.complete | Medium |
 | `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | Handled in OpenAICompatibleLLM._complete_impl | Medium |
 | `adapters.llm_openai_compatible` | `JSONDecodeError` | Handled in OpenAICompatibleLLM._stream_impl | Medium |
 | `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | Handled in OpenAICompatibleLLM._stream_impl | Medium |
@@ -90,7 +90,6 @@
 | `dev.tests.test_scripts_and_platform` | `ImportError` | Cannot load {...} | Medium |
 | `dev.tests.test_scripts_and_platform` | `ModuleNotFoundError` | Handled in TestCheckScripts.test_check_mypy_runs | Medium |
 | `features.chat.handlers` | `Exception` | Handled in chat | Medium |
-| `features.chat.handlers` | `HTTPException` | Handled in chat | Medium |
 | `features.chat.manager` | `Error/ValueError` | Handled in ChatManager.chat | Medium |
 | `features.chat.manager` | `Exception` | Handled in ChatManager.chat | Medium |
 | `features.chat.manager` | `ValueError/IndexError` | Handled in ChatManager._append_rag_sources | Medium |

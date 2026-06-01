@@ -14,11 +14,14 @@ import json
 
 import pytest
 import respx
+from fastapi.testclient import TestClient
 from httpx import Response
 
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+from ai_assistant.api.deps import get_state
 from ai_assistant.core.config import LLMConfig
 from ai_assistant.core.domain.messages import UserMessage
+from ai_assistant.main import create_app
 
 # ── OpenAICompatibleLLM malformed SSE ──
 
@@ -97,56 +100,74 @@ async def _malicious_stream(*args, **kwargs):
     yield ""  # noqa: B901 — unreachable, but forces async generator protocol
 
 
-def test_chat_stream_json_injection(client):
+def test_chat_stream_json_injection(mock_state, monkeypatch):
     """SSE error payload must be valid JSON even if exception contains quotes/newlines."""
-    chat_manager = client.app.state.app_state.chat_manager
-    original_stream_chat = chat_manager.stream_chat
-    chat_manager.stream_chat = _malicious_stream
-    try:
-        resp = client.post(
-            "/api/v1/chat/stream",
-            json={"message": 'test "quoted" and newline'},
-        )
-        assert resp.status_code == 200
+    mock_state.chat_manager.stream_chat = _malicious_stream
 
-        lines = [line for line in resp.text.splitlines() if line.startswith("data:")]
-        # After exception we expect at least the error payload
-        assert len(lines) >= 1
-        for line in lines:
-            payload = line.removeprefix("data: ").strip()
-            if payload == "[DONE]":
-                continue
-            data = json.loads(payload)  # raises if malformed
-            assert data.get("error") == "Internal server error"
-    finally:
-        chat_manager.stream_chat = original_stream_chat
+    app = create_app(state=mock_state, lifespan=None)
+    app.dependency_overrides[get_state] = lambda: mock_state
+
+    monkeypatch.setattr(
+        "ai_assistant.api.security.get_expected_api_key", lambda: "test-key"
+    )
+
+    client = TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"Authorization": "Bearer test-key"},
+        raise_server_exceptions=True,
+    )
+
+    resp = client.post(
+        "/api/v1/chat/stream",
+        json={"message": 'test "quoted" and newline'},
+    )
+    assert resp.status_code == 200
+
+    lines = [line for line in resp.text.splitlines() if line.startswith("data:")]
+    assert len(lines) >= 1
+    for line in lines:
+        payload = line.removeprefix("data: ").strip()
+        if payload == "[DONE]":
+            continue
+        data = json.loads(payload)
+        assert data.get("error") == "Internal server error"
 
 
-def test_openai_chat_stream_json_injection(client):
+def test_openai_chat_stream_json_injection(mock_state, monkeypatch):
     """OpenAI-compatible SSE error payload must be valid JSON."""
-    chat_manager = client.app.state.app_state.chat_manager
-    original_stream_chat = chat_manager.stream_chat
-    chat_manager.stream_chat = _malicious_stream
-    try:
-        resp = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "test",
-                "messages": [{"role": "user", "content": 'test "quoted" and newline'}],
-                "stream": True,
-            },
-        )
-        assert resp.status_code == 200
+    mock_state.chat_manager.stream_chat = _malicious_stream
 
-        lines = [line for line in resp.text.splitlines() if line.startswith("data:")]
-        assert len(lines) >= 1
-        for line in lines:
-            payload = line.removeprefix("data: ").strip()
-            if payload == "[DONE]":
-                continue
-            data = json.loads(payload)
-            # When LLM stream raises, handler yields error JSON instead of OpenAI chunk
-            assert "error" in data
-            assert data["error"] == "Internal server error"
-    finally:
-        chat_manager.stream_chat = original_stream_chat
+    app = create_app(state=mock_state, lifespan=None)
+    app.dependency_overrides[get_state] = lambda: mock_state
+
+    monkeypatch.setattr(
+        "ai_assistant.api.security.get_expected_api_key", lambda: "test-key"
+    )
+
+    client = TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"Authorization": "Bearer test-key"},
+        raise_server_exceptions=True,
+    )
+
+    resp = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "test",
+            "messages": [{"role": "user", "content": 'test "quoted" and newline'}],
+            "stream": True,
+        },
+    )
+    assert resp.status_code == 200
+
+    lines = [line for line in resp.text.splitlines() if line.startswith("data:")]
+    assert len(lines) >= 1
+    for line in lines:
+        payload = line.removeprefix("data: ").strip()
+        if payload == "[DONE]":
+            continue
+        data = json.loads(payload)
+        assert "error" in data
+        assert data["error"] == "Internal server error"

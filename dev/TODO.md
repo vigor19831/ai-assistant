@@ -1,6 +1,6 @@
-[-] Фабрика `create_app(state=None, lifespan=None)` | Убрать глобальный `app = FastAPI(...)`, тесты создают свой app без хаков | `main.py` | `test_api_deps.py`, `conftest.py`
-[-] Переписать фикстуру `client` | `app = create_app(state=mock_state)` внутри фикстуры, убрать `object.__setattr__` и патч `init_adapters` | `dev/tests/conftest.py` | все тесты
-[-] Убрать `reset_global_state` | Через `create_app()` в каждом тесте сброс не нужен | `dev/tests/conftest.py` | все тесты
+[+] Фабрика `create_app(state=None, lifespan=None)` | Убрать глобальный `app = FastAPI(...)`, тесты создают свой app без хаков | `main.py` | `test_api_deps.py`, `conftest.py`
+[+] Переписать фикстуру `client` | `app = create_app(state=mock_state)` внутри фикстуры, убрать `object.__setattr__` и патч `init_adapters` | `dev/tests/conftest.py` | все тесты
+[+] Убрать `reset_global_state` | Через `create_app()` в каждом тесте сброс не нужен | `dev/tests/conftest.py` | все тесты
 [-] Убрать inline retry из `generate()` step | Вынести LLM-вызов в `_call_llm()` с `@with_retry` | `pipeline/steps.py` | `test_rag_pipeline.py`
 [-] Убрать мутацию config в рантайме | `state.config.security.api_key = req.api_key` → удалить | `api/admin.py` | `test_security.py`
 [-] Сделать `ToolResult` frozen dataclass | ⚠️ CORE CHANGE: `core/ports/tools.py`. Заменить `@dataclass` на `@dataclass(frozen=True)`. Все мутации полей (`result.error = ...`, `result.is_error = ...`) заменить на создание нового экземпляра `ToolResult(...)`. Внимание: `core/tool_registry.py` содержит логику диспетчеризации (Known Unknown) — перед изменением запросить его код. | `core/ports/tools.py`, `core/tool_registry.py` | `dev/tests/test_core_critical.py`, `dev/tests/test_contracts.py`

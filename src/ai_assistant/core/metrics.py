@@ -5,11 +5,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import threading
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any
 
 import aiofiles
 
@@ -17,14 +16,11 @@ from ai_assistant.core.logger import get_logger
 
 __all__ = [
     "get_current_metrics",
-    "get_metrics_logger",
     "MetricsLogger",
     "record_metric",
 ]
 
 _logger = get_logger("metrics")
-_lock: Final = threading.Lock()
-_metrics_logger: MetricsLogger | None = None
 
 
 class MetricsLogger:
@@ -120,17 +116,7 @@ class MetricsLogger:
         self._task = None
 
 
-def get_metrics_logger() -> MetricsLogger:
-    """Thread-safe singleton accessor."""
-    global _metrics_logger
-    with _lock:
-        if _metrics_logger is None:
-            _metrics_logger = MetricsLogger()
-    return _metrics_logger
-
-
 # Fallback for Python builds without ContextVar(default_factory=...)
-# See PEP 567; default_factory added in 3.13.1 but some builds lack it.
 try:
     _request_metrics: ContextVar[dict[str, Any] | None] = ContextVar(
         "request_metrics",

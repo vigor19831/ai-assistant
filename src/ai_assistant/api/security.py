@@ -1,7 +1,7 @@
 """API security — rate limiting, request size, API key enforcement.
 
 Security config is loaded ONCE at startup into AppState.config.security.
-This module reads from AppState via get_state() or env var fallback.
+This module reads from AppState via request state or env var fallback.
 No YAML reloading on hot path.
 """
 
@@ -26,8 +26,9 @@ __all__ = [
     "get_expected_api_key",
     "LimitMiddleware",
     "require_api_key",
-    "reset_security_state",
     "SECURITY_MAX_BODY",
+    "SecurityLimiter",
+    "set_api_key",
 ]
 
 _logger = get_logger("security")
@@ -48,7 +49,6 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/redoc",
     }
 )
-
 
 _MAX_TRACKED_IPS = 10_000
 
@@ -118,10 +118,6 @@ class SecurityLimiter:
             return True
 
 
-# Global limiter instance — never replaced, only reset
-limiter = SecurityLimiter()
-
-
 def get_expected_api_key() -> str | None:
     """Return API key from env var, runtime override, or None.
 
@@ -135,18 +131,6 @@ def get_expected_api_key() -> str | None:
         return _override_api_key
 
 
-def reset_security_state() -> None:
-    """Reset mutable security state — used in tests and admin endpoints.
-
-    Calls limiter.reset() so the global instance stays the same object,
-    avoiding stale references imported by tests or middleware.
-    """
-    global _override_api_key
-    with _lock:
-        _override_api_key = None
-    limiter.reset()
-
-
 def set_api_key(key: str | None) -> None:
     """Runtime API key rotation — called from admin endpoint."""
     global _override_api_key
@@ -156,13 +140,16 @@ def set_api_key(key: str | None) -> None:
 
 class LimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Any) -> Response:
-        ip = request.client.host if request.client else "unknown"
-        if not limiter.is_allowed(ip):
-            return Response(
-                "Rate limit exceeded",
-                status_code=429,
-                media_type="text/plain",
-            )
+        state = getattr(request.app.state, "app_state", None)
+        limiter = getattr(state, "limiter", None) if state is not None else None
+        if limiter is not None:
+            ip = request.client.host if request.client else "unknown"
+            if not limiter.is_allowed(ip):
+                return Response(
+                    "Rate limit exceeded",
+                    status_code=429,
+                    media_type="text/plain",
+                )
         return await call_next(request)
 
 
@@ -228,6 +215,10 @@ async def require_api_key(
 
 
 async def apply_rate_limit(request: Request) -> None:
+    state = getattr(request.app.state, "app_state", None)
+    limiter = getattr(state, "limiter", None) if state is not None else None
+    if limiter is None:
+        return
     ip = request.client.host if request.client else "unknown"
     if not limiter.is_allowed(ip):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")

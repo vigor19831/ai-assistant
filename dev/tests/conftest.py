@@ -72,83 +72,6 @@ def pytest_collection_modifyitems(
 
 
 @pytest.fixture(autouse=True)
-def reset_global_state():
-    """Reset singleton state before every test to prevent cross-test pollution."""
-    import asyncio
-    from ai_assistant.api import deps
-    from ai_assistant.api.security import reset_security_state
-    from ai_assistant.core.metrics import _request_metrics
-
-    deps.clear_state()
-    deps._init_lock = asyncio.Lock()
-    reset_security_state()
-    _request_metrics.set({})
-
-    # ── Runtime state that leaks between tests ──
-    try:
-        from ai_assistant.api import security as sec_module
-
-        sec_module.limiter.requests.clear()
-    except Exception:
-        pass
-
-    try:
-        from ai_assistant.core import metrics as met_module
-
-        met_module._metrics_logger = None
-    except Exception:
-        pass
-
-    try:
-        from ai_assistant import main as main_module
-        from ai_assistant.api.lifespan import lifespan as real_lifespan
-        main_module.app.lifespan = real_lifespan
-        main_module.app.dependency_overrides.clear()
-        if hasattr(main_module.app.state, "app_state"):
-            app_state = main_module.app.state.app_state
-            if hasattr(app_state, "chat_manager"):
-                object.__setattr__(app_state, "chat_manager", MagicMock())
-            delattr(main_module.app.state, "app_state")
-    except Exception:
-        pass
-
-    yield
-
-    # ── Teardown (idempotent) ──
-    deps.clear_state()
-    deps._init_lock = asyncio.Lock()
-    reset_security_state()
-    _request_metrics.set({})
-
-    try:
-        from ai_assistant.api import security as sec_module
-
-        sec_module.limiter.requests.clear()
-    except Exception:
-        pass
-
-    try:
-        from ai_assistant.core import metrics as met_module
-
-        met_module._metrics_logger = None
-    except Exception:
-        pass
-
-    try:
-        from ai_assistant import main as main_module
-        from ai_assistant.api.lifespan import lifespan as real_lifespan
-        main_module.app.lifespan = real_lifespan
-        main_module.app.dependency_overrides.clear()
-        if hasattr(main_module.app.state, "app_state"):
-            app_state = main_module.app.state.app_state
-            if hasattr(app_state, "chat_manager"):
-                object.__setattr__(app_state, "chat_manager", MagicMock())
-            delattr(main_module.app.state, "app_state")
-    except Exception:
-        pass
-
-
-@pytest.fixture(autouse=True)
 def reset_prompt_cache():
     """Clear prompt Environment and render cache between tests."""
     from ai_assistant.core import prompts as prompts_module
@@ -341,8 +264,8 @@ def mock_state(
     state.tool_registry = mock_tool_registry
     state.long_term_memory = None
 
-    # Прямое присваивание — slots=True у AppState, __dict__ недоступен
-    object.__setattr__(state, "chat_manager", MagicMock())
+    # slots=True у AppState, но chat_manager уже объявлен со default=None
+    state.chat_manager = MagicMock()
     state.chat_manager.chat = AsyncMock(
         return_value=MagicMock(text="Mocked AI response", metadata={}, tool_calls=[])
     )
@@ -352,59 +275,58 @@ def mock_state(
             yield chunk
 
     state.chat_manager.stream_chat = _fake_stream
+
+    # DI-friendly: limiter and metrics for middleware
+    state.limiter = MagicMock()
+    state.limiter.is_allowed.return_value = True
+    state.metrics = MagicMock()
     return state
 
 
 @pytest.fixture
 def client(mock_state, monkeypatch):
     """FastAPI TestClient with fully mocked state — 100% offline."""
-    from unittest.mock import patch
-
     from fastapi.testclient import TestClient
 
     from ai_assistant.api.deps import get_state
-    from ai_assistant.main import app
+    from ai_assistant.features.chat.manager import ChatManager
+    from ai_assistant.main import create_app
 
-    # Защита: если singleton-AppState пришёл мутированным из test_with_voice,
-    # принудительно сбрасываем chat_manager
-    if not isinstance(mock_state.chat_manager, MagicMock):
-        object.__setattr__(mock_state, "chat_manager", MagicMock())
-        mock_state.chat_manager.chat = AsyncMock(
-            return_value=MagicMock(text="Mocked AI response", metadata={}, tool_calls=[])
-        )
-        async def _fresh_stream(*args, **kwargs):
-            for chunk in ["Mocked", " streaming", " response"]:
-                yield chunk
-        mock_state.chat_manager.stream_chat = _fresh_stream
+    # Создаём реальный ChatManager с мокнутыми зависимостями
+    # (нужен для тестов, которые подменяют stream_chat на async generator)
+    chat_manager = ChatManager(
+        llm=mock_state.llm,
+        voice_recognizer=mock_state.voice_recognizer,
+        vision=mock_state.vision,
+        storage=mock_state.storage,
+        history_limit=mock_state.config.chat.history_limit,
+        max_context_tokens=mock_state.config.chat.max_context_tokens,
+        tokenizer_model=mock_state.config.chat.tokenizer_model,
+        tool_registry=mock_state.tool_registry,
+        embedder=mock_state.embedder,
+        vector_store=mock_state.vector_store,
+        reranker=mock_state.reranker,
+    )
+    mock_state.chat_manager = chat_manager
 
     # Отключаем проверку API key для тестов
     monkeypatch.setattr(
         "ai_assistant.api.security.get_expected_api_key", lambda: "test-key"
     )
 
-    # Устанавливаем state через dependency_overrides (чистый DI)
-    # И напрямую в app.state для endpoint'ов, которые читают оттуда
-    app.dependency_overrides[get_state] = lambda: mock_state
-    app.state.app_state = mock_state
+    # Создаём свежий app для каждого теста — никаких хаков с глобальным app
+    app = create_app(state=mock_state, lifespan=None)
 
-    # Мокаем init_adapters, чтобы предотвратить перезапись app.state.app_state
-    # при возможном вызове lifespan (autouse фикстуры восстанавливают lifespan).
-    with patch(
-        "ai_assistant.api.lifespan.init_adapters",
-        new=AsyncMock(return_value=mock_state),
-    ):
-        try:
-            with TestClient(
-                app,
-                base_url="http://localhost",
-                headers={"Authorization": "Bearer test-key"},
-                raise_server_exceptions=True,
-            ) as c:
-                yield c
-        finally:
-            app.dependency_overrides.clear()
-            if hasattr(app.state, "app_state"):
-                delattr(app.state, "app_state")
+    # Чистый DI: dependency override для endpoints, использующих Depends(get_state)
+    app.dependency_overrides[get_state] = lambda: mock_state
+
+    with TestClient(
+        app,
+        base_url="http://localhost",
+        headers={"Authorization": "Bearer test-key"},
+        raise_server_exceptions=True,
+    ) as c:
+        yield c
 
 
 @pytest.fixture

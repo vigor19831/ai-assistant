@@ -40,9 +40,21 @@ class TestHealthOffline:
 
     def test_rate_limit_exceeded(self, client, monkeypatch):
         """When rate limiter blocks IP, should return 429."""
-        monkeypatch.setattr(
-            "ai_assistant.api.security.limiter.is_allowed", lambda ip: False
-        )
+        from fastapi import FastAPI
+
+        app = client.app
+        state = getattr(app.state, "app_state", None)
+        if state is not None and hasattr(state, "limiter"):
+            monkeypatch.setattr(state.limiter, "is_allowed", lambda ip: False)
+        else:
+            # Fallback: inject a blocking limiter into app state
+            from ai_assistant.api.security import SecurityLimiter
+
+            if not hasattr(app.state, "app_state"):
+                from ai_assistant.api.deps import AppState
+
+                app.state.app_state = AppState(config=MagicMock())
+            app.state.app_state.limiter = SecurityLimiter("0/minute")
         resp = client.post("/api/v1/chat", json={"message": "test"})
         assert resp.status_code == 429
 
@@ -73,8 +85,8 @@ class TestInfoOffline:
 
     def test_runtime_error_fallback(self, client):
         from ai_assistant.api.deps import get_state
-        from ai_assistant.main import app
 
+        app = client.app
         original_override = app.dependency_overrides.get(get_state, None)
 
         def raise_runtime_error():
@@ -645,7 +657,7 @@ def test_main_import_does_not_trigger_load_config(monkeypatch):
 
 def test_lifespan_reconfigures_middleware_and_mounts_static(client):
     """Lifespan should reconfigure CORS from config and attempt static mount."""
-    from ai_assistant.main import _static_mounted, app
+    app = client.app
 
     # client fixture запустил lifespan → config должен быть в state
     assert hasattr(app.state, "config")
@@ -659,15 +671,12 @@ def test_lifespan_reconfigures_middleware_and_mounts_static(client):
     assert "LimitMiddleware" in middleware_names
     assert "CORSMiddleware" in middleware_names
 
-    # _static_mounted может быть True или False — зависит от наличия ./ui
-    # Но он должен быть bool, не вызвать ошибку
-    assert isinstance(_static_mounted, bool)
-
 
 def test_middleware_present_at_import_time():
     """Middleware must be registered when main.py is imported, without load_config."""
-    from ai_assistant.main import app
+    from ai_assistant.main import create_app
 
+    app = create_app(lifespan=None)
     middleware_names = [m.cls.__name__ for m in app.user_middleware]
     assert "MetricsMiddleware" in middleware_names
     assert "APIKeyMiddleware" in middleware_names

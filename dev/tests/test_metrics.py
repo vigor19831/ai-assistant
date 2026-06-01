@@ -13,7 +13,6 @@ import pytest
 from ai_assistant.core.metrics import (
     MetricsLogger,
     get_current_metrics,
-    get_metrics_logger,
     record_metric,
 )
 
@@ -180,37 +179,36 @@ class TestMetricsLogger:
             events.add(json.loads(lines[0])["event"])
         assert events == {"day1", "day2"}
 
+
+@pytest.fixture(autouse=True)
+def reset_request_metrics():
+    """Reset ContextVar between tests to prevent cross-test pollution."""
+    from ai_assistant.core.metrics import _request_metrics
+    token = _request_metrics.set({})
+    yield
+    _request_metrics.reset(token)
+
+
+class TestRecordMetric:
     def test_record_metric_context_var(self) -> None:
         record_metric("key", "value")
         metrics = get_current_metrics()
         assert "key" in metrics
         assert metrics["key"] == "value"
 
-    def test_get_metrics_logger_singleton(self) -> None:
-        a = get_metrics_logger()
-        b = get_metrics_logger()
-        assert a is b
-
     def test_record_metric_rejects_invalid_type(self) -> None:
         """record_metric must reject non-JSON-serializable values immediately."""
         with pytest.raises(TypeError, match="JSON-serializable"):
             record_metric("bad", object())
 
-    def test_get_current_metrics_outside_context_returns_fresh_empty_dict(self) -> None:
-        """Outside a request context get_current_metrics() must return a fresh
-        empty dict, never a shared mutable."""
-        from ai_assistant.core.metrics import _request_metrics
-
-        # Clear any existing token to simulate outside-context call
-        token = _request_metrics.set(None)  # type: ignore[arg-type]
-        try:
-            m1 = get_current_metrics()
-            m2 = get_current_metrics()
-            assert m1 == {}
-            assert m2 == {}
-            assert m1 is not m2, "Returned the same mutable dict instance"
-            m1["pollution"] = True
-            assert "pollution" not in m2
-            assert "pollution" not in get_current_metrics()
-        finally:
-            _request_metrics.reset(token)
+    def test_get_current_metrics_returns_fresh_dict(self) -> None:
+        """get_current_metrics() must return a fresh dict copy, never shared mutable."""
+        record_metric("a", 1)
+        m1 = get_current_metrics()
+        m2 = get_current_metrics()
+        assert m1 == {"a": 1}
+        assert m2 == {"a": 1}
+        assert m1 is not m2, "Returned the same mutable dict instance"
+        m1["pollution"] = True
+        assert "pollution" not in m2
+        assert "pollution" not in get_current_metrics()

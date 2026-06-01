@@ -33,8 +33,6 @@ TEST_FLAGS = {
 # context_build has its own ask function, not in TEST_FLAGS
 TEST_MODES = {
     "default": [],
-    "reverse": ["--reverse"],
-    "forked": ["--forked"],
     "e2e": ["-m", "online"],
 }
 
@@ -185,14 +183,12 @@ def ask_test_mode() -> list[str]:
     """Ask user which test mode to run for 'RUN ALL TESTS'."""
     print(f"\n{YELLOW}Select test mode:{RESET}")
     print("  [1] default   — normal run (fast, shared process)")
-    print("  [2] reverse   — reverse order (detects order dependencies)")
-    print("  [3] forked    — isolated processes (slowest, 100% isolation)")
-    print("  [4] e2e       — include online tests (requires running server)")
+    print("  [2] e2e       — include online tests (requires running server)")
     try:
         ans = input("Mode [1]: ").strip()
     except EOFError:
         return []
-    mapping = {"1": "default", "2": "reverse", "3": "forked", "4": "e2e"}
+    mapping = {"1": "default", "2": "e2e"}
     mode = mapping.get(ans, "default")
     return TEST_MODES[mode]
 
@@ -264,10 +260,8 @@ def run(python, target, root, extra, mode_extra):
         print(f"\n>>> [{ts}] pytest tests")
         if mode_extra:
             mode_label = {
-                "--reverse": "reverse",
-                "--forked": "forked",
                 "-m": "e2e",
-            }.get(mode_extra[0], "custom")
+            }.get(mode_extra[0], "default")
             print(f">>> [{ts}] Mode: {mode_label}")
 
         # --- auto-log to dev/ with full traceback ---
