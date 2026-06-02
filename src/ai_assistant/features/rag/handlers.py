@@ -39,6 +39,34 @@ _reindex_semaphore = asyncio.Semaphore(1)
 _reindex_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _reindex_status: dict[str, dict[str, Any]] = {}
 
+_REINDEX_STATUS_TTL_SECONDS = 3600
+_REINDEX_STATUS_MAX_ENTRIES = 1000
+
+
+def _cleanup_reindex_status() -> None:
+    """Remove expired entries and enforce max size cap on _reindex_status."""
+    now = time.time()
+
+    # TTL cleanup: remove entries whose last activity is older than TTL
+    expired = [
+        tid
+        for tid, info in _reindex_status.items()
+        if now - (info.get("finished_at") or info.get("started_at", 0))
+        > _REINDEX_STATUS_TTL_SECONDS
+    ]
+    for tid in expired:
+        _reindex_status.pop(tid, None)
+
+    # Cap cleanup: if still over max, remove oldest by started_at
+    if len(_reindex_status) > _REINDEX_STATUS_MAX_ENTRIES:
+        sorted_by_age = sorted(
+            _reindex_status.items(),
+            key=lambda item: item[1].get("started_at", 0),
+        )
+        excess = len(_reindex_status) - _REINDEX_STATUS_MAX_ENTRIES
+        for tid, _ in sorted_by_age[:excess]:
+            _reindex_status.pop(tid, None)
+
 
 def _get_indexing_manager(
     state: Annotated[AppState, Depends(get_state)],
@@ -283,6 +311,7 @@ async def reindex_documents(
 
     async def _run() -> dict[str, Any]:
         async with _reindex_semaphore:
+            _cleanup_reindex_status()
             _reindex_status[task_id] = {
                 "status": "running",
                 "started_at": time.time(),
@@ -320,6 +349,7 @@ async def reindex_documents(
 @router.get("/reindex/status/{task_id}", response_model=None)
 async def reindex_status(task_id: str) -> dict[str, Any]:
     """Get status of a background reindex task."""
+    _cleanup_reindex_status()
     if task_id in _reindex_status:
         info = _reindex_status[task_id]
         return {"task_id": task_id, **info}

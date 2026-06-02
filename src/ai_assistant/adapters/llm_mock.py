@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.ports.llm import ILLM, Message
 from ai_assistant.core.registry import register
 
@@ -31,12 +31,12 @@ class MockLLM(ILLM):
             last = "..."
         else:
             msg = messages[-1]
-            if isinstance(msg, (UserMessage, AssistantMessage)):
-                last = msg.text if msg.text is not None else "..."
-            elif isinstance(msg, dict):
-                last = msg.get("text") or "..."
-            else:
-                last = "..."
+            candidate = getattr(msg, "text", None)
+            if candidate is None:
+                get = getattr(msg, "get", None)
+                if get is not None:
+                    candidate = get("text")
+            last = candidate if candidate is not None else "..."
         return AssistantMessage(text=f"[MOCK LLM] Echo: {last}")
 
     async def stream(

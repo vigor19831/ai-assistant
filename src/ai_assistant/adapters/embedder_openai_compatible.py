@@ -7,7 +7,6 @@ from typing import Any
 import httpx
 
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.registry import register
 from ai_assistant.core.retry import with_retry
@@ -17,7 +16,7 @@ __all__ = ["OpenAICompatibleEmbedder"]
 
 
 @register("embedder", "openai_compatible")
-class OpenAICompatibleEmbedder(IEmbedder, IClosable):
+class OpenAICompatibleEmbedder(IEmbedder):
     """Embedder using OpenAI-compatible REST API."""
 
     def __init__(self, config: Any) -> None:

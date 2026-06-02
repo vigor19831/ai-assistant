@@ -5,13 +5,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ai_assistant.core.ports.closable import IClosable
+
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
 __all__ = ["IVectorStore"]
 
 
-class IVectorStore(ABC):
+class IVectorStore(IClosable, ABC):
     """Vector storage with FAISS-like semantics."""
 
     def __init__(self, config: Any) -> None:

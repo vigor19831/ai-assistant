@@ -7,7 +7,8 @@ Online: real HTTP calls when server detected — validates actual deployment.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -244,6 +245,80 @@ class TestOpenAICompatibleOffline:
             json={
                 "model": "local",
                 "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
+        assert "data:" in resp.text
+        assert "[DONE]" in resp.text
+
+    def test_chat_completions_with_image_url(self, client):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe this"},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "http://example.com/img.png"},
+                            },
+                        ],
+                    }
+                ],
+                "stream": False,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "chat.completion"
+        assert data["choices"][0]["message"]["role"] == "assistant"
+
+    def test_chat_completions_with_image_base64(self, client):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe this"},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": "data:image/png;base64,iVBORw0KGgo="
+                                },
+                            },
+                        ],
+                    }
+                ],
+                "stream": False,
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_chat_completions_stream_with_image(self, client):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Describe"},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "http://example.com/img.png"},
+                            },
+                        ],
+                    }
+                ],
                 "stream": True,
             },
         )
@@ -682,3 +757,89 @@ def test_middleware_present_at_import_time():
     assert "APIKeyMiddleware" in middleware_names
     assert "LimitMiddleware" in middleware_names
     assert "CORSMiddleware" in middleware_names
+
+
+# ── Reindex status TTL / cap tests ──
+
+@pytest.fixture(autouse=True)
+def _clear_reindex_status():
+    """Clear global _reindex_status before/after each test."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    rag_handlers._reindex_status.clear()
+    yield
+    rag_handlers._reindex_status.clear()
+
+
+def test_reindex_status_ttl_cleanup():
+    """Expired entries are removed based on TTL; fresh entries survive."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    now = time.time()
+    rag_handlers._reindex_status["old"] = {
+        "status": "completed",
+        "started_at": now - rag_handlers._REINDEX_STATUS_TTL_SECONDS - 100,
+        "finished_at": now - rag_handlers._REINDEX_STATUS_TTL_SECONDS - 50,
+    }
+    rag_handlers._reindex_status["fresh"] = {
+        "status": "running",
+        "started_at": now - 10,
+    }
+
+    rag_handlers._cleanup_reindex_status()
+
+    assert "old" not in rag_handlers._reindex_status
+    assert "fresh" in rag_handlers._reindex_status
+
+
+def test_reindex_status_cap_removes_oldest():
+    """When over max entries, oldest by started_at are removed."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    now = time.time()
+    max_entries = rag_handlers._REINDEX_STATUS_MAX_ENTRIES
+
+    for i in range(max_entries + 2):
+        rag_handlers._reindex_status[f"task-{i}"] = {
+            "status": "completed",
+            "started_at": now - (max_entries + 2 - i),
+            "finished_at": now,
+        }
+
+    rag_handlers._cleanup_reindex_status()
+
+    assert len(rag_handlers._reindex_status) == max_entries
+    assert "task-0" not in rag_handlers._reindex_status
+    assert "task-1" not in rag_handlers._reindex_status
+    assert f"task-{max_entries + 1}" in rag_handlers._reindex_status
+
+
+def test_reindex_status_cap_does_not_remove_running_if_under_cap():
+    """Running tasks are not removed when total count is under the cap."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    now = time.time()
+    rag_handlers._reindex_status["running"] = {
+        "status": "running",
+        "started_at": now - 100,
+    }
+
+    rag_handlers._cleanup_reindex_status()
+
+    assert "running" in rag_handlers._reindex_status
+
+
+def test_reindex_status_endpoint_returns_unknown_after_ttl(client):
+    """E2E: after TTL cleanup, polling an expired task returns 'unknown'."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    with patch.object(rag_handlers, "_REINDEX_STATUS_TTL_SECONDS", 1):
+        resp = client.post("/api/v1/rag/reindex", json={"folder": "__nonexistent__"})
+        assert resp.status_code == 200
+        task_id = resp.json()["task_id"]
+
+        time.sleep(1.5)
+
+        status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "unknown"

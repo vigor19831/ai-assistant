@@ -179,6 +179,46 @@ class TestMetricsLogger:
             events.add(json.loads(lines[0])["event"])
         assert events == {"day1", "day2"}
 
+    async def test_log_returns_false_on_drop(self, tmp_metrics_path: Path) -> None:
+        """log() must return False when queue is full."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        logger._queue = asyncio.Queue(maxsize=1)
+        logger._queue.put_nowait({"event": "fill"})
+        assert logger.log({"event": "overflow"}) is False
+        assert logger.dropped_count == 1
+        await logger.stop()
+
+    async def test_log_returns_true_on_success(self, tmp_metrics_path: Path) -> None:
+        """log() must return True when record is enqueued."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        assert logger.log({"event": "ok"}) is True
+        assert logger.dropped_count == 0
+        await logger.stop()
+
+    async def test_stop_logs_dropped_count(self, tmp_metrics_path: Path) -> None:
+        """stop() must log total dropped count and reset it."""
+        logger = MetricsLogger(path=str(tmp_metrics_path))
+        logger.start()
+        logger._queue = asyncio.Queue(maxsize=1)
+        logger._queue.put_nowait({"event": "fill"})
+
+        log_mock = MagicMock()
+        logger._logger = log_mock
+
+        logger.log({"event": "drop1"})
+        logger.log({"event": "drop2"})
+        assert logger.dropped_count == 2
+
+        await logger.stop()
+
+        assert logger.dropped_count == 0
+        calls = [str(c.args) for c in log_mock.warning.call_args_list]
+        assert any("2" in c and "dropped" in c for c in calls), (
+            "stop() must log total dropped count"
+        )
+
 
 @pytest.fixture(autouse=True)
 def reset_request_metrics():

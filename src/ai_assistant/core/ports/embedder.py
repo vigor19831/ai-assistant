@@ -5,10 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from ai_assistant.core.ports.closable import IClosable
+
 __all__ = ["IEmbedder"]
 
 
-class IEmbedder(ABC):
+class IEmbedder(IClosable, ABC):
     """Text embedding interface."""
 
     def __init__(self, config: Any) -> None:

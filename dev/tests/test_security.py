@@ -358,65 +358,40 @@ async def test_apply_rate_limit_blocks():
 
 
 @pytest.mark.anyio
-async def test_admin_update_api_key(monkeypatch):
-    """Admin endpoint rotates key and updates AppState config."""
+async def test_admin_update_api_key():
+    """Admin endpoint rotates key via set_api_key; config is NOT mutated."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
     set_api_key(None)
     state = MagicMock(spec=AppState)
-    state.config = MagicMock()
-    state.config.security = MagicMock()
-    state.config.security.api_key = None
-
-    # monkeypatch get_expected_api_key to read from our override
-    monkeypatch.setattr(
-        "ai_assistant.api.security.get_expected_api_key",
-        lambda: state.config.security.api_key,
-    )
 
     req = _UpdateApiKeyRequest(api_key="new-key")
     resp = await update_api_key(req, state)
     assert resp.updated is True
-    assert state.config.security.api_key == "new-key"
+    assert get_expected_api_key() == "new-key"
 
 
 @pytest.mark.anyio
-async def test_admin_clear_api_key(monkeypatch):
-    """Admin endpoint clears override when api_key=None."""
+async def test_admin_clear_api_key():
+    """Admin endpoint clears override when api_key=None; config is NOT mutated."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
-    set_api_key(None)
+    set_api_key("old-key")
     state = MagicMock(spec=AppState)
-    state.config = MagicMock()
-    state.config.security = MagicMock()
-    state.config.security.api_key = "old-key"
-
-    monkeypatch.setattr(
-        "ai_assistant.api.security.get_expected_api_key",
-        lambda: state.config.security.api_key,
-    )
 
     req = _UpdateApiKeyRequest(api_key=None)
     resp = await update_api_key(req, state)
     assert resp.updated is True
-    assert state.config.security.api_key is None
+    assert get_expected_api_key() is None
 
 
 @pytest.mark.anyio
-async def test_admin_update_empty_key_rejected(monkeypatch):
+async def test_admin_update_empty_key_rejected():
     """Empty string api_key is rejected (must be None or non-empty)."""
     from ai_assistant.api.admin import update_api_key, _UpdateApiKeyRequest
 
     set_api_key(None)
     state = MagicMock(spec=AppState)
-    state.config = MagicMock()
-
-    monkeypatch.setattr(
-        "ai_assistant.api.security.get_expected_api_key",
-        lambda: (
-            state.config.security.api_key if state.config.security.api_key else None
-        ),
-    )
 
     req = _UpdateApiKeyRequest(api_key="")
     with pytest.raises(HTTPException) as exc_info:

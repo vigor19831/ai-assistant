@@ -215,9 +215,57 @@ class TestConstants:
         assert "у меня недостаточно" in FROZEN_NO_INFO_PHRASES
 
 
+class TestToolResultFrozen:
+    """Tests for frozen ToolResult — must be constructed fully, never mutated."""
+
+    def test_frozen_instance_error_on_error_mutation(self) -> None:
+        """Setting result.error after construction must raise FrozenInstanceError."""
+        from dataclasses import FrozenInstanceError
+
+        from ai_assistant.core.ports.tools import ToolResult
+
+        result = ToolResult(call_id="c1", output="ok")
+        with pytest.raises(FrozenInstanceError):
+            result.error = "new error"  # type: ignore[misc]
+
+    def test_frozen_instance_error_on_is_error_mutation(self) -> None:
+        """Setting result.is_error after construction must raise FrozenInstanceError."""
+        from dataclasses import FrozenInstanceError
+
+        from ai_assistant.core.ports.tools import ToolResult
+
+        result = ToolResult(call_id="c1", output="ok")
+        with pytest.raises(FrozenInstanceError):
+            result.is_error = True  # type: ignore[misc]
+
+    def test_frozen_instance_error_on_output_mutation(self) -> None:
+        """Setting result.output after construction must raise FrozenInstanceError."""
+        from dataclasses import FrozenInstanceError
+
+        from ai_assistant.core.ports.tools import ToolResult
+
+        result = ToolResult(call_id="c1", output="ok")
+        with pytest.raises(FrozenInstanceError):
+            result.output = "new output"  # type: ignore[misc]
+
+    def test_tool_result_constructed_with_all_fields(self) -> None:
+        """ToolResult must carry all fields when constructed via constructor."""
+        from ai_assistant.core.ports.tools import ToolResult
+
+        result = ToolResult(
+            call_id="c1",
+            output="data",
+            error="fail",
+            is_error=True,
+        )
+        assert result.call_id == "c1"
+        assert result.output == "data"
+        assert result.error == "fail"
+        assert result.is_error is True
+
+
 class TestToolRegistryErrorHandling:
     """Tests for ToolRegistry.dispatch error handling."""
-
     async def test_dispatch_logs_exception_on_tool_failure(self) -> None:
         """Tool raising ValueError must trigger logger.exception with tool name."""
         from unittest.mock import MagicMock, patch

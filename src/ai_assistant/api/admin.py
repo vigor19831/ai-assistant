@@ -54,8 +54,6 @@ async def update_api_key(
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
 
     set_api_key(req.api_key)
-    # Also update the in-memory config for consistency
-    state.config.security.api_key = req.api_key
 
     source = "runtime_override" if req.api_key is not None else "env_var_or_none"
     return _UpdateApiKeyResponse(updated=True, source=source)

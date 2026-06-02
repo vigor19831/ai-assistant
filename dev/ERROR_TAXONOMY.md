@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-01 10:09 UTC
+> Auto-generated from source code. Updated: 2026-06-02 06:04 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity |
@@ -17,7 +17,7 @@
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High |
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High |
 | `api.admin` | `HTTPException` | Unknown error | High |
-| `api.deps` | `RuntimeError` | State not initialized. Call init_adapters() first. | High |
+| `api.deps` | `RuntimeError` | State not initialized | High |
 | `api.security` | `HTTPException` | Unknown error | High |
 | `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High |
 | `core.domain.messages` | `ValueError` | UserMessage must contain at least one payload | High |
@@ -61,13 +61,10 @@
 | `api.lifespan` | `Exception` | Handled in _async_cleanup | Medium |
 | `api.lifespan` | `OSError` | Handled in lifespan | Medium |
 | `api.lifespan` | `TimeoutError` | Handled in _async_cleanup | Medium |
-| `api.router` | `Exception` | Handled in assemble_routers | Medium |
 | `api.security` | `ValueError/IndexError` | Handled in SecurityLimiter._parse_rate_limit | Medium |
 | `core.circuit_breaker` | `CircuitBreakerOpenError` | Circuit breaker OPEN for {...}s | Medium |
 | `core.circuit_breaker` | `expected_exception` | Handled in CircuitBreaker.call | Medium |
 | `core.config` | `YAMLError` | Handled in load_config | Medium |
-| `core.io_utils` | `Exception` | Handled in _sync | Medium |
-| `core.io_utils` | `OSError` | Handled in _sync | Medium |
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium |
 | `core.logger` | `OSError` | Handled in setup_logging | Medium |
 | `core.metrics` | `CancelledError` | Handled in MetricsLogger.stop | Medium |
@@ -89,7 +86,9 @@
 | `dev.tests.test_resilience` | `OperationalError/PermissionError` | Handled in TestDiskErrors.test_sqlite_readonly_db | Medium |
 | `dev.tests.test_scripts_and_platform` | `ImportError` | Cannot load {...} | Medium |
 | `dev.tests.test_scripts_and_platform` | `ModuleNotFoundError` | Handled in TestCheckScripts.test_check_mypy_runs | Medium |
+| `features.chat.handlers` | `AdapterError` | Handled in chat | Medium |
 | `features.chat.handlers` | `Exception` | Handled in chat | Medium |
+| `features.chat.handlers` | `ValueError` | Handled in _extract_content | Medium |
 | `features.chat.manager` | `Error/ValueError` | Handled in ChatManager.chat | Medium |
 | `features.chat.manager` | `Exception` | Handled in ChatManager.chat | Medium |
 | `features.chat.manager` | `ValueError/IndexError` | Handled in ChatManager._append_rag_sources | Medium |
@@ -98,7 +97,7 @@
 | `features.rag.handlers` | `Exception` | Handled in index_documents | Medium |
 | `features.rag.manager` | `Exception` | Handled in IndexingManager.index_documents | Medium |
 | `features.rag.manager` | `ValueError/IndexError` | Handled in RAGManager.query | Medium |
-| `pipeline.steps` | `CancelledError` | Handled in generate | Medium |
+| `pipeline.steps` | `AdapterError` | Handled in generate | Medium |
 | `pipeline.steps` | `Exception` | Handled in embed_query | Medium |
 | `dev.tests.test_scripts_and_platform` | `FileNotFoundError` | Config not found: {...} | Low |
 

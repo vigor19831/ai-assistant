@@ -111,7 +111,11 @@ async def _async_cleanup(
             logger.exception("Index save failed")
 
     # 2. Graceful adapter shutdown
-    for attr, name in ((state.llm, "llm"), (state.embedder, "embedder")):
+    for attr, name in (
+        (state.llm, "llm"),
+        (state.embedder, "embedder"),
+        (state.vector_store, "vector_store"),
+    ):
         if attr is not None and isinstance(attr, IClosable):
             try:
                 await attr.shutdown()

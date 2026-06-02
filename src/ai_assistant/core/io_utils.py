@@ -55,17 +55,8 @@ async def atomic_write(
                     os.fsync(dir_fd)
                 finally:
                     os.close(dir_fd)
-        except OSError:
-            # fd already closed by fdopen; clean up tmp only
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
-        except Exception:
-            # Unexpected error (e.g. TypeError) — fd may still be open
+        finally:
             with contextlib.suppress(OSError):
-                os.close(fd)
-            if os.path.exists(tmp):
                 os.unlink(tmp)
-            raise
 
     await asyncio.to_thread(_sync)

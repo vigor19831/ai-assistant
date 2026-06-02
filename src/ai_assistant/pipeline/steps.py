@@ -6,9 +6,7 @@ No in-place mutation.
 
 from __future__ import annotations
 
-import asyncio
 import json
-import random
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +18,7 @@ from ai_assistant.core.domain.errors import (
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
     VECTOR_STORE_NOT_PROVIDED,
+    AdapterError,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
@@ -67,6 +66,12 @@ async def _call_search(
 ) -> list[Any]:
     """Search vector store with retry."""
     return await vector_store.search(embedding, top_k=top_k, namespace=namespace)
+
+
+@with_retry(max_retries=3, delay=1.0, backoff=2.0)
+async def _call_llm(llm: Any, messages: list[Any]) -> AssistantMessage:
+    """Call LLM with retry."""
+    return await llm.complete(messages)
 
 
 @step("embed_query")
@@ -198,20 +203,6 @@ async def build_context(data: PipelineData) -> PipelineData:
 
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
-    """Generate response using LLM with context.
-
-    Metadata contract:
-        IN:  llm (ILLM) — required.
-             prompt_version (str) — required.
-             prompt_name (str) — required.
-             tool_registry (ToolRegistry) — optional.
-        OUT: response (AssistantMessage) — written to PipelineData.response.
-             Metrics "input_tokens", "output_tokens" recorded.
-        DATA: query (UserMessage) — required; context (str) — used in prompt.
-
-    Errors added on failure:
-        LLM_NOT_PROVIDED, QUERY_MISSING, INTERNAL_SERVER_ERROR.
-    """
     llm = data.metadata.get("llm")
     if llm is None:
         return data.add_error(LLM_NOT_PROVIDED)
@@ -280,38 +271,27 @@ async def generate(data: PipelineData) -> PipelineData:
         data = current_data
 
     original_image = data.query.image if data.query else None
-
     messages: list[Any] = [UserMessage(text=prompt, image=original_image)]
     response: AssistantMessage | None = None
 
-    max_retries = 2  # 3 attempts total: initial + 2 retries
-    base_delay = 1.0
-    backoff = 2.0
-    max_delay = 8.0
-
-    for attempt in range(max_retries + 1):
-        try:
-            response = await llm.complete(messages)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            _logger.exception("generate failed (attempt %d)", attempt + 1)
-            if attempt < max_retries:
-                sleep_for = min(base_delay * (backoff**attempt), max_delay)
-                sleep_for = random.uniform(sleep_for * 0.8, sleep_for * 1.2)
-                await asyncio.sleep(sleep_for)
-                continue
-            return data.add_error(INTERNAL_SERVER_ERROR).with_response(
-                AssistantMessage(
-                    text=("Sorry, I encountered an error generating the response.")
-                )
+    try:
+        response = await _call_llm(llm, messages)
+    except AdapterError:
+        # Intentional bypass: LLM unavailability is a transient infrastructure
+        # failure, not a pipeline logic error. The HTTP layer maps this to 503.
+        _logger.exception("LLM unavailable")
+        raise
+    except Exception:
+        _logger.exception("generate failed after retries")
+        return data.add_error(INTERNAL_SERVER_ERROR).with_response(
+            AssistantMessage(
+                text="Sorry, I encountered an error generating the response."
             )
+        )
 
-        if not response or not response.tool_calls:
-            break
-
+    # Tool calling loop – each LLM call is also retried via _call_llm
+    while response and response.tool_calls:
         messages.append(response)
-
         tool_registry = data.metadata.get("tool_registry")
         if tool_registry:
             for call in response.tool_calls:
@@ -332,7 +312,6 @@ async def generate(data: PipelineData) -> PipelineData:
                     )
                 except Exception as e:
                     content = f"Error: {e}"
-
                 messages.append(
                     {
                         "role": "tool",
@@ -340,6 +319,17 @@ async def generate(data: PipelineData) -> PipelineData:
                         "tool_call_id": call.get("id", ""),
                     }
                 )
+            # Next LLM call (with tool results)
+            try:
+                response = await _call_llm(llm, messages)
+            except AdapterError:
+                # Intentional bypass — same reasoning as the main LLM call.
+                _logger.exception("LLM unavailable during tool follow-up")
+                raise
+            except Exception:
+                _logger.exception("tool follow-up call failed after retries")
+                response = AssistantMessage(text="Sorry, a tool call failed.")
+                break
         else:
             break
 

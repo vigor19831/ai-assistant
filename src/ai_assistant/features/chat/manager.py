@@ -6,7 +6,6 @@ import base64
 import binascii
 import json
 import re
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.constants import (
@@ -30,16 +29,12 @@ from ai_assistant.core.metrics import record_metric
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.utils import count_tokens, get_context_limit
-from ai_assistant.pipeline.steps import (
-    build_context,
-    embed_query,
-    retrieve,
-)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from ai_assistant.core.domain.documents import Chunk
+    from ai_assistant.core.pipeline import RAGPipeline
 
 __all__ = ["ChatManager"]
 
@@ -52,7 +47,7 @@ class ChatManager:
     """Universal chat router."""
 
     @staticmethod
-    def _append_rag_sources(answer: str, chunks: list[Chunk]) -> str:
+    def _append_rag_sources(answer: str, chunks: tuple[Chunk, ...]) -> str:
         if not chunks or any(ph in answer.lower() for ph in FROZEN_NO_INFO_PHRASES):
             return answer
         cited: set[int] = set()
@@ -86,6 +81,7 @@ class ChatManager:
         embedder: Any | None = None,
         vector_store: Any | None = None,
         reranker: Any | None = None,
+        pipeline: RAGPipeline | None = None,
     ) -> None:
         self.llm = llm
         self.voice_recognizer = voice_recognizer
@@ -99,6 +95,7 @@ class ChatManager:
         self.embedder = embedder
         self.vector_store = vector_store
         self.reranker = reranker
+        self.pipeline = pipeline
 
     def _count_tokens(self, text: str) -> int:
         return count_tokens(text, self.tokenizer_model)
@@ -143,48 +140,41 @@ class ChatManager:
         keep.reverse()
         return keep
 
-    async def _maybe_rag(self, message: str) -> tuple[str, str, list[Chunk]]:
+    async def _maybe_rag(self, message: str) -> tuple[str, str, tuple[Chunk, ...]]:
         """Return (prompt_for_llm, original_query, rag_chunks).
 
         If RAG not triggered, prompt_for_llm == original_query == message.
         """
-        if not self.embedder or not self.vector_store:
-            return message, message, []
+        if not self.pipeline:
+            return message, message, ()
 
         m = _PREFIX_RE.match(message)
         if not m:
-            return message, message, []
+            return message, message, ()
 
         ns_short = m.group(1).lower()
-        query_text = m.group(2)
+        query_text = m.group(2) or ""
         namespace = _NS_MAP.get(ns_short, "default")
 
         data = PipelineData(
             query=UserMessage(text=query_text),
-            metadata={
-                "top_k": 5,
-                "prompt_name": "rag_strict",
-                "prompt_version": "v1",
-                "namespace": namespace,
-                "relevance_threshold": 0.3,
-            },
         )
 
-        data = replace(
-            data,
-            metadata={
-                **data.metadata,
-                "embedder": self.embedder,
-                "vector_store": self.vector_store,
-            },
-        )
-        data = await embed_query(data)
-        data = await retrieve(data)
-        data = await build_context(data)
+        metadata = {
+            "top_k": 5,
+            "prompt_name": "rag_strict",
+            "prompt_version": "v1",
+            "namespace": namespace,
+            "relevance_threshold": 0.3,
+            "embedder": self.embedder,
+            "vector_store": self.vector_store,
+        }
+
+        data = await self.pipeline.run(data, metadata=metadata)
 
         if not data.chunks:
             # Возвращаем query_text (без префикса), а не message (с префиксом)
-            return query_text, query_text, []
+            return query_text, query_text, ()
 
         prompt = get_prompt(
             "rag_strict",
@@ -192,6 +182,7 @@ class ChatManager:
             query=query_text,
             context=data.context,
         )
+        assert isinstance(data.chunks, tuple)
         return prompt, query_text, data.chunks
 
     async def chat(
@@ -228,7 +219,7 @@ class ChatManager:
             image_payload = ImagePayload(base64_data=image_base64)
 
         # Graceful degradation: RAG requested but infrastructure unavailable
-        if _PREFIX_RE.match(message) and not (self.embedder and self.vector_store):
+        if _PREFIX_RE.match(message) and not self.pipeline:
             return AssistantMessage(
                 text="Поиск по документам (RAG) временно недоступен."
             )
@@ -280,6 +271,8 @@ class ChatManager:
         for attempt in range(3):
             try:
                 response = await self.llm.complete(messages)
+            except AdapterError:
+                raise
             except Exception as exc:
                 logger.error(
                     "Chat failed (attempt %d): conv=%s, error=%s",
@@ -407,7 +400,7 @@ class ChatManager:
             image_payload = ImagePayload(base64_data=image_base64)
 
         # Graceful degradation: RAG requested but infrastructure unavailable
-        if _PREFIX_RE.match(message) and not (self.embedder and self.vector_store):
+        if _PREFIX_RE.match(message) and not self.pipeline:
             yield "Поиск по документам (RAG) временно недоступен."
             return
 

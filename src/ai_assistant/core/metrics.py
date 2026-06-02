@@ -31,6 +31,7 @@ class MetricsLogger:
         self._queue: asyncio.Queue[dict[str, Any] | None] | None = None
         self._task: asyncio.Task[None] | None = None
         self._logger = _logger
+        self._dropped_count: int = 0
 
     def _current_path(self) -> Path:
         """Return the rotated path for today's date."""
@@ -72,14 +73,20 @@ class MetricsLogger:
             except Exception as exc:
                 self._logger.warning("Metrics write failed: %s", exc)
 
-    def log(self, data: dict[str, Any]) -> None:
-        """Enqueue metric record (non-blocking)."""
+    @property
+    def dropped_count(self) -> int:
+        return self._dropped_count
+
+    def log(self, data: dict[str, Any]) -> bool:
+        """Enqueue metric record (non-blocking). Returns True if enqueued, False if dropped."""
         if self._queue is None:
-            return
+            return False
         try:
             self._queue.put_nowait(data)
+            return True
         except asyncio.QueueFull:
-            _logger.warning("Metrics queue full; dropping record")
+            self._dropped_count += 1
+            return False
 
     async def stop(self) -> None:
         """Signal shutdown and await worker completion."""
@@ -98,6 +105,10 @@ class MetricsLogger:
             _logger.warning("Cannot enqueue sentinel; cancelling worker")
             if self._task and not self._task.done():
                 self._task.cancel()
+
+        if self._dropped_count:
+            self._logger.warning("Metrics dropped since start: %d", self._dropped_count)
+            self._dropped_count = 0
 
         if self._task and not self._task.done():
             try:

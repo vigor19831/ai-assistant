@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import binascii
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -56,7 +57,7 @@ class ChatStreamChunk(BaseModel):
 class OAIChatMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
     role: str
-    content: str | None = None
+    content: str | list[dict[str, Any]] | None = None
     name: str | None = None
 
 

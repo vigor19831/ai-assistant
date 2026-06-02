@@ -47,7 +47,7 @@ class ToolCall:
     call_id: str = ""  # For matching response to request
 
 
-@dataclass
+@dataclass(frozen=True)
 class ToolResult:
     """Result of a tool invocation."""
 

@@ -8,6 +8,7 @@ from ai_assistant.core.config import load_config
 from ai_assistant.core.ports import (
     IChatStorage,
     IChunker,
+    IClosable,
     IEmbedder,
     ILLM,
     ILongTermMemory,
@@ -178,8 +179,12 @@ class TestInitAdaptersContracts:
 
         assert state.llm is None or isinstance(state.llm, ILLM)
         assert state.embedder is None or isinstance(state.embedder, IEmbedder)
+        assert state.embedder is None or isinstance(state.embedder, IClosable)
         assert state.vector_store is None or isinstance(
             state.vector_store, IVectorStore
+        )
+        assert state.vector_store is None or isinstance(
+            state.vector_store, IClosable
         )
         assert state.chunker is None or isinstance(state.chunker, IChunker)
         assert state.reranker is None or isinstance(state.reranker, IReranker)

@@ -161,6 +161,43 @@ class TestLifespan:
                             pass  # Should not raise on shutdown
 
     @pytest.mark.asyncio
+    async def test_shutdown_calls_closable_adapters(self):
+        """On shutdown, IClosable adapters (llm, embedder, vector_store) must be shut down."""
+        from ai_assistant.core.ports import IClosable, IEmbedder, IVectorStore
+
+        app = MagicMock()
+        mock_state = MagicMock()
+
+        # Use IClosable spec so isinstance(attr, IClosable) passes in lifespan
+        mock_llm = MagicMock(spec=IClosable)
+        mock_llm.shutdown = AsyncMock()
+        mock_state.llm = mock_llm
+
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_embedder.shutdown = AsyncMock()
+        mock_state.embedder = mock_embedder
+
+        mock_vector_store = MagicMock(spec=IVectorStore)
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.shutdown = AsyncMock()
+        mock_state.vector_store = mock_vector_store
+
+        with patch(
+            "ai_assistant.api.lifespan._load_config", return_value=AppConfig()
+        ):
+            with patch(
+                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
+            ):
+                with patch.object(MetricsLogger, "start"):
+                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
+                        async with lifespan(app) as _:
+                            app.state.app_state = mock_state
+                            pass
+
+                        mock_llm.shutdown.assert_awaited_once()
+                        mock_embedder.shutdown.assert_awaited_once()
+                        mock_vector_store.shutdown.assert_awaited_once()
+    @pytest.mark.asyncio
     async def test_lifespan_creates_app_state(self):
         """lifespan must create app.state.app_state with initialized fields."""
         from fastapi import FastAPI

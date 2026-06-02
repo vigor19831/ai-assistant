@@ -8,6 +8,7 @@ import sqlite3
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.api.lifespan import _load_config
@@ -227,3 +228,96 @@ class TestLifespanCleanup:
 
         assert "Traceback (most recent call last)" in caplog.text
         assert "shutdown boom" in caplog.text
+
+
+# ── LLM unavailability → 503 ──
+
+
+class TestLLMUnavailable:
+    @pytest.mark.asyncio
+    async def test_generate_propagates_adapter_error(self):
+        """Pipeline generate step must propagate AdapterError instead of swallowing it."""
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.core.domain.messages import UserMessage
+        from ai_assistant.core.domain.pipeline import PipelineData
+        from ai_assistant.pipeline.steps import generate
+
+        mock_llm = AsyncMock()
+        mock_llm.complete = AsyncMock(side_effect=AdapterError("LLM unreachable"))
+
+        data = PipelineData(
+            query=UserMessage(text="q"),
+            metadata={
+                "llm": mock_llm,
+                "prompt_version": "v1",
+                "prompt_name": "rag_strict",
+            },
+        )
+
+        with pytest.raises(AdapterError):
+            await generate(data)
+
+    @pytest.mark.asyncio
+    async def test_chat_handler_returns_503_on_adapter_error(self):
+        """Legacy chat handler must return 503 when LLM raises AdapterError."""
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.features.chat.handlers import chat
+        from ai_assistant.features.chat.schemas import ChatRequest
+
+        mock_state = MagicMock()
+        mock_state.chat_manager.chat = AsyncMock(
+            side_effect=AdapterError("LLM unreachable")
+        )
+
+        req = ChatRequest(message="hello")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await chat(req, mock_state)
+
+        assert exc_info.value.status_code == 503
+        assert "unavailable" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_embed_query_still_accumulates_adapter_error(self):
+        """Only LLM AdapterError propagates; other adapters keep error-accumulation."""
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.core.domain.messages import UserMessage
+        from ai_assistant.core.domain.pipeline import PipelineData
+        from ai_assistant.pipeline.steps import embed_query
+
+        mock_embedder = AsyncMock()
+        mock_embedder.embed = AsyncMock(side_effect=AdapterError("embedder down"))
+
+        data = PipelineData(
+            query=UserMessage(text="q"),
+            metadata={"embedder": mock_embedder},
+        )
+        result = await embed_query(data)
+        assert any("Internal server error" in e for e in result.errors)
+        assert "query_embedding" not in result.metadata
+
+    @pytest.mark.asyncio
+    async def test_openai_chat_handler_returns_503_on_adapter_error(self):
+        """OpenAI-compatible chat handler must return 503 when LLM raises AdapterError."""
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.features.chat.handlers import openai_chat_completions
+        from ai_assistant.features.chat.schemas import (
+            OAIChatCompletionRequest,
+            OAIChatMessage,
+        )
+
+        mock_state = MagicMock()
+        mock_state.chat_manager.chat = AsyncMock(
+            side_effect=AdapterError("LLM unreachable")
+        )
+        mock_state.config.llm.model = "test-model"
+
+        req = OAIChatCompletionRequest(
+            messages=[OAIChatMessage(role="user", content="hello")]
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await openai_chat_completions(req, mock_state)
+
+        assert exc_info.value.status_code == 503
+        assert "unavailable" in exc_info.value.detail.lower()

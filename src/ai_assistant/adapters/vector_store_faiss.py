@@ -70,6 +70,9 @@ if _FAISS_AVAILABLE:
                     f"Check embedder config.dim vs vector_store config.dim."
                 )
 
+        async def shutdown(self) -> None:
+            pass
+
         async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
             if not chunks:
                 return
@@ -335,6 +338,9 @@ else:
     @register("vector_store", "faiss")
     class FaissVectorStore(IVectorStore):  # type: ignore[no-redef]
         """Explicitly unavailable — raises on any operation."""
+
+        async def shutdown(self) -> None:
+            pass
 
         def __init__(self, config: Any) -> None:
             super().__init__(config)

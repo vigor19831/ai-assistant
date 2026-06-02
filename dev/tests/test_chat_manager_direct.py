@@ -15,7 +15,9 @@ from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import UserMessage
+from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.features.chat.manager import ChatManager
+from ai_assistant.pipeline.steps import build_context, embed_query, retrieve
 
 # ── _maybe_rag tests ──
 
@@ -27,12 +29,14 @@ class TestMaybeRAG:
         store = MemoryVectorStore(
             type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
         )
+        pipeline = RAGPipeline([embed_query, retrieve, build_context])
         return ChatManager(
             llm=MagicMock(),
             embedder=embedder,
             vector_store=store,
             reranker=None,
             storage=None,
+            pipeline=pipeline,
         )
 
     @pytest.mark.asyncio
@@ -41,7 +45,7 @@ class TestMaybeRAG:
         prompt, query, chunks = await chat_manager_with_rag._maybe_rag("Hello world")
         assert prompt == "Hello world"
         assert query == "Hello world"
-        assert chunks == []
+        assert chunks == ()
 
     @pytest.mark.asyncio
     async def test_personal_prefix_triggers_rag(self, chat_manager_with_rag):
@@ -101,7 +105,7 @@ class TestMaybeRAG:
         )
         assert prompt == "something impossible to find"
         assert query == "something impossible to find"
-        assert chunks == []
+        assert chunks == ()
 
     @pytest.mark.asyncio
     async def test_prefix_removed_from_query(self, chat_manager_with_rag):
@@ -154,7 +158,7 @@ class TestMaybeRAG:
         prompt, query, chunks = await manager._maybe_rag("[p] query")
         assert prompt == "[p] query"
         assert query == "[p] query"
-        assert chunks == []
+        assert chunks == ()
 
     @pytest.mark.asyncio
     async def test_no_vector_store_returns_unchanged(self):
@@ -168,7 +172,7 @@ class TestMaybeRAG:
         prompt, query, chunks = await manager._maybe_rag("[p] query")
         assert prompt == "[p] query"
         assert query == "[p] query"
-        assert chunks == []
+        assert chunks == ()
 
 
 # ── _trim_history tests ──

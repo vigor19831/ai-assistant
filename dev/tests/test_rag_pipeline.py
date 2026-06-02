@@ -284,7 +284,7 @@ class TestGenerate:
             metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
         )
         data = replace(data, metadata={**data.metadata, "llm": BrokenLLM()})
-        with patch("ai_assistant.pipeline.steps.asyncio.sleep", new_callable=AsyncMock):
+        with patch("ai_assistant.core.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await generate(data)
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
 
@@ -315,7 +315,7 @@ class TestGenerate:
         llm = FlakyLLM(fails=2)
         data = replace(data, metadata={**data.metadata, "llm": llm})
 
-        with patch("ai_assistant.pipeline.steps.asyncio.sleep", new_callable=AsyncMock):
+        with patch("ai_assistant.core.retry.asyncio.sleep", new_callable=AsyncMock):
             result = await generate(data)
 
         assert llm._calls == 3

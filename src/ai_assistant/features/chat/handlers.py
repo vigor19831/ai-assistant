@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ai_assistant.api.deps import AppState, get_state
+from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.chat.schemas import (
     ChatRequest,
@@ -29,11 +30,59 @@ if TYPE_CHECKING:
 
 __all__ = ["router", "router_oai"]
 
+
+def _raise_llm_unavailable(exc: AdapterError) -> None:
+    """Map adapter-level failure to 503 Service Unavailable."""
+    raise HTTPException(
+        status_code=503,
+        detail="LLM service temporarily unavailable. Please try again later.",
+    ) from exc
+
+
 _logger = get_logger("chat.handlers")
+
+
+def _extract_content(
+    content: str | list[dict[str, Any]] | None,
+) -> tuple[str, str | None, str | None]:
+    """Extract (text, image_url, image_base64) from OpenAI content format."""
+    if content is None:
+        return "", None, None
+    if isinstance(content, str):
+        return content, None, None
+
+    text_parts: list[str] = []
+    image_url: str | None = None
+    image_base64: str | None = None
+
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        pt = part.get("type")
+        if pt == "text":
+            txt = part.get("text", "")
+            if txt:
+                text_parts.append(txt)
+        elif pt == "image_url":
+            url_data = part.get("image_url", {})
+            if isinstance(url_data, dict):
+                url = url_data.get("url", "")
+            else:
+                url = str(url_data)
+            if url.startswith("data:"):
+                try:
+                    _, b64 = url.split(",", 1)
+                    image_base64 = b64
+                except ValueError:
+                    pass
+            elif url:
+                image_url = url
+
+    return " ".join(text_parts), image_url, image_base64
+
 
 router = APIRouter(tags=["chat"])
 router_oai = APIRouter(tags=["chat-oai"])
-
 
 # --- Legacy endpoints (under /api/v1 via wrapper) ---
 
@@ -56,6 +105,9 @@ async def chat(
             voice_base64=req.voice_base64,
             metadata=req.metadata,
         )
+    except AdapterError as exc:
+        _logger.warning("LLM unavailable: %s", exc)
+        _raise_llm_unavailable(exc)
     except HTTPException:
         raise
     except Exception:
@@ -90,6 +142,14 @@ async def chat_stream(
             ):
                 yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
+        except AdapterError as exc:
+            _logger.warning("LLM unavailable in stream: %s", exc)
+            payload = json.dumps(
+                {
+                    "error": "LLM service temporarily unavailable. Please try again later."
+                }
+            )
+            yield f"data: {payload}\n\n"
         except Exception:
             _logger.exception("Stream failed")
             payload = json.dumps({"error": "Internal server error"})
@@ -129,9 +189,13 @@ async def openai_chat_completions(
     chat_manager = state.chat_manager
 
     last_user_msg = ""
+    last_image_url = None
+    last_image_base64 = None
     for m in reversed(req.messages):
         if m.role == "user" and m.content is not None:
-            last_user_msg = m.content
+            last_user_msg, last_image_url, last_image_base64 = _extract_content(
+                m.content
+            )
             break
 
     conv_id = str(uuid.uuid4())
@@ -144,6 +208,8 @@ async def openai_chat_completions(
                 async for chunk in chat_manager.stream_chat(
                     message=last_user_msg,
                     conversation_id=conv_id,
+                    image_url=last_image_url,
+                    image_base64=last_image_base64,
                 ):
                     delta = OAIDeltaChunk(
                         model=model_id,
@@ -157,6 +223,14 @@ async def openai_chat_completions(
                     )
                     yield f"data: {delta.model_dump_json()}\n\n"
                 yield "data: [DONE]\n\n"
+            except AdapterError as exc:
+                _logger.warning("LLM unavailable in stream: %s", exc)
+                payload = json.dumps(
+                    {
+                        "error": "LLM service temporarily unavailable. Please try again later."
+                    }
+                )
+                yield f"data: {payload}\n\n"
             except Exception:
                 _logger.exception("OpenAI stream failed")
                 payload = json.dumps({"error": "Internal server error"})
@@ -168,7 +242,12 @@ async def openai_chat_completions(
         response = await chat_manager.chat(
             message=last_user_msg,
             conversation_id=conv_id,
+            image_url=last_image_url,
+            image_base64=last_image_base64,
         )
+    except AdapterError as exc:
+        _logger.warning("LLM unavailable: %s", exc)
+        _raise_llm_unavailable(exc)
     except HTTPException:
         raise
     except Exception:

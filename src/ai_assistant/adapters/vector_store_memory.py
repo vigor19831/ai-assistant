@@ -44,6 +44,9 @@ class MemoryVectorStore(IVectorStore):
         norm = np.linalg.norm(v)
         return v / norm if norm > 0 else v
 
+    async def shutdown(self) -> None:
+        pass
+
     async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
         if not chunks:
             return

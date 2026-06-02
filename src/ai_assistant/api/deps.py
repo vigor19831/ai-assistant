@@ -172,6 +172,19 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
         if cfg.vision.enabled:
             state.vision = _registry.create("vision", cfg.vision.provider, cfg.vision)
 
+        step_funcs = _build_step_funcs(cfg, state)
+        state.pipeline = RAGPipeline(step_funcs)
+
+        # Build retrieval sub-pipeline for ChatManager (all steps before generate)
+        from ai_assistant.pipeline.decorators import get_step
+
+        retrieval_funcs: list[Callable[[PipelineData], Awaitable[PipelineData]]] = []
+        for name in cfg.rag.steps:
+            if name == "generate":
+                break
+            retrieval_funcs.append(get_step(name))
+        retrieval_pipeline = RAGPipeline(retrieval_funcs) if retrieval_funcs else None
+
         from ai_assistant.features.chat.manager import ChatManager
 
         state.chat_manager = ChatManager(
@@ -186,10 +199,9 @@ async def init_adapters(config: AppConfig | AppState) -> AppState:
             embedder=state.embedder,
             vector_store=state.vector_store,
             reranker=state.reranker,
+            pipeline=retrieval_pipeline,
         )
 
-        step_funcs = _build_step_funcs(cfg, state)
-        state.pipeline = RAGPipeline(step_funcs)
         return state
     except Exception:
         raise

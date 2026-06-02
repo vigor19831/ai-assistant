@@ -23,6 +23,9 @@ class MockEmbedder(IEmbedder):
     def dimension(self) -> int:
         return self._dim
 
+    async def shutdown(self) -> None:
+        pass
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         result: list[list[float]] = []
         for t in texts:
