@@ -23,8 +23,6 @@ __all__ = [
     "StorageConfig",
     "UIConfig",
     "VectorStoreConfig",
-    "VisionConfig",
-    "VoiceConfig",
 ]
 
 
@@ -117,17 +115,7 @@ class StorageConfig(BaseSettings):
     db_path: str = "./data/storage.db"
 
 
-class VoiceConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="AI_VOICE_", extra="forbid")
-    enabled: bool = False
-    recognizer_provider: str = "whisper_local"
-    synthesizer_provider: str = "piper"
-
-
-class VisionConfig(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="AI_VISION_", extra="forbid")
-    enabled: bool = False
-    provider: str = "clip_local"
+# (удалить полностью — классов VoiceConfig и VisionConfig больше нет)
 
 
 class RerankerConfig(BaseSettings):
@@ -189,8 +177,6 @@ class AppConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
-    voice: VoiceConfig = Field(default_factory=VoiceConfig)
-    vision: VisionConfig = Field(default_factory=VisionConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)

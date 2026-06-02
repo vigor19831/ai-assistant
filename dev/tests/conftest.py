@@ -218,17 +218,6 @@ def mock_chunker():
 
 
 @pytest.fixture
-def mock_tool_registry():
-    """Tool registry mock."""
-    m = MagicMock()
-    m.register = MagicMock(return_value=None)
-    m.list_tools = MagicMock(return_value=[])
-    m.get_tool = MagicMock(return_value=None)
-    m.execute = AsyncMock(return_value=MagicMock(output="tool result", is_error=False))
-    return m
-
-
-@pytest.fixture
 def mock_state(
     mock_llm,
     mock_embedder,
@@ -236,7 +225,6 @@ def mock_state(
     mock_storage,
     mock_reranker,
     mock_chunker,
-    mock_tool_registry,
 ):
     """Pre-built AppState with REAL instance for app.state compatibility."""
     from ai_assistant.api.deps import AppState
@@ -258,11 +246,7 @@ def mock_state(
             chunks=[], response=MagicMock(text="RAG answer"), errors=[]
         )
     )
-    state.voice_recognizer = None
-    state.voice_synthesizer = None
-    state.vision = None
-    state.tool_registry = mock_tool_registry
-    state.long_term_memory = None
+    # Removed: voice_recognizer, voice_synthesizer, vision, tool_registry, long_term_memory
 
     # slots=True у AppState, но chat_manager уже объявлен со default=None
     state.chat_manager = MagicMock()
@@ -276,10 +260,9 @@ def mock_state(
 
     state.chat_manager.stream_chat = _fake_stream
 
-    # DI-friendly: limiter and metrics for middleware
+    # DI-friendly: limiter for middleware
     state.limiter = MagicMock()
     state.limiter.is_allowed.return_value = True
-    state.metrics = MagicMock()
     return state
 
 
@@ -296,13 +279,10 @@ def client(mock_state, monkeypatch):
     # (нужен для тестов, которые подменяют stream_chat на async generator)
     chat_manager = ChatManager(
         llm=mock_state.llm,
-        voice_recognizer=mock_state.voice_recognizer,
-        vision=mock_state.vision,
         storage=mock_state.storage,
         history_limit=mock_state.config.chat.history_limit,
         max_context_tokens=mock_state.config.chat.max_context_tokens,
         tokenizer_model=mock_state.config.chat.tokenizer_model,
-        tool_registry=mock_state.tool_registry,
         embedder=mock_state.embedder,
         vector_store=mock_state.vector_store,
         reranker=mock_state.reranker,
@@ -333,8 +313,26 @@ def client(mock_state, monkeypatch):
 def httpx_client():
     """Real HTTP client for online tests."""
     import httpx
+    from ai_assistant.core.config import load_config
 
-    with httpx.Client(base_url="http://127.0.0.1:8000", timeout=10.0) as c:
+    # Authenticate against the real server using the same key it enforces.
+    # Priority: env var > config.yaml (server config) > test config fallback.
+    api_key = os.getenv("AI_API_KEY")
+    if not api_key:
+        cfg = load_config("config.yaml")
+        api_key = cfg.security.api_key
+    if not api_key:
+        cfg = load_config(TEST_CONFIG_PATH)
+        api_key = cfg.security.api_key
+    api_key = api_key or "test-key"
+
+### REPLACE
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    # Chat endpoints may need longer timeout for slow local LLMs
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    with httpx.Client(
+        base_url="http://127.0.0.1:8000", timeout=timeout, headers=headers
+    ) as c:
         yield c
 
 

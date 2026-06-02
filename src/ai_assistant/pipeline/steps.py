@@ -22,7 +22,6 @@ from ai_assistant.core.domain.errors import (
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.metrics import record_metric
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
@@ -125,7 +124,6 @@ async def retrieve(data: PipelineData) -> PipelineData:
         top_k = data.metadata.get("top_k", 5)
         namespace = data.metadata.get("namespace") or "default"
         chunks = await _call_search(vector_store, embedding, top_k, namespace)
-        record_metric("rag_chunks", len(chunks))
         return data.with_chunks(chunks)
     except Exception:
         _logger.exception("retrieve failed")
@@ -228,8 +226,6 @@ async def generate(data: PipelineData) -> PipelineData:
         )
     except Exception:
         prompt = _build_fallback_prompt()
-
-    record_metric("input_tokens", _estimate_tokens(prompt))
 
     max_ctx = _get_llm_context_limit(llm)
     if isinstance(max_ctx, int) and max_ctx > 0:
@@ -337,9 +333,5 @@ async def generate(data: PipelineData) -> PipelineData:
         response
         if response
         else AssistantMessage(text="Sorry, tool call loop exhausted.")
-    )
-    record_metric(
-        "output_tokens",
-        _estimate_tokens(final_response.text or ""),
     )
     return data.with_response(final_response)

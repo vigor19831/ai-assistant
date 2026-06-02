@@ -12,55 +12,8 @@ from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 
 
-class TestPipelineDataFrozen:
-    """Tests for frozen PipelineData — must use replace(), never mutate."""
-
-    def test_frozen_instance_error_on_context_mutation(self) -> None:
-        """Attempting to set data.context = 'x' must raise FrozenInstanceError."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.context = "x"  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_chunks_mutation(self) -> None:
-        """Attempting to set data.chunks = (...) must raise FrozenInstanceError."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.chunks = ()  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_errors_mutation(self) -> None:
-        """Attempting to set data.errors = (...) must raise FrozenInstanceError."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.errors = ()  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_metadata_mutation(self) -> None:
-        """Attempting to set data.metadata = {} must raise FrozenInstanceError."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.metadata = {}  # type: ignore[misc]
-
-    def test_deep_immutability_chunks_append_blocked(self) -> None:
-        """data.chunks.append() must raise AttributeError (tuple)."""
-        chunk = Chunk(
-            id="c1",
-            text="hello",
-            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
-        )
-        data = PipelineData(chunks=[chunk])
-        with pytest.raises(AttributeError):
-            data.chunks.append(chunk)  # type: ignore[attr-defined]
-
-    def test_deep_immutability_errors_append_blocked(self) -> None:
-        """data.errors.append() must raise AttributeError (tuple)."""
-        data = PipelineData(errors=["old"])
-        with pytest.raises(AttributeError):
-            data.errors.append("new")  # type: ignore[attr-defined]
-
-    def test_deep_immutability_metadata_write_blocked(self) -> None:
-        """data.metadata["key"] = value must raise TypeError (MappingProxyType)."""
-        data = PipelineData(metadata={"k": "v"})
-        with pytest.raises(TypeError):
-            data.metadata["x"] = "y"  # type: ignore[index]
+class TestPipelineDataFunctional:
+    """Tests for PipelineData — must use replace(), never mutate in-place."""
 
     def test_add_error_returns_new_instance(self) -> None:
         """add_error() must return a new PipelineData; original must be unchanged."""
@@ -152,11 +105,6 @@ class TestPipelineDataFrozen:
         assert data.response is resp
         assert data.errors == ("e1", "e2")
 
-    def test_metadata_type_is_mapping_proxy(self) -> None:
-        """metadata must be MappingProxyType, not plain dict."""
-        data = PipelineData(metadata={"a": 1})
-        assert isinstance(data.metadata, MappingProxyType)
-
     def test_chunks_type_is_tuple(self) -> None:
         """chunks must be tuple even when initialized with list."""
         data = PipelineData(chunks=[Chunk(id="c", text="t")])
@@ -166,6 +114,12 @@ class TestPipelineDataFrozen:
         """errors must be tuple even when initialized with list."""
         data = PipelineData(errors=["e1"])
         assert isinstance(data.errors, tuple)
+
+    def test_metadata_is_plain_dict(self) -> None:
+        """metadata must be a plain dict, not MappingProxyType."""
+        data = PipelineData(metadata={"a": 1})
+        assert isinstance(data.metadata, dict)
+        assert not isinstance(data.metadata, MappingProxyType)
 
 
 def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
@@ -308,27 +262,6 @@ class TestToolRegistryErrorHandling:
         mock_warn.assert_called_once_with("Tool '%s' not found", "missing_tool")
 
 
-def test_config_rejects_mismatched_dimensions():
-    from ai_assistant.core.config import AppConfig
-
-    with pytest.raises(ValueError, match="embedder.dim .* must equal vector_store.dim"):
-        AppConfig(
-            embedder={"provider": "mock", "dim": 384},
-            vector_store={"provider": "memory", "dim": 768},
-        )
-
-
-### Найти:
-def test_config_rejects_mismatched_dimensions():
-    from ai_assistant.core.config import AppConfig
-
-    with pytest.raises(ValueError, match="embedder.dim .* must equal vector_store.dim"):
-        AppConfig(
-            embedder={"provider": "mock", "dim": 384},
-            vector_store={"provider": "memory", "dim": 768},
-        )
-
-### Заменить на:
 def test_config_rejects_mismatched_dimensions():
     from ai_assistant.core.config import AppConfig
 

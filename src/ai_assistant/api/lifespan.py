@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai_assistant.api.deps import init_adapters
-from ai_assistant.api.security import SecurityLimiter, get_expected_api_key, set_api_key
+from ai_assistant.api.security import get_expected_api_key, set_api_key
 from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.logger import get_logger, setup_logging
-from ai_assistant.core.metrics import MetricsLogger
 from ai_assistant.core.ports import IClosable
 
 if TYPE_CHECKING:
@@ -50,18 +49,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log_file=log_file,
     )
 
-    metrics_logger = MetricsLogger()
-    metrics_logger.start()
-
-    limiter = SecurityLimiter(
-        rate_limit=getattr(config.security, "rate_limit", "100/minute")
-    )
     if config.security.api_key and get_expected_api_key() is None:
         set_api_key(config.security.api_key)
 
     state = await init_adapters(config)
-    state.metrics = metrics_logger
-    state.limiter = limiter
     app.state.app_state = state
 
     pid_file = Path("data/server.pid")
@@ -74,7 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        await _async_cleanup(app, config, metrics_logger)
+        await _async_cleanup(app, config)
         _cleanup(app, config, pid_file)
 
 
@@ -87,14 +78,11 @@ def _cleanup(app: FastAPI, config: AppConfig, pid_file: Path) -> None:
             logger.warning("Failed to remove PID file: %s", exc)
 
 
-async def _async_cleanup(
-    app: FastAPI, config: AppConfig, metrics_logger: MetricsLogger
-) -> None:
+async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     """Async cleanup actions."""
     state = getattr(app.state, "app_state", None)
     if state is None:
         logger.warning("No app state found during shutdown")
-        await metrics_logger.stop()
         return
 
     # 1. Persist indices FIRST — metrics/adapter shutdown may block/hang
@@ -121,9 +109,3 @@ async def _async_cleanup(
                 await attr.shutdown()
             except Exception:
                 logger.exception("%s shutdown failed", name)
-
-    # 3. Metrics last — may hang until timeout
-    try:
-        await asyncio.wait_for(metrics_logger.stop(), timeout=10.0)
-    except TimeoutError:
-        logger.warning("Metrics logger stop timed out after 10s; forcing exit")

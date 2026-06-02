@@ -15,15 +15,20 @@ Output: dev/context_build_{mode}.md (relative to project root).
 import argparse
 import ast
 import fnmatch
+import logging
 import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
+logger = logging.getLogger("context_build")
+
+
 # CONFIGURATION
 
-EXCLUDED_DIRS: set[str] = {
+EXCLUDED_DIRS: frozenset[str] = frozenset({
     ".git",
     "__pycache__",
     ".pytest_cache",
@@ -41,7 +46,7 @@ EXCLUDED_DIRS: set[str] = {
     ".vscode",
     "dist",
     "build",
-}
+})
 
 ALWAYS_SKIP_PATTERNS: list[str] = [
     "*.pyc",
@@ -74,10 +79,20 @@ ALWAYS_SKIP_PATTERNS: list[str] = [
     "tests_run_*.log",
 ]
 
-# DEBUG: temporarily add this to verify pattern resolution
-# def _debug_patterns(root: Path, patterns: list[str], label: str) -> None:
-#     resolved = resolve_patterns(root, patterns)
-#     print(f"[debug] {label}: {sorted(resolved)[:5]}... ({len(resolved)} total)")
+# Patterns that match only basename
+BASENAME_SKIP_PATTERNS: frozenset[str] = frozenset({
+    "*.pyc", "*.pyo", "*.so", "*.dylib", "*.dll", "*.exe",
+    "*.gguf", "*.bin", "*.pt", "*.pth", "*.onnx", "*.safetensors",
+    "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp",
+    "*.mp3", "*.wav", "*.pid", "*.lock",
+    ".DS_Store", "Thumbs.db", "*.egg-info",
+})
+
+# Patterns that match full relative path
+PATH_SKIP_PATTERNS: frozenset[str] = frozenset({
+    "*context_build_*.md", "dev/README_DEV.md", "dev/TODO.md", "tests_run_*.log",
+})
+
 
 # P0: Critical — contracts, API, domain, entry point, config, core implementation
 CRITICAL_PATTERNS: list[str] = [
@@ -133,7 +148,7 @@ SIGNATURE_PATTERNS: list[str] = [
     "ops/scripts/*.py",
 ]
 
-# Known unknowns: files with hidden complexity that AI MUST request before modifying
+
 KNOWN_UNKNOWNS: list[tuple[str, str]] = [
     (
         "src/ai_assistant/adapters/llm_openai_compatible.py",
@@ -201,7 +216,7 @@ KNOWN_UNKNOWNS: list[tuple[str, str]] = [
     ),
 ]
 
-ALREADY_EMBEDDED: set[str] = {"README.md", "dev/AI_RULES.md", "dev/README_DEV.md"}
+ALREADY_EMBEDDED: frozenset[str] = frozenset({"README.md", "dev/AI_RULES.md"})
 
 DEFAULT_OUTPUT: dict[str, str] = {
     "compact": "context_build_compact.md",
@@ -223,122 +238,123 @@ Configuration resolution order (highest to lowest priority):
 > Never commit API keys to `config.yaml`.
 """
 
+
+
 # HELPERS
 
 
 def find_project_root() -> Path:
-    """Find project root: directory that contains BOTH README.md and pyproject.toml."""
-    current = Path(__file__).resolve().parent
-    for parent in [current, *current.parents]:
-        if (parent / "README.md").exists() and (parent / "pyproject.toml").exists():
+    """Find project root: directory that contains README.md (and preferably pyproject.toml)."""
+    script_dir = Path(__file__).resolve().parent
+    for parent in [script_dir, *script_dir.parents]:
+        has_readme = (parent / "README.md").exists()
+        has_pyproject = (parent / "pyproject.toml").exists()
+        if has_readme and has_pyproject:
             return parent
-    # Fallback: at least README.md
-    for parent in [current, *current.parents]:
-        if (parent / "README.md").exists():
+        if has_readme:
             return parent
-    return current.parent.parent
+    # Ultimate fallback: parent of dev/scripts/
+    return script_dir.parent.parent
 
 
 def should_skip_file(rel_path: str) -> bool:
     basename = os.path.basename(rel_path)
     for pat in ALWAYS_SKIP_PATTERNS:
-        if fnmatch.fnmatch(rel_path, pat) or fnmatch.fnmatch(basename, pat):
-            return True
+        if pat in BASENAME_SKIP_PATTERNS:
+            if fnmatch.fnmatch(basename, pat):
+                return True
+        else:
+            if fnmatch.fnmatch(rel_path, pat):
+                return True
     return False
 
 
+def _get_ext(rel_path: str) -> str:
+    """Determine markdown code block language from file extension."""
+    suffix_map = {
+        ".py": "python",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".toml": "toml",
+        ".j2": "jinja2",
+    }
+    return suffix_map.get(Path(rel_path).suffix, "text")
+
+
 def resolve_patterns(root: Path, patterns: list[str]) -> set[str]:
+    """Resolve glob patterns to a set of relative POSIX paths."""
     matched: set[str] = set()
     for pat in patterns:
-        pat_os = pat.replace("/", os.sep)
-        if "**" in pat:
-            for p in root.glob(pat_os):
+        if "**" in pat or "*" in pat:
+            for p in root.glob(pat):
                 if p.is_file():
-                    matched.add(os.path.relpath(p, root).replace(os.sep, "/"))
+                    matched.add(p.relative_to(root).as_posix())
         else:
-            p = root / pat_os
-            if p.exists() and p.is_file():
-                matched.add(pat)
-            elif p.exists() and p.is_dir():
+            p = root / pat
+            if p.is_file():
+                matched.add(p.relative_to(root).as_posix())
+            elif p.is_dir():
                 for child in p.rglob("*"):
                     if child.is_file():
-                        matched.add(os.path.relpath(child, root).replace(os.sep, "/"))
+                        matched.add(child.relative_to(root).as_posix())
     return matched
 
 
 def count_loc(text: str) -> int:
+    """Count non-empty lines (crude, for non-Python files)."""
     return sum(1 for line in text.splitlines() if line.strip())
 
 
-def _extract_tags(
-    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
-) -> list[str]:
-    """Extract inline semantic tags from decorators and naming heuristics."""
-    tags: list[str] = []
-    name = getattr(node, "name", "")
+def count_python_loc(text: str) -> int:
+    """Count non-empty, non-comment, non-docstring lines in Python source."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return count_loc(text)
 
-    for dec in node.decorator_list:
-        dec_str = ast.unparse(dec)
-        if "with_retry" in dec_str:
-            tags.append(f"# {dec_str}")
-        elif "register" in dec_str:
-            tags.append(f"# {dec_str}")
+    docstring_lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)):
+            doc = ast.get_docstring(node)
+            if doc:
+                start = node.body[0].lineno
+                end = node.body[0].end_lineno or start
+                for i in range(start, end + 1):
+                    docstring_lines.add(i)
 
-    lower = name.lower()
-    if lower.startswith(("validate", "check", "verify")):
-        tags.append("# validates input")
-    if "embed" in lower or "encode" in lower:
-        try:
-            args_str = ast.unparse(node.args)
-            if "dim" in args_str:
-                tags.append("# validates dim")
-        except Exception:
-            pass
-    if "sse" in lower or ("stream" in lower and "parse" in lower):
-        tags.append("# handles SSE parsing")
-    if "retry" in lower and "with_retry" not in " ".join(tags):
-        tags.append("# retry logic")
-
-    return tags
+    loc = 0
+    for i, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if i in docstring_lines:
+            continue
+        loc += 1
+    return loc
 
 
 def _is_known_unknown(rel_path: str) -> str | None:
-    """Check if file is a known unknown and return hint."""
     for path, hint in KNOWN_UNKNOWNS:
         if rel_path == path:
             return hint
     return None
 
 
-# Methods that typically have hidden complex implementation
-_HIDDEN_IMPL_METHODS: set[str] = {
-    "complete",
-    "stream",
-    "embed",
-    "rerank",
-    "describe",
-    "transcribe",
-    "synthesize",
-    "add",
-    "search",
-    "delete",
-    "save",
-    "load",
-    "list_by_filter",
-    "list_namespaces",
-    "execute",
-    "dispatch",
-    "chunk",
-    "shutdown",
-    "init_db",
-    "analyze",
-    "index_documents",
-    "query",
-    "health",
-    "run",
-    "start",
-    "stop",
-}
+def _extract_tags(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef,
+) -> list[str]:
+    """Extract minimal semantic tags from decorators."""
+    tags: list[str] = []
+    for dec in node.decorator_list:
+        if isinstance(dec, ast.Name):
+            if dec.id == "with_retry":
+                tags.append("# with_retry")
+            elif dec.id == "register":
+                tags.append("# register")
+    return tags
+
 
 
 def extract_api_surface(source: str, rel_path: str) -> str:
@@ -349,7 +365,6 @@ def extract_api_surface(source: str, rel_path: str) -> str:
 
     lines: list[str] = [f"# API Surface: {rel_path}", ""]
 
-    # Add known unknown hint if applicable
     unknown_hint = _is_known_unknown(rel_path)
     if unknown_hint:
         lines.append(f"# 🔒 KNOWN UNKNOWN: {unknown_hint}")
@@ -372,12 +387,20 @@ def extract_api_surface(source: str, rel_path: str) -> str:
             bases = [ast.unparse(b) for b in node.bases] if node.bases else []
             base_str = f"({', '.join(bases)})" if bases else ""
             doc = ast.get_docstring(node)
-            doc_line = f'\n    """{doc[:300]}"""' if doc else ""
+            if doc:
+                doc_line = "\n    " + f'"""{doc[:300]}"""'
+            else:
+                doc_line = ""
             decs = "\n".join(f"@{ast.unparse(d)}" for d in node.decorator_list)
             prefix = (decs + "\n") if decs else ""
             tags = _extract_tags(node)
             tag_str = f"  {'  '.join(tags)}" if tags else ""
-            lines.append(f"{prefix}class {node.name}{base_str}:{doc_line}{tag_str}")
+
+            # Mark non-ABC classes as having hidden implementation
+            is_abc = any(ast.unparse(b) == "ABC" for b in node.bases)
+            impl_tag = "" if is_abc else "  # 🔒 impl hidden"
+
+            lines.append(f"{prefix}class {node.name}{base_str}:{doc_line}{tag_str}{impl_tag}")
             lines.append("")
 
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -386,17 +409,17 @@ def extract_api_surface(source: str, rel_path: str) -> str:
             except Exception:
                 args = "..."
             doc = ast.get_docstring(node)
-            doc_line = f'\n    """{doc[:300]}"""' if doc else ""
+            if doc:
+                doc_line = "\n    " + f'"""{doc[:300]}"""'
+            else:
+                doc_line = ""
             decs = "\n".join(f"@{ast.unparse(d)}" for d in node.decorator_list)
             prefix = (decs + "\n") if decs else ""
             async_p = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
             tags = _extract_tags(node)
             tag_str = f"  {'  '.join(tags)}" if tags else ""
 
-            # Add implementation hidden hint for non-trivial methods
-            if node.name in _HIDDEN_IMPL_METHODS:
-                tag_str += "  # 🔒 impl hidden"
-
+            # No # 🔒 impl hidden for top-level functions — file-level hint is enough
             lines.append(
                 f"{prefix}{async_p}def {node.name}({args}):{doc_line}{tag_str}"
             )
@@ -418,6 +441,7 @@ def extract_api_surface(source: str, rel_path: str) -> str:
                 pass
 
     return "\n".join(lines)
+
 
 
 def get_excluded_manifest(root: Path) -> list[tuple[str, str, list[str]]]:
@@ -469,6 +493,15 @@ def get_file_group(rel_path: str) -> str:
     return "📦 Other"
 
 
+def _is_dir_excluded(dirpath: str, root: Path) -> bool:
+    """Check if any component of the relative directory path is excluded."""
+    rel_dir = os.path.relpath(dirpath, root)
+    if rel_dir == ".":
+        return False
+    return any(part in EXCLUDED_DIRS for part in Path(rel_dir).parts)
+
+
+
 # SCAN & BUILD
 
 
@@ -477,7 +510,7 @@ def scan_project(
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[tuple[str, str | None]], dict]:
     if mode == "super":
         critical_set = resolve_patterns(root, SUPER_PATTERNS)
-        signature_set: set[str] = set()  # No signatures in super mode
+        signature_set: set[str] = set()
     else:
         critical_set = resolve_patterns(root, CRITICAL_PATTERNS)
         signature_set = resolve_patterns(root, SIGNATURE_PATTERNS)
@@ -488,21 +521,26 @@ def scan_project(
     metrics = {"total_files": 0, "py_files": 0, "total_loc": 0, "py_loc": 0}
 
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
+        # Exclude directories by full relative path, not just basename
+        dirnames[:] = [
+            d for d in dirnames
+            if not _is_dir_excluded(os.path.join(dirpath, d), root)
+        ]
 
         for fname in sorted(filenames):
             fpath = Path(dirpath) / fname
-            rel = os.path.relpath(fpath, root).replace(os.sep, "/")
+            rel = fpath.relative_to(root).as_posix()
 
             if should_skip_file(rel):
                 continue
 
             metrics["total_files"] += 1
+
             try:
                 content = fpath.read_text(encoding="utf-8", errors="replace")
-                loc = count_loc(content)
+                loc = count_python_loc(content) if rel.endswith(".py") else count_loc(content)
                 metrics["total_loc"] += loc
-            except Exception:
+            except OSError:
                 content = ""
                 loc = 0
 
@@ -513,7 +551,6 @@ def scan_project(
             if rel in critical_set:
                 critical_files.append((rel, content))
             elif mode == "super":
-                # In super mode, everything else goes to inventory
                 other_files.append((rel, None))
             elif rel in signature_set and rel.endswith(".py"):
                 signature_files.append((rel, content))
@@ -526,6 +563,7 @@ def scan_project(
                     other_files.append((rel, None))
 
     return critical_files, signature_files, other_files, metrics
+
 
 
 def build_markdown(
@@ -552,75 +590,80 @@ def build_markdown(
         else "*AI_RULES.md not found*"
     )
 
-    excluded_manifests = get_excluded_manifest(root)
-
-    lines: list[str] = []
-
-    # Header
-    lines.append("# AI Context: AI Assistant")
-    lines.append(f"> **Generated:** {now}")
-    lines.append(f"> **Mode:** `{mode}`")
-    lines.append(f"> **Root:** `{root}`")
-    lines.append(
-        f"> **Metrics:** {metrics['total_files']} files | {metrics['py_files']} Python files | {metrics['py_loc']:,} Python LOC"
-    )
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    # 1. AI RULES
-    lines.append("## 🚨 AI DEVELOPMENT GUIDELINES — READ FIRST")
-    lines.append("> Auto-extracted from: `dev/AI_RULES.md`")
-    lines.append(
-        "> ⚠️ **These rules override general assumptions. Review before proposing any change.**"
-    )
-    lines.append("")
-    lines.append("```markdown")
-    lines.append(airules)
-    lines.append("```")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    # 2. README
-    lines.append("## 📋 PROJECT OVERVIEW")
-    lines.append("> Auto-extracted from: `README.md`")
-    lines.append("")
-    lines.append("```markdown")
-    lines.append(readme)
-    lines.append("```")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    # README_DEV.md block
     readme_dev_path = root / "dev" / "README_DEV.md"
     readme_dev = (
         readme_dev_path.read_text(encoding="utf-8", errors="replace")
         if readme_dev_path.exists()
         else "*README_DEV.md not found*"
     )
-    lines.append("## 🛠️ DEVELOPER WORKSPACE")
-    lines.append("> Auto-extracted from: `dev/README_DEV.md`")
-    lines.append("> **Workflow, scripts, troubleshooting for solo development.**")
-    lines.append("")
-    lines.append("```markdown")
-    lines.append(readme_dev)
-    lines.append("```")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
 
-    # 3. Env Priority
+    excluded_manifests = get_excluded_manifest(root)
+
+    lines: list[str] = []
+
+    # Header
+    lines.extend([
+        "# AI Context: AI Assistant",
+        f"> **Generated:** {now}",
+        f"> **Mode:** `{mode}`",
+        f"> **Root:** `{root}`",
+        f"> **Metrics:** {metrics['total_files']} files | {metrics['py_files']} Python files | {metrics['py_loc']:,} Python LOC",
+        "",
+        "---",
+        "",
+    ])
+
+    # 1. AI RULES
+    lines.extend([
+        "## 🚨 AI DEVELOPMENT GUIDELINES — READ FIRST",
+        "> Auto-extracted from: `dev/AI_RULES.md`",
+        "> ⚠️ **These rules override general assumptions. Review before proposing any change.**",
+        "",
+        "```markdown",
+        airules,
+        "```",
+        "",
+        "---",
+        "",
+    ])
+
+    # 2. README
+    lines.extend([
+        "## 📋 PROJECT OVERVIEW",
+        "> Auto-extracted from: `README.md`",
+        "",
+        "```markdown",
+        readme,
+        "```",
+        "",
+        "---",
+        "",
+    ])
+
+    # 3. README_DEV
+    lines.extend([
+        "## 🛠️ DEVELOPER WORKSPACE",
+        "> Auto-extracted from: `dev/README_DEV.md`",
+        "> **Workflow, scripts, troubleshooting for solo development.**",
+        "",
+        "```markdown",
+        readme_dev,
+        "```",
+        "",
+        "---",
+        "",
+    ])
+
+    # 4. Env Priority
     lines.append(ENV_PRIORITY_BLOCK)
-    lines.append("")
-    lines.append("---")
-    lines.append("")
+    lines.extend(["", "---", ""])
 
-    # 4. Structure
-    lines.append("## 🗂️ PROJECT STRUCTURE")
-    lines.append("")
-    lines.append("### Included Files")
+    # 5. Structure
+    lines.extend([
+        "## 🗂️ PROJECT STRUCTURE",
+        "",
+        "### Included Files",
+    ])
     included = {r for r, _ in critical}
     if mode in ("compact", "super"):
         included.update(r for r, _ in signature)
@@ -631,25 +674,25 @@ def build_markdown(
         lines.append(f"- `{r}`")
     lines.append("")
 
-    lines.append("### Excluded Directories (Known to Exist)")
-    lines.append("| Directory | Purpose | Top-Level Contents |")
-    lines.append("|-----------|---------|-------------------|")
+    lines.extend([
+        "### Excluded Directories (Known to Exist)",
+        "| Directory | Purpose | Top-Level Contents |",
+        "|-----------|---------|-------------------|",
+    ])
     for name, purpose, items in excluded_manifests:
         display = ", ".join(items[:12])
         if len(items) > 12:
             display += f" … (+{len(items) - 12})"
         lines.append(f"| `{name}/` | {purpose} | {display} |")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
+    lines.extend(["", "---", ""])
 
-    # 5. Critical Code (P0)
-    lines.append("## 🔑 CRITICAL SOURCE CODE (P0)")
-    lines.append(
-        "> Full content. These files define contracts, API surface, features, and entry points."
-    )
-    lines.append("> **Never modify without checking downstream adapters and tests.**")
-    lines.append("")
+    # 6. Critical Code (P0)
+    lines.extend([
+        "## 🔑 CRITICAL SOURCE CODE (P0)",
+        "> Full content. These files define contracts, API surface, features, and entry points.",
+        "> **Never modify without checking downstream adapters and tests.**",
+        "",
+    ])
 
     current_group = ""
     for rel, content in sorted(critical, key=lambda x: x[0]):
@@ -666,37 +709,22 @@ def build_markdown(
             )
             lines.append("")
 
-        ext = (
-            "python"
-            if rel.endswith(".py")
-            else (
-                "yaml"
-                if rel.endswith(".yaml")
-                else (
-                    "toml"
-                    if rel.endswith(".toml")
-                    else ("jinja2" if rel.endswith(".j2") else "text")
-                )
-            )
-        )
         lines.append(f"#### `{rel}`")
-        lines.append(f"```{ext}")
+        lines.append(f"```{_get_ext(rel)}")
         lines.append(content or "# [could not read file]")
         lines.append("```")
         lines.append("")
 
-    # 6. Signatures (P1) — compact and super
+    # 7. Signatures (P1)
     if mode in ("compact", "super") and signature:
-        lines.append("---")
-        lines.append("")
-        lines.append("## 🧩 ADAPTER & TEST SIGNATURES (P1)")
-        lines.append(
-            "> Public API surface extracted via AST. Contains imports, classes, functions, docstrings, and inline semantic tags."
-        )
-        lines.append(
-            "> **🔒 = implementation hidden. To see full code, use the request protocol below.**"
-        )
-        lines.append("")
+        lines.extend([
+            "---",
+            "",
+            "## 🧩 ADAPTER & TEST SIGNATURES (P1)",
+            "> Public API surface extracted via AST. Contains imports, classes, functions, docstrings, and inline semantic tags.",
+            "> **🔒 = implementation hidden. To see full code, use the request protocol below.**",
+            "",
+        ])
 
         for rel, content in sorted(signature, key=lambda x: x[0]):
             api_surface = extract_api_surface(content, rel)
@@ -706,118 +734,114 @@ def build_markdown(
             lines.append("```")
             lines.append("")
 
-    # 7. Inventory (P2) / Full remainder
+    # 8. Inventory / Full remainder
     if other:
-        lines.append("---")
-        lines.append("")
+        lines.extend(["---", ""])
         if mode == "compact":
-            lines.append("## 📦 FILE INVENTORY (P2 — Excluded from Compact Context)")
-            lines.append("> These files exist but are omitted to save context space.")
-            lines.append(
-                "> Request full content only when implementation details matter."
-            )
-            lines.append("")
-            lines.append("| File | Group | Type | Size (chars) |")
-            lines.append("|------|-------|------|-------------|")
+            lines.extend([
+                "## 📦 FILE INVENTORY (P2 — Excluded from Compact Context)",
+                "> These files exist but are omitted to save context space.",
+                "> Request full content only when implementation details matter.",
+                "",
+                "| File | Group | Type | Size (chars) |",
+                "|------|-------|------|-------------|",
+            ])
             for rel, content in sorted(other, key=lambda x: x[0]):
                 size = len(content) if content else "N/A"
                 ftype = (
-                    "Python"
-                    if rel.endswith(".py")
-                    else "Config"
-                    if rel.endswith((".yaml", ".toml", ".json"))
+                    "Python" if rel.endswith(".py")
+                    else "Config" if rel.endswith((".yaml", ".toml", ".json"))
                     else "Other"
                 )
                 group = get_file_group(rel)
                 lines.append(f"| `{rel}` | {group} | {ftype} | {size} |")
             lines.append("")
         else:
-            lines.append("## 📝 ALL REMAINING FILES (Full Mode)")
+            lines.extend([
+                "## 📝 ALL REMAINING FILES (Full Mode)",
+            ])
             for rel, content in sorted(other, key=lambda x: x[0]):
                 if content is None or rel in ALREADY_EMBEDDED:
                     continue
-                ext = "python" if rel.endswith(".py") else "text"
                 lines.append(f"### `{rel}`")
-                lines.append(f"```{ext}")
+                lines.append(f"```{_get_ext(rel)}")
                 lines.append(content)
                 lines.append("```")
                 lines.append("")
 
-    # 7.5. Error Taxonomy (auto-injected from dev/ERROR_TAXONOMY.md)
+    # 9. Error Taxonomy
     taxonomy_path = root / "dev" / "ERROR_TAXONOMY.md"
     if taxonomy_path.exists() and mode != "super":
-        lines.append("---")
-        lines.append("")
-        lines.append(taxonomy_path.read_text(encoding="utf-8", errors="replace"))
-        lines.append("")
+        lines.extend([
+            "---",
+            "",
+            taxonomy_path.read_text(encoding="utf-8", errors="replace"),
+            "",
+        ])
 
-    # 8. Known Unknowns
-    lines.append("---")
-    lines.append("")
-    lines.append("## ❓ KNOWN UNKNOWNS — Request Before Modifying")
-    lines.append(
-        "> These files contain complex logic hidden in P2. You MUST request them before proposing changes."
-    )
-    lines.append(
-        "> **Do NOT guess implementation details, error types, or edge case handling.**"
-    )
-    lines.append("")
-    lines.append("| File | Hidden Complexity | Request Trigger |")
-    lines.append("|------|-----------------|---------------|")
+    # 10. Known Unknowns
+    lines.extend([
+        "---",
+        "",
+        "## ❓ KNOWN UNKNOWNS — Request Before Modifying",
+        "> These files contain complex logic hidden in P2. You MUST request them before proposing changes.",
+        "> **Do NOT guess implementation details, error types, or edge case handling.**",
+        "",
+        "| File | Hidden Complexity | Request Trigger |",
+        "|------|-----------------|---------------|",
+    ])
     for path, hint in KNOWN_UNKNOWNS:
         group = get_file_group(path)
-        trigger = "Any change to this component or its consumers"
-        if "test" in path:
-            trigger = "Before modifying tested component"
+        trigger = (
+            "Before modifying tested component" if "test" in path
+            else "Any change to this component or its consumers"
+        )
         lines.append(f"| `{path}` | {hint} | {trigger} |")
     lines.append("")
 
-    # 9. Request Protocol
-    lines.append("---")
-    lines.append("")
-    lines.append("## 🚨 OBLIGATORY REQUEST PROTOCOL")
-    lines.append("")
-    lines.append("You MUST NOT guess implementation details. If you need to:")
-    lines.append("- Verify error handling, retry logic, or edge cases")
-    lines.append("- See actual HTTP call construction, JSON parsing, or SSE handling")
-    lines.append("- Check database schema, SQL queries, or migration logic")
-    lines.append("- Review test assertions before proposing changes")
-    lines.append("- Copy-paste or refactor existing code")
-    lines.append("- Understand any file marked with 🔒 or listed in Known Unknowns")
-    lines.append("")
-    lines.append("Then output **EXACTLY**:")
-    lines.append("")
-    lines.append("```")
-    lines.append("🔍 REQUEST CODE: `relative/path/to/file.py`")
-    lines.append("Reason: [1-sentence justification]")
-    lines.append("```")
-    lines.append("")
-    lines.append(
-        "**Forbidden:** Inventing method bodies, assuming exception types, hallucinating config keys, or guessing retry strategies. When in doubt — REQUEST."
-    )
-    lines.append("")
-    lines.append("### Priority Rules for Compact Mode")
-    lines.append(
-        "1. **Always check P0/P1 first** — the public API is usually enough for architecture discussions."
-    )
-    lines.append("2. **Request code when:**")
-    lines.append("   - You need to see implementation logic (not just interface)")
-    lines.append("   - You need to verify how an adapter handles edge cases")
-    lines.append("   - You need to copy-paste or refactor existing code")
-    lines.append("   - The file is in Known Unknowns or marked with 🔒")
-    lines.append(
-        "3. **Batch requests** — ask for multiple files in one block if needed"
-    )
-    lines.append("")
+    # 11. Request Protocol
+    lines.extend([
+        "---",
+        "",
+        "## 🚨 OBLIGATORY REQUEST PROTOCOL",
+        "",
+        "You MUST NOT guess implementation details. If you need to:",
+        "- Verify error handling, retry logic, or edge cases",
+        "- See actual HTTP call construction, JSON parsing, or SSE handling",
+        "- Check database schema, SQL queries, or migration logic",
+        "- Review test assertions before proposing changes",
+        "- Copy-paste or refactor existing code",
+        "- Understand any file marked with 🔒 or listed in Known Unknowns",
+        "",
+        "Then output **EXACTLY**:",
+        "",
+        "```",
+        "🔍 REQUEST CODE: `relative/path/to/file.py`",
+        "Reason: [1-sentence justification]",
+        "```",
+        "",
+        "**Forbidden:** Inventing method bodies, assuming exception types, hallucinating config keys, or guessing retry strategies. When in doubt — REQUEST.",
+        "",
+        "### Priority Rules for Compact Mode",
+        "1. **Always check P0/P1 first** — the public API is usually enough for architecture discussions.",
+        "2. **Request code when:**",
+        "   - You need to see implementation logic (not just interface)",
+        "   - You need to verify how an adapter handles edge cases",
+        "   - You need to copy-paste or refactor existing code",
+        "   - The file is in Known Unknowns or marked with 🔒",
+        "3. **Batch requests** — ask for multiple files in one block if needed",
+        "",
+    ])
 
     return "\n".join(lines)
+
 
 
 # MAIN
 
 
 def main() -> int:
-    # Auto-update ERROR_TAXONOMY.md before building context
+    # Auto-update ERROR_TAXONOMY.md
     try:
         script_dir = Path(__file__).resolve().parent
         taxonomy_script = script_dir / "error_taxonomy_build.py"
@@ -827,24 +851,18 @@ def main() -> int:
                 capture_output=True,
                 text=True,
                 cwd=find_project_root(),
+                timeout=60,
             )
             if result.returncode == 0:
-                print("[context_build] ERROR_TAXONOMY.md auto-updated")
+                logger.info("ERROR_TAXONOMY.md auto-updated")
             else:
-                print(
-                    f"[context_build] WARNING: taxonomy update failed: {result.stderr}",
-                    file=sys.stderr,
-                )
+                logger.warning("Taxonomy update failed: %s", result.stderr)
         else:
-            print(
-                "[context_build] NOTE: error_taxonomy_build.py not found, skipping auto-update",
-                file=sys.stderr,
-            )
+            logger.info("error_taxonomy_build.py not found, skipping auto-update")
+    except subprocess.TimeoutExpired:
+        logger.warning("Taxonomy update timed out after 60s")
     except Exception as exc:
-        print(
-            f"[context_build] WARNING: Could not auto-update taxonomy: {exc}",
-            file=sys.stderr,
-        )
+        logger.warning("Could not auto-update taxonomy: %s", exc)
 
     parser = argparse.ArgumentParser(
         description="Build AI context document for the project."
@@ -885,47 +903,38 @@ def main() -> int:
     args = parser.parse_args()
 
     root = find_project_root()
-    print(f"[context_build] Project root: {root}")
 
-    # Sanity check: ensure we are not inside dev/ itself
-    if root.name == "dev" and (root.parent / "README.md").exists():
-        print(
-            "[context_build] WARNING: Detected dev/ as root. Using parent instead.",
-            file=sys.stderr,
-        )
-        root = root.parent
+    # Sanity check: if script is in dev/scripts/, root should be grandparent
+    script_parent = Path(__file__).resolve().parent
+    if script_parent.name == "scripts" and script_parent.parent.name == "dev":
+        expected_root = script_parent.parent.parent
+        if root != expected_root and expected_root.exists():
+            logger.info("Adjusting root from %s to %s", root, expected_root)
+            root = expected_root
 
-    print(f"[context_build] Mode: {args.mode}")
+    logger.info("Project root: %s", root)
+    logger.info("Mode: %s", args.mode)
 
     critical, signature, other, metrics = scan_project(root, args.mode)
 
-    print(f"[context_build] Metrics: {metrics}")
-    print(f"[context_build] P0 critical files: {len(critical)}")
-    print(f"[context_build] P1 signature files: {len(signature)}")
-    print(f"[context_build] P2/other files: {len(other)}")
+    logger.info("Metrics: %s", metrics)
+    logger.info("P0 critical files: %d", len(critical))
+    logger.info("P1 signature files: %d", len(signature))
+    logger.info("P2/other files: %d", len(other))
 
-    # Auto-fallback if full context is too large
     if args.mode == "full" and metrics["py_loc"] > 16000:
-        print(
-            "[context_build] WARNING: Context too large. Accuracy may drop. Use compact mode."
-        )
-        print(f"[context_build] Python LOC: {metrics['py_loc']:,} > 16,000 limit.")
-        print("[context_build] Auto-falling back to compact mode.")
+        logger.warning("Context too large (%d Python LOC > 16,000). Auto-falling back to compact mode.", metrics["py_loc"])
         args.mode = "compact"
 
     out_name = args.output or DEFAULT_OUTPUT[args.mode]
     md = build_markdown(root, args.mode, critical, signature, other, metrics)
 
-    # Save to dev/
     dev_dir = root / "dev"
     dev_dir.mkdir(parents=True, exist_ok=True)
     out_path = dev_dir / out_name
-
     out_path.write_text(md, encoding="utf-8")
 
-    # Print relative path for readability
-    rel_out = out_path.relative_to(root)
-    print(f"[context_build] Written: {rel_out} ({len(md):,} chars)")
+    logger.info("Written: %s (%d chars)", out_path.relative_to(root), len(md))
     return 0
 
 

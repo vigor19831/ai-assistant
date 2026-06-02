@@ -2,14 +2,14 @@
 """Standalone RAG diagnostic — works offline with mock fallback."""
 
 import asyncio
-import re
 import sys
 from pathlib import Path
 
-# Ensure project root is importable
+# Ensure project root is importable (src/ layout)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+# Trigger @register side-effects — must match deps.py adapter list
 import ai_assistant.adapters.chunker_simple  # noqa: F401, E402
 import ai_assistant.adapters.embedder_mock  # noqa: F401, E402
 import ai_assistant.adapters.vector_store_faiss  # noqa: F401, E402
@@ -43,7 +43,18 @@ async def main() -> int:
 
     # Init embedder (mock for offline diagnostic)
     dim = getattr(cfg.vector_store, "dim", None) or 768
-    mock_cfg = type("C", (), {"provider": "mock", "dim": dim, "timeout": 1.0})()
+    mock_cfg = type(
+        "MockEmbedderConfig",
+        (),
+        {
+            "provider": "mock",
+            "dim": dim,
+            "timeout": 1.0,
+            "model": "mock-embedder",
+            "api_base": "",
+            "api_key": None,
+        },
+    )()
     embedder = registry_create("embedder", "mock", mock_cfg)
     print(f"[OK]   Embedder: {type(embedder).__name__} (dim={embedder.dimension}) [MOCK]")
 
@@ -68,12 +79,24 @@ async def main() -> int:
         except Exception as exc:
             print(f"[WARN] Could not load indices: {exc}")
 
-    # Check namespaces
+    # Check namespaces with a real embedding (not zero vector)
     print("\n  --- Namespace inventory ---")
+    test_text = "test query for namespace check"
+    try:
+        test_embeddings = await embedder.embed([test_text])
+        test_embedding = test_embeddings[0] if test_embeddings else None
+    except Exception as exc:
+        print(f"[WARN] Could not generate test embedding: {exc}")
+        test_embedding = None
+
     for short, ns in RAG_NS_MAP.items():
         try:
-            dummy = [0.0] * dim
-            results = await vector_store.search(dummy, top_k=1, namespace=ns)
+            if test_embedding:
+                results = await vector_store.search(test_embedding, top_k=1, namespace=ns)
+            else:
+                # Fallback to zero vector only if embedder failed
+                dummy = [0.0] * dim
+                results = await vector_store.search(dummy, top_k=1, namespace=ns)
             print(f"  [{short}] {ns:<10} → {len(results)} chunks found")
         except Exception as exc:
             print(f"  [{short}] {ns:<10} → ERROR: {exc}")
@@ -83,28 +106,34 @@ async def main() -> int:
         ("[p] test query personal", "personal"),
         ("[w] test query work", "work"),
         ("[o] test query other", "other"),
-        ("no prefix at all", "default"),
+        ("no prefix at all", cfg.rag.default_namespace),
     ]
 
+    relevance_threshold = getattr(
+        cfg.rag, "relevance_threshold",
+        getattr(cfg.vector_store, "relevance_threshold", 0.1)
+    )
+
     print("\n  --- Pipeline steps ---")
-    for raw_query, _ in test_queries:
+    for raw_query, expected_ns in test_queries:
         print(f"\n  Query: '{raw_query}'")
 
         m = RAG_PREFIX_RE.match(raw_query)
         if not m:
-            print("        → No RAG prefix, skipping pipeline")
-            continue
-
-        ns_short = m.group(1).lower()
-        query_text = m.group(2)
-        namespace = RAG_NS_MAP.get(ns_short, "default")
+            print(f"        → No RAG prefix, using default namespace '{expected_ns}'")
+            query_text = raw_query
+            namespace = expected_ns
+        else:
+            ns_short = m.group(1).lower()
+            query_text = m.group(2)
+            namespace = RAG_NS_MAP.get(ns_short, expected_ns)
 
         data = PipelineData(
             query=UserMessage(text=query_text),
             metadata={
-                "top_k": 5,
+                "top_k": cfg.rag.top_k,
                 "namespace": namespace,
-                "relevance_threshold": 0.3,
+                "relevance_threshold": relevance_threshold,
                 "embedder": embedder,
                 "vector_store": vector_store,
             },
@@ -117,6 +146,7 @@ async def main() -> int:
             print(f"        embed_query  → {'OK' if emb else 'NO EMBEDDING'}")
             if data.errors:
                 print(f"        embed errors   → {data.errors}")
+                continue
         except Exception as exc:
             print(f"        embed_query  → EXCEPTION: {exc}")
             continue
@@ -127,13 +157,18 @@ async def main() -> int:
             print(f"        retrieve     → {len(data.chunks)} chunks")
             if data.errors:
                 print(f"        retrieve errors→ {data.errors}")
+                continue
         except Exception as exc:
             print(f"        retrieve     → EXCEPTION: {exc}")
             continue
 
         # Step 3: build context
-        data = await build_context(data)
-        print(f"        build_context→ {len(data.context)} chars")
+        try:
+            data = await build_context(data)
+            print(f"        build_context→ {len(data.context)} chars")
+        except Exception as exc:
+            print(f"        build_context→ EXCEPTION: {exc}")
+            continue
 
         if not data.context:
             print("        ⚠️  RAG will be SKIPPED (no context)")

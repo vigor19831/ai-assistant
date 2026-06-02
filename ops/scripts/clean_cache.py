@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import errno
 import logging
+import os
 import shutil
 import sys
 import tempfile
@@ -57,6 +58,8 @@ NEVER_TOUCH: set[str] = {
     "config.yaml",
     "pyproject.toml",
     "README.md",
+    "README_DEV.md",
+    "AI_RULES.md",
 }
 
 # Системный Temp: только наши артефакты (pytest/tempfile)
@@ -66,17 +69,18 @@ SYSTEM_TEMP_PATTERNS: list[str] = ["tmp_*", "test.db", "pytest-*"]
 # ── Логика ──
 
 
-def _close_file_handlers() -> None:
-    """Close all FileHandler streams so we can delete our own log files."""
-    for logger in [logging.getLogger()] + [
-        l
-        for l in logging.Logger.manager.loggerDict.values()
-        if isinstance(l, logging.Logger)
-    ]:
-        for handler in getattr(logger, "handlers", [])[:]:
-            if isinstance(handler, logging.FileHandler):
-                handler.close()
-                logger.removeHandler(handler)
+def _is_safe_to_delete(target: Path, root: Path) -> bool:
+    """Check if target is safe to delete (not in NEVER_TOUCH, not .venv)."""
+    try:
+        rel_parts = target.relative_to(root).parts
+    except ValueError:
+        rel_parts = target.parts
+
+    if any(part in NEVER_TOUCH for part in rel_parts):
+        return False
+    if ".venv" in rel_parts:
+        return False
+    return True
 
 
 def find_targets(root: Path, patterns: list[str]) -> list[Path]:
@@ -85,12 +89,7 @@ def find_targets(root: Path, patterns: list[str]) -> list[Path]:
 
     for pattern in patterns:
         for p in root.rglob(pattern):
-            if p.name in NEVER_TOUCH:
-                continue
-            try:
-                if ".venv" in p.relative_to(root).parts:
-                    continue
-            except ValueError:
+            if not _is_safe_to_delete(p, root):
                 continue
             targets.add(p.resolve())
 
@@ -112,9 +111,10 @@ def find_system_temp_targets() -> list[Path]:
         if p.is_dir():
             for db in p.rglob("test.db"):
                 targets.add(db.resolve())
-            # И любые другие .db артефакты тестов
+            # И любые другие .db артефакты тестов — только если имя содержит test
             for db in p.rglob("*.db"):
-                targets.add(db.resolve())
+                if "test" in db.name.lower():
+                    targets.add(db.resolve())
 
     return sorted(targets)
 
@@ -127,7 +127,16 @@ def format_size(path: Path | int) -> str:
         if path.is_file():
             size = float(path.stat().st_size)
         elif path.is_dir():
-            size = float(sum(f.stat().st_size for f in path.rglob("*") if f.is_file()))
+            # Use os.walk to avoid symlink loops
+            total = 0
+            for dirpath, _dirnames, filenames in os.walk(path, topdown=True):
+                for fname in filenames:
+                    fpath = Path(dirpath) / fname
+                    try:
+                        total += fpath.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        pass
+            size = float(total)
         else:
             return "?"
     else:
@@ -150,10 +159,13 @@ def delete_target(path: Path) -> tuple[bool, bool]:
         elif path.is_dir():
             shutil.rmtree(path)
         return True, False
-    except PermissionError as e:
+    except OSError as e:
         # Windows: файл занят другим процессом (сервер запущен)
-        winerr = getattr(e, "winerror", None)
-        if winerr == 32 or e.errno == errno.EACCES:
+        # Linux: EBUSY, EACCES, EPERM
+        if e.errno in (errno.EACCES, errno.EPERM, errno.EBUSY):
+            print(f"  [SKIP] {path}: locked by running process")
+            return False, True
+        if getattr(e, "winerror", None) == 32:
             print(f"  [SKIP] {path}: locked by running process")
             return False, True
         print(f"  [ERROR] {path}: {e}")
@@ -195,6 +207,9 @@ def main() -> int:
     parser.add_argument(
         "--clean", "-c", action="store_true", help="Actually delete (default: dry run)"
     )
+    parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip confirmation prompt"
+    )
     args = parser.parse_args()
 
     dev_root = Path(__file__).parent.parent.resolve()
@@ -204,7 +219,7 @@ def main() -> int:
     elif (dev_root.parent / "src" / "ai_assistant").exists():
         root = dev_root.parent
     else:
-        root = dev_root.parent  # fallback D:\ai
+        root = dev_root.parent  # fallback
 
     all_targets: list[Path] = []
 
@@ -230,7 +245,19 @@ def main() -> int:
         print("Команда: python scripts/clean_cache.py --clean")
         return 0
 
-    _close_file_handlers()
+    # Confirmation unless --yes
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("Non-interactive mode detected. Use --yes to confirm deletion.")
+            return 1
+        try:
+            ans = input("\nУдалить перечисленные файлы? [y/N]: ").strip().lower()
+        except EOFError:
+            print("Отменено.")
+            return 1
+        if ans not in ("y", "yes"):
+            print("Отменено.")
+            return 0
 
     print(f"\n{'=' * 60}")
     print("Удаление...")

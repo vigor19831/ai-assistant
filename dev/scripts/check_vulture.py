@@ -8,7 +8,7 @@ Paths are computed from script location, so no package installation is required.
 Usage:
     python dev/scripts/check_vulture.py              # default check (70% confidence)
     python dev/scripts/check_vulture.py --min-confidence 80  # stricter
-    python dev/scripts/check_vulture.py --exclude tests,scripts  # custom exclude
+    python dev/scripts/check_vulture.py ai_assistant/core/adapters  # check specific package
 """
 
 import argparse
@@ -23,19 +23,36 @@ def _vulture_available() -> bool:
     return importlib.util.find_spec("vulture") is not None
 
 
-def _default_source_paths() -> list[str]:
-    """Return absolute paths to source subpackages under src/ai_assistant."""
-    script_dir = Path(__file__).resolve().parent
-    project_root = script_dir.parent.parent
+def _default_source_paths(project_root: Path) -> list[str]:
+    """Return absolute paths to source tree under src/ai_assistant."""
     src = project_root / "src" / "ai_assistant"
-    subdirs = ["core", "adapters", "features", "api", "pipeline"]
-    return [str(src / d) for d in subdirs if (src / d).exists()]
+    if not src.exists():
+        return []
+    # Vulture scans recursively, so the root covers all subpackages
+    # plus top-level files like __init__.py and main.py
+    return [str(src)]
+
+
+def _resolve_paths(raw_paths: list[str], project_root: Path) -> list[str]:
+    """Resolve user-provided paths relative to project_root if not absolute."""
+    resolved: list[str] = []
+    for p in raw_paths:
+        p_path = Path(p)
+        if not p_path.is_absolute():
+            candidate = project_root / p
+            if not candidate.exists():
+                candidate = project_root / "src" / p
+            if not candidate.exists():
+                candidate = project_root / "src" / "ai_assistant" / p
+            p_path = candidate
+        resolved.append(str(p_path))
+    return resolved
 
 
 def main() -> int:
     if not _vulture_available():
-        print("vulture is not installed. Install: pip install vulture")
-        return 0
+        print("ERROR: vulture is not installed. Install: pip install vulture")
+        return 1
 
     parser = argparse.ArgumentParser(description="Dead code checker — vulture wrapper")
     parser.add_argument(
@@ -69,19 +86,19 @@ def main() -> int:
     parser.add_argument(
         "paths",
         nargs="*",
-        help="Custom paths to check (default: src/ai_assistant subdirs)",
+        help="Custom paths to check (default: src/ai_assistant/)",
     )
 
     args = parser.parse_args()
 
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent.parent
+
     # Determine paths: custom or default source tree
     if args.paths:
-        paths = args.paths
+        paths = _resolve_paths(args.paths, project_root)
     else:
-        paths = _default_source_paths()
-        if not paths:
-            print("Error: no source directories found under src/ai_assistant")
-            return 1
+        paths = _default_source_paths(project_root)
 
     # Filter existing
     existing = [p for p in paths if Path(p).exists()]
@@ -112,9 +129,15 @@ def main() -> int:
             cmd.extend(["--ignore-names", ",".join(ignore)])
 
     print(f"Running: {' '.join(cmd)}")
+    print(f"Working directory: {project_root}")
     print("-" * 55)
 
-    result = subprocess.run(cmd)
+    try:
+        result = subprocess.run(cmd, cwd=project_root)
+    except FileNotFoundError:
+        print("ERROR: failed to launch vulture. Check your installation.")
+        return 1
+
     return result.returncode
 
 

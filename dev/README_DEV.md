@@ -147,7 +147,7 @@ context_build.py    [AUTO] Сборщик контекста для AI
 error_taxonomy_build.py [AUTO] Генератор таблицы ошибок
 pre_commit_check.py Архитектурные guardrails: hasattr, kwargs, cross-feature imports
 structure.py    Генератор дерева проекта с метриками
-
+checck_orphans.py    Поиск мусора
 
 ### Полный вывод тестов в файл:
 

@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 import httpx
 
-from ai_assistant.core.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import AssistantMessage, MessageRole
 from ai_assistant.core.logger import get_logger
@@ -43,23 +42,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             config, "max_stream_tokens", self.max_tokens * 2
         )
 
-        # Circuit breaker: fast-fail when the server is down to avoid retry storms
-        cb_cfg = getattr(config, "circuit_breaker", None)
-        if cb_cfg is not None:
-            self._cb = CircuitBreaker(cb_cfg)
-        else:
-            self._cb = CircuitBreaker(
-                CircuitBreakerConfig(
-                    failure_threshold=getattr(config, "cb_failure_threshold", 5),
-                    recovery_timeout=getattr(config, "cb_recovery_timeout", 30.0),
-                    expected_exception=(
-                        httpx.TimeoutException,
-                        httpx.ConnectError,
-                        httpx.NetworkError,
-                        httpx.HTTPStatusError,
-                    ),
-                )
-            )
+        # Circuit breaker removed — premature complexity for solo server
 
     async def shutdown(self) -> None:
         """No-op: client is created per-request and auto-closed by context manager."""
@@ -150,9 +133,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AssistantMessage:
-        """Non-streaming completion with circuit breaker + retry."""
-        return await self._cb.call(
-            self._complete_impl,
+        """Non-streaming completion with retry."""
+        return await self._complete_impl(
             messages,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -235,17 +217,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AsyncIterator[str]:
-        """Stream tokens with circuit breaker on connection setup.
-
-        Errors during iteration are not tripped into the breaker to avoid
-        flapping on long-lived streams.
-        """
-        await self._cb.check()
-        try:
-            async for chunk in self._stream_impl(
-                messages, max_tokens=max_tokens, temperature=temperature
-            ):
-                yield chunk
-        except self._cb.config.expected_exception:
-            await self._cb.record_failure()
-            raise
+        """Stream tokens with retry."""
+        async for chunk in self._stream_impl(
+            messages, max_tokens=max_tokens, temperature=temperature
+        ):
+            yield chunk

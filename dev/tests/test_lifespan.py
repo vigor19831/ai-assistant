@@ -9,10 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ai_assistant.api.deps import AppState, init_adapters
+from ai_assistant.api.deps import AppState, InitializedAppState, init_adapters
 from ai_assistant.api.lifespan import _load_config, lifespan
 from ai_assistant.core.config import AppConfig
-from ai_assistant.core.metrics import MetricsLogger
 
 # ── _load_config ──
 
@@ -48,10 +47,8 @@ class TestLifespan:
             with patch(
                 "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
             ):
-                with patch.object(MetricsLogger, "start") as mock_start:
-                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
-                        async with lifespan(app) as _:
-                            mock_start.assert_called_once()
+                async with lifespan(app) as _:
+                    pass
 
     @pytest.mark.asyncio
     async def test_shutdown_saves_indices(self):
@@ -80,20 +77,18 @@ class TestLifespan:
             with patch(
                 "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
             ):
-                with patch.object(MetricsLogger, "start"):
-                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
-                        async with lifespan(app) as _:
-                            app.state.app_state = mock_state
-                            pass  # Exit context to trigger shutdown
+                async with lifespan(app) as _:
+                    app.state.app_state = mock_state
+                    pass  # Exit context to trigger shutdown
 
-                        # Verify save was called for each namespace
-                        assert mock_state.vector_store.save.await_count == 2
-                        mock_state.vector_store.save.assert_any_await(
-                            "./data/indices/test", namespace="default"
-                        )
-                        mock_state.vector_store.save.assert_any_await(
-                            "./data/indices/test", namespace="personal"
-                        )
+                # Verify save was called for each namespace
+                assert mock_state.vector_store.save.await_count == 2
+                mock_state.vector_store.save.assert_any_await(
+                    "./data/indices/test", namespace="default"
+                )
+                mock_state.vector_store.save.assert_any_await(
+                    "./data/indices/test", namespace="personal"
+                )
 
     @pytest.mark.asyncio
     async def test_shutdown_logs_successful_save(self):
@@ -122,29 +117,27 @@ class TestLifespan:
             with patch(
                 "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
             ):
-                with patch.object(MetricsLogger, "start"):
-                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
-                        with patch(
-                            "ai_assistant.api.lifespan.logger.info"
-                        ) as mock_log_info:
-                            async with lifespan(app) as _:
-                                app.state.app_state = mock_state
-                                pass  # trigger shutdown
+                with patch(
+                    "ai_assistant.api.lifespan.logger.info"
+                ) as mock_log_info:
+                    async with lifespan(app) as _:
+                        app.state.app_state = mock_state
+                        pass  # trigger shutdown
 
-                            mock_log_info.assert_any_call(
-                                "Index saved: %s/%s",
-                                "./data/indices/test",
-                                "default",
-                            )
-                            mock_log_info.assert_any_call(
-                                "Index saved: %s/%s",
-                                "./data/indices/test",
-                                "personal",
-                            )
-                            mock_log_info.assert_any_call(
-                                "Indices persisted: %d namespace(s)",
-                                2,
-                            )
+                    mock_log_info.assert_any_call(
+                        "Index saved: %s/%s",
+                        "./data/indices/test",
+                        "default",
+                    )
+                    mock_log_info.assert_any_call(
+                        "Index saved: %s/%s",
+                        "./data/indices/test",
+                        "personal",
+                    )
+                    mock_log_info.assert_any_call(
+                        "Indices persisted: %d namespace(s)",
+                        2,
+                    )
 
     @pytest.mark.asyncio
     async def test_shutdown_handles_missing_state(self):
@@ -155,10 +148,8 @@ class TestLifespan:
             with patch(
                 "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
             ):
-                with patch.object(MetricsLogger, "start"):
-                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
-                        async with lifespan(app) as _:
-                            pass  # Should not raise on shutdown
+                async with lifespan(app) as _:
+                    pass  # Should not raise on shutdown
 
     @pytest.mark.asyncio
     async def test_shutdown_calls_closable_adapters(self):
@@ -188,15 +179,14 @@ class TestLifespan:
             with patch(
                 "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
             ):
-                with patch.object(MetricsLogger, "start"):
-                    with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
-                        async with lifespan(app) as _:
-                            app.state.app_state = mock_state
-                            pass
+                async with lifespan(app) as _:
+                    app.state.app_state = mock_state
+                    pass
 
-                        mock_llm.shutdown.assert_awaited_once()
-                        mock_embedder.shutdown.assert_awaited_once()
-                        mock_vector_store.shutdown.assert_awaited_once()
+                mock_llm.shutdown.assert_awaited_once()
+                mock_embedder.shutdown.assert_awaited_once()
+                mock_vector_store.shutdown.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_lifespan_creates_app_state(self):
         """lifespan must create app.state.app_state with initialized fields."""
@@ -204,17 +194,24 @@ class TestLifespan:
 
         app = FastAPI(lifespan=lifespan)
 
+        # Ensure adapter imports run so registry is populated
+        import ai_assistant.adapters.chunker_simple  # noqa: F401
+        import ai_assistant.adapters.embedder_mock  # noqa: F401
+        import ai_assistant.adapters.llm_mock  # noqa: F401
+        import ai_assistant.adapters.reranker_dummy  # noqa: F401
+        import ai_assistant.adapters.storage_sqlite  # noqa: F401
+        import ai_assistant.adapters.tools_calculator  # noqa: F401
+        import ai_assistant.adapters.vector_store_memory  # noqa: F401
+
         with patch("ai_assistant.api.lifespan._load_config", return_value=AppConfig()):
-            with patch.object(MetricsLogger, "start"):
-                with patch.object(MetricsLogger, "stop", new_callable=AsyncMock):
-                    async with lifespan(app):
-                        assert hasattr(app.state, "app_state")
-                        assert isinstance(app.state.app_state, AppState)
-                        assert app.state.app_state.chunker is not None
-                        assert app.state.app_state.embedder is not None
-                        assert app.state.app_state.llm is not None
-                        assert app.state.app_state.vector_store is not None
-                        assert app.state.app_state.pipeline is not None
+            async with lifespan(app):
+                assert hasattr(app.state, "app_state")
+                assert isinstance(app.state.app_state, InitializedAppState)
+                assert app.state.app_state.chunker is not None
+                assert app.state.app_state.embedder is not None
+                assert app.state.app_state.llm is not None
+                assert app.state.app_state.vector_store is not None
+                assert app.state.app_state.pipeline is not None
 
 
 # ── init_adapters ──
@@ -233,14 +230,13 @@ class TestInitAdaptersDirect:
         cfg.vector_store.provider = "memory"
         cfg.reranker.provider = "dummy"
         cfg.storage.provider = "sqlite"
-        cfg.voice.enabled = False
-        cfg.vision.enabled = False
 
         state = AppState(config=cfg)
-        await init_adapters(state)
+        result = await init_adapters(state)
 
-        assert state.chunker is not None
-        assert state.embedder is not None
-        assert state.llm is not None
-        assert state.vector_store is not None
-        assert state.pipeline is not None
+        assert isinstance(result, InitializedAppState)
+        assert result.chunker is not None
+        assert result.embedder is not None
+        assert result.llm is not None
+        assert result.vector_store is not None
+        assert result.pipeline is not None

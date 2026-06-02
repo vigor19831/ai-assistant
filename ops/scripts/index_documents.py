@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -17,14 +18,9 @@ if sys.platform == "win32":
 
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
-
-import os
-
-# Set config path before importing project modules
-os.environ.setdefault("AI_CONFIG_PATH", str(PROJECT_ROOT / "config.yaml"))
+# Add src/ to path for imports
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
+sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 from ai_assistant.api.deps import init_adapters
 from ai_assistant.core.config import load_config
@@ -39,22 +35,47 @@ async def main() -> int:
     )
     args = parser.parse_args()
 
-    config = load_config(os.getenv("AI_CONFIG_PATH", "config.yaml"))
-    state = await init_adapters(config)
+    cfg_path = _PROJECT_ROOT / "config.yaml"
+    if not cfg_path.exists():
+        print(f"[ERROR] Config not found: {cfg_path}")
+        return 1
 
-    result = await index_folder(
-        folder=args.folder,
-        clear=args.clear,
-        chunker=state.chunker,
-        embedder=state.embedder,
-        vector_store=state.vector_store,
-    )
+    config = load_config(str(cfg_path))
 
+    try:
+        state = await init_adapters(config)
+    except Exception as exc:
+        print(f"[ERROR] Failed to initialize adapters: {exc}")
+        return 1
+
+    try:
+        result = await index_folder(
+            folder=args.folder,
+            clear=args.clear,
+            chunker=state.chunker,
+            embedder=state.embedder,
+            vector_store=state.vector_store,
+        )
+    except Exception as exc:
+        print(f"[ERROR] Indexing failed: {exc}")
+        return 1
+    finally:
+        # Graceful cleanup of adapters
+        if hasattr(state, "cleanup") and asyncio.iscoroutinefunction(state.cleanup):
+            try:
+                await state.cleanup()
+            except Exception:
+                pass
+
+    result = result or {}
     for ns, data in result.get("results", {}).items():
-        print(f"  [{ns}] {data['indexed']} docs, {data['chunks']} chunks")
+        indexed = data.get("indexed", 0) if isinstance(data, dict) else 0
+        chunks = data.get("chunks", 0) if isinstance(data, dict) else 0
+        print(f"  [{ns}] {indexed} docs, {chunks} chunks")
 
-    if result.get("errors"):
-        for err in result["errors"]:
+    errors = result.get("errors", [])
+    if errors:
+        for err in errors:
             print(f"  Error: {err}")
 
     print("\n[OK] Indexing complete!")

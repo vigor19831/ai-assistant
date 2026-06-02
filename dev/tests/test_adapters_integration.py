@@ -17,7 +17,6 @@ from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-from ai_assistant.adapters.memory_sqlite import SQLiteMemory
 from ai_assistant.adapters.reranker_api import APIReranker
 from ai_assistant.adapters.reranker_dummy import DummyReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
@@ -29,7 +28,6 @@ from ai_assistant.core.config import EmbedderConfig, LLMConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import VersionMismatchError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
-from ai_assistant.core.ports.memory import MemoryEntry
 
 # ── Chunker ──
 
@@ -506,71 +504,6 @@ class TestStorage:
             }
             assert "chat_messages" in tables
             assert "settings" in tables
-
-
-# ── Memory (Long-term) ──
-
-
-class TestMemory:
-    @pytest.fixture
-    def memory(self, tmp_path):
-        config = type("C", (), {"db_path": str(tmp_path / "memory.db")})()
-        return SQLiteMemory(config)
-
-    @pytest.mark.asyncio
-    async def test_add_and_get(self, memory):
-        await memory.init_db()
-        entry = MemoryEntry(
-            content="User likes Python",
-            source="conversation",
-            importance=0.8,
-            tags=["pref"],
-        )
-        await memory.add("user-1", entry)
-        results = await memory.get("user-1")
-        assert len(results) == 1
-        assert results[0].content == "User likes Python"
-        assert results[0].tags == ["pref"]
-
-    @pytest.mark.asyncio
-    async def test_search_by_query(self, memory):
-        await memory.init_db()
-        await memory.add(
-            "user-1", MemoryEntry(content="Loves hiking", source="explicit")
-        )
-        await memory.add("user-1", MemoryEntry(content="Hates rain", source="explicit"))
-        results = await memory.get("user-1", query="hiking")
-        assert len(results) == 1
-        assert "hiking" in results[0].content
-
-    @pytest.mark.asyncio
-    async def test_forget(self, memory):
-        await memory.init_db()
-        entry = MemoryEntry(content="To be deleted", source="test")
-        await memory.add("user-1", entry)
-        results = await memory.get("user-1")
-        success = await memory.forget("user-1", results[0].id)
-        assert success is True
-        assert len(await memory.get("user-1")) == 0
-
-    @pytest.mark.asyncio
-    async def test_consolidate_removes_old_low_importance(self, memory):
-        await memory.init_db()
-        import sqlite3
-
-        # Add old low-importance memory
-        with sqlite3.connect(memory.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO memories (user_id, content, source, importance, created_at)
-                VALUES (?, ?, ?, ?, datetime('now', '-31 days'))
-            """,
-                ("user-1", "old", "test", 0.1),
-            )
-            conn.commit()
-        await memory.consolidate("user-1")
-        results = await memory.get("user-1")
-        assert len(results) == 0
 
 
 # ── Tools ──

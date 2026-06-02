@@ -11,7 +11,6 @@ from ai_assistant.core.logger import get_logger
 # Explicit feature handler imports — import errors surface at compile time
 # instead of being deferred to the first HTTP request.
 from ai_assistant.features.chat import handlers as _chat_handlers
-from ai_assistant.features.image_analysis import handlers as _image_analysis_handlers
 from ai_assistant.features.rag import handlers as _rag_handlers
 
 __all__ = ["assemble_routers"]
@@ -22,7 +21,6 @@ _logger = get_logger("router")
 # Add new features here so that missing handlers.py fails immediately on import.
 _FEATURE_HANDLERS = [
     _chat_handlers,
-    _image_analysis_handlers,
     _rag_handlers,
 ]
 

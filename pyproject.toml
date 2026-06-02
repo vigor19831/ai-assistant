@@ -72,7 +72,6 @@ module = [
     "ai_assistant.api.security",
     "ai_assistant.pipeline.steps",
     "ai_assistant.features.chat.manager",
-    "ai_assistant.features.image_analysis.manager",
     "ai_assistant.adapters.*",
     "ai_assistant.core.utils",
 ]

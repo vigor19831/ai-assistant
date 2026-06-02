@@ -16,27 +16,27 @@
 
 =============================================
 
-[-] PipelineData: убрать `frozen=True` и `object.__setattr__` | Перевести `PipelineData` на обычный `@dataclass` (без `frozen`). Удалить `__post_init__` с принудительной заморозкой через `object.__setattr__`. Убрать `MappingProxyType` для metadata. Оставить хелперы `with_*` / `add_error`, но реализовать их через `dataclasses.replace()` без магии. Это устраняет хрупкий обход frozen-контракта и упрощает чтение кода. | `core/domain/pipeline.py` | `dev/tests/test_core_critical.py`
+[+] PipelineData: убрать `frozen=True` и `object.__setattr__` | Перевести `PipelineData` на обычный `@dataclass` (без `frozen`). Удалить `__post_init__` с принудительной заморозкой через `object.__setattr__`. Убрать `MappingProxyType` для metadata. Оставить хелперы `with_*` / `add_error`, но реализовать их через `dataclasses.replace()` без магии. Это устраняет хрупкий обход frozen-контракта и упрощает чтение кода. | `core/domain/pipeline.py` | `dev/tests/test_core_critical.py`
 
-[-] Убрать глобальный `_static_mounted` | Удалить модуль-level флаг `_static_mounted` из `main.py`. В `_mount_static` проверять наличие маршрута `/ui` в `app.routes` или хранить флаг в `app.state.static_mounted`. Исправляет скрытый баг при создании нескольких инстансов `create_app()` в тестах. | `main.py` | `dev/tests/test_smoke.py`
+[+] Убрать глобальный `_static_mounted` | Удалить модуль-level флаг `_static_mounted` из `main.py`. В `_mount_static` проверять наличие маршрута `/ui` в `app.routes` или хранить флаг в `app.state.static_mounted`. Исправляет скрытый баг при создании нескольких инстансов `create_app()` в тестах. | `main.py` | `dev/tests/test_smoke.py`
 
-[-] Сузить `except Exception` до конкретных типов в `init_adapters` | В `api/deps.py` заменить голые `except Exception:` на `except (ImportError, ValueError):` при создании опциональных адаптеров (tools, storage, memory). Не ловить `AttributeError`, `TypeError`, `KeyError` — они сигнализируют о баге, а не об отсутствии зависимости. Приложение должно падать при старте с честным traceback, если конфигурация сломана. | `api/deps.py` | `dev/tests/test_lifespan.py`, `dev/tests/test_deps.py`
+[+] Сузить `except Exception` до конкретных типов в `init_adapters` | В `api/deps.py` заменить голые `except Exception:` на `except (ImportError, ValueError):` при создании опциональных адаптеров (tools, storage, memory). Не ловить `AttributeError`, `TypeError`, `KeyError` — они сигнализируют о баге, а не об отсутствии зависимости. Приложение должно падать при старте с честным traceback, если конфигурация сломана. | `api/deps.py` | `dev/tests/test_lifespan.py`, `dev/tests/test_deps.py`
 
-[-] Удалить `core/circuit_breaker.py` и его использование | Удалить модуль `core/circuit_breaker.py`. Проверить и вычистить импорты/использование `CircuitBreaker`, `with_circuit_breaker` во всём проекте (включая тесты). Для локального solo-сервера circuit breaker — преждевременная сложность. | `core/circuit_breaker.py`, проверить `adapters/*`, `core/retry.py` | `dev/tests/test_resilience.py` (удалить или очистить)
-
-=============================================
-
-[-] Удалить `MetricsMiddleware` и `MetricsLogger` | Убрать `MetricsMiddleware` из `main.py` и `api/deps.py`. Удалить `MetricsLogger` из `api/lifespan.py` и связанные импорты (`get_current_metrics`). Заменить на простое `logging.info` с latency в одном месте или убрать полностью. Убирает enterprise-мёртвый вес. | `api/deps.py`, `api/lifespan.py`, `main.py` | `dev/tests/test_smoke.py`
-
-[-] Упростить security-слой: убрать дублирующее middleware | Оставить единый механизм авторизации — `require_api_key` как FastAPI dependency. Удалить `APIKeyMiddleware` (класс) из цепочки middleware в `main.py` — dependency уже покрывает все защищённые роуты. Удалить самописный `SecurityLimiter` / `LimitMiddleware` (in-memory rate limiter): для solo-local сервера это тупиковая архитектура; если понадобится, заменить на `slowapi` позже. | `api/security.py`, `main.py` | `dev/tests/test_security.py`
-
-[-] Удалить voice/vision/long_term_memory из ядра и инициализации | Убрать поля `voice_recognizer`, `voice_synthesizer`, `vision`, `long_term_memory`, `tool_registry` из `AppState`. Удалить соответствующие порты из `core/ports/__init__.py` (или закомментировать для отдельной git-ветки). Убрать блоки инициализации в `init_adapters`. Оставить код voice/vision в git-ветке `feature/voice-vision`, чтобы не раздувать core неработающими абстракциями. | `api/deps.py`, `core/ports/__init__.py` | `dev/tests/test_contracts.py`
+[+] Удалить `core/circuit_breaker.py` и его использование | Удалить модуль `core/circuit_breaker.py`. Проверить и вычистить импорты/использование `CircuitBreaker`, `with_circuit_breaker` во всём проекте (включая тесты). Для локального solo-сервера circuit breaker — преждевременная сложность. | `core/circuit_breaker.py`, проверить `adapters/*`, `core/retry.py` | `dev/tests/test_resilience.py` (удалить или очистить)
 
 =============================================
 
-[-] Убрать `slots=True` и кучу `Optional` в `AppState` | Удалить `slots=True` из `AppState` (добавляет гибкость для тестов и отладки). Разделить на два класса: `AppState` для старта и `InitializedAppState` для runtime, где поля `llm`, `embedder`, `vector_store`, `pipeline`, `storage` — обязательны (не `None`). Это убирает необходимость в `getattr(app.state, ...)` с дефолтами и ловит неинициализированный стейт на этапе типизации, а не в рантайме. | `api/deps.py` | `dev/tests/test_contracts.py`, `dev/tests/test_smoke.py`
+[+] Удалить `MetricsMiddleware` и `MetricsLogger` | Убрать `MetricsMiddleware` из `main.py` и `api/deps.py`. Удалить `MetricsLogger` из `api/lifespan.py` и связанные импорты (`get_current_metrics`). Заменить на простое `logging.info` с latency в одном месте или убрать полностью. Убирает enterprise-мёртвый вес. | `api/deps.py`, `api/lifespan.py`, `main.py` | `dev/tests/test_smoke.py`
 
-[-] Явные импорты features в `router.py` (убрать reflection) | В `api/router.py` заменить цикл `for attr_name in ("router", "router_oai", "router_legacy"): getattr(module, ...)` на явный список/словарь импортов: `_ROUTERS = [_chat_handlers.router, ...]`. Ловит ошибки на этапе импорта, а не в runtime при первом запросе. | `api/router.py` | `dev/tests/test_smoke.py`
+[+] Упростить security-слой: убрать дублирующее middleware | Оставить единый механизм авторизации — `require_api_key` как FastAPI dependency. Удалить `APIKeyMiddleware` (класс) из цепочки middleware в `main.py` — dependency уже покрывает все защищённые роуты. Удалить самописный `SecurityLimiter` / `LimitMiddleware` (in-memory rate limiter): для solo-local сервера это тупиковая архитектура; если понадобится, заменить на `slowapi` позже. | `api/security.py`, `main.py` | `dev/tests/test_security.py`
+
+[+] Удалить voice/vision/long_term_memory из ядра и инициализации | Убрать поля `voice_recognizer`, `voice_synthesizer`, `vision`, `long_term_memory`, `tool_registry` из `AppState`. Удалить соответствующие порты из `core/ports/__init__.py` (или закомментировать для отдельной git-ветки). Убрать блоки инициализации в `init_adapters`. Оставить код voice/vision в git-ветке `feature/voice-vision`, чтобы не раздувать core неработающими абстракциями. | `api/deps.py`, `core/ports/__init__.py` | `dev/tests/test_contracts.py`
+
+=============================================
+
+[+] Убрать `slots=True` и кучу `Optional` в `AppState` | Удалить `slots=True` из `AppState` (добавляет гибкость для тестов и отладки). Разделить на два класса: `AppState` для старта и `InitializedAppState` для runtime, где поля `llm`, `embedder`, `vector_store`, `pipeline`, `storage` — обязательны (не `None`). Это убирает необходимость в `getattr(app.state, ...)` с дефолтами и ловит неинициализированный стейт на этапе типизации, а не в рантайме. | `api/deps.py` | `dev/tests/test_contracts.py`, `dev/tests/test_smoke.py`
+
+[+] Явные импорты features в `router.py` (убрать reflection) | В `api/router.py` заменить цикл `for attr_name in ("router", "router_oai", "router_legacy"): getattr(module, ...)` на явный список/словарь импортов: `_ROUTERS = [_chat_handlers.router, ...]`. Ловит ошибки на этапе импорта, а не в runtime при первом запросе. | `api/router.py` | `dev/tests/test_smoke.py`
 
 =============================================
 
@@ -65,3 +65,18 @@
 Чат 5: «Core: shutdown + steps» (пункты 11+12)
 Чат 6: «Core: Adapter Registry» (пункт 13)
 Чат 7: «Performance: to_thread» (пункт 14)
+
+
+
+
+Итоговый рецепт для качественной проверки
+
+    Прогнать линтеры и анализаторы по 100 файлам — 5 минут, устранить шум.
+
+    Сделать карту проекта (Aider/Repomix) — 5 минут.
+
+    Разбить код на логические «агрегаты» по 3–10 файлов.
+
+    Для каждого агрегата: загрузить карту + файлы агрегата, задать чёткий чек-лист проверок (безопасность, логика, обработка ошибок). Если модель с большим контекстом — можно и всё сразу загрузить.
+
+    Критические секции (финансы, авторизация) проверять с особой тщательностью, возможно, несколькими разными промптами.

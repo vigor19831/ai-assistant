@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import ssl
 import sys
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -12,10 +13,22 @@ from urllib.request import Request, urlopen
 # ── Project root discovery ──
 _SCRIPT_DIR = Path(__file__).parent.resolve()
 _DEV_ROOT = _SCRIPT_DIR.parent
-if (_DEV_ROOT.parent / "config.yaml").exists() or (_DEV_ROOT.parent / "src" / "ai_assistant").exists():
-    PROJECT_ROOT = _DEV_ROOT.parent
-else:
-    PROJECT_ROOT = _DEV_ROOT
+
+
+def _find_project_root(start: Path) -> Path:
+    """Walk up to find project root (contains pyproject.toml or src/ai_assistant)."""
+    current = start
+    for _ in range(5):  # max 5 levels up
+        if (current / "pyproject.toml").exists() or (current / "src" / "ai_assistant").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return start
+
+
+PROJECT_ROOT = _find_project_root(_DEV_ROOT.parent)
 
 BASE_URL = "https://huggingface.co/{}/resolve/main/tokenizer.json"
 DEFAULT_DIR = PROJECT_ROOT / "data" / "tokenizers"
@@ -159,19 +172,34 @@ def _remove_quant_suffix(name: str) -> str:
 
 
 def _resolve_preset(model_name: str) -> str | None:
-    """Find HF repo for any model name."""
+    """Find HF repo for any model name.
+
+    Priority:
+    1. Exact match in PRESETS
+    2. Startswith match (longer keys first)
+    3. Substring match (longer keys first)
+    4. GGUF-style parsing
+    5. Vendor map
+    6. Direct repo ID
+    7. Fallback to unsloth/
+    """
     name = model_name.lower().strip()
 
-    # Exact match
+    # 1. Exact match
     if name in PRESETS:
         return PRESETS[name]
 
-    # Partial match
-    for key, repo in PRESETS.items():
-        if key in name:
-            return repo
+    # 2. Startswith match (longer keys first to avoid false positives)
+    for key in sorted(PRESETS.keys(), key=len, reverse=True):
+        if name.startswith(key):
+            return PRESETS[key]
 
-    # Parse GGUF-style: vendor_model-name-q4 -> vendor/model-name
+    # 3. Substring match (longer keys first)
+    for key in sorted(PRESETS.keys(), key=len, reverse=True):
+        if key in name:
+            return PRESETS[key]
+
+    # 4. Parse GGUF-style: vendor_model-name-q4 -> vendor/model-name
     if "_" in name:
         parts = name.split("_", 1)
         vendor = parts[0]
@@ -179,16 +207,16 @@ def _resolve_preset(model_name: str) -> str | None:
         clean = _remove_quant_suffix(model_part)
         return f"{vendor}/{clean}"
 
-    # Vendor map for clean names
+    # 5. Vendor map for clean names
     vendor_repo = _guess_vendor(name)
     if vendor_repo:
         return vendor_repo
 
-    # Direct repo ID
+    # 6. Direct repo ID
     if "/" in name:
         return name
 
-    # Last resort
+    # 7. Last resort
     return f"unsloth/{name}"
 
 
@@ -207,13 +235,20 @@ def download(repo: str, dest: Path, token: str | None) -> bool:
         req = Request(url, headers={"User-Agent": "ai-assistant/1.0"})
         if token:
             req.add_header("Authorization", f"Bearer {token}")
-        with urlopen(req, timeout=30) as resp:  # noqa: S310
+        ctx = ssl.create_default_context()
+        with urlopen(req, timeout=30, context=ctx) as resp:
             if resp.status != 200:
                 print(f"  HTTP {resp.status}")
                 return False
-            data = resp.read()
-        out.write_bytes(data)
-        print(f"  saved {len(data)} bytes")
+            # Stream to file to avoid loading large files into memory
+            with open(out, "wb") as f_out:
+                while True:
+                    chunk = resp.read(64 * 1024)  # 64KB chunks
+                    if not chunk:
+                        break
+                    f_out.write(chunk)
+        size = out.stat().st_size
+        print(f"  saved {size} bytes")
         return True
     except Exception as e:
         print(f"  FAILED — {e}")
@@ -224,6 +259,11 @@ def _read_models_from_config() -> list[str]:
     """Read all models from config.yaml: llm.model + available_models."""
     try:
         import yaml
+    except ImportError:
+        print("[WARNING] PyYAML not installed. Install: pip install pyyaml")
+        return []
+
+    try:
         path = PROJECT_ROOT / "config.yaml"
         if not path.exists():
             return []
@@ -256,7 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     models: list[str] = []
     if args.model:
         models = [args.model]
-    elif args.auto or len(sys.argv) <= 1:
+    elif args.auto or not args.model:
+        # If no --model specified, default to auto mode
         models = _read_models_from_config()
         if models:
             print(f"Auto-detected models from config.yaml: {', '.join(models)}")

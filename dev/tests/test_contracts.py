@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from ai_assistant.api.deps import init_adapters
+from ai_assistant.api.deps import InitializedAppState, init_adapters
 from ai_assistant.core.config import load_config
 from ai_assistant.core.ports import (
     IChatStorage,
@@ -11,11 +11,7 @@ from ai_assistant.core.ports import (
     IClosable,
     IEmbedder,
     ILLM,
-    ILongTermMemory,
     IReranker,
-    IVisionProcessor,
-    IVoiceRecognizer,
-    IVoiceSynthesizer,
     IVectorStore,
 )
 from ai_assistant.features.chat.manager import ChatManager
@@ -172,33 +168,21 @@ def test_pipeline_steps_no_kwargs() -> None:
 
 
 class TestInitAdaptersContracts:
-    async def test_init_adapters_returns_typed_state(self) -> None:
-        """Real init_adapters must produce instances that comply with port types."""
+    async def test_init_adapters_returns_initialized_state(self) -> None:
+        """Real init_adapters must produce InitializedAppState with non-None core adapters."""
         config = load_config()
         state = await init_adapters(config)
 
-        assert state.llm is None or isinstance(state.llm, ILLM)
-        assert state.embedder is None or isinstance(state.embedder, IEmbedder)
-        assert state.embedder is None or isinstance(state.embedder, IClosable)
-        assert state.vector_store is None or isinstance(
-            state.vector_store, IVectorStore
-        )
-        assert state.vector_store is None or isinstance(
-            state.vector_store, IClosable
-        )
+        assert isinstance(state, InitializedAppState)
+        assert isinstance(state.llm, ILLM)
+        assert isinstance(state.embedder, IEmbedder)
+        assert isinstance(state.embedder, IClosable)
+        assert isinstance(state.vector_store, IVectorStore)
+        assert isinstance(state.vector_store, IClosable)
         assert state.chunker is None or isinstance(state.chunker, IChunker)
         assert state.reranker is None or isinstance(state.reranker, IReranker)
-        assert state.storage is None or isinstance(state.storage, IChatStorage)
-        assert state.voice_recognizer is None or isinstance(
-            state.voice_recognizer, IVoiceRecognizer
-        )
-        assert state.voice_synthesizer is None or isinstance(
-            state.voice_synthesizer, IVoiceSynthesizer
-        )
-        assert state.vision is None or isinstance(state.vision, IVisionProcessor)
-        assert state.long_term_memory is None or isinstance(
-            state.long_term_memory, ILongTermMemory
-        )
+        assert isinstance(state.storage, IChatStorage)
+        assert state.pipeline is not None
 
 
 def test_llm_config_rejects_unknown_fields():
@@ -232,22 +216,4 @@ def test_dead_ports_removed() -> None:
     assert not (PORTS_DIR / "modality.py").exists()
 
 
-class TestToolRegistryContracts:
-    async def test_dispatch_propagates_cancelled_error(self):
-        """asyncio.CancelledError must propagate, not be swallowed as ToolResult."""
-        import asyncio
-
-        from ai_assistant.core.ports.tools import ITool, ToolCall, ToolSpec
-        from ai_assistant.core.tool_registry import ToolRegistry
-
-        registry = ToolRegistry()
-
-        mock_tool = MagicMock(spec=ITool)
-        mock_tool.spec = ToolSpec(name="test_tool", description="test", parameters={})
-        mock_tool.execute = AsyncMock(side_effect=asyncio.CancelledError("cancelled"))
-
-        registry.register(mock_tool)
-
-        call = ToolCall(tool_name="test_tool", arguments={}, call_id="test-1")
-        with pytest.raises(asyncio.CancelledError):
-            await registry.dispatch(call)
+# ToolRegistry removed from AppState — tests moved to feature/voice-vision branch

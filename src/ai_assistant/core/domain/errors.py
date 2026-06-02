@@ -13,7 +13,6 @@ __all__ = [
     "QUERY_TEXT_MISSING",
     "VersionMismatchError",
     "VECTOR_STORE_NOT_PROVIDED",
-    "CircuitBreakerOpenError",
 ]
 
 
@@ -27,10 +26,6 @@ class AdapterError(Exception):
 
 class VersionMismatchError(Exception):
     """Index/model version mismatch."""
-
-
-class CircuitBreakerOpenError(Exception):
-    """Circuit breaker is OPEN — fast fail without calling the adapter."""
 
 
 # --- Pipeline step error messages ---

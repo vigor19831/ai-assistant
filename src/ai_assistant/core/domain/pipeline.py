@@ -3,37 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
 
 __all__ = ["PipelineData"]
 
 
-@dataclass(frozen=True)
+@dataclass
 class PipelineData:
     query: UserMessage | None = None
     chunks: tuple[Chunk, ...] = field(default_factory=tuple)
     context: str = ""
     response: AssistantMessage | None = None
-    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    metadata: dict[str, Any] = field(default_factory=dict)
     errors: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        # Глубокая неизменяемость: принудительно замораживаем вложенные контейнеры.
-        # object.__setattr__ обходит frozen dataclass, позволяя перезаписать поле
-        # после того, как сгенерированный __init__ уже отработал.
         if not isinstance(self.chunks, tuple):
-            object.__setattr__(self, "chunks", tuple(self.chunks))
+            self.chunks = tuple(self.chunks)
         if not isinstance(self.errors, tuple):
-            object.__setattr__(self, "errors", tuple(self.errors))
-        if not isinstance(self.metadata, MappingProxyType):
-            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+            self.errors = tuple(self.errors)
 
     def with_chunks(self, chunks: list[Chunk] | tuple[Chunk, ...]) -> PipelineData:
         """Return a new PipelineData with updated chunks."""

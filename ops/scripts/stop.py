@@ -61,35 +61,49 @@ def find_pid_by_port(port: int) -> int | None:
     return None
 
 
+def _get_config_port(project_root: Path) -> int:
+    config_path = project_root / "config.yaml"
+    if config_path.exists():
+        try:
+            import yaml
+
+            cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            return cfg.get("port", 8000)
+        except Exception:
+            pass
+    return 8000
+
+
 def main() -> int:
     project_root = Path(__file__).resolve().parent.parent.parent
     pid_file = project_root / "data" / "server.pid"
+    port = _get_config_port(project_root)
 
-    if not pid_file.exists():
-        print("No PID file found. Server may not be running.")
-        return 0
+    pid: int | None = None
 
-    try:
-        pid = int(pid_file.read_text(encoding="utf-8").strip())
-    except ValueError:
-        print("Invalid PID file. Removing.")
-        pid_file.unlink()
-        return 0
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+        except ValueError:
+            print("Invalid PID file. Removing.")
+            pid_file.unlink()
+            pid = None
 
-    # Check if process is actually alive before trying to kill
-    if not is_running(pid):
+    # Check if process from PID file is actually alive
+    if pid is not None and not is_running(pid):
         print(f"Process {pid} from PID file is already gone.")
-        # Fallback: try to find by port
-        port_pid = find_pid_by_port(8000)
+        pid = None
+
+    # Fallback: try to find by port if no valid PID
+    if pid is None:
+        port_pid = find_pid_by_port(port)
         if port_pid:
-            print(f"Found process {port_pid} on port 8000, using it.")
+            print(f"Found process {port_pid} on port {port}, using it.")
             pid = port_pid
         else:
-            print("No process found on port 8000.")
+            print(f"No PID file and no process found on port {port}.")
             pid_file.unlink(missing_ok=True)
             return 0
-
-    # NOTE: start.py does not write start.pid, so no wrapper PID to kill here
 
     print(f"Stopping server (PID {pid})...")
 
@@ -101,15 +115,8 @@ def main() -> int:
             text=True,
         )
         # Return code 128 = "process not found" (already dead) — also fine
-        if result.returncode == 0 or result.returncode == 128:
-            print("Server stopped.")
-        else:
+        if result.returncode not in (0, 128):
             print(f"taskkill warning: {result.stderr.strip()}")
-            # If process disappeared during taskkill, that's still success
-            if not is_running(pid):
-                print("Process is gone anyway.")
-            else:
-                return 1
     else:
         # Unix: try graceful SIGTERM first, then SIGKILL
         try:
@@ -126,10 +133,16 @@ def main() -> int:
                 except (OSError, ProcessLookupError):
                     pass
                 time.sleep(0.3)
-            print("Server stopped.")
         except (OSError, ProcessLookupError):
             print("Process already gone.")
 
+    # Verify the process is actually gone
+    time.sleep(0.5)
+    if is_running(pid):
+        print(f"WARNING: Process {pid} is still running!")
+        return 1
+
+    print("Server stopped.")
     pid_file.unlink(missing_ok=True)
 
     # Kill llama-server by PID first (from llama-server.pid), fallback by name

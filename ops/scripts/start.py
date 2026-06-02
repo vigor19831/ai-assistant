@@ -425,6 +425,7 @@ def main() -> int:
         cwd=project_root,
         env=env,
     )
+    _spawned_procs.append(proc)
 
     # Write PID so launcher/stop.py can find us
     server_pid_file = project_root / "data" / "server.pid"
@@ -440,7 +441,10 @@ def main() -> int:
         _cleanup_servers()
         return 0
     finally:
-        server_pid_file.unlink(missing_ok=True)
+        # Only remove PID file if the managed process has actually exited;
+        # otherwise stop.py loses track of a still-running server.
+        if proc.poll() is not None:
+            server_pid_file.unlink(missing_ok=True)
         print("[start] Cleanup complete", flush=True)
 
 

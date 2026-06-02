@@ -14,36 +14,46 @@ import subprocess
 import sys
 from pathlib import Path
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run ruff linter and formatter")
     parser.add_argument("--check", action="store_true", help="Only check, no auto-fix")
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent.parent
+    src_path = project_root / "src"
+
+    if not src_path.is_dir():
+        print(f"ERROR: Source directory not found: {src_path}")
+        return 1
 
     exit_code = 0
 
-    # 1. Lint
+    def _run(cmd: list[str]) -> int:
+        print(f"Running: {' '.join(cmd)}")
+        try:
+            return subprocess.run(cmd, cwd=project_root).returncode
+        except FileNotFoundError:
+            print("ERROR: 'ruff' not found. Install it: pip install ruff")
+            return 1
+
+    # 1. Lint (src/ only, not entire project_root)
     lint_cmd = [
         sys.executable,
         "-m",
         "ruff",
         "check",
         "--fix" if not args.check else "--no-fix",
-        str(project_root),
+        str(src_path),
     ]
-    print(f"Running: {' '.join(lint_cmd)}")
-    result = subprocess.run(lint_cmd, cwd=project_root)
-    exit_code |= result.returncode
+    exit_code = max(exit_code, _run(lint_cmd))
 
-    # 2. Format
+    # 2. Format (src/ only)
     format_cmd = [sys.executable, "-m", "ruff", "format"]
     if args.check:
         format_cmd.append("--check")
-    format_cmd.append(str(project_root))
-    print(f"Running: {' '.join(format_cmd)}")
-    result = subprocess.run(format_cmd, cwd=project_root)
-    exit_code |= result.returncode
+    format_cmd.append(str(src_path))
+    exit_code = max(exit_code, _run(format_cmd))
 
     return exit_code
 

@@ -39,26 +39,6 @@ class TestHealthOffline:
         )
         assert resp.status_code == 401
 
-    def test_rate_limit_exceeded(self, client, monkeypatch):
-        """When rate limiter blocks IP, should return 429."""
-        from fastapi import FastAPI
-
-        app = client.app
-        state = getattr(app.state, "app_state", None)
-        if state is not None and hasattr(state, "limiter"):
-            monkeypatch.setattr(state.limiter, "is_allowed", lambda ip: False)
-        else:
-            # Fallback: inject a blocking limiter into app state
-            from ai_assistant.api.security import SecurityLimiter
-
-            if not hasattr(app.state, "app_state"):
-                from ai_assistant.api.deps import AppState
-
-                app.state.app_state = AppState(config=MagicMock())
-            app.state.app_state.limiter = SecurityLimiter("0/minute")
-        resp = client.post("/api/v1/chat", json={"message": "test"})
-        assert resp.status_code == 429
-
 
 class TestInfoOffline:
     """GET /info — model badge for UI."""
@@ -151,43 +131,6 @@ class TestChatOffline:
             },
         )
         assert resp.status_code == 200
-
-    def test_with_voice(self, client, mock_state):
-        import base64
-
-        from ai_assistant.features.chat.manager import ChatManager
-
-        mock_state.voice_recognizer = MagicMock()
-        mock_state.voice_recognizer.transcribe = AsyncMock(
-            return_value="transcribed voice"
-        )
-
-        # Пересоздаём chat_manager с актуальным voice_recognizer
-        mock_state.chat_manager = ChatManager(
-            llm=mock_state.llm,
-            voice_recognizer=mock_state.voice_recognizer,
-            vision=mock_state.vision,
-            storage=mock_state.storage,
-            history_limit=mock_state.config.chat.history_limit,
-            max_context_tokens=mock_state.config.chat.max_context_tokens,
-            tokenizer_model=mock_state.config.chat.tokenizer_model,
-            tool_registry=mock_state.tool_registry,
-            embedder=mock_state.embedder,
-            vector_store=mock_state.vector_store,
-            reranker=mock_state.reranker,
-        )
-
-        audio = base64.b64encode(b"fake_audio").decode()
-        resp = client.post(
-            "/api/v1/chat",
-            json={
-                "message": "ignored",
-                "conversation_id": "test",
-                "voice_base64": audio,
-            },
-        )
-        assert resp.status_code == 200
-        mock_state.voice_recognizer.transcribe.assert_awaited_once()
 
     def test_stream_returns_sse(self, client):
         resp = client.post(
@@ -531,51 +474,6 @@ class TestRAGOffline:
             handlers_module._reindex_semaphore = original_sem
 
 
-class TestImageAnalysisOffline:
-    """POST /api/v1/image/analyze — vision feature."""
-
-    def test_analyze_with_base64(self, client, mock_state):
-        mock_state.vision = MagicMock()
-        mock_state.vision.describe = AsyncMock(return_value="An image of a cat")
-        resp = client.post(
-            "/api/v1/image/analyze",
-            json={
-                "image_base64": "abc123",
-                "prompt": "What is this?",
-            },
-        )
-        assert resp.status_code == 200
-        assert resp.json()["description"] == "An image of a cat"
-
-    def test_analyze_with_url(self, client, mock_state):
-        mock_state.vision = MagicMock()
-        mock_state.vision.describe = AsyncMock(return_value="An image")
-        resp = client.post(
-            "/api/v1/image/analyze",
-            json={
-                "image_url": "http://example.com/img.png",
-            },
-        )
-        assert resp.status_code == 200
-
-    def test_analyze_no_image_raises_400(self, client):
-        resp = client.post("/api/v1/image/analyze", json={"prompt": "test"})
-        assert resp.status_code == 400
-        assert "image_base64 or image_url" in resp.json()["detail"]
-
-    def test_analyze_fallback_to_llm(self, client, mock_state):
-        """When vision adapter is None but LLM available, use LLM vision."""
-        mock_state.vision = None
-        mock_state.llm.complete = AsyncMock(
-            return_value=MagicMock(text="LLM vision result")
-        )
-        resp = client.post(
-            "/api/v1/image/analyze",
-            json={"image_base64": "abc", "prompt": "Describe"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["description"] == "LLM vision result"
-
 
 class TestCORSOffline:
     """CORS headers for browser extensions."""
@@ -627,10 +525,23 @@ class TestModelsOnline:
         assert all("id" in m for m in data["data"])
 
 
+def _is_llm_server_available() -> bool:
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 8080), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 @pytest.mark.online
 class TestChatOnline:
     """Real chat with running LLM."""
 
+    @pytest.mark.skipif(
+        not _is_llm_server_available(),
+        reason="LLM server (port 8080) not available",
+    )
     def test_non_streaming_chat(self, httpx_client):
         resp = httpx_client.post(
             "/v1/chat/completions",
@@ -648,6 +559,10 @@ class TestChatOnline:
         assert data["choices"][0]["message"]["content"] != ""
         assert data["choices"][0]["finish_reason"] in ["stop", "length"]
 
+    @pytest.mark.skipif(
+        not _is_llm_server_available(),
+        reason="LLM server (port 8080) not available",
+    )
     def test_streaming_chat(self, httpx_client):
         resp = httpx_client.post(
             "/v1/chat/completions",
@@ -738,12 +653,8 @@ def test_lifespan_reconfigures_middleware_and_mounts_static(client):
     assert hasattr(app.state, "config")
     assert isinstance(app.state.config, AppConfig)
 
-    # Middleware должен содержать наши классы (возможно, дублировано,
-    # но главное — не упало с RuntimeError)
+    # Only CORSMiddleware remains after security layer simplification
     middleware_names = [m.cls.__name__ for m in app.user_middleware]
-    assert "MetricsMiddleware" in middleware_names
-    assert "APIKeyMiddleware" in middleware_names
-    assert "LimitMiddleware" in middleware_names
     assert "CORSMiddleware" in middleware_names
 
 
@@ -753,9 +664,6 @@ def test_middleware_present_at_import_time():
 
     app = create_app(lifespan=None)
     middleware_names = [m.cls.__name__ for m in app.user_middleware]
-    assert "MetricsMiddleware" in middleware_names
-    assert "APIKeyMiddleware" in middleware_names
-    assert "LimitMiddleware" in middleware_names
     assert "CORSMiddleware" in middleware_names
 
 

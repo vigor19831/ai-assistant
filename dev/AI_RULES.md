@@ -103,11 +103,29 @@ If you determine core must change:
 
 ## 6. PipelineData Immutability
 
-`PipelineData` is a frozen dataclass. Treat it as immutable.
+`PipelineData` is functionally immutable. Always return new instances; never mutate in-place.
 
-- Use `replace()` or helper methods (`with_chunks()`, `with_context()`, `with_response()`, `add_error()`) to produce new instances.
-- NEVER assign to `data.chunks`, `data.context`, `data.metadata` directly.
-- NEVER mutate `data.metadata` in-place; build a new dict and replace.
+6.1 Functional helpers (mandatory)
+Use `replace()` or the built-in helpers to produce new instances:
+```python
+data = data.with_chunks([chunk])
+data = data.with_context("new context")
+data = data.with_response(resp)
+data = data.add_error("something failed")
+
+6.2 Forbidden anti-patterns
+Any of the following in production code is an architectural regression:
+Python
+
+# ❌ NEVER — silent mutation, breaks functional immutability
+data.metadata["foo"] = "bar"
+data.metadata.update({...})
+data.context = "new"
+data.chunks = [chunk]
+data.errors.append("err")
+data.errors += ["err"]
+
+If a patch introduces any of the above, output ⚠️ CORE CHANGE REQUIRED and stop.
 
 ---
 
@@ -143,7 +161,6 @@ Additional response rules:
 - All external network calls require a hard timeout.
 - All external calls use retry with exponential backoff (`core/retry.py`).
 - Operations must be idempotent (safe to call twice with identical data).
-- Circuit breaker wraps retry logic externally: `@with_circuit_breaker(cb)` outside `@with_retry(...)`.
 
 ---
 

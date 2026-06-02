@@ -10,24 +10,22 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from ai_assistant.api.deps import AppState, MetricsMiddleware, get_state
+from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.router import assemble_routers
-from ai_assistant.api.security import APIKeyMiddleware, LimitMiddleware, require_api_key
+from ai_assistant.api.security import require_api_key
 
 __all__ = ["create_app", "app"]
 
-_static_mounted = False
-
 
 def create_app(
-    state: AppState | None = None,
+    state: InitializedAppState | None = None,
     lifespan: Any = None,
 ) -> FastAPI:
     """Application factory — creates a fresh FastAPI instance.
 
     Args:
-        state: Optional pre-built AppState. Injected into app.state.app_state.
+        state: Optional pre-built InitializedAppState. Injected into app.state.app_state.
         lifespan: Optional lifespan context manager. Defaults to core lifespan.
     """
     _lifespan = lifespan if lifespan is not None else _default_lifespan
@@ -40,9 +38,6 @@ def create_app(
     )
 
     # --- Middleware ---
-    app.add_middleware(MetricsMiddleware)
-    app.add_middleware(APIKeyMiddleware)
-    app.add_middleware(LimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -69,7 +64,7 @@ def create_app(
     async def health_check() -> dict[str, str]:
         return {"status": "ok"}
 
-    async def _safe_get_state(request: Request) -> AppState | None:
+    async def _safe_get_state(request: Request) -> InitializedAppState | None:
         """Get state without raising on uninitialized state."""
         fastapi_app = request.app
         override: Any = fastapi_app.dependency_overrides.get(get_state)
@@ -90,7 +85,7 @@ def create_app(
 
     @app.get("/info", dependencies=[Depends(require_api_key)])
     async def get_info(
-        state: AppState | None = _safe_get_state_dep,
+        state: InitializedAppState | None = _safe_get_state_dep,
     ) -> dict[str, str]:
         if state is None:
             return {"provider": "unknown", "model": "unknown"}
@@ -108,8 +103,7 @@ def create_app(
 
 def _mount_static(app: FastAPI, config: Any) -> None:
     """Mount /ui once, only if directory exists."""
-    global _static_mounted
-    if _static_mounted:
+    if getattr(app.state, "static_mounted", False):
         return
     ui_cfg = getattr(config, "ui", None)
     if ui_cfg is None:
@@ -117,13 +111,13 @@ def _mount_static(app: FastAPI, config: Any) -> None:
     static_dir = Path(ui_cfg.static_path)
     if not static_dir.is_absolute():
         static_dir = Path(__file__).parent / static_dir
-    if static_dir.exists():
-        app.mount(
-            "/ui",
-            StaticFiles(directory=str(static_dir), html=True),
-            name="static",
-        )
-        _static_mounted = True
+        if static_dir.exists():
+            app.mount(
+                "/ui",
+                StaticFiles(directory=str(static_dir), html=True),
+                name="static",
+            )
+            app.state.static_mounted = True
 
 
 # Global instance for uvicorn and backward compatibility

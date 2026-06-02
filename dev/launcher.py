@@ -28,6 +28,7 @@ SCRIPT_ORDER = [
 BACKGROUND = {"start"}
 TEST_FLAGS = {
     "clean_cache": ["--clean"],
+    "clean_cache": ["--clean", "--yes"],
     "download_tokenizers": ["--auto"],
 }
 # context_build has its own ask function, not in TEST_FLAGS
@@ -65,7 +66,8 @@ TERMINAL_CMD: dict[str, Callable[[str, str], list[str]]] = {
         "-c",
         f"for t in gnome-terminal konsole alacritty xterm; do "
         f'if command -v "$t" >/dev/null 2>&1; then '
-        f'  exec "$t" -- bash -c "source {venv}/bin/activate && cd {root} && exec bash"; '
+        f'  "$t" -- bash -c "source {venv}/bin/activate && cd {root} && exec bash"; '
+        f"  break; "
         f"fi; done; "
         f'echo "No supported terminal found" >&2; exit 1',
     ],
@@ -79,7 +81,7 @@ def timestamp() -> str:
 
 
 def enable_ansi() -> None:
-    """Включить ANSI-цвета в Windows-консоли."""
+    """Enable ANSI colors in Windows console."""
     if os.name != "nt":
         return
     try:
@@ -406,6 +408,16 @@ def run(python, target, root, extra, mode_extra):
     return res_returncode
 
 
+def _get_server_port(root: Path) -> int:
+    """Read server port from config.yaml, fallback to 8000."""
+    try:
+        from ai_assistant.core.config import load_config
+        cfg = load_config(str(root / "config.yaml"))
+        return getattr(cfg, "port", 8000)
+    except Exception:
+        return 8000
+
+
 def run_bg(python, target, root, extra):
     """Background launch: no PID files, no rotating logs. Just health-check + status."""
     target_path = Path(target)
@@ -413,18 +425,21 @@ def run_bg(python, target, root, extra):
     data_dir.mkdir(exist_ok=True)
 
     log_file = data_dir / f"{target_path.stem}.log"
-    log_fp = open(log_file, "a", encoding="utf-8")
 
     kwargs = {
         "cwd": root,
-        "stdout": log_fp,
+        "stdout": subprocess.DEVNULL,
         "stderr": subprocess.STDOUT,
         "stdin": subprocess.DEVNULL,
     }
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
 
-    proc = subprocess.Popen([python, str(target_path)] + extra, **kwargs)
+    # Open log file, run process, close log file promptly
+    with open(log_file, "a", encoding="utf-8") as log_fp:
+        kwargs["stdout"] = log_fp
+        kwargs["stderr"] = subprocess.STDOUT
+        proc = subprocess.Popen([python, str(target_path)] + extra, **kwargs)
 
     ts = timestamp()
     print(f"\n>>> [{ts}] {GREEN}{target_path.name} running in background{RESET}")
@@ -432,24 +447,31 @@ def run_bg(python, target, root, extra):
     print(f">>> [{ts}] Log: {log_file.relative_to(root)}")
 
     # Wait for server to be ready
+    port = _get_server_port(root)
     time.sleep(0.3)
     for _ in range(50):
+        sock = None
         try:
-            with socket.create_connection(("127.0.0.1", 8000), timeout=0.5):
-                pass
+            sock = socket.create_connection(("127.0.0.1", port), timeout=0.5)
             print(
-                f">>> [{ts}] {GREEN}Server ready at http://127.0.0.1:8000/health{RESET}"
+                f">>> [{ts}] {GREEN}Server ready at http://127.0.0.1:{port}/health{RESET}"
             )
             break
         except (OSError, ConnectionRefusedError, TimeoutError):
             time.sleep(0.2)
+        finally:
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                sock.close()
     else:
         print(
             f">>> [{ts}] {YELLOW}Server starting... "
             f"check {log_file.relative_to(root)}{RESET}"
         )
 
-    # Keep log_fp open so the child can write; it will be closed on launcher exit
     return 0
 
 
@@ -491,6 +513,21 @@ def _shutdown(root: Path, python: str, scripts: list, tests: list) -> int:
             print(f"{GREEN}>>> Server stopped.{RESET}")
         else:
             print(f"{RED}>>> Stop script exited with code {res.returncode}.{RESET}")
+    else:
+        # Fallback: try to kill by PID file
+        pid_file = root / "data" / "server.pid"
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text(encoding="utf-8").strip())
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False)
+                else:
+                    os.kill(pid, 15)  # SIGTERM
+                print(f"{YELLOW}>>> Sent SIGTERM to PID {pid}.{RESET}")
+            except (ValueError, OSError, ProcessLookupError) as e:
+                print(f"{RED}>>> Could not stop server: {e}{RESET}")
+        else:
+            print(f"{YELLOW}>>> No stop script or PID file found.{RESET}")
 
     print("\nBye.")
     return 0

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
-import json
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -25,8 +22,6 @@ from ai_assistant.core.domain.messages import (
 )
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.metrics import record_metric
-from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.utils import count_tokens, get_context_limit
 
@@ -70,28 +65,22 @@ class ChatManager:
     def __init__(
         self,
         llm: Any,
-        voice_recognizer: Any | None = None,
-        vision: Any | None = None,
         storage: Any | None = None,
         history_limit: int = 10,
         max_history_messages: int = 10_000,
         max_context_tokens: int | None = None,
         tokenizer_model: str = "gpt-4o",
-        tool_registry: Any | None = None,
         embedder: Any | None = None,
         vector_store: Any | None = None,
         reranker: Any | None = None,
         pipeline: RAGPipeline | None = None,
     ) -> None:
         self.llm = llm
-        self.voice_recognizer = voice_recognizer
-        self.vision = vision
         self.storage = storage
         self.history_limit = history_limit
         self.max_history_messages = max_history_messages
         self.max_context_tokens = max_context_tokens
         self.tokenizer_model = tokenizer_model
-        self.tool_registry = tool_registry
         self.embedder = embedder
         self.vector_store = vector_store
         self.reranker = reranker
@@ -202,16 +191,6 @@ class ChatManager:
             len(message),
         )
 
-        if voice_base64:
-            if self.voice_recognizer is None:
-                raise AdapterError("Voice recognizer not configured")
-            try:
-                audio_bytes = base64.b64decode(voice_base64)
-            except (binascii.Error, ValueError) as exc:
-                raise AdapterError(f"Invalid voice_base64: {exc}") from exc
-            transcribed = await self.voice_recognizer.transcribe(audio_bytes)
-            message = transcribed
-
         image_payload = None
         if image_url:
             image_payload = ImagePayload(url=image_url)
@@ -225,7 +204,6 @@ class ChatManager:
             )
 
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
-        record_metric("rag_chunks", len(rag_chunks))
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -267,71 +245,17 @@ class ChatManager:
             except Exception as exc:
                 logger.warning("History load failed: %s", exc)
 
-        response: AssistantMessage | None = None
-        for attempt in range(3):
-            try:
-                response = await self.llm.complete(messages)
-            except AdapterError:
-                raise
-            except Exception as exc:
-                logger.error(
-                    "Chat failed (attempt %d): conv=%s, error=%s",
-                    attempt + 1,
-                    conversation_id,
-                    exc,
-                )
-                if attempt == 2:
-                    raise
-                continue
-
-            if not response.tool_calls:
-                break
-
-            messages.append(response)
-
-            if self.tool_registry:
-                for call in response.tool_calls:
-                    try:
-                        func = call.get("function", {})
-                        tool_name = func.get("name", "")
-                        arguments = json.loads(func.get("arguments", "{}"))
-                        tc = ToolCall(
-                            tool_name=tool_name,
-                            arguments=arguments,
-                            call_id=call.get("id", ""),
-                        )
-                        result = await self.tool_registry.dispatch(tc)
-                        content = (
-                            result.output
-                            if not result.is_error
-                            else f"Error: {result.error}"
-                        )
-                    except Exception as exc:
-                        content = f"Error: {exc}"
-
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "content": str(content),
-                            "tool_call_id": call.get("id", ""),
-                        }
-                    )
-            else:
-                break
-
-        if response is None:
-            response = AssistantMessage(text="Error: no response generated")
-
-        output_tokens = self._count_tokens(response.text or "")
-        tools_used = sum(
-            len(m.tool_calls)
-            for m in messages
-            if isinstance(m, AssistantMessage) and m.tool_calls
-        )
-
-        record_metric("input_tokens", input_tokens)
-        record_metric("output_tokens", output_tokens)
-        record_metric("tools_used", tools_used)
+        try:
+            response = await self.llm.complete(messages)
+        except AdapterError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Chat failed: conv=%s, error=%s",
+                conversation_id,
+                exc,
+            )
+            raise AdapterError(f"LLM call failed: {exc}") from exc
 
         logger.info(
             "Chat response: conv=%s, resp_len=%d",
@@ -383,16 +307,6 @@ class ChatManager:
         """
         meta = metadata or {}
 
-        if voice_base64:
-            if self.voice_recognizer is None:
-                raise AdapterError("Voice recognizer not configured")
-            try:
-                audio_bytes = base64.b64decode(voice_base64)
-            except (binascii.Error, ValueError) as exc:
-                raise AdapterError(f"Invalid voice_base64: {exc}") from exc
-            transcribed = await self.voice_recognizer.transcribe(audio_bytes)
-            message = transcribed
-
         image_payload = None
         if image_url:
             image_payload = ImagePayload(url=image_url)
@@ -405,7 +319,6 @@ class ChatManager:
             return
 
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
-        record_metric("rag_chunks", len(rag_chunks))
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -442,15 +355,14 @@ class ChatManager:
                 logger.warning("History load failed: %s", exc)
 
         output_text = ""
-        async for chunk in self.llm.stream(messages):
-            output_text += chunk
-            yield chunk
+        try:
+            async for chunk in self.llm.stream(messages):
+                output_text += chunk
+                yield chunk
+        except Exception as exc:
+            raise AdapterError(f"LLM stream failed: {exc}") from exc
 
         output_text = self._append_rag_sources(output_text, rag_chunks)
-
-        record_metric("input_tokens", input_tokens)
-        record_metric("output_tokens", self._count_tokens(output_text))
-        record_metric("tools_used", 0)
 
         if self.storage:
             try:

@@ -6,7 +6,6 @@ __all__ = [
     "embedder_openai_compatible",
     "llm_mock",
     "llm_openai_compatible",
-    "memory_sqlite",
     "reranker_api",
     "reranker_dummy",
     "storage_sqlite",
@@ -14,10 +13,6 @@ __all__ = [
     "transport_fastapi",
     "vector_store_faiss",
     "vector_store_memory",
-    "vision_clip_local",
-    "voice_piper",
-    "voice_whisper_local",
-    "voice_whispercpp",
 ]
 
 from . import (
@@ -31,15 +26,9 @@ from . import (
     tools_calculator,
     transport_fastapi,
     vector_store_memory,
-    vision_clip_local,
-    voice_piper,
-    voice_whisper_local,
-    voice_whispercpp,
 )
 
 # Lazy imports — optional dependencies, fail gracefully if not installed
-with contextlib.suppress(ImportError):
-    from . import memory_sqlite  # noqa: F401
 
 with contextlib.suppress(ImportError):
     from . import storage_sqlite  # noqa: F401

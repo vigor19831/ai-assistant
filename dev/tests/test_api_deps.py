@@ -14,7 +14,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ai_assistant.api.deps import AppState, MetricsMiddleware, get_state, init_adapters
+from ai_assistant.api.deps import (
+    AppState,
+    InitializedAppState,
+    get_state,
+    init_adapters,
+)
 from ai_assistant.core.config import AppConfig
 from ai_assistant.core.pipeline import RAGPipeline
 
@@ -31,15 +36,9 @@ class TestAppState:
         assert hasattr(state, "chunker")
         assert hasattr(state, "reranker")
         assert hasattr(state, "pipeline")
-        assert hasattr(state, "voice_recognizer")
-        assert hasattr(state, "voice_synthesizer")
-        assert hasattr(state, "vision")
         assert hasattr(state, "storage")
-        assert hasattr(state, "tool_registry")
-        assert hasattr(state, "long_term_memory")
         assert hasattr(state, "chat_manager")
         assert hasattr(state, "limiter")
-        assert hasattr(state, "metrics")
 
     def test_defaults_are_none_except_config(self):
         cfg = AppConfig()
@@ -50,7 +49,6 @@ class TestAppState:
         assert state.pipeline is None
         assert state.chat_manager is None
         assert state.limiter is None
-        assert state.metrics is None
 
 
 # ── init_adapters with mocked registry.create ──
@@ -104,9 +102,6 @@ class TestInitAdapters:
         mock_storage = MagicMock()
         mock_storage.init_db = AsyncMock()
         mock_reranker = MagicMock()
-        mock_tool = MagicMock()
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
         # Mock list_namespaces and load for vector_store
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
@@ -120,26 +115,39 @@ class TestInitAdapters:
                 ("chunker", "simple"): mock_chunker,
                 ("storage", "sqlite"): mock_storage,
                 ("reranker", "dummy"): mock_reranker,
-                ("tool", "calculator"): mock_tool,
-                ("memory", "sqlite"): mock_memory,
             }
             return mapping.get((port, name), MagicMock())
 
+        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
+            adapters = {
+                "llm": ["mock"],
+                "embedder": ["mock"],
+                "vector_store": ["memory"],
+                "chunker": ["simple"],
+                "storage": ["sqlite"],
+                "reranker": ["dummy"],
+            }
+            if port is None:
+                return adapters
+            return adapters.get(port, [])
+
         with patch(
             "ai_assistant.core.registry.create", side_effect=fake_registry_create
+        ), patch(
+            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
         ):
             state = AppState(config=minimal_config)
-            await init_adapters(state)
+            result = await init_adapters(state)
 
-        assert state.config is minimal_config
-        assert state.llm is mock_llm
-        assert state.embedder is mock_embedder
-        assert state.vector_store is mock_vector_store
-        assert state.chunker is mock_chunker
-        assert state.storage is mock_storage
-        assert state.reranker is mock_reranker
-        assert state.tool_registry is not None
-        assert state.chat_manager is not None
+        assert isinstance(result, InitializedAppState)
+        assert result.config is minimal_config
+        assert result.llm is mock_llm
+        assert result.embedder is mock_embedder
+        assert result.vector_store is mock_vector_store
+        assert result.chunker is mock_chunker
+        assert result.storage is mock_storage
+        assert result.reranker is mock_reranker
+        assert result.chat_manager is not None
 
     @pytest.mark.asyncio
     async def test_pipeline_created_with_correct_steps(self, minimal_config):
@@ -174,17 +182,17 @@ class TestInitAdapters:
             "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
-            await init_adapters(state)
+            result = await init_adapters(state)
 
-        assert state.pipeline is not None
-        assert isinstance(state.pipeline, RAGPipeline)
+        assert result.pipeline is not None
+        assert isinstance(result.pipeline, RAGPipeline)
         # Should have 4 steps: embed_query, retrieve, build_context, generate
-        assert len(state.pipeline.steps) == 4
+        assert len(result.pipeline.steps) == 4
 
         # Verify step callables accept PipelineData
         step_names = ["embed_query", "retrieve", "build_context", "generate"]
         for i, name in enumerate(step_names):
-            assert callable(state.pipeline.steps[i]), f"Step {name} is not callable"
+            assert callable(result.pipeline.steps[i]), f"Step {name} is not callable"
 
     @pytest.mark.asyncio
     async def test_pipeline_steps_are_callable_objects_not_lambdas(
@@ -221,15 +229,15 @@ class TestInitAdapters:
             "ai_assistant.core.registry.create", side_effect=fake_registry_create
         ):
             state = AppState(config=minimal_config)
-            await init_adapters(state)
+            result = await init_adapters(state)
 
-        assert state.pipeline is not None
-        assert isinstance(state.pipeline, RAGPipeline)
-        assert len(state.pipeline.steps) == 4
+        assert result.pipeline is not None
+        assert isinstance(result.pipeline, RAGPipeline)
+        assert len(result.pipeline.steps) == 4
 
         step_names = ["embed_query", "retrieve", "build_context", "generate"]
         for i, name in enumerate(step_names):
-            step = state.pipeline.steps[i]
+            step = result.pipeline.steps[i]
             assert callable(step), f"Step {name} is not callable"
             # Class instances used for dependency-bound steps; lambdas have __name__ == '<lambda>'
             if name in ("embed_query", "retrieve", "generate"):
@@ -262,17 +270,75 @@ class TestInitAdapters:
                 return mock_memory
             return MagicMock()
 
+        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
+            adapters = {
+                "llm": ["mock"],
+                "embedder": ["mock"],
+                "vector_store": ["memory"],
+                "chunker": ["simple"],
+                "storage": ["sqlite"],
+                "reranker": ["dummy"],  # "nonexistent" NOT registered
+                "tool": ["calculator"],
+                "memory": ["sqlite"],
+            }
+            if port is None:
+                return adapters
+            return adapters.get(port, [])
+
         with patch(
             "ai_assistant.core.registry.create", side_effect=fake_registry_create
+        ), patch(
+            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
         ):
             state = AppState(config=minimal_config)
-            await init_adapters(state)
+            result = await init_adapters(state)
 
-        assert state.reranker is None
+        assert result.reranker is None
 
     @pytest.mark.asyncio
-    async def test_storage_none_when_registry_fails(self, minimal_config):
-        """Storage adapter failure should set storage to None, not crash."""
+    async def test_storage_skipped_when_not_in_registry(self, minimal_config):
+        """Storage adapter not in registry should be skipped gracefully."""
+        mock_vector_store = MagicMock()
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+        mock_memory = MagicMock()
+        mock_memory.init_db = AsyncMock()
+
+        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+            if port == "vector_store" and name == "memory":
+                return mock_vector_store
+            if port == "memory" and name == "sqlite":
+                return mock_memory
+            return MagicMock()
+
+        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
+            adapters = {
+                "llm": ["mock"],
+                "embedder": ["mock"],
+                "vector_store": ["memory"],
+                "chunker": ["simple"],
+                "storage": [],  # "sqlite" NOT registered
+                "reranker": ["dummy"],
+                "tool": ["calculator"],
+                "memory": ["sqlite"],
+            }
+            if port is None:
+                return adapters
+            return adapters.get(port, [])
+
+        with patch(
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
+        ), patch(
+            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+        ):
+            state = AppState(config=minimal_config)
+            result = await init_adapters(state)
+
+        assert result.storage is None
+
+    @pytest.mark.asyncio
+    async def test_storage_none_on_import_error(self, minimal_config):
+        """Storage adapter raising ImportError should be skipped gracefully."""
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -283,18 +349,77 @@ class TestInitAdapters:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
-                raise ValueError("No storage adapter")
+                raise ImportError("sqlite3 not available")
             if port == "memory" and name == "sqlite":
                 return mock_memory
             return MagicMock()
 
+        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
+            adapters = {
+                "llm": ["mock"],
+                "embedder": ["mock"],
+                "vector_store": ["memory"],
+                "chunker": ["simple"],
+                "storage": ["sqlite"],
+                "reranker": ["dummy"],
+                "tool": ["calculator"],
+                "memory": ["sqlite"],
+            }
+            if port is None:
+                return adapters
+            return adapters.get(port, [])
+
         with patch(
             "ai_assistant.core.registry.create", side_effect=fake_registry_create
+        ), patch(
+            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
         ):
             state = AppState(config=minimal_config)
-            await init_adapters(state)
+            result = await init_adapters(state)
 
-        assert state.storage is None
+        assert result.storage is None
+
+    @pytest.mark.asyncio
+    async def test_storage_raises_on_value_error(self, minimal_config):
+        """Storage adapter raising ValueError should crash startup (bug signal)."""
+        mock_vector_store = MagicMock()
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+        mock_memory = MagicMock()
+        mock_memory.init_db = AsyncMock()
+
+        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+            if port == "vector_store" and name == "memory":
+                return mock_vector_store
+            if port == "storage" and name == "sqlite":
+                raise ValueError("Broken config")
+            if port == "memory" and name == "sqlite":
+                return mock_memory
+            return MagicMock()
+
+        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
+            adapters = {
+                "llm": ["mock"],
+                "embedder": ["mock"],
+                "vector_store": ["memory"],
+                "chunker": ["simple"],
+                "storage": ["sqlite"],
+                "reranker": ["dummy"],
+                "tool": ["calculator"],
+                "memory": ["sqlite"],
+            }
+            if port is None:
+                return adapters
+            return adapters.get(port, [])
+
+        with patch(
+            "ai_assistant.core.registry.create", side_effect=fake_registry_create
+        ), patch(
+            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+        ):
+            state = AppState(config=minimal_config)
+            with pytest.raises(ValueError, match="Broken config"):
+                await init_adapters(state)
 
     @pytest.mark.asyncio
     async def test_idempotent_init(self, minimal_config):
@@ -323,55 +448,9 @@ class TestInitAdapters:
             second_count = call_count["count"]
 
         assert second_count == first_count, "Second init should not re-create adapters"
-        assert first_result is second_result, "Should return same state object"
-        assert first_result is state, "Should return original state"
-
-
-# ── MetricsMiddleware ──
-
-
-class TestMetricsMiddleware:
-    @pytest.mark.asyncio
-    async def test_logs_request_metrics(self):
-        """Middleware should record latency and token metrics via state.metrics."""
-        from fastapi import FastAPI
-        from starlette.requests import Request
-        from starlette.responses import Response as StarletteResponse
-
-        app = FastAPI()
-        mock_state = AppState(config=AppConfig())
-        mock_state.metrics = MagicMock()
-        app.state.app_state = mock_state
-
-        middleware = MetricsMiddleware(app)
-
-        async def mock_call_next(request: Request):
-            return StarletteResponse(content="ok", status_code=200)
-
-        request = Request(
-            {
-                "type": "http",
-                "method": "GET",
-                "path": "/test",
-                "headers": [],
-                "query_string": b"",
-                "app": app,
-            }
-        )
-
-        with patch(
-            "ai_assistant.api.deps.get_current_metrics",
-            return_value={"input_tokens": 10, "output_tokens": 5},
-        ):
-            result = await middleware.dispatch(request, mock_call_next)
-            assert result.status_code == 200
-            mock_state.metrics.log.assert_called_once()
-            record = mock_state.metrics.log.call_args[0][0]
-            assert record["endpoint"] == "/test"
-            assert record["status_code"] == 200
-            assert "latency_ms" in record
-            assert record["input_tokens"] == 10
-            assert record["output_tokens"] == 5
+        assert isinstance(first_result, InitializedAppState)
+        assert isinstance(second_result, InitializedAppState)
+        assert first_result.llm is second_result.llm
 
 
 # ── get_state error handling ──
@@ -398,7 +477,14 @@ class TestGetState:
         from fastapi import FastAPI, Request
 
         app = FastAPI()
-        mock_state = AppState(config=AppConfig())
+        mock_state = InitializedAppState(
+            config=AppConfig(),
+            llm=MagicMock(),
+            embedder=MagicMock(),
+            vector_store=MagicMock(),
+            pipeline=MagicMock(),
+            storage=MagicMock(),
+        )
         app.state.app_state = mock_state
 
         scope = {

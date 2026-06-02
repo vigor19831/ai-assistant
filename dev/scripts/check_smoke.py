@@ -156,9 +156,15 @@ def check_app_state() -> str:
     from ai_assistant.core.config import load_config
 
     cfg = load_config(str(_DEV_ROOT / "tests" / "config.test.yaml"))
+    # 1. Создаём state из конфига
     state = asyncio.run(init_adapters(cfg))
-    state2 = asyncio.run(init_adapters(cfg))
-    assert state is state2, "init_adapters not idempotent"
+    # 2. Идемпотентность: повторный вызов с тем же AppState возвращает тот же объект
+    state2 = asyncio.run(init_adapters(state))
+    assert state is state2, "init_adapters not idempotent with AppState"
+    # 3. Повторный вызов с AppConfig создаёт новый, но валидный state
+    state3 = asyncio.run(init_adapters(cfg))
+    assert state3 is not state, "init_adapters should create new state from config"
+    assert state3.pipeline is not None, "new state should have pipeline"
     return json.dumps(
         {
             "llm": type(state.llm).__name__,
@@ -347,6 +353,11 @@ def check_lifespan() -> str:
                 (),
                 {
                     "debug": False,
+                    "security": type(
+                        "S",
+                        (),
+                        {"api_key": None, "rate_limit": "100/minute"},
+                    )(),
                     "llm": type(
                         "LLM",
                         (),

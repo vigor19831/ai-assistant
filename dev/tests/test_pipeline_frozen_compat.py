@@ -13,30 +13,6 @@ from ai_assistant.core.domain.pipeline import PipelineData
 class TestPipelineDataCompatibility:
     """Backward-compat tests: frozen must not break existing patterns."""
 
-    def test_pipeline_data_is_frozen(self) -> None:
-        """FrozenInstanceError on direct field assignment."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.context = "x"  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_chunks_mutation(self) -> None:
-        """Setting chunks directly must raise."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.chunks = ()  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_errors_mutation(self) -> None:
-        """Setting errors directly must raise."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.errors = ()  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_metadata_mutation(self) -> None:
-        """Setting metadata directly must raise."""
-        data = PipelineData()
-        with pytest.raises(FrozenInstanceError):
-            data.metadata = {}  # type: ignore[misc]
-
     def test_helper_methods_return_new_instances(self) -> None:
         """All helper methods must return new instances without mutating original."""
         chunk = Chunk(

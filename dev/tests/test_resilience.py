@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.api.lifespan import _load_config
 from ai_assistant.core.config import AppConfig, load_config
-from ai_assistant.core.metrics import MetricsLogger
 
 # ── Graceful degradation (all adapters None) ──
 
@@ -149,31 +148,6 @@ class TestBrokenConfig:
 
 
 class TestDiskErrors:
-    def test_metrics_logger_permission_denied(self, tmp_path):
-        """Metrics logger should handle write errors gracefully."""
-
-        async def _run() -> None:
-            logger = MetricsLogger(path=str(tmp_path / "metrics.jsonl"))
-            logger.start()
-
-            # Simulate write failure via aiofiles.open
-            mock_file = AsyncMock()
-            mock_file.write.side_effect = PermissionError("denied")
-            mock_cm = MagicMock()
-            mock_cm.__aenter__ = AsyncMock(return_value=mock_file)
-            mock_cm.__aexit__ = AsyncMock(return_value=None)
-
-            with patch(
-                "ai_assistant.core.metrics.aiofiles.open", return_value=mock_cm
-            ):
-                logger.log({"test": 1})
-                await asyncio.sleep(0.2)
-
-            # Should not crash
-            logger._queue.put_nowait(None)
-            await logger.stop()
-
-        asyncio.run(_run())
 
     def test_sqlite_readonly_db(self, tmp_path):
         """SQLite on read-only path should raise, not hang."""
@@ -220,11 +194,8 @@ class TestLifespanCleanup:
         type(config).vector_store = MagicMock()
         config.vector_store.index_path = None
 
-        metrics_logger = MagicMock()
-        metrics_logger.stop = AsyncMock()
-
         with caplog.at_level(logging.ERROR, logger="ai_assistant.lifespan"):
-            await _async_cleanup(app, config, metrics_logger)
+            await _async_cleanup(app, config)
 
         assert "Traceback (most recent call last)" in caplog.text
         assert "shutdown boom" in caplog.text

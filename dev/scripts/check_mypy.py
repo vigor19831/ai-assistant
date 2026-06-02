@@ -8,7 +8,7 @@ avoiding false positives from untyped test fixtures.
 Usage:
     python dev/scripts/check_mypy.py                 # default check
     python dev/scripts/check_mypy.py --strict        # additional mypy flags
-    python dev/scripts/check_mypy.py core/adapters   # check specific package
+    python dev/scripts/check_mypy.py ai_assistant/core/adapters   # check specific package
 """
 
 import subprocess
@@ -17,24 +17,50 @@ from pathlib import Path
 
 
 def main() -> int:
-    src_path = Path(__file__).resolve().parent.parent.parent / "src"
-    if not src_path.exists():
-        print(f"ERROR: Source path not found: {src_path}")
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent.parent  # dev/scripts/ → dev/ → root
+    src_path = project_root / "src"
+
+    if not src_path.is_dir():
+        print(f"ERROR: Source directory not found: {src_path}")
         return 1
+
+    # Separate flags from paths
+    args = sys.argv[1:]
+    flags = [a for a in args if a.startswith("-")]
+    paths = [a for a in args if not a.startswith("-")]
+
+    # Resolve targets: if user gives paths, auto-prefix with src/ when relative
+    targets: list[str] = []
+    for p in paths:
+        p_path = Path(p)
+        if not p_path.is_absolute():
+            candidate = project_root / p
+            if not candidate.exists():
+                candidate = src_path / p
+            p = str(candidate)
+        targets.append(p)
+
+    if not targets:
+        targets = [str(src_path)]
 
     cmd = [
         sys.executable,
         "-m",
         "mypy",
-        str(src_path),
+        *flags,
+        *targets,
     ]
 
-    # Проброс дополнительных аргументов
-    if len(sys.argv) > 1:
-        cmd.extend(sys.argv[1:])
-
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd)
+    print(f"Working directory: {project_root}")
+
+    try:
+        result = subprocess.run(cmd, cwd=project_root)
+    except FileNotFoundError:
+        print("ERROR: 'mypy' not found. Install it: pip install mypy")
+        return 1
+
     return result.returncode
 
 

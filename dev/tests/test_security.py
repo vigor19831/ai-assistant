@@ -2,28 +2,20 @@
 
 Design goals:
 - get_expected_api_key() never touches filesystem.
-- Rate limiter uses config loaded at startup.
 - Admin endpoint can rotate key at runtime.
 """
 
 from __future__ import annotations
 
-import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import HTTPException
 from starlette.requests import Request
-from starlette.responses import Response
 
-from ai_assistant.api import security as sec_module
 from ai_assistant.api.deps import AppState
 from ai_assistant.api.security import (
-    APIKeyMiddleware,
-    LimitMiddleware,
     SECURITY_MAX_BODY,
-    SecurityLimiter,
-    apply_rate_limit,
     check_request_size,
     get_expected_api_key,
     require_api_key,
@@ -53,24 +45,6 @@ def mock_request():
     req.client = MagicMock(host="127.0.0.1")
     req.headers = {}
     return req
-
-
-def _make_request_with_limiter(limiter: SecurityLimiter | None = None) -> Request:
-    app = FastAPI()
-    state = AppState(config=MagicMock())
-    state.limiter = limiter
-    app.state.app_state = state
-    return Request(
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/api/v1/chat",
-            "headers": [],
-            "query_string": b"",
-            "app": app,
-            "client": ("127.0.0.1", 12345),
-        }
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -108,167 +82,6 @@ def test_get_expected_api_key_no_yaml_loading():
     with patch("yaml.safe_load") as mock_yaml:
         get_expected_api_key()
         mock_yaml.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# SecurityLimiter
-# ---------------------------------------------------------------------------
-
-
-def test_limiter_allows_under_cap():
-    lim = SecurityLimiter("3/minute")
-    assert lim.is_allowed("ip")
-    assert lim.is_allowed("ip")
-    assert lim.is_allowed("ip")
-
-
-def test_limiter_blocks_over_cap():
-    lim = SecurityLimiter("2/minute")
-    lim.is_allowed("ip")
-    lim.is_allowed("ip")
-    assert not lim.is_allowed("ip")
-
-
-def test_limiter_sliding_window():
-    lim = SecurityLimiter("1/minute")
-    lim.is_allowed("ip")
-    assert not lim.is_allowed("ip")
-    # Expire old entry manually
-    lim.requests["ip"] = [0.0]  # older than 60s window
-    assert lim.is_allowed("ip")
-
-
-def test_limiter_invalid_rate_limit_falls_back():
-    lim = SecurityLimiter("bad-format")
-    assert lim.max_req == 100
-    assert lim.window == 60.0
-
-
-def test_limiter_evicts_empty_ip_entries_no_bloat():
-    """10_000 unique IPs with stale timestamps: empty lists are evicted,
-    and dict size stays bounded to active IPs only."""
-    lim = SecurityLimiter("100/minute")
-    # Seed 10_000 IPs with expired timestamps
-    for i in range(10_000):
-        ip = f"10.0.{i // 256}.{i % 256}"
-        lim.requests[ip] = [0.0]  # force expired
-    # is_allowed filters out stale entries, deletes empty lists, then re-adds
-    for i in range(10_000):
-        ip = f"10.0.{i // 256}.{i % 256}"
-        assert lim.is_allowed(ip) is True
-    # After first pass each IP has one fresh entry → 10_000 keys
-    assert len(lim.requests) == 10_000
-    assert all(len(v) == 1 for v in lim.requests.values())
-    # Expire them again
-    for ip in list(lim.requests.keys()):
-        lim.requests[ip] = [0.0]
-    for i in range(10_000):
-        ip = f"10.0.{i // 256}.{i % 256}"
-        lim.is_allowed(ip)
-    # Dict size stays bounded (same 10_000 active IPs); no zombie empty lists
-    assert len(lim.requests) == 10_000
-    assert all(len(v) >= 1 for v in lim.requests.values())
-    # The real eviction invariant: manually set an empty list and call is_allowed
-    # — the empty list must be deleted before the fresh timestamp is appended.
-    lim.requests["zombie.ip"] = []
-    lim.is_allowed("zombie.ip")
-    assert len(lim.requests["zombie.ip"]) == 1
-    assert lim.requests["zombie.ip"][0] > 0
-
-
-# ---------------------------------------------------------------------------
-# LimitMiddleware
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_limit_middleware_allows():
-    lim = SecurityLimiter("100/minute")
-    req = _make_request_with_limiter(lim)
-    mw = LimitMiddleware(MagicMock())
-    call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(req, call_next)
-    assert resp.status_code == 200
-
-
-@pytest.mark.anyio
-async def test_limit_middleware_blocks():
-    lim = SecurityLimiter("2/minute")
-    req = _make_request_with_limiter(lim)
-    # Exhaust limit for the SAME IP as request
-    for _ in range(lim.max_req):
-        lim.is_allowed("127.0.0.1")
-    mw = LimitMiddleware(MagicMock())
-    call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(req, call_next)
-    assert resp.status_code == 429
-    call_next.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# APIKeyMiddleware
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_api_key_middleware_public_path(mock_request):
-    """Public paths skip auth."""
-    mw = APIKeyMiddleware(MagicMock())
-    mock_request.url.path = "/health"
-    call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(mock_request, call_next)
-    assert resp.status_code == 200
-
-
-@pytest.mark.anyio
-async def test_api_key_middleware_options(mock_request):
-    """OPTIONS requests skip auth."""
-    mw = APIKeyMiddleware(MagicMock())
-    mock_request.method = "OPTIONS"
-    call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(mock_request, call_next)
-    assert resp.status_code == 200
-
-
-@pytest.mark.anyio
-async def test_api_key_middleware_no_key_configured(mock_request):
-    """When no key configured, return 401."""
-    mw = APIKeyMiddleware(MagicMock())
-    call_next = AsyncMock()
-    resp = await mw.dispatch(mock_request, call_next)
-    assert resp.status_code == 401
-    assert b"not configured" in resp.body
-
-
-@pytest.mark.anyio
-async def test_api_key_middleware_missing_auth(mock_request):
-    set_api_key("secret")
-    mw = APIKeyMiddleware(MagicMock())
-    call_next = AsyncMock()
-    resp = await mw.dispatch(mock_request, call_next)
-    assert resp.status_code == 401
-    assert b"Missing" in resp.body
-
-
-@pytest.mark.anyio
-async def test_api_key_middleware_invalid_key(mock_request):
-    set_api_key("secret")
-    mw = APIKeyMiddleware(MagicMock())
-    mock_request.headers["Authorization"] = "Bearer wrong"
-    call_next = AsyncMock()
-    resp = await mw.dispatch(mock_request, call_next)
-    assert resp.status_code == 401
-    assert b"Invalid" in resp.body
-
-
-@pytest.mark.anyio
-async def test_api_key_middleware_valid_key(mock_request):
-    set_api_key("secret")
-    mw = APIKeyMiddleware(MagicMock())
-    mock_request.headers["Authorization"] = "Bearer secret"
-    call_next = AsyncMock(return_value=Response("ok"))
-    resp = await mw.dispatch(mock_request, call_next)
-    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -326,30 +139,6 @@ async def test_check_request_size_too_large(mock_request):
 async def test_check_request_size_no_header(mock_request):
     mock_request.headers = {}
     await check_request_size(mock_request)  # no exception
-
-
-# ---------------------------------------------------------------------------
-# apply_rate_limit dependency
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.anyio
-async def test_apply_rate_limit_allows():
-    lim = SecurityLimiter("100/minute")
-    req = _make_request_with_limiter(lim)
-    await apply_rate_limit(req)
-
-
-@pytest.mark.anyio
-async def test_apply_rate_limit_blocks():
-    lim = SecurityLimiter("2/minute")
-    req = _make_request_with_limiter(lim)
-    # Exhaust limit for the SAME IP as request
-    for _ in range(lim.max_req):
-        lim.is_allowed("127.0.0.1")
-    with pytest.raises(HTTPException) as exc_info:
-        await apply_rate_limit(req)
-    assert exc_info.value.status_code == 429
 
 
 # ---------------------------------------------------------------------------
