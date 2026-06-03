@@ -7,7 +7,7 @@ app_name: ai-assistant
 debug: false
 host: 0.0.0.0
 port: 8000
-config_version: "0.0.5"
+config_version: "1.1.0"
 
 # ── CORS ──
 cors:
@@ -81,16 +81,6 @@ storage:
   provider: sqlite
   db_path: ./data/storage.db
 
-# ── Voice ──
-voice:
-  enabled: false
-  recognizer_provider: whisper_local
-  synthesizer_provider: piper
-
-# ── Vision ──
-vision:
-  enabled: false
-  provider: clip_local
 
 # ── Reranker ──
 reranker:

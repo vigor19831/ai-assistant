@@ -19,7 +19,7 @@ from ai_assistant.core.domain.messages import UserMessage  # noqa: E402
 from ai_assistant.core.constants import RAG_NS_MAP, RAG_PREFIX_RE  # noqa: E402
 from ai_assistant.core.domain.pipeline import PipelineData  # noqa: E402
 from ai_assistant.core.logger import get_logger  # noqa: E402
-from ai_assistant.core.registry import create as registry_create  # noqa: E402
+from ai_assistant.adapters.factory import create_adapter  # noqa: E402
 from ai_assistant.pipeline.steps import (  # noqa: E402
     build_context,
     embed_query,
@@ -55,7 +55,7 @@ async def main() -> int:
             "api_key": None,
         },
     )()
-    embedder = registry_create("embedder", "mock", mock_cfg)
+    embedder = create_adapter("embedder", "mock", mock_cfg)
     print(f"[OK]   Embedder: {type(embedder).__name__} (dim={embedder.dimension}) [MOCK]")
 
     # Init vector store

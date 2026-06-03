@@ -9,12 +9,10 @@ if TYPE_CHECKING:
 
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.ports.llm import ILLM, Message
-from ai_assistant.core.registry import register
 
 __all__ = ["MockLLM"]
 
 
-@register("llm", "mock")
 class MockLLM(ILLM):
     """Deterministic echo LLM for testing."""
 

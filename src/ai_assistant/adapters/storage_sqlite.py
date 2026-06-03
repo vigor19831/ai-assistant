@@ -11,7 +11,6 @@ import aiosqlite
 
 from ai_assistant.core.ports.initializable import IInitializable
 from ai_assistant.core.ports.storage import IChatStorage, ISettingsStorage
-from ai_assistant.core.registry import register
 
 __all__ = ["SQLiteStorage"]
 
@@ -25,7 +24,6 @@ def _safe_json_loads(value: str | None, default: Any) -> Any:
         return default
 
 
-@register("storage", "sqlite")
 class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
     """Combined chat and settings storage."""
 

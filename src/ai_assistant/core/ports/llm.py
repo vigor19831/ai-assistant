@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.ports.closable import IClosable
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -15,13 +16,17 @@ Message = UserMessage | AssistantMessage | dict[str, Any]
 __all__ = ["ILLM", "Message"]
 
 
-class ILLM(ABC):
+class ILLM(IClosable, ABC):
     """Language model interface."""
 
     system_message: str | None = None
 
     def __init__(self, config: Any) -> None:
         self.config = config
+
+    async def shutdown(self) -> None:
+        """Default no-op shutdown for LLMs without external resources."""
+        pass
 
     @abstractmethod
     async def complete(

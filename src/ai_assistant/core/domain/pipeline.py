@@ -22,9 +22,9 @@ class PipelineData:
     errors: tuple[str, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.chunks, tuple):
+        if not isinstance(self.chunks, tuple):  # noqa: UP037
             self.chunks = tuple(self.chunks)
-        if not isinstance(self.errors, tuple):
+        if not isinstance(self.errors, tuple):  # noqa: UP037
             self.errors = tuple(self.errors)
 
     def with_chunks(self, chunks: list[Chunk] | tuple[Chunk, ...]) -> PipelineData:

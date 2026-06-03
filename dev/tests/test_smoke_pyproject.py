@@ -68,16 +68,50 @@ def test_all_python_files_compile():
         "src/ai_assistant/core/ports/llm.py",
         "src/ai_assistant/core/ports/reranker.py",
         "src/ai_assistant/core/ports/vector_store.py",
-        "src/ai_assistant/core/registry.py",
         "src/ai_assistant/core/retry.py",
-        "src/ai_assistant/core/tool_registry.py",
         "src/ai_assistant/features/chat/handlers.py",
         "src/ai_assistant/features/rag/handlers.py",
         "src/ai_assistant/main.py",
-        "src/ai_assistant/pipeline/decorators.py",
+        "src/ai_assistant/api/static.py",
         "src/ai_assistant/pipeline/steps.py",
     ]
 
     for rel_path in files_to_check:
         f = base / rel_path
         py_compile.compile(str(f), doraise=True)
+
+
+def test_chat_manager_imported_at_module_level():
+    """ChatManager must be imported at top-level in deps.py — no deferred imports."""
+    from ai_assistant.api import deps
+
+    assert hasattr(deps, "ChatManager"), (
+        "ChatManager is not imported at top-level in deps.py — "
+        "deferred import detected"
+    )
+
+
+def test_lifespan_does_not_import_main():
+    """lifespan.py must not import from entry point to avoid circular dependency."""
+    import inspect
+    from ai_assistant.api import lifespan
+
+    source = inspect.getsource(lifespan)
+    assert "from ai_assistant.main import" not in source, (
+        "lifespan.py imports from main.py — circular entry point dependency"
+    )
+
+
+def test_mount_static_in_api_layer():
+    """_mount_static must live in api.static, not in entry point."""
+    from ai_assistant.api.static import _mount_static
+
+    assert callable(_mount_static)
+
+
+def test_key_modules_import_without_cycles():
+    """Top-level imports of all key modules must succeed immediately (no deferred cycles)."""
+    import ai_assistant.api.static
+    import ai_assistant.api.lifespan
+    import ai_assistant.api.deps
+    import ai_assistant.main

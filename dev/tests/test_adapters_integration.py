@@ -1,7 +1,7 @@
 """Consolidated adapter tests — all implementations, parametrized.
 
 Covers: chunker, embedder (2 types), LLM (2 types), vector store (2 types),
-        reranker (2 types), storage, memory, tools, transport.
+        reranker (2 types), storage.
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 from ai_assistant.adapters.reranker_api import APIReranker
 from ai_assistant.adapters.reranker_dummy import DummyReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
-from ai_assistant.adapters.tools_calculator import CalculatorTool
-from ai_assistant.adapters.transport_fastapi import FastAPITransport
 from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.config import EmbedderConfig, LLMConfig
@@ -72,6 +70,17 @@ class TestEmbedders:
         config = type("C", (), {"dim": dim})()
         emb = MockEmbedder(config)
         assert emb.dimension == dim
+
+    def test_openai_compatible_dimension(self):
+        config = EmbedderConfig(
+            provider="openai_compatible",
+            api_base="https://api.test.com/v1",
+            api_key="key",
+            dim=1536,
+            timeout=5.0,
+        )
+        embedder = OpenAICompatibleEmbedder(config)
+        assert embedder.dimension == 1536
 
     @pytest.mark.parametrize(
         "texts,expected_count",
@@ -504,65 +513,3 @@ class TestStorage:
             }
             assert "chat_messages" in tables
             assert "settings" in tables
-
-
-# ── Tools ──
-
-
-class TestCalculator:
-    @pytest.fixture
-    def calc(self):
-        return CalculatorTool()
-
-    @pytest.mark.parametrize(
-        "op,a,b,expected",
-        [
-            ("add", 2, 3, 5.0),
-            ("subtract", 5, 3, 2.0),
-            ("multiply", 4, 3, 12.0),
-            ("divide", 10, 2, 5.0),
-        ],
-    )
-    @pytest.mark.asyncio
-    async def test_operations(self, calc, op, a, b, expected):
-        result = await calc.execute("call-1", {"operation": op, "a": a, "b": b})
-        assert result.is_error is False
-        assert str(expected) in result.output
-
-    @pytest.mark.asyncio
-    async def test_divide_by_zero(self, calc):
-        result = await calc.execute("call-2", {"operation": "divide", "a": 10, "b": 0})
-        assert result.is_error is True
-        assert "zero" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_unknown_operation(self, calc):
-        result = await calc.execute("call-3", {"operation": "power", "a": 2, "b": 3})
-        assert result.is_error is True
-        assert "Unknown" in result.error
-
-    def test_spec(self, calc):
-        spec = calc.spec
-        assert spec.name == "calculator"
-        assert "add" in spec.parameters["properties"]["operation"]["enum"]
-
-
-# ── Transport ──
-
-
-class TestTransport:
-    @pytest.mark.asyncio
-    async def test_fastapi_start(self):
-        transport = FastAPITransport(config=MagicMock(host="127.0.0.1", port=9000))
-        with patch("uvicorn.Config") as mock_cfg:
-            with patch("uvicorn.Server") as mock_srv:
-                mock_srv.return_value.serve = AsyncMock()
-                await transport.start()
-                mock_cfg.assert_called_once()
-                assert mock_cfg.call_args.kwargs["host"] == "127.0.0.1"
-                assert mock_cfg.call_args.kwargs["port"] == 9000
-
-    @pytest.mark.asyncio
-    async def test_fastapi_stop_is_noop(self):
-        transport = FastAPITransport(config=MagicMock())
-        await transport.stop()  # should not raise

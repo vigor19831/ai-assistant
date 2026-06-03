@@ -153,22 +153,19 @@ class TestLifespan:
 
     @pytest.mark.asyncio
     async def test_shutdown_calls_closable_adapters(self):
-        """On shutdown, IClosable adapters (llm, embedder, vector_store) must be shut down."""
-        from ai_assistant.core.ports import IClosable, IEmbedder, IVectorStore
-
+        """On shutdown, all adapters (llm, embedder, vector_store) must be shut down."""
         app = MagicMock()
         mock_state = MagicMock()
 
-        # Use IClosable spec so isinstance(attr, IClosable) passes in lifespan
-        mock_llm = MagicMock(spec=IClosable)
+        mock_llm = MagicMock()
         mock_llm.shutdown = AsyncMock()
         mock_state.llm = mock_llm
 
-        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_embedder = MagicMock()
         mock_embedder.shutdown = AsyncMock()
         mock_state.embedder = mock_embedder
 
-        mock_vector_store = MagicMock(spec=IVectorStore)
+        mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.shutdown = AsyncMock()
         mock_state.vector_store = mock_vector_store
@@ -193,15 +190,6 @@ class TestLifespan:
         from fastapi import FastAPI
 
         app = FastAPI(lifespan=lifespan)
-
-        # Ensure adapter imports run so registry is populated
-        import ai_assistant.adapters.chunker_simple  # noqa: F401
-        import ai_assistant.adapters.embedder_mock  # noqa: F401
-        import ai_assistant.adapters.llm_mock  # noqa: F401
-        import ai_assistant.adapters.reranker_dummy  # noqa: F401
-        import ai_assistant.adapters.storage_sqlite  # noqa: F401
-        import ai_assistant.adapters.tools_calculator  # noqa: F401
-        import ai_assistant.adapters.vector_store_memory  # noqa: F401
 
         with patch("ai_assistant.api.lifespan._load_config", return_value=AppConfig()):
             async with lifespan(app):
@@ -231,8 +219,7 @@ class TestInitAdaptersDirect:
         cfg.reranker.provider = "dummy"
         cfg.storage.provider = "sqlite"
 
-        state = AppState(config=cfg)
-        result = await init_adapters(state)
+        result = await init_adapters(cfg)
 
         assert isinstance(result, InitializedAppState)
         assert result.chunker is not None

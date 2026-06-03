@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.router import assemble_routers
 from ai_assistant.api.security import require_api_key
+from ai_assistant.api.static import _mount_static
 
 __all__ = ["create_app", "app"]
 
@@ -99,25 +98,6 @@ def create_app(
         return {"provider": provider, "model": model}
 
     return app
-
-
-def _mount_static(app: FastAPI, config: Any) -> None:
-    """Mount /ui once, only if directory exists."""
-    if getattr(app.state, "static_mounted", False):
-        return
-    ui_cfg = getattr(config, "ui", None)
-    if ui_cfg is None:
-        return
-    static_dir = Path(ui_cfg.static_path)
-    if not static_dir.is_absolute():
-        static_dir = Path(__file__).parent / static_dir
-        if static_dir.exists():
-            app.mount(
-                "/ui",
-                StaticFiles(directory=str(static_dir), html=True),
-                name="static",
-            )
-            app.state.static_mounted = True
 
 
 # Global instance for uvicorn and backward compatibility

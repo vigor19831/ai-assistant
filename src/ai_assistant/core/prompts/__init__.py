@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -19,10 +20,10 @@ def _make_hashable(value: Any) -> Any:
         return tuple(_make_hashable(v) for v in value)
     if isinstance(value, dict):
         return tuple(sorted((k, _make_hashable(v)) for k, v in value.items()))
-    if hasattr(value, "__dataclass_fields__"):
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        fields = value.__dataclass_fields__
         return tuple(
-            (k, _make_hashable(getattr(value, k, None)))
-            for k in sorted(value.__dataclass_fields__.keys())
+            (k, _make_hashable(getattr(value, k, None))) for k in sorted(fields.keys())
         )
     return str(value)
 

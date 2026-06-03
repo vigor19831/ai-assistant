@@ -7,12 +7,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
-from ai_assistant.core.registry import register
 
 __all__ = ["DummyReranker"]
 
 
-@register("reranker", "dummy")
 class DummyReranker(IReranker):
     """Transparent reranker — returns chunks as-is with uniform scores.
 

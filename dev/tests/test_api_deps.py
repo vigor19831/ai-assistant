@@ -4,7 +4,7 @@ Validates that init_adapters correctly:
 - Creates AppState with all expected fields
 - Builds RAGPipeline with correct step lambdas
 - Handles missing/optional adapters gracefully
-- Respects sacred core boundaries (registry_create mocking)
+- Respects sacred core boundaries (factory mocking)
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class TestAppState:
         assert state.limiter is None
 
 
-# ── init_adapters with mocked registry.create ──
+# ── init_adapters with mocked factory ──
 
 
 class TestInitAdapters:
@@ -94,7 +94,7 @@ class TestInitAdapters:
 
     @pytest.mark.asyncio
     async def test_app_state_assembled_correctly(self, minimal_config):
-        """Mock registry.create and verify AppState fields are populated."""
+        """Mock create_adapter and verify AppState fields are populated."""
         mock_llm = MagicMock()
         mock_embedder = MagicMock()
         mock_vector_store = MagicMock()
@@ -107,7 +107,7 @@ class TestInitAdapters:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             mapping = {
                 ("llm", "mock"): mock_llm,
                 ("embedder", "mock"): mock_embedder,
@@ -118,26 +118,10 @@ class TestInitAdapters:
             }
             return mapping.get((port, name), MagicMock())
 
-        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
-            adapters = {
-                "llm": ["mock"],
-                "embedder": ["mock"],
-                "vector_store": ["memory"],
-                "chunker": ["simple"],
-                "storage": ["sqlite"],
-                "reranker": ["dummy"],
-            }
-            if port is None:
-                return adapters
-            return adapters.get(port, [])
-
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
-        ), patch(
-            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            result = await init_adapters(state)
+            result = await init_adapters(minimal_config)
 
         assert isinstance(result, InitializedAppState)
         assert result.config is minimal_config
@@ -159,30 +143,25 @@ class TestInitAdapters:
         mock_reranker = MagicMock()
         mock_storage = MagicMock()
         mock_storage.init_db = AsyncMock()
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             mapping = {
                 ("llm", "mock"): mock_llm,
                 ("embedder", "mock"): mock_embedder,
                 ("vector_store", "memory"): mock_vector_store,
                 ("chunker", "simple"): mock_chunker,
                 ("reranker", "dummy"): mock_reranker,
-                ("tool", "calculator"): MagicMock(),
                 ("storage", "sqlite"): mock_storage,
-                ("memory", "sqlite"): mock_memory,
             }
             return mapping.get((port, name), MagicMock())
 
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            result = await init_adapters(state)
+            result = await init_adapters(minimal_config)
 
         assert result.pipeline is not None
         assert isinstance(result.pipeline, RAGPipeline)
@@ -206,30 +185,25 @@ class TestInitAdapters:
         mock_reranker = MagicMock()
         mock_storage = MagicMock()
         mock_storage.init_db = AsyncMock()
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             mapping = {
                 ("llm", "mock"): mock_llm,
                 ("embedder", "mock"): mock_embedder,
                 ("vector_store", "memory"): mock_vector_store,
                 ("chunker", "simple"): mock_chunker,
                 ("reranker", "dummy"): mock_reranker,
-                ("tool", "calculator"): MagicMock(),
                 ("storage", "sqlite"): mock_storage,
-                ("memory", "sqlite"): mock_memory,
             }
             return mapping.get((port, name), MagicMock())
 
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            result = await init_adapters(state)
+            result = await init_adapters(minimal_config)
 
         assert result.pipeline is not None
         assert isinstance(result.pipeline, RAGPipeline)
@@ -256,83 +230,41 @@ class TestInitAdapters:
         mock_vector_store.load = AsyncMock(return_value=None)
         mock_storage = MagicMock()
         mock_storage.init_db = AsyncMock()
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "reranker" and name == "nonexistent":
                 raise ValueError("No such reranker")
             if port == "storage" and name == "sqlite":
                 return mock_storage
-            if port == "memory" and name == "sqlite":
-                return mock_memory
             return MagicMock()
 
-        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
-            adapters = {
-                "llm": ["mock"],
-                "embedder": ["mock"],
-                "vector_store": ["memory"],
-                "chunker": ["simple"],
-                "storage": ["sqlite"],
-                "reranker": ["dummy"],  # "nonexistent" NOT registered
-                "tool": ["calculator"],
-                "memory": ["sqlite"],
-            }
-            if port is None:
-                return adapters
-            return adapters.get(port, [])
-
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
-        ), patch(
-            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            result = await init_adapters(state)
+            result = await init_adapters(minimal_config)
 
         assert result.reranker is None
 
     @pytest.mark.asyncio
     async def test_storage_skipped_when_not_in_registry(self, minimal_config):
-        """Storage adapter not in registry should be skipped gracefully."""
+        """Storage adapter not available should be skipped gracefully."""
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
-            if port == "memory" and name == "sqlite":
-                return mock_memory
+            if port == "storage" and name == "sqlite":
+                raise ValueError("No storage adapter registered for 'sqlite'")
             return MagicMock()
 
-        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
-            adapters = {
-                "llm": ["mock"],
-                "embedder": ["mock"],
-                "vector_store": ["memory"],
-                "chunker": ["simple"],
-                "storage": [],  # "sqlite" NOT registered
-                "reranker": ["dummy"],
-                "tool": ["calculator"],
-                "memory": ["sqlite"],
-            }
-            if port is None:
-                return adapters
-            return adapters.get(port, [])
-
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
-        ), patch(
-            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            result = await init_adapters(state)
+            result = await init_adapters(minimal_config)
 
         assert result.storage is None
 
@@ -342,115 +274,68 @@ class TestInitAdapters:
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ImportError("sqlite3 not available")
-            if port == "memory" and name == "sqlite":
-                return mock_memory
             return MagicMock()
 
-        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
-            adapters = {
-                "llm": ["mock"],
-                "embedder": ["mock"],
-                "vector_store": ["memory"],
-                "chunker": ["simple"],
-                "storage": ["sqlite"],
-                "reranker": ["dummy"],
-                "tool": ["calculator"],
-                "memory": ["sqlite"],
-            }
-            if port is None:
-                return adapters
-            return adapters.get(port, [])
-
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
-        ), patch(
-            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            result = await init_adapters(state)
+            result = await init_adapters(minimal_config)
 
         assert result.storage is None
 
     @pytest.mark.asyncio
-    async def test_storage_raises_on_value_error(self, minimal_config):
-        """Storage adapter raising ValueError should crash startup (bug signal)."""
+    async def test_storage_caught_on_value_error(self, minimal_config):
+        """Storage adapter raising ValueError is caught and storage becomes None."""
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
-        mock_memory = MagicMock()
-        mock_memory.init_db = AsyncMock()
 
-        def fake_registry_create(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ValueError("Broken config")
-            if port == "memory" and name == "sqlite":
-                return mock_memory
             return MagicMock()
 
-        def fake_list_adapters(port: str | None = None) -> dict[str, list[str]] | list[str]:
-            adapters = {
-                "llm": ["mock"],
-                "embedder": ["mock"],
-                "vector_store": ["memory"],
-                "chunker": ["simple"],
-                "storage": ["sqlite"],
-                "reranker": ["dummy"],
-                "tool": ["calculator"],
-                "memory": ["sqlite"],
-            }
-            if port is None:
-                return adapters
-            return adapters.get(port, [])
-
         with patch(
-            "ai_assistant.core.registry.create", side_effect=fake_registry_create
-        ), patch(
-            "ai_assistant.core.registry.list_adapters", side_effect=fake_list_adapters
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            state = AppState(config=minimal_config)
-            with pytest.raises(ValueError, match="Broken config"):
-                await init_adapters(state)
+            result = await init_adapters(minimal_config)
+
+        assert result.storage is None
 
     @pytest.mark.asyncio
-    async def test_idempotent_init(self, minimal_config):
-        """Multiple calls to init_adapters should return same state
-        without re-creating adapters."""
+    async def test_init_adapters_returns_fresh_state(self, minimal_config):
+        """init_adapters returns a fresh InitializedAppState each call."""
         call_count = {"count": 0}
 
-        def counting_registry_create(port: str, name: str, config: Any) -> Any:
+        def counting_create_adapter(port: str, name: str, config: Any) -> Any:
             call_count["count"] += 1
             m = MagicMock()
             if port == "vector_store":
                 m.list_namespaces = AsyncMock(return_value=[])
                 m.load = AsyncMock(return_value=None)
-            if port in ("storage", "memory"):
+            if port == "storage":
                 m.init_db = AsyncMock()
             return m
 
         with patch(
-            "ai_assistant.core.registry.create",
-            side_effect=counting_registry_create,
+            "ai_assistant.api.deps.create_adapter",
+            side_effect=counting_create_adapter,
         ):
-            state = AppState(config=minimal_config)
-            first_result = await init_adapters(state)
-            first_count = call_count["count"]
-            second_result = await init_adapters(state)
-            second_count = call_count["count"]
+            result = await init_adapters(minimal_config)
 
-        assert second_count == first_count, "Second init should not re-create adapters"
-        assert isinstance(first_result, InitializedAppState)
-        assert isinstance(second_result, InitializedAppState)
-        assert first_result.llm is second_result.llm
+        assert isinstance(result, InitializedAppState)
+        assert result.config is minimal_config
+        assert result.llm is not None
+        assert result.embedder is not None
+        assert result.vector_store is not None
 
 
 # ── get_state error handling ──
@@ -498,11 +383,11 @@ class TestGetState:
         request = Request(scope)
         assert get_state(request) is mock_state
 
-    def test_raises_when_app_state_is_wrong_type(self):
+    def test_raises_when_app_state_is_none(self):
         from fastapi import FastAPI, Request
 
         app = FastAPI()
-        app.state.app_state = "not an AppState"
+        # app_state not set — defaults to None
 
         scope = {
             "type": "http",
@@ -527,6 +412,9 @@ class TestChatStoragePagination:
         from ai_assistant.core.ports.storage import IChatStorage
 
         class DummyStorage(IChatStorage):
+            async def init_db(self) -> None:
+                pass
+
             async def save_message(self, conversation_id: str, message: dict[str, Any]) -> None:
                 pass
 

@@ -99,7 +99,7 @@ async def index_documents(
     namespace = req.namespace or state.config.rag.default_namespace
 
     # ── Resource guard: document size ──
-    max_doc_size = getattr(state.config.vector_store, "max_document_size", 10_485_760)
+    max_doc_size = state.config.vector_store.max_document_size
     filtered_docs: list[dict[str, Any]] = []
     pre_errors: list[str] = []
     for doc in req.documents:
@@ -126,7 +126,7 @@ async def index_documents(
         result.setdefault("errors", []).extend(pre_errors)
 
     # Auto-save after indexing
-    index_path = getattr(state.config.vector_store, "index_path", None)
+    index_path = state.config.vector_store.index_path
     if index_path:
         if state.vector_store is None:
             raise HTTPException(status_code=500, detail="Vector store not initialized")
@@ -149,7 +149,7 @@ async def query_rag(
     prompt_name = req.prompt_name or cfg.prompt_name or "rag_strict"
 
     # Get relevance threshold from config or request
-    relevance_threshold = getattr(cfg, "relevance_threshold", 0.3)
+    relevance_threshold = cfg.relevance_threshold
 
     result = await manager.query(
         query_text=req.query,
@@ -203,7 +203,7 @@ async def rag_health(
         status=health["status"],
         index_loaded=health["index_loaded"],
         chunk_count=health["chunk_count"],
-        embedder_dim=getattr(state.embedder, "dimension", None),
+        embedder_dim=state.embedder.dimension,
     )
 
 
@@ -211,7 +211,7 @@ async def rag_health(
 async def list_namespaces(
     state: Annotated[AppState, Depends(get_state)],
 ) -> NamespaceListResponse:
-    index_path = getattr(state.config.vector_store, "index_path", None)
+    index_path = state.config.vector_store.index_path
     namespaces: list[str] = []
     if index_path:
         if state.vector_store is None:
@@ -272,7 +272,7 @@ async def save_chat(
         )
 
         # Auto-save index
-        index_path = getattr(state.config.vector_store, "index_path", None)
+        index_path = state.config.vector_store.index_path
         if index_path:
             if state.vector_store is None:
                 raise HTTPException(

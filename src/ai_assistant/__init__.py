@@ -1,3 +1,6 @@
-"""AI Assistant — modular AI framework."""
+"""Adapters package — no side-effect imports, no @register.
 
-__version__ = "1.0.0"
+Adapters are loaded on-demand via create_adapter() in adapters/factory.py.
+"""
+
+__all__ = []  # Explicitly empty — adapters are not imported at package level

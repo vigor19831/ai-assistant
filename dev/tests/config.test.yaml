@@ -43,12 +43,6 @@ storage:
   provider: sqlite
   db_path: ./data/test_storage.db
 
-voice:
-  enabled: false
-
-vision:
-  enabled: false
-
 reranker:
   provider: dummy
   timeout: 5.0

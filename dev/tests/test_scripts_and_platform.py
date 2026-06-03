@@ -265,17 +265,13 @@ class TestCheckScripts:
         rc = check_ruff.main()
         assert rc in (0, 1)
 
-    def test_check_vulture_runs(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(sys, "argv", ["check_vulture"])
-        check_vulture = load_script("check_vulture")
+    def test_audit_project_runs(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(sys, "argv", ["audit_project"])
+        audit = load_script("audit_project")
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "core").mkdir()
-        (tmp_path / "core" / "dummy.py").write_text("x = 1\n")
-        try:
-            import vulture  # noqa: F401
-        except ModuleNotFoundError:
-            pytest.skip("vulture not installed")
-        rc = check_vulture.main()
+        (tmp_path / "src" / "ai_assistant").mkdir(parents=True)
+        (tmp_path / "src" / "ai_assistant" / "dummy.py").write_text("x = 1\n")
+        rc = audit.main()
         assert rc in (0, 1)
 
     def test_check_smoke_imports(self):

@@ -218,50 +218,6 @@ class TestToolResultFrozen:
         assert result.is_error is True
 
 
-class TestToolRegistryErrorHandling:
-    """Tests for ToolRegistry.dispatch error handling."""
-    async def test_dispatch_logs_exception_on_tool_failure(self) -> None:
-        """Tool raising ValueError must trigger logger.exception with tool name."""
-        from unittest.mock import MagicMock, patch
-
-        from ai_assistant.core.ports.tools import ToolCall
-        from ai_assistant.core.tool_registry import ToolRegistry
-
-        registry = ToolRegistry()
-        mock_tool = MagicMock()
-        mock_tool.spec.name = "failing_tool"
-        mock_tool.execute.side_effect = ValueError("boom")
-
-        registry.register(mock_tool)
-
-        call = ToolCall(tool_name="failing_tool", arguments={}, call_id="call-1")
-
-        with patch("ai_assistant.core.tool_registry._logger.exception") as mock_exc:
-            result = await registry.dispatch(call)
-
-        assert result.is_error is True
-        assert result.error == "Tool execution failed"
-        assert result.output == ""
-        mock_exc.assert_called_once_with("Tool %s failed", "failing_tool")
-
-    async def test_dispatch_logs_warning_on_missing_tool(self) -> None:
-        """Dispatching an unregistered tool must log a warning with the tool name."""
-        from unittest.mock import patch
-
-        from ai_assistant.core.ports.tools import ToolCall
-        from ai_assistant.core.tool_registry import ToolRegistry
-
-        registry = ToolRegistry()
-        call = ToolCall(tool_name="missing_tool", arguments={}, call_id="call-2")
-
-        with patch("ai_assistant.core.tool_registry._logger.warning") as mock_warn:
-            result = await registry.dispatch(call)
-
-        assert result.is_error is True
-        assert "missing_tool" in result.error
-        mock_warn.assert_called_once_with("Tool '%s' not found", "missing_tool")
-
-
 def test_config_rejects_mismatched_dimensions():
     from ai_assistant.core.config import AppConfig
 

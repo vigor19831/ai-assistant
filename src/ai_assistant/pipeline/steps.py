@@ -26,7 +26,6 @@ from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import count_tokens, get_context_limit
-from ai_assistant.pipeline.decorators import step
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
@@ -73,7 +72,6 @@ async def _call_llm(llm: Any, messages: list[Any]) -> AssistantMessage:
     return await llm.complete(messages)
 
 
-@step("embed_query")
 async def embed_query(data: PipelineData) -> PipelineData:
     """Embed the user query text.
 
@@ -99,7 +97,6 @@ async def embed_query(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
-@step("retrieve")
 async def retrieve(data: PipelineData) -> PipelineData:
     """Retrieve relevant chunks from vector store (namespace-aware).
 
@@ -130,7 +127,6 @@ async def retrieve(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
-@step("rerank")
 async def rerank(data: PipelineData) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
@@ -186,7 +182,6 @@ async def rerank(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
-@step("build_context")
 async def build_context(data: PipelineData) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks.
 
@@ -199,7 +194,6 @@ async def build_context(data: PipelineData) -> PipelineData:
     return data.with_context("\n\n".join(lines))
 
 
-@step("generate")
 async def generate(data: PipelineData) -> PipelineData:
     llm = data.metadata.get("llm")
     if llm is None:
@@ -228,7 +222,7 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt = _build_fallback_prompt()
 
     max_ctx = _get_llm_context_limit(llm)
-    if isinstance(max_ctx, int) and max_ctx > 0:
+    if max_ctx is not None and max_ctx > 0:
         prompt_tokens = _estimate_tokens(prompt)
         margin = max(256, int(max_ctx * 0.1))
         limit = max_ctx - margin

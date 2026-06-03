@@ -22,14 +22,11 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.ports.vector_store import IVectorStore
-from ai_assistant.core.registry import register
 
 __all__ = ["FaissVectorStore"]
 
-
 if _FAISS_AVAILABLE:
 
-    @register("vector_store", "faiss")
     class FaissVectorStore(IVectorStore):
         """Thread-safe FAISS vector store with multi-namespace support.
 
@@ -71,7 +68,8 @@ if _FAISS_AVAILABLE:
                 )
 
         async def shutdown(self) -> None:
-            pass
+            """Release in-memory FAISS indices and chunk data."""
+            self._namespaces.clear()
 
         async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
             if not chunks:
@@ -95,7 +93,7 @@ if _FAISS_AVAILABLE:
 
                 vectors = np.array(embeddings, dtype=np.float32)
                 start_id = ns.next_id
-                ns.index.add(vectors)
+                await asyncio.to_thread(ns.index.add, vectors)
 
                 for i, chunk in enumerate(valid_chunks):
                     faiss_id = start_id + i
@@ -124,7 +122,7 @@ if _FAISS_AVAILABLE:
                 if ns.index is None or ns.index.ntotal == 0:
                     return []
                 q = np.array([query_embedding], dtype=np.float32)
-                distances, indices = ns.index.search(q, top_k)
+                distances, indices = await asyncio.to_thread(ns.index.search, q, top_k)
                 results: list[Chunk] = []
                 for idx in indices[0]:
                     if idx < 0:
@@ -170,7 +168,7 @@ if _FAISS_AVAILABLE:
 
                 vectors = np.array(embeddings, dtype=np.float32)
                 start_id = ns.next_id
-                ns.index.add(vectors)
+                await asyncio.to_thread(ns.index.add, vectors)
 
                 for i, chunk in enumerate(valid_chunks):
                     faiss_id = start_id + i
@@ -192,7 +190,9 @@ if _FAISS_AVAILABLE:
                     return
                 p = Path(path) / namespace
                 p.mkdir(parents=True, exist_ok=True)
-                faiss.write_index(ns.index, str(p / "index.faiss"))
+                await asyncio.to_thread(
+                    faiss.write_index, ns.index, str(p / "index.faiss")
+                )
 
                 meta = {
                     "version": "1.0",
@@ -202,7 +202,8 @@ if _FAISS_AVAILABLE:
                     "chunk_count": len(ns.chunks),
                     "metric": self.metric,
                 }
-                await atomic_write(p / "index_meta.json", json.dumps(meta, indent=2))
+                meta_json = await asyncio.to_thread(json.dumps, meta, indent=2)
+                await atomic_write(p / "index_meta.json", meta_json)
 
                 store = {
                     "chunks": {
@@ -228,7 +229,8 @@ if _FAISS_AVAILABLE:
                     "id_map": ns.id_map,
                     "next_id": ns.next_id,
                 }
-                await atomic_write(p / "store.json", json.dumps(store, indent=2))
+                store_json = await asyncio.to_thread(json.dumps, store, indent=2)
+                await atomic_write(p / "store.json", store_json)
 
         async def load(self, path: str, namespace: str = "default") -> None:
             p = Path(path) / namespace
@@ -242,7 +244,7 @@ if _FAISS_AVAILABLE:
             meta = None
             if await asyncio.to_thread(meta_path.exists):
                 meta_text = await asyncio.to_thread(meta_path.read_text)
-                meta = json.loads(meta_text)
+                meta = await asyncio.to_thread(json.loads, meta_text)
                 stored_dim = meta.get("embedder_dim")
                 if stored_dim is not None and stored_dim != self.dim:
                     raise VersionMismatchError(
@@ -254,7 +256,7 @@ if _FAISS_AVAILABLE:
             store = None
             if await asyncio.to_thread(store_path.exists):
                 store_text = await asyncio.to_thread(store_path.read_text)
-                store = json.loads(store_text)
+                store = await asyncio.to_thread(json.loads, store_text)
 
             async with self._lock:
                 ns = self._get_ns(namespace)
@@ -335,7 +337,6 @@ if _FAISS_AVAILABLE:
 
 else:
 
-    @register("vector_store", "faiss")
     class FaissVectorStore(IVectorStore):  # type: ignore[no-redef]
         """Explicitly unavailable — raises on any operation."""
 

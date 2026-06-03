@@ -248,7 +248,7 @@ def mock_state(
     )
     # Removed: voice_recognizer, voice_synthesizer, vision, tool_registry, long_term_memory
 
-    # slots=True у AppState, но chat_manager уже объявлен со default=None
+    # AppState is mutable for test injection
     state.chat_manager = MagicMock()
     state.chat_manager.chat = AsyncMock(
         return_value=MagicMock(text="Mocked AI response", metadata={}, tool_calls=[])

@@ -2,20 +2,40 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any
 
 import httpx
 
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.ports.embedder import IEmbedder
-from ai_assistant.core.registry import register
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import resolve_api_key
 
 __all__ = ["OpenAICompatibleEmbedder"]
 
 
-@register("embedder", "openai_compatible")
+def _extract_embeddings(
+    resp_text: str, expected_dim: int, model: str
+) -> list[list[float]]:
+    data = json.loads(resp_text)
+    try:
+        embeddings = [item["embedding"] for item in data["data"]]
+    except (KeyError, TypeError) as exc:
+        raise AdapterError(f"Unexpected response shape from {model!r}: {exc}") from exc
+
+    for i, emb in enumerate(embeddings):
+        if len(emb) != expected_dim:
+            raise AdapterError(
+                f"Dimension mismatch: expected {expected_dim}, "
+                f"got {len(emb)} for text[{i}] "
+                f"(model={model!r}). "
+                f"Check config.embedder.dim or model compatibility."
+            )
+    return embeddings
+
+
 class OpenAICompatibleEmbedder(IEmbedder):
     """Embedder using OpenAI-compatible REST API."""
 
@@ -28,10 +48,13 @@ class OpenAICompatibleEmbedder(IEmbedder):
         )
         self._dim: int = getattr(config, "dim", 1536)
         self._timeout: float = getattr(config, "timeout", 60.0)
+        self._client: httpx.AsyncClient | None = None
 
     async def shutdown(self) -> None:
-        """No-op: client is created per-request and auto-closed by context manager."""
-        pass
+        """Close persistent HTTP client."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     @property
     def dimension(self) -> int:
@@ -56,24 +79,11 @@ class OpenAICompatibleEmbedder(IEmbedder):
             "model": self.model,
             "input": texts,
         }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-
-        try:
-            embeddings = [item["embedding"] for item in data["data"]]
-        except (KeyError, TypeError) as exc:
-            raise AdapterError(
-                f"Unexpected response shape from {self.model!r}: {exc}"
-            ) from exc
-
-        for i, emb in enumerate(embeddings):
-            if len(emb) != self._dim:
-                raise AdapterError(
-                    f"Dimension mismatch: expected {self._dim}, "
-                    f"got {len(emb)} for text[{i}] "
-                    f"(model={self.model!r}). "
-                    f"Check config.embedder.dim or model compatibility."
-                )
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout)
+        resp = await self._client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        embeddings = await asyncio.to_thread(
+            _extract_embeddings, resp.text, self._dim, self.model
+        )
         return embeddings

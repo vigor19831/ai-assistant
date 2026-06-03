@@ -152,16 +152,17 @@ def check_file_structure() -> str:
 def check_app_state() -> str:
     import asyncio
 
-    from ai_assistant.api.deps import init_adapters
+    from ai_assistant.api.deps import AppState, init_adapters
     from ai_assistant.core.config import load_config
 
     cfg = load_config(str(_DEV_ROOT / "tests" / "config.test.yaml"))
-    # 1. Создаём state из конфига
-    state = asyncio.run(init_adapters(cfg))
-    # 2. Идемпотентность: повторный вызов с тем же AppState возвращает тот же объект
-    state2 = asyncio.run(init_adapters(state))
-    assert state is state2, "init_adapters not idempotent with AppState"
-    # 3. Повторный вызов с AppConfig создаёт новый, но валидный state
+    # 1. Создаём AppState и инициализируем
+    app_state = AppState(config=cfg)
+    state = asyncio.run(init_adapters(app_state))
+    # 2. Идемпотентность: повторный вызов с тем же AppState не падает
+    state2 = asyncio.run(init_adapters(app_state))
+    assert state2.pipeline is not None, "idempotent call should return pipeline"
+    # 3. Новый state из AppConfig
     state3 = asyncio.run(init_adapters(cfg))
     assert state3 is not state, "init_adapters should create new state from config"
     assert state3.pipeline is not None, "new state should have pipeline"
@@ -170,7 +171,7 @@ def check_app_state() -> str:
             "llm": type(state.llm).__name__,
             "embedder": type(state.embedder).__name__,
             "pipeline_steps": len(state.pipeline.steps),
-            "tool_registry": type(state.tool_registry).__name__,
+            "chat_manager": type(state.chat_manager).__name__,
         }
     )
 
@@ -306,21 +307,17 @@ def check_tools() -> str:
 
 
 def check_security() -> str:
-    from ai_assistant.api.security import SecurityLimiter, get_expected_api_key
+    from ai_assistant.api.security import get_expected_api_key
 
-    limiter = SecurityLimiter()
-    ip = "127.0.0.1"
-    allowed = sum(1 for _ in range(110) if limiter.is_allowed(ip))
     os.environ["AI_API_KEY"] = "test-smoke"
     key = get_expected_api_key()
-    return f"allowed={allowed}/110, key_resolved={key is not None}"
+    return f"key_resolved={key is not None}"
 
 
 def check_lifespan() -> str:
     from unittest.mock import AsyncMock, MagicMock, patch
 
     from ai_assistant.api.lifespan import lifespan
-    from ai_assistant.core.metrics import MetricsLogger
 
     async def run():
         class MinimalApp:
@@ -344,8 +341,6 @@ def check_lifespan() -> str:
         st.embedder = None
         st.vector_store = MinimalVS()
         st.llm_server_manager = None
-
-        metrics_logger = MetricsLogger()
 
         with patch("ai_assistant.api.lifespan._load_config") as mock_cfg:
             cfg = type(

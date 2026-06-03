@@ -171,7 +171,6 @@ class ChatManager:
             query=query_text,
             context=data.context,
         )
-        assert isinstance(data.chunks, tuple)
         return prompt, query_text, data.chunks
 
     async def chat(

@@ -29,7 +29,11 @@ class TestMaybeRAG:
         store = MemoryVectorStore(
             type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
         )
-        pipeline = RAGPipeline([embed_query, retrieve, build_context])
+        pipeline = RAGPipeline([
+            embed_query,
+            retrieve,
+            build_context,
+        ])
         return ChatManager(
             llm=MagicMock(),
             embedder=embedder,

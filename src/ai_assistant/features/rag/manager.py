@@ -201,11 +201,7 @@ class RAGManager:
         # Count chunks across ALL namespaces
         total_chunks = 0
         try:
-            index_path = getattr(
-                self.vector_store.config,
-                "index_path",
-                "./data/indices",
-            )
+            index_path = self.vector_store.config.index_path
             namespaces = await self.vector_store.list_namespaces(index_path)
             for ns in namespaces:
                 chunks = await self.vector_store.list_by_filter({}, namespace=ns)

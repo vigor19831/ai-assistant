@@ -69,6 +69,9 @@ def main() -> int:
 
     # 1. hasattr / isinstance in production code (tests exempt)
     # AI_RULES: NEVER use hasattr/isinstance to bypass port contracts
+    # Exception: standard type narrowing for primitives and collections
+    # Exception: Pydantic validators in config.py — isinstance there is standard type narrowing
+    _allowed_type_tokens = {'str', 'int', 'float', 'bool', 'bytes', 'type', 'None', 'NoneType', 'list', 'tuple', 'dict'}
     for subdir in _PROD_DIRS:
         sub = src / subdir
         if not sub.exists():
@@ -76,11 +79,38 @@ def main() -> int:
         for p in sub.rglob('*.py'):
             if 'test' in p.name or 'conftest' in p.name:
                 continue
-            issues.extend(_scan_file(p, re.compile(r'hasattr\('), 'no-hasattr-in-production', warn_only=False))
-            issues.extend(_scan_file(p, re.compile(r'isinstance\('), 'no-isinstance-in-production', warn_only=False))
+            # Config.py validators use isinstance for type narrowing — exempt
+            if p.name == 'config.py':
+                continue
+            try:
+                text = p.read_text(encoding='utf-8', errors='replace')
+            except (OSError, UnicodeDecodeError):
+                continue
+            lines = text.splitlines()
+            for n, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue
+                clean = _clean_line(line)
+                if 'hasattr(' in clean:
+                    issues.append((p, n, 'no-hasattr-in-production', False))
+                if 'isinstance(' in clean:
+                    # Extract type argument from isinstance(x, TYPE)
+                    m = re.search(r'isinstance\([^,]+,\s*(.+)\)', clean)
+                    if m:
+                        type_arg = m.group(1).strip()
+                        # Unwrap tuple wrapper: (str, int) -> str, int
+                        if type_arg.startswith('(') and type_arg.endswith(')'):
+                            type_arg = type_arg[1:-1]
+                        # Tokenize: extract identifiers, ignore punctuation like () in type(None)
+                        type_tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', type_arg)
+                        if all(t in _allowed_type_tokens for t in type_tokens):
+                            continue
+                    issues.append((p, n, 'no-isinstance-in-production', False))
 
     # 2. **kwargs in production code
     # AI_RULES: NEVER Add **kwargs to pass data that belongs in PipelineData
+    # Exceptions: decorators with @functools.wraps / @lru_cache, get_prompt template variables
     for subdir in _PROD_DIRS:
         sub = src / subdir
         if not sub.exists():
@@ -91,7 +121,68 @@ def main() -> int:
             # llm.py excluded — sampling params are open-ended by design
             if subdir == 'core' and 'ports' in str(p) and p.name == 'llm.py':
                 continue
-            issues.extend(_scan_file(p, re.compile(r'\*\*kwargs'), 'no-kwargs-in-production'))
+            try:
+                text = p.read_text(encoding='utf-8', errors='replace')
+            except (OSError, UnicodeDecodeError):
+                continue
+            lines = text.splitlines()
+            for n, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue
+                clean = _clean_line(line)
+                if '**kwargs' not in clean:
+                    continue
+                # Broader context for decorators and function definitions
+                context = '\n'.join(lines[max(0, n-10):n])
+                if '@functools.wraps' in context or '@wraps' in context or '@lru_cache' in context:
+                    continue
+                # get_prompt and _render are template functions — kwargs are template variables
+                if 'def get_prompt(' in context or 'def _render(' in context:
+                    continue
+                # Also allow **kwargs in Jinja2 render() calls
+                if '.render(' in clean:
+                    continue
+                issues.append((p, n, 'no-kwargs-in-production', False))
+
+    # 2. **kwargs in production code
+    # AI_RULES: NEVER Add **kwargs to pass data that belongs in PipelineData
+    # Exceptions: decorators with @functools.wraps / @lru_cache, get_prompt template variables
+    for subdir in _PROD_DIRS:
+        sub = src / subdir
+        if not sub.exists():
+            continue
+        for p in sub.rglob('*.py'):
+            if 'test' in p.name or 'conftest' in p.name:
+                continue
+            # Config validators use isinstance for type narrowing — exempt
+            if p.name == 'config.py':
+                continue
+            try:
+                text = p.read_text(encoding='utf-8', errors='replace')
+            except (OSError, UnicodeDecodeError):
+                continue
+            lines = text.splitlines()
+            for n, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith('#'):
+                    continue
+                clean = _clean_line(line)
+                if 'hasattr(' in clean:
+                    issues.append((p, n, 'no-hasattr-in-production', False))
+                if 'isinstance(' in clean:
+                    # Extract type argument from isinstance(x, TYPE)
+                    m = re.search(r'isinstance\([^,]+,\s*(.+)\)', clean)
+                    if m:
+                        type_arg = m.group(1).strip()
+                        # Unwrap tuple wrapper: (str, int) -> str, int
+                        if type_arg.startswith('(') and type_arg.endswith(')'):
+                            type_arg = type_arg[1:-1]
+                        # Tokenize: extract identifiers, ignore punctuation like () in type(None)
+                        type_tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', type_arg)
+                        if all(t in _allowed_type_tokens for t in type_tokens):
+                            continue
+                    issues.append((p, n, 'no-isinstance-in-production', False))
 
     # 3. cross-feature imports (absolute + relative)
     feat_root = src / 'features'

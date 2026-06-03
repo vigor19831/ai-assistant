@@ -1,4 +1,4 @@
-"""In-memory vector store with namespaces, relevance filtering, and LRU eviction."""
+"""In-memory vector store with namespaces, relevance filtering, and FIFO eviction."""
 
 from __future__ import annotations
 
@@ -12,14 +12,12 @@ import numpy as np
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.ports.vector_store import IVectorStore
-from ai_assistant.core.registry import register
 
 __all__ = ["MemoryVectorStore"]
 
 
-@register("vector_store", "memory")
 class MemoryVectorStore(IVectorStore):
-    """Simple in-memory vector store with multi-namespace support and LRU eviction.
+    """Simple in-memory vector store with multi-namespace support and FIFO eviction.
 
     Uses cosine similarity with strict threshold to prevent irrelevant results.
     Enforces max_chunks per namespace to prevent OOM.
@@ -45,7 +43,8 @@ class MemoryVectorStore(IVectorStore):
         return v / norm if norm > 0 else v
 
     async def shutdown(self) -> None:
-        pass
+        """Release in-memory chunk data and embeddings."""
+        self._namespaces.clear()
 
     async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
         if not chunks:
@@ -66,7 +65,7 @@ class MemoryVectorStore(IVectorStore):
                     meta["source"] = chunk.metadata.source
                     meta["index"] = chunk.metadata.index
                 ns.metadata[chunk.id] = meta
-                ns._touch(chunk.id)
+            ns._track(chunk.id)
             ns._evict()
 
     async def search(
@@ -115,7 +114,8 @@ class MemoryVectorStore(IVectorStore):
                 ns.chunks.pop(cid, None)
                 ns.embeddings.pop(cid, None)
                 ns.metadata.pop(cid, None)
-                ns._lru.pop(cid, None)
+                if cid in ns._order:
+                    ns._order.remove(cid)
 
     async def save(self, path: str, namespace: str = "default") -> None:
         p = Path(path) / namespace
@@ -180,9 +180,8 @@ class MemoryVectorStore(IVectorStore):
                 for cid, emb in data.get("embeddings", {}).items()
             }
             ns.metadata = data.get("metadata", {})
-            ns._lru.clear()
-            for cid in ns.chunks:
-                ns._lru[cid] = None
+            ns._order.clear()
+            ns._order.extend(ns.chunks.keys())
 
     async def list_by_filter(
         self,
@@ -212,7 +211,7 @@ class MemoryVectorStore(IVectorStore):
 
 
 class _NamespaceData:
-    """Per-namespace state with LRU eviction."""
+    """Per-namespace state with FIFO eviction."""
 
     def __init__(self, dim: int, max_chunks: int) -> None:
         self.chunks: dict[str, Chunk] = {}
@@ -220,18 +219,17 @@ class _NamespaceData:
         self.metadata: dict[str, dict[str, Any]] = {}
         self.dim = dim
         self.max_chunks = max_chunks
-        self._lru: dict[str, None] = {}
+        self._order: list[str] = []
 
-    def _touch(self, chunk_id: str) -> None:
-        """Move chunk_id to end (most recently used)."""
-        self._lru.pop(chunk_id, None)
-        self._lru[chunk_id] = None
+    def _track(self, chunk_id: str) -> None:
+        """Track insertion order for FIFO eviction."""
+        if chunk_id not in self._order:
+            self._order.append(chunk_id)
 
     def _evict(self) -> None:
-        """Remove oldest chunks if over limit."""
-        while len(self.chunks) > self.max_chunks and self._lru:
-            oldest = next(iter(self._lru))
-            self._lru.pop(oldest)
+        """Remove oldest chunks if over limit (FIFO)."""
+        while len(self.chunks) > self.max_chunks and self._order:
+            oldest = self._order.pop(0)
             self.chunks.pop(oldest, None)
             self.embeddings.pop(oldest, None)
             self.metadata.pop(oldest, None)

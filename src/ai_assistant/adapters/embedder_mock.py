@@ -6,12 +6,10 @@ import random
 from typing import Any
 
 from ai_assistant.core.ports.embedder import IEmbedder
-from ai_assistant.core.registry import register
 
 __all__ = ["MockEmbedder"]
 
 
-@register("embedder", "mock")
 class MockEmbedder(IEmbedder):
     """Deterministic fake embedder for testing."""
 

@@ -7,12 +7,10 @@ from typing import Any
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.ports.chunker import IChunker
-from ai_assistant.core.registry import register
 
 __all__ = ["SimpleChunker"]
 
 
-@register("chunker", "simple")
 class SimpleChunker(IChunker):
     """Split text into fixed-size chunks with overlap."""
 

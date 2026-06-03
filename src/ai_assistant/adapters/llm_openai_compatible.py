@@ -15,7 +15,6 @@ from ai_assistant.core.domain.messages import AssistantMessage, MessageRole
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
-from ai_assistant.core.registry import register
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import resolve_api_key
 
@@ -24,7 +23,6 @@ __all__ = ["OpenAICompatibleLLM"]
 _logger = get_logger("llm.openai_compatible")
 
 
-@register("llm", "openai_compatible")
 class OpenAICompatibleLLM(ILLM, IClosable):
     """LLM using OpenAI-compatible REST API."""
 

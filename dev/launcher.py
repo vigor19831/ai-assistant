@@ -18,15 +18,13 @@ from pathlib import Path
 # --- config ---------------------------------------------------------------
 
 SCRIPT_ORDER = [
-    "start",
-    "stop",
-    "clean_cache",
-    "context_build",
-    "index_documents",
-    "terminal",
+    "start",   # [1]
+    "stop",    # [2]
 ]
+
 BACKGROUND = {"start"}
 TEST_FLAGS = {
+    "audit_project": [],  # has its own ask_audit_mode via special handling
     "clean_cache": ["--clean"],
     "clean_cache": ["--clean", "--yes"],
     "download_tokenizers": ["--auto"],
@@ -35,6 +33,7 @@ TEST_FLAGS = {
 TEST_MODES = {
     "default": [],
     "e2e": ["-m", "online"],
+    "coverage": ["--cov=src/ai_assistant", "--cov-report=term-missing"],
 }
 
 GREEN = "\033[32m"
@@ -143,6 +142,7 @@ def sort_scripts(files: list[Path]) -> list[Path]:
     order = {name: i for i, name in enumerate(SCRIPT_ORDER)}
 
     def key(p: Path) -> tuple[int, str]:
+        # start/stop always first, everything else sorted alphabetically
         return (order.get(p.stem, 999), p.stem)
 
     return sorted(files, key=key)
@@ -171,6 +171,8 @@ def ask_flags(target: str) -> list[str]:
     stem = Path(target).stem
     if stem == "context_build":
         return ask_context_build_mode()
+    if stem == "audit_project":
+        return ask_audit_mode()
     flags = TEST_FLAGS.get(stem)
     if not flags:
         return []
@@ -186,14 +188,35 @@ def ask_test_mode() -> list[str]:
     print(f"\n{YELLOW}Select test mode:{RESET}")
     print("  [1] default   — normal run (fast, shared process)")
     print("  [2] e2e       — include online tests (requires running server)")
+    print("  [3] coverage  — run with coverage (generates .coverage for audit)")
     try:
         ans = input("Mode [1]: ").strip()
     except EOFError:
         return []
-    mapping = {"1": "default", "2": "e2e"}
+    mapping = {"1": "default", "2": "e2e", "3": "coverage"}
     mode = mapping.get(ans, "default")
     return TEST_MODES[mode]
 
+def ask_audit_mode() -> list[str]:
+    """Ask user which audit mode to run."""
+    print(f"\n{YELLOW}Select audit mode:{RESET}")
+    print("  [1] coverage   — use coverage.py data (most accurate, requires pytest --cov)")
+    print("  [2] static     — AST-only analysis (works without tests)")
+    print("  [3] fix        — show remediation hints")
+    print("  [4] aggressive — include noisy checks (test gaps)")
+    print("  [5] full       — aggressive + fix hints")
+    try:
+        ans = input("Mode [1]: ").strip()
+    except EOFError:
+        return []
+    mapping = {
+        "1": [],
+        "2": ["--static"],
+        "3": ["--fix"],
+        "4": ["--aggressive"],
+        "5": ["--aggressive", "--fix"],
+    }
+    return mapping.get(ans, [])
 
 def _sanitize_extra(extra: list[str]) -> list[str] | None:
     bad = [arg for arg in extra if not _EXTRA_RE.fullmatch(arg)]
@@ -615,6 +638,9 @@ def main() -> int:
         if target == "__terminal__":
             return run_terminal(root)
 
+        if Path(target).stem == "audit_project":
+            return run(py, target, root, sanitized, [])
+
         if Path(target).stem in BACKGROUND and not target.startswith("pytest:"):
             return run_bg(py, target, root, sanitized)
         else:
@@ -663,6 +689,12 @@ def main() -> int:
 
         if not target.startswith("pytest:") and not extra:
             extra = ask_flags(target)
+
+        # Audit project: no mode_extra, flags are in extra
+        if Path(target).stem == "audit_project":
+            last_num, last_target, last_extra = num, target, extra
+            run(py, target, root, extra, [])
+            continue
 
         mode_extra: list[str] = []
         if target.startswith("pytest:"):

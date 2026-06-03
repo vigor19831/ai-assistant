@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -115,9 +116,6 @@ class StorageConfig(BaseSettings):
     db_path: str = "./data/storage.db"
 
 
-# (удалить полностью — классов VoiceConfig и VisionConfig больше нет)
-
-
 class RerankerConfig(BaseSettings):
     """Reranker configuration — optional, backward compatible."""
 
@@ -130,15 +128,25 @@ class RerankerConfig(BaseSettings):
     threshold: float = 0.3
 
 
+class RAGStep(StrEnum):
+    """RAG pipeline step identifiers — type-safe replacement for raw strings."""
+
+    EMBED_QUERY = "embed_query"
+    RETRIEVE = "retrieve"
+    RERANK = "rerank"
+    BUILD_CONTEXT = "build_context"
+    GENERATE = "generate"
+
+
 class RAGConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_RAG_", extra="forbid")
-    steps: list[str] = Field(
+    steps: list[RAGStep] = Field(
         default_factory=lambda: [
-            "embed_query",
-            "retrieve",
-            "rerank",
-            "build_context",
-            "generate",
+            RAGStep.EMBED_QUERY,
+            RAGStep.RETRIEVE,
+            RAGStep.RERANK,
+            RAGStep.BUILD_CONTEXT,
+            RAGStep.GENERATE,
         ]
     )
     prompt_version: str = "v1"
@@ -167,7 +175,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1.0.0"
+    config_version: str = "1.1.0"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
@@ -184,7 +192,7 @@ class AppConfig(BaseSettings):
     @field_validator("rag", mode="before")
     @classmethod
     def _load_rag_steps(cls, v: Any) -> Any:
-        if isinstance(v, dict) and "steps" in v and isinstance(v["steps"], str):
+        if isinstance(v, dict) and "steps" in v and isinstance(v["steps"], str):  # noqa: UP037
             return {**v, "steps": v["steps"].split(",")}
         return v
 

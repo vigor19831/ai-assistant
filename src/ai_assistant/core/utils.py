@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ except ImportError:
     tokenizers = None  # type: ignore[assignment]
 
 __all__ = [
+    "async_count_tokens",
+    "async_get_tokenizer",
     "count_tokens",
     "get_context_limit",
     "get_tokenizer",
@@ -96,8 +99,10 @@ def count_tokens(
     if enc is None:
         return len(text) // 4
     try:
-        if hasattr(enc, "encode_batch"):
-            return len(enc.encode(text).tokens)
+        # HF tokenizers: encode() returns Encoding с .tokens
+        return len(enc.encode(text).tokens)
+    except AttributeError:
+        # tiktoken: encode() возвращает list[int]
         return len(enc.encode(text))
     except Exception:
         return len(text) // 4
@@ -113,3 +118,17 @@ def get_context_limit(llm: Any) -> int | None:
         if isinstance(limit, (int, float)) and limit > 0:
             return int(limit)
     return None
+
+
+async def async_count_tokens(
+    text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
+) -> int:
+    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool."""
+    return await asyncio.to_thread(count_tokens, text, model, local_dir)
+
+
+async def async_get_tokenizer(
+    model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
+) -> Any | None:
+    """Async wrapper for get_tokenizer — offloads CPU-bound tokenizer loading to thread pool."""
+    return await asyncio.to_thread(get_tokenizer, model, local_dir)

@@ -12,7 +12,6 @@ from ai_assistant.api.deps import init_adapters
 from ai_assistant.api.security import get_expected_api_key, set_api_key
 from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.logger import get_logger, setup_logging
-from ai_assistant.core.ports import IClosable
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -36,8 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     config = _load_config()
     app.state.config = config
 
-    # Mount static files (safe to call here, not middleware)
-    from ai_assistant.main import _mount_static
+    from ai_assistant.api.static import _mount_static
 
     _mount_static(app, config)
 
@@ -104,7 +102,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         (state.embedder, "embedder"),
         (state.vector_store, "vector_store"),
     ):
-        if attr is not None and isinstance(attr, IClosable):
+        if attr is not None:
             try:
                 await attr.shutdown()
             except Exception:

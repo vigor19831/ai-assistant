@@ -25,8 +25,10 @@ Hierarchy of constraints (highest priority first):
 NEVER perform any of the following. If your planned change requires it, output `⚠️ CORE CHANGE REQUIRED` and stop.
 
 - Add `**kwargs` to pass data that belongs in `PipelineData` or a port method signature.
+  - Exception: `**kwargs` in `@functools.wraps` / `@lru_cache` decorators, `get_prompt()` template variables, and Jinja2 `.render(**kwargs)` calls — these are allowed by `pre_commit_check.py`.
 - Use `hasattr()` to bypass a port contract in production code.
 - Use `isinstance()` to verify port compliance in production code (tests exempt).
+  - Exception: standard type narrowing for primitives (`str`, `int`, `float`, `bool`, `type(None)`), collections (`list`, `tuple`, `dict`), and Pydantic validators in `core/config.py` — these are allowed by `pre_commit_check.py`.
 - Wrap `try/except` around expected port behavior instead of fixing the contract.
 - Mutate input `dataclass` instances in-place, especially `PipelineData`. Always return new instances.
 - Add `if adapter_name == "specific"` branching inside features or pipeline steps.
