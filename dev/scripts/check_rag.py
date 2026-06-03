@@ -60,7 +60,7 @@ async def main() -> int:
 
     # Init vector store
     try:
-        vector_store = registry_create(
+        vector_store = create_adapter(
             "vector_store", cfg.vector_store.provider, cfg.vector_store
         )
         print(f"[OK]   VectorStore: {type(vector_store).__name__}")

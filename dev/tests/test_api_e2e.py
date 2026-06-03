@@ -12,8 +12,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ai_assistant.core.config import AppConfig
+from ai_assistant.core.config import AppConfig, NamespaceConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+
+# ── Fixtures ──
+
+@pytest.fixture(autouse=True)
+def _setup_namespaces(mock_state):
+    """Ensure mock_state has per-namespace config for tests."""
+    if not getattr(mock_state.config, "namespaces", None):
+        mock_state.config.namespaces = {
+            "personal": NamespaceConfig(threshold=0.1, chunk_size=512, prompt="rag_strict"),
+            "work": NamespaceConfig(threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+            "other": NamespaceConfig(),
+            "code": NamespaceConfig(),
+            "books": NamespaceConfig(),
+        }
+
 
 # ── Offline Tests (TestClient) ──
 
@@ -389,7 +405,7 @@ class TestRAGOffline:
             json={
                 "filename": "test.md",
                 "content": "test",
-                "namespace": "invalid",
+                "namespace": "Invalid123",
             },
         )
         assert resp.status_code == 422
@@ -473,6 +489,56 @@ class TestRAGOffline:
         finally:
             handlers_module._reindex_semaphore = original_sem
 
+
+class TestRAGQueryOffline:
+    """POST /api/v1/rag/query — per-namespace config overrides."""
+
+    def test_query_uses_per_namespace_prompt_and_threshold(self, client, mock_state):
+        from unittest.mock import AsyncMock, patch
+
+        with patch("ai_assistant.features.rag.handlers.RAGManager") as mock_mgr_cls:
+            instance = mock_mgr_cls.return_value
+            instance.query = AsyncMock(return_value={
+                "answer": "test answer",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+            })
+            mock_state.config.namespaces = {
+                "work": NamespaceConfig(threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+            }
+
+            resp = client.post(
+                "/api/v1/rag/query",
+                json={"query": "test", "namespace": "work"},
+            )
+            assert resp.status_code == 200
+            instance.query.assert_awaited_once()
+            kwargs = instance.query.call_args.kwargs
+            assert kwargs["relevance_threshold"] == 0.3
+            assert kwargs["prompt_name"] == "rag_creative"
+            assert kwargs["namespace"] == "work"
+
+
+class TestChatPromptVersion:
+    """Chat RAG must use the prompt version injected from config."""
+
+    def test_chat_manager_uses_config_prompt_version(self, mock_state):
+        """ChatManager must store and use the version passed from AppConfig."""
+        from ai_assistant.features.chat.manager import ChatManager
+
+        mgr = ChatManager(
+            llm=mock_state.llm,
+            prompt_version=mock_state.config.rag.prompt_version,
+        )
+        assert mgr.prompt_version == mock_state.config.rag.prompt_version
+
+        # Verify override works
+        mgr_v2 = ChatManager(
+            llm=mock_state.llm,
+            prompt_version="v2",
+        )
+        assert mgr_v2.prompt_version == "v2"
 
 
 class TestCORSOffline:

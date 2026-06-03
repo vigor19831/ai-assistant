@@ -270,3 +270,14 @@ class TestResourceLimits:
 
         cfg = ChatConfig()
         assert cfg.max_history_messages == 500
+
+
+class TestPromptVersion:
+    """Tests for versioned prompt loader."""
+
+    def test_get_prompt_requires_version(self) -> None:
+        """get_prompt() must raise ValueError when version is not provided."""
+        from ai_assistant.core.prompts import get_prompt
+
+        with pytest.raises(ValueError, match="prompt version is required"):
+            get_prompt("rag_strict", query="test", context="ctx")

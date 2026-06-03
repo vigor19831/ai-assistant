@@ -203,7 +203,8 @@ def test_save_chat_path_traversal_blocked_by_pydantic(client):
 
 
 def test_save_chat_invalid_namespace_blocked_by_pydantic(client):
-    payload = {"content": "test", "namespace": "hacked", "filename": "test.md"}
+    """Namespace with uppercase letters or digits is rejected by Pydantic pattern."""
+    payload = {"content": "test", "namespace": "Hacked123", "filename": "test.md"}
     resp = client.post(
         "/api/v1/rag/save-chat",
         json=payload,

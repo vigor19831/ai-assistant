@@ -17,11 +17,13 @@ import pytest
 from ai_assistant.api.deps import (
     AppState,
     InitializedAppState,
+    _STEP_MAP,
     get_state,
     init_adapters,
 )
-from ai_assistant.core.config import AppConfig
+from ai_assistant.core.config import AppConfig, RAGStep
 from ai_assistant.core.pipeline import RAGPipeline
+from ai_assistant.pipeline.steps import STEP_REGISTRY
 
 # ── AppState dataclass ──
 
@@ -54,11 +56,10 @@ class TestAppState:
 # ── init_adapters with mocked factory ──
 
 
-class TestInitAdapters:
-    @pytest.fixture
-    def minimal_config(self):
-        """Config with only required providers."""
-        return AppConfig(
+@pytest.fixture
+def minimal_config():
+    """Config with only required providers."""
+    return AppConfig(
             llm={
                 "provider": "mock",
                 "max_tokens": 50,
@@ -89,9 +90,11 @@ class TestInitAdapters:
                 "top_k": 3,
                 "default_namespace": "test",
                 "relevance_threshold": 0.3,
-            },
-        )
+        },
+    )
 
+
+class TestInitAdapters:
     @pytest.mark.asyncio
     async def test_app_state_assembled_correctly(self, minimal_config):
         """Mock create_adapter and verify AppState fields are populated."""
@@ -403,6 +406,67 @@ class TestGetState:
 
 
 # ── IChatStorage pagination ──
+
+
+class TestStepRegistry:
+    def test_step_map_contains_all_standard_steps(self):
+        for member in (
+            RAGStep.EMBED_QUERY,
+            RAGStep.RETRIEVE,
+            RAGStep.RERANK,
+            RAGStep.BUILD_CONTEXT,
+            RAGStep.GENERATE,
+        ):
+            assert member in _STEP_MAP
+
+    def test_step_map_contains_hyde(self):
+        assert RAGStep.HYDE_QUERY in _STEP_MAP
+
+    def test_step_map_is_dynamic_from_registry(self):
+        assert all(isinstance(k, RAGStep) for k in _STEP_MAP.keys())
+        for step_enum, func in _STEP_MAP.items():
+            assert STEP_REGISTRY[step_enum.value] is func
+
+    @pytest.mark.asyncio
+    async def test_pipeline_with_hyde_step(self, minimal_config):
+        """Pipeline can include hyde_query step."""
+        minimal_config.rag.steps = [
+            "embed_query",
+            "hyde_query",
+            "retrieve",
+            "build_context",
+            "generate",
+        ]
+        mock_llm = MagicMock()
+        mock_embedder = MagicMock()
+        mock_vector_store = MagicMock()
+        mock_chunker = MagicMock()
+        mock_reranker = MagicMock()
+        mock_storage = MagicMock()
+        mock_storage.init_db = AsyncMock()
+
+        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_vector_store.load = AsyncMock(return_value=None)
+
+        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
+            mapping = {
+                ("llm", "mock"): mock_llm,
+                ("embedder", "mock"): mock_embedder,
+                ("vector_store", "memory"): mock_vector_store,
+                ("chunker", "simple"): mock_chunker,
+                ("reranker", "dummy"): mock_reranker,
+                ("storage", "sqlite"): mock_storage,
+            }
+            return mapping.get((port, name), MagicMock())
+
+        with patch(
+            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
+        ):
+            result = await init_adapters(minimal_config)
+
+        assert result.pipeline is not None
+        assert len(result.pipeline.steps) == 5
+        assert result.pipeline.steps[1] is STEP_REGISTRY["hyde_query"]
 
 
 class TestChatStoragePagination:

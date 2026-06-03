@@ -96,7 +96,7 @@ class SaveChatRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Chat content to save")
     namespace: str = Field(
         default="personal",
-        pattern=r"^(personal|work|other)$",
+        pattern=r"^[a-z]+$",
         description="Target namespace",
     )
     filename: str = Field(

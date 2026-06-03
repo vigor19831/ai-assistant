@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -28,6 +28,8 @@ from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import count_tokens, get_context_limit
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ai_assistant.core.domain.pipeline import PipelineData
 
 __all__: list[str] = [
@@ -36,9 +38,27 @@ __all__: list[str] = [
     "generate",
     "rerank",
     "retrieve",
+    "STEP_REGISTRY",
+    "step",
 ]
 
 _logger = get_logger("pipeline.steps")
+
+STEP_REGISTRY: dict[str, Any] = {}
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def step(name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Register a pipeline step by its config name."""
+
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        STEP_REGISTRY[name] = func
+        return func
+
+    return decorator
 
 
 def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
@@ -72,6 +92,7 @@ async def _call_llm(llm: Any, messages: list[Any]) -> AssistantMessage:
     return await llm.complete(messages)
 
 
+@step("embed_query")
 async def embed_query(data: PipelineData) -> PipelineData:
     """Embed the user query text.
 
@@ -97,6 +118,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
+@step("retrieve")
 async def retrieve(data: PipelineData) -> PipelineData:
     """Retrieve relevant chunks from vector store (namespace-aware).
 
@@ -127,6 +149,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
+@step("rerank")
 async def rerank(data: PipelineData) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
@@ -147,8 +170,15 @@ async def rerank(data: PipelineData) -> PipelineData:
         return data
 
     reranker = data.metadata.get("reranker")
+
     if reranker is None:
-        return data
+        # Clean stale rerank metadata from previous pipeline runs
+        new_metadata = {
+            k: v
+            for k, v in data.metadata.items()
+            if k not in ("rerank_scores", "rerank_filtered_out")
+        }
+        return replace(data, metadata=new_metadata)
 
     try:
         _raw_query = data.query.text if data.query is not None else None
@@ -182,6 +212,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
+@step("build_context")
 async def build_context(data: PipelineData) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks.
 
@@ -194,6 +225,7 @@ async def build_context(data: PipelineData) -> PipelineData:
     return data.with_context("\n\n".join(lines))
 
 
+@step("generate")
 async def generate(data: PipelineData) -> PipelineData:
     llm = data.metadata.get("llm")
     if llm is None:
@@ -279,8 +311,19 @@ async def generate(data: PipelineData) -> PipelineData:
             )
         )
 
+    max_iterations = data.metadata.get("max_tool_iterations", 5)
+    iteration = 0
+
     # Tool calling loop – each LLM call is also retried via _call_llm
     while response and response.tool_calls:
+        if iteration >= max_iterations:
+            error_msg = (
+                f"generate: tool loop exceeded max iterations ({max_iterations})"
+            )
+            return data.add_error(error_msg).with_response(
+                AssistantMessage(text="Tool limit reached")
+            )
+        iteration += 1
         messages.append(response)
         tool_registry = data.metadata.get("tool_registry")
         if tool_registry:
@@ -329,3 +372,46 @@ async def generate(data: PipelineData) -> PipelineData:
         else AssistantMessage(text="Sorry, tool call loop exhausted.")
     )
     return data.with_response(final_response)
+
+
+@step("hyde_query")
+async def hyde_query(data: PipelineData) -> PipelineData:
+    """Hypothetical Document Embedding (HyDE).
+
+    Generates a hypothetical answer to the query, embeds it,
+    and stores the embedding in metadata for downstream retrieval.
+    """
+    embedder = data.metadata.get("embedder")
+    llm = data.metadata.get("llm")
+    if embedder is None:
+        return data.add_error(EMBEDDER_NOT_PROVIDED)
+    if llm is None:
+        return data.add_error(LLM_NOT_PROVIDED)
+    if data.query is None or not data.query.text:
+        return data.add_error(QUERY_TEXT_MISSING)
+
+    # Generate hypothetical answer
+    hyde_messages = [
+        UserMessage(
+            text=f"Write a short passage that answers this question: {data.query.text}"
+        )
+    ]
+    try:
+        hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages)
+    except Exception:
+        _logger.exception("hyde_query: LLM call failed")
+        return data.add_error(INTERNAL_SERVER_ERROR)
+
+    hyde_text = hyde_resp.text or ""
+    if not hyde_text:
+        return data.add_error("hyde_query: empty hypothetical answer")
+
+    # Embed hypothetical answer
+    try:
+        embeddings = await _call_embed(embedder, hyde_text)
+    except Exception:
+        _logger.exception("hyde_query: embedding failed")
+        return data.add_error(INTERNAL_SERVER_ERROR)
+
+    new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
+    return replace(data, metadata=new_metadata)

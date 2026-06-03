@@ -74,6 +74,8 @@ class ChatManager:
         vector_store: Any | None = None,
         reranker: Any | None = None,
         pipeline: RAGPipeline | None = None,
+        namespaces: dict[str, Any] | None = None,
+        prompt_version: str = "v1",
     ) -> None:
         self.llm = llm
         self.storage = storage
@@ -85,6 +87,8 @@ class ChatManager:
         self.vector_store = vector_store
         self.reranker = reranker
         self.pipeline = pipeline
+        self.namespaces = namespaces or {}
+        self.prompt_version = prompt_version
 
     def _count_tokens(self, text: str) -> int:
         return count_tokens(text, self.tokenizer_model)
@@ -145,16 +149,20 @@ class ChatManager:
         query_text = m.group(2) or ""
         namespace = _NS_MAP.get(ns_short, "default")
 
+        ns_cfg = self.namespaces.get(namespace)
+        relevance_threshold = ns_cfg.relevance_threshold if ns_cfg else 0.3
+        prompt_name = ns_cfg.prompt if ns_cfg else "rag_strict"
+
         data = PipelineData(
             query=UserMessage(text=query_text),
         )
 
         metadata = {
             "top_k": 5,
-            "prompt_name": "rag_strict",
-            "prompt_version": "v1",
+            "prompt_name": prompt_name,
+            "prompt_version": self.prompt_version,
             "namespace": namespace,
-            "relevance_threshold": 0.3,
+            "relevance_threshold": relevance_threshold,
             "embedder": self.embedder,
             "vector_store": self.vector_store,
         }
@@ -166,8 +174,8 @@ class ChatManager:
             return query_text, query_text, ()
 
         prompt = get_prompt(
-            "rag_strict",
-            version="v1",
+            prompt_name,
+            version=self.prompt_version,
             query=query_text,
             context=data.context,
         )

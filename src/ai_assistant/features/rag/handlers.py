@@ -145,18 +145,26 @@ async def query_rag(
     state: Annotated[AppState, Depends(get_state)],
 ) -> QueryResponse:
     cfg = state.config.rag
-    # Use strict prompt by default
-    prompt_name = req.prompt_name or cfg.prompt_name or "rag_strict"
+    ns = req.namespace or cfg.default_namespace
+    ns_cfg = state.config.namespaces.get(ns)
 
-    # Get relevance threshold from config or request
+    # Per-namespace overrides with global fallback
+    prompt_name = req.prompt_name
+    if prompt_name is None and ns_cfg is not None:
+        prompt_name = ns_cfg.prompt
+    if prompt_name is None:
+        prompt_name = cfg.prompt_name or "rag_strict"
+
     relevance_threshold = cfg.relevance_threshold
+    if ns_cfg is not None:
+        relevance_threshold = ns_cfg.relevance_threshold
 
     result = await manager.query(
         query_text=req.query,
         top_k=req.top_k or cfg.top_k,
         prompt_name=prompt_name,
         prompt_version=req.prompt_version or cfg.prompt_version,
-        namespace=req.namespace or cfg.default_namespace,
+        namespace=ns,
         relevance_threshold=relevance_threshold,
     )
     return QueryResponse(**result)
@@ -203,7 +211,7 @@ async def rag_health(
         status=health["status"],
         index_loaded=health["index_loaded"],
         chunk_count=health["chunk_count"],
-        embedder_dim=state.embedder.dimension,
+        embedder_dim=state.embedder.dimension if state.embedder is not None else None,
     )
 
 

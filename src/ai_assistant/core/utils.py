@@ -89,14 +89,34 @@ def get_tokenizer(
     return None
 
 
+def _cjk_ratio(text: str) -> float:
+    if not text:
+        return 0.0
+    cjk_count = sum(
+        1
+        for c in text
+        if (
+            "\u4e00" <= c <= "\u9fff"  # CJK Unified
+            or "\u3400" <= c <= "\u4dbf"  # CJK Extension A
+            or "\u3040" <= c <= "\u30ff"  # Hiragana + Katakana
+            or "\uac00" <= c <= "\ud7af"  # Hangul Syllables
+        )
+    )
+    return cjk_count / len(text)
+
+
 def count_tokens(
     text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
 ) -> int:
-    """Count tokens. Fallback to char//4 if no tokenizer available."""
+    """Count tokens. Fallback to char//4 if no tokenizer available.
+    CJK-heavy text (>30%) falls back to len(text) instead of len(text)//4.
+    """
     if not text:
         return 0
     enc = get_tokenizer(model, local_dir=local_dir)
     if enc is None:
+        if _cjk_ratio(text) > 0.3:
+            return len(text)
         return len(text) // 4
     try:
         # HF tokenizers: encode() returns Encoding с .tokens
@@ -105,6 +125,8 @@ def count_tokens(
         # tiktoken: encode() возвращает list[int]
         return len(enc.encode(text))
     except Exception:
+        if _cjk_ratio(text) > 0.3:
+            return len(text)
         return len(text) // 4
 
 

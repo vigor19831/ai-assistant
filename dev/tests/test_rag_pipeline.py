@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from dataclasses import replace
 from unittest.mock import AsyncMock, patch
+from ai_assistant.core.ports.tools import ToolResult
 
 from ai_assistant.core.domain.documents import Chunk, Document
 from ai_assistant.core.domain.errors import (
@@ -20,11 +21,14 @@ from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.pipeline.steps import (
+    STEP_REGISTRY,
     build_context,
     embed_query,
     generate,
+    hyde_query,
     rerank,
     retrieve,
+    step,
 )
 
 
@@ -185,6 +189,27 @@ class TestRerank:
         )
         result = await rerank(data)
         assert len(result.chunks) == 1
+
+    @pytest.mark.asyncio
+    async def test_rerank_without_reranker_cleans_stale_metadata(self):
+        """Stale rerank_* keys must be removed when reranker is None (pass-through)."""
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+            metadata={
+                "rerank_scores": [0.9, 0.8],
+                "rerank_filtered_out": True,
+            },
+        )
+        # First pass-through run
+        result = await rerank(data)
+        assert "rerank_scores" not in result.metadata
+        assert "rerank_filtered_out" not in result.metadata
+
+        # Second consecutive run — must stay clean
+        result2 = await rerank(result)
+        assert "rerank_scores" not in result2.metadata
+        assert "rerank_filtered_out" not in result2.metadata
 
     @pytest.mark.asyncio
     async def test_rerank_filters_by_threshold(self):
@@ -416,6 +441,61 @@ class TestFullPipeline:
 
         assert data.response is not None
 
+    @pytest.mark.asyncio
+    async def test_end_to_end_rag_cjk_query(self):
+        """CJK query and documents should not undercount tokens and break pipeline."""
+        from ai_assistant.adapters.chunker_simple import SimpleChunker
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
+        chunker = SimpleChunker(
+            type("C", (), {"chunk_size": 100, "chunk_overlap": 5})()
+        )
+        doc = Document(
+            id="doc1",
+            content="巴黎是法国的首都。埃菲尔铁塔很有名。",
+        )
+        chunks = await chunker.chunk(doc)
+        assert len(chunks) > 0
+
+        embedder = FakeEmbedder(3)
+        texts = [c.text for c in chunks]
+        embeddings = await embedder.embed(texts)
+        assert len(embeddings) == len(chunks)
+
+        embedded_chunks = []
+        for i, chunk in enumerate(chunks):
+            embedded_chunks.append(replace(chunk, embedding=embeddings[i]))
+        chunks = embedded_chunks
+
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
+        )
+        await store.add(chunks, namespace="test")
+
+        query = "法国的首都是哪里？"
+        data = PipelineData(
+            query=UserMessage(text=query),
+            metadata={
+                "top_k": 3,
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "namespace": "test",
+                "relevance_threshold": -1.0,
+            },
+        )
+
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        data = await embed_query(data)
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        data = await retrieve(data)
+        data = await build_context(data)
+        llm = FakeLLM("巴黎")
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        data = await generate(data)
+
+        assert data.response is not None
+        assert "巴黎" in (data.response.text or "")
+
 
 class TestEmbedQueryRetry:
     @pytest.mark.asyncio
@@ -528,6 +608,71 @@ class TestRetrieveRetry:
         assert store._calls == 1
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
 
+class TestStepRegistry:
+    def test_all_steps_registered(self):
+        assert STEP_REGISTRY["embed_query"] is embed_query
+        assert STEP_REGISTRY["retrieve"] is retrieve
+        assert STEP_REGISTRY["rerank"] is rerank
+        assert STEP_REGISTRY["build_context"] is build_context
+        assert STEP_REGISTRY["generate"] is generate
+        assert STEP_REGISTRY["hyde_query"] is hyde_query
+
+    def test_step_decorator_registers_function(self, monkeypatch):
+        @step("test_step")
+        async def test_step(data: PipelineData) -> PipelineData:
+            return data
+
+        assert STEP_REGISTRY["test_step"] is test_step
+        # Clean up safely even if assertion fails
+        monkeypatch.delitem(STEP_REGISTRY, "test_step", raising=False)
+
+
+class TestHydeQuery:
+    @pytest.mark.asyncio
+    async def test_hyde_query_success(self):
+        embedder = FakeEmbedder()
+        llm = FakeLLM("Paris is the capital of France.")
+        data = PipelineData(
+            query=UserMessage(text="What is the capital of France?"),
+            metadata={"embedder": embedder, "llm": llm},
+        )
+        result = await hyde_query(data)
+        assert "query_embedding" in result.metadata
+        assert len(result.metadata["query_embedding"]) == embedder.dimension
+        assert not result.errors
+
+    @pytest.mark.asyncio
+    async def test_hyde_query_no_embedder(self):
+        llm = FakeLLM("answer")
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            metadata={"llm": llm},
+        )
+        result = await hyde_query(data)
+        assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_hyde_query_no_llm(self):
+        embedder = FakeEmbedder()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            metadata={"embedder": embedder},
+        )
+        result = await hyde_query(data)
+        assert any(LLM_NOT_PROVIDED in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_hyde_query_no_query_text(self):
+        embedder = FakeEmbedder()
+        llm = FakeLLM("answer")
+        data = PipelineData(
+            query=UserMessage(text=""),
+            metadata={"embedder": embedder, "llm": llm},
+        )
+        result = await hyde_query(data)
+        assert any(QUERY_TEXT_MISSING in e for e in result.errors)
+
+
 class TestPromptCache:
     def test_get_prompt_cache_hit(self):
         """Same kwargs should return cached result."""
@@ -569,3 +714,86 @@ class TestPromptCache:
 
         assert result1 == result2
         assert _render.cache_info().hits >= 1
+
+
+class TestToolLoopGuard:
+    @pytest.mark.asyncio
+    async def test_tool_loop_exceeds_max_iterations(self):
+        """Malformed tool_calls should stop after max_tool_iterations."""
+        class FakeToolRegistry:
+            async def dispatch(self, call):
+                return ToolResult(call_id=call.call_id, output="42")
+
+        class InfiniteToolLLM:
+            def __init__(self):
+                self._calls = 0
+
+            async def complete(
+                self,
+                messages: list[Any],
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+            ) -> AssistantMessage:
+                self._calls += 1
+                return AssistantMessage(
+                    text="",
+                    tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
+                )
+
+        llm = InfiniteToolLLM()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "llm": llm,
+                "max_tool_iterations": 2,
+                "tool_registry": FakeToolRegistry(),
+            },
+        )
+        result = await generate(data)
+        assert llm._calls == 3  # 1 initial + 2 follow-ups before limit
+        assert result.response is not None
+        assert result.response.text == "Tool limit reached"
+        assert any("tool loop exceeded max iterations" in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_tool_loop_default_limit(self):
+        """Default max_tool_iterations (5) should be respected."""
+        class FakeToolRegistry:
+            async def dispatch(self, call):
+                return ToolResult(call_id=call.call_id, output="42")
+
+        class InfiniteToolLLM:
+            def __init__(self):
+                self._calls = 0
+
+            async def complete(
+                self,
+                messages: list[Any],
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+            ) -> AssistantMessage:
+                self._calls += 1
+                return AssistantMessage(
+                    text="",
+                    tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
+                )
+
+        llm = InfiniteToolLLM()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "llm": llm,
+                "tool_registry": FakeToolRegistry(),
+            },
+        )
+        result = await generate(data)
+        assert llm._calls == 6  # 1 initial + 5 follow-ups before limit
+        assert result.response is not None
+        assert result.response.text == "Tool limit reached"
+        assert any("tool loop exceeded max iterations" in e for e in result.errors)

@@ -46,6 +46,26 @@ class TestCountTokens:
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
             assert count_tokens("hello world") == 2  # 11 // 4
 
+    def test_fallback_cjk_high_ratio(self) -> None:
+        """CJK-heavy text (>30%) should use len(text) fallback, not //4."""
+        with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
+            text = "这是一个测试"  # 100% CJK
+            assert count_tokens(text) == len(text)
+
+    def test_fallback_cjk_low_ratio(self) -> None:
+        """Low CJK ratio should use len(text)//4 fallback."""
+        with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
+            text = "this is a test with one char: 这"  # ~4% CJK
+            assert count_tokens(text) == len(text) // 4
+
+    def test_fallback_cjk_exact_threshold(self) -> None:
+        """Exactly 30% CJK should still use //4 (threshold is > 0.3)."""
+        with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
+            # 3 CJK out of 10 chars = exactly 30%
+            text = "abc这def日g中"
+            assert len(text) == 10
+            assert count_tokens(text) == 10 // 4  # 2
+
     @pytest.mark.skipif(
         not (Path(__file__).parent.parent.parent / "data" / "tokenizers").exists(),
         reason="No offline tokenizers downloaded",

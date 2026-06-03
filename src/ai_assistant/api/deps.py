@@ -12,13 +12,7 @@ from ai_assistant.core.config import AppConfig, RAGStep
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.features.chat.manager import ChatManager
-from ai_assistant.pipeline.steps import (
-    build_context,
-    embed_query,
-    generate,
-    rerank,
-    retrieve,
-)
+from ai_assistant.pipeline.steps import STEP_REGISTRY
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -80,11 +74,7 @@ class InitializedAppState:
 # ---------------------------------------------------------------------------
 
 _STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
-    RAGStep.EMBED_QUERY: embed_query,
-    RAGStep.RETRIEVE: retrieve,
-    RAGStep.RERANK: rerank,
-    RAGStep.BUILD_CONTEXT: build_context,
-    RAGStep.GENERATE: generate,
+    RAGStep(k): v for k, v in STEP_REGISTRY.items() if k in {m.value for m in RAGStep}
 }
 
 
@@ -186,6 +176,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         vector_store=state.vector_store,
         reranker=state.reranker,
         pipeline=retrieval_pipeline,
+        namespaces=cfg.namespaces,
+        prompt_version=cfg.rag.prompt_version,
     )
 
     return InitializedAppState(

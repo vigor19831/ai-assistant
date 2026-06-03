@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "EmbedderConfig",
     "LLMConfig",
     "load_config",
+    "NamespaceConfig",
     "RAGConfig",
     "RerankerConfig",
     "SecurityConfig",
@@ -132,6 +133,8 @@ class RAGStep(StrEnum):
     """RAG pipeline step identifiers — type-safe replacement for raw strings."""
 
     EMBED_QUERY = "embed_query"
+    HYDE_QUERY = "hyde_query"
+    MULTI_RETRIEVE = "multi_retrieve"
     RETRIEVE = "retrieve"
     RERANK = "rerank"
     BUILD_CONTEXT = "build_context"
@@ -154,6 +157,7 @@ class RAGConfig(BaseSettings):
     top_k: int = 5
     default_namespace: str = "default"
     relevance_threshold: float = 0.3
+    max_tool_iterations: int = 5
 
 
 class SecurityConfig(BaseSettings):
@@ -166,6 +170,15 @@ class SecurityConfig(BaseSettings):
     allowed_hosts: list[str] = Field(default_factory=list)
 
 
+class NamespaceConfig(BaseModel):
+    """Per-namespace RAG overrides."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    relevance_threshold: float = Field(default=0.1, validation_alias="threshold")
+    chunk_size: int = 512
+    prompt: str = "rag_strict"
+
+
 class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AI_",
@@ -175,7 +188,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1.1.0"
+    config_version: str = "1.3.0"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
@@ -188,6 +201,19 @@ class AppConfig(BaseSettings):
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    namespaces: dict[str, NamespaceConfig] = Field(
+        default_factory=lambda: {
+            "personal": NamespaceConfig(
+                relevance_threshold=0.1, chunk_size=512, prompt="rag_strict"
+            ),
+            "work": NamespaceConfig(
+                relevance_threshold=0.3, chunk_size=1024, prompt="rag_creative"
+            ),
+            "other": NamespaceConfig(),
+            "code": NamespaceConfig(),
+            "books": NamespaceConfig(),
+        }
+    )
 
     @field_validator("rag", mode="before")
     @classmethod

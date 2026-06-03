@@ -50,9 +50,12 @@ async def atomic_write(
             os.replace(tmp, target)
             # Persist directory metadata (POSIX)
             try:
-                dir_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-            except AttributeError:
-                pass  # Windows: os.O_DIRECTORY undefined
+                dir_fd = os.open(
+                    target.parent,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+            except OSError:
+                pass  # Windows or filesystem without directory fsync support
             else:
                 try:
                     os.fsync(dir_fd)

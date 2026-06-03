@@ -53,7 +53,7 @@ def _render(name: str, version: str, kwargs_tuple: tuple[tuple[str, Any], ...]) 
     return env.get_template(f"{name}.j2").render(**kwargs)
 
 
-def get_prompt(name: str, version: str = "v1", **kwargs: Any) -> str:
+def get_prompt(name: str, version: str | None = None, **kwargs: Any) -> str:
     """Load and render a Jinja2 prompt template.
 
     Args:
@@ -63,5 +63,10 @@ def get_prompt(name: str, version: str = "v1", **kwargs: Any) -> str:
 
     Returns:
         Rendered prompt string.
+
+    Raises:
+        ValueError: If version is not provided.
     """
+    if version is None:
+        raise ValueError("prompt version is required")
     return _render(name, version, _kwargs_to_tuple(kwargs))

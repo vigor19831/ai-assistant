@@ -7,17 +7,20 @@ and edge cases.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.features.chat.manager import ChatManager
-from ai_assistant.pipeline.steps import build_context, embed_query, retrieve
+from ai_assistant.pipeline.steps import build_context, embed_query, generate, retrieve
+from ai_assistant.core.domain.messages import AssistantMessage
+from ai_assistant.core.domain.pipeline import PipelineData
 
 # ── _maybe_rag tests ──
 
@@ -34,6 +37,10 @@ class TestMaybeRAG:
             retrieve,
             build_context,
         ])
+        namespaces = {
+            "personal": NamespaceConfig(threshold=0.1, chunk_size=512, prompt="rag_strict"),
+            "work": NamespaceConfig(threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+        }
         return ChatManager(
             llm=MagicMock(),
             embedder=embedder,
@@ -41,6 +48,7 @@ class TestMaybeRAG:
             reranker=None,
             storage=None,
             pipeline=pipeline,
+            namespaces=namespaces,
         )
 
     @pytest.mark.asyncio
@@ -177,6 +185,61 @@ class TestMaybeRAG:
         assert prompt == "[p] query"
         assert query == "[p] query"
         assert chunks == ()
+
+    @pytest.mark.asyncio
+    async def test_per_namespace_prompt_and_threshold(self, chat_manager_with_rag):
+        """Per-namespace config should determine prompt name and relevance threshold."""
+        chunk = Chunk(
+            id="c1",
+            text="Work item.",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="work")
+
+        with patch("ai_assistant.features.chat.manager.get_prompt") as mock_get_prompt:
+            mock_get_prompt.return_value = "work prompt"
+            prompt, query, chunks = await chat_manager_with_rag._maybe_rag(
+                "[w] work item?"
+            )
+            mock_get_prompt.assert_called_once()
+            assert mock_get_prompt.call_args[0][0] == "rag_creative"
+            assert len(chunks) > 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_defaults_when_no_namespace_config(self):
+        """When namespaces dict is missing the namespace, use global defaults."""
+        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(
+            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+        )
+        pipeline = RAGPipeline([
+            embed_query,
+            retrieve,
+            build_context,
+        ])
+        manager = ChatManager(
+            llm=MagicMock(),
+            embedder=embedder,
+            vector_store=store,
+            reranker=None,
+            storage=None,
+            pipeline=pipeline,
+            namespaces={},
+        )
+        chunk = Chunk(
+            id="c1",
+            text="Content",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        await manager.vector_store.add([chunk], namespace="personal")
+
+        with patch("ai_assistant.features.chat.manager.get_prompt") as mock_get_prompt:
+            mock_get_prompt.return_value = "default prompt"
+            prompt, query, chunks = await manager._maybe_rag("[p] content?")
+            mock_get_prompt.assert_called_once()
+            assert mock_get_prompt.call_args[0][0] == "rag_strict"
 
 
 # ── _trim_history tests ──
@@ -378,3 +441,51 @@ class TestRAGGracefulDegradation:
             chunks.append(chunk)
 
         assert chunks == ["Hello", " world"]
+
+
+# ── Tool loop guard tests ──
+
+
+class TestToolLoopGuard:
+    @pytest.mark.asyncio
+    async def test_generate_tool_loop_limit(self):
+        """generate() should stop after max_tool_iterations."""
+        from ai_assistant.core.ports.tools import ToolResult
+
+        class FakeToolRegistry:
+            async def dispatch(self, call):
+                return ToolResult(call_id=call.call_id, output="42")
+
+        class InfiniteToolLLM:
+            def __init__(self):
+                self._calls = 0
+
+            async def complete(
+                self,
+                messages: list[Any],
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+            ) -> AssistantMessage:
+                self._calls += 1
+                return AssistantMessage(
+                    text="",
+                    tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
+                )
+
+        llm = InfiniteToolLLM()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "llm": llm,
+                "max_tool_iterations": 2,
+                "tool_registry": FakeToolRegistry(),
+            },
+        )
+        result = await generate(data)
+        assert llm._calls == 3
+        assert result.response is not None
+        assert result.response.text == "Tool limit reached"
+        assert any("tool loop exceeded max iterations" in e for e in result.errors)
