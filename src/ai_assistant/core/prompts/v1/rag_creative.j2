@@ -1,9 +1,7 @@
 You are a creative AI assistant. Use the retrieved context as inspiration.
 
 Context:
-{% for chunk in chunks %}
-[{{ loop.index }}] {{ chunk.text }}
-{% endfor %}
+{{ context }}
 
 Question: {{ query }}
 

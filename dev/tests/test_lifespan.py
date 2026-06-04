@@ -135,8 +135,8 @@ class TestLifespan:
                         "personal",
                     )
                     mock_log_info.assert_any_call(
-                        "Indices persisted: %d namespace(s)",
-                        2,
+                        "Indices persisted: %d/%d namespace(s)",
+                        2, 2,
                     )
 
     @pytest.mark.asyncio

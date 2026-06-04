@@ -1,0 +1,184 @@
+# Project Structure
+**Generated:** 2026-06-04T23:31:16.757514
+**Root:** `D:\ai`
+
+## Summary
+| Metric | Value |
+|--------|-------|
+| Total files | 133 |
+| Python files | 93 |
+| Python LOC | 16,828 |
+| Total size | 7.9 GB |
+
+```
+├── MagicMock
+│   └── _load_config().log_file
+│       └── 2671562178640
+├── data
+│   ├── indices
+│   │   ├── hacked
+│   │   │   ├── index_meta.json
+│   │   │   └── store.json
+│   │   ├── other
+│   │   │   ├── index_meta.json
+│   │   │   └── store.json
+│   │   ├── personal
+│   │   │   ├── index_meta.json
+│   │   │   └── store.json
+│   │   └── work
+│   │       ├── index_meta.json
+│   │       └── store.json
+│   ├── tokenizers
+│   │   ├── gemma-4-e2b-it
+│   │   │   └── tokenizer.json
+│   │   ├── phi-4-mini-reasoning
+│   │   │   └── tokenizer.json
+│   │   └── qwen3.5-4b
+│   │       └── tokenizer.json
+│   ├── llama-server.pid
+│   └── server.pid
+├── dev
+│   ├── scripts
+│   │   ├── audit_project.py
+│   │   ├── check_llm.py
+│   │   ├── check_mutations.py
+│   │   ├── check_mypy.py
+│   │   ├── check_rag.py
+│   │   ├── check_ruff.py
+│   │   ├── check_smoke.py
+│   │   ├── context_build.py
+│   │   ├── error_taxonomy_build.py
+│   │   ├── pre_commit_check.py
+│   │   └── structure.py
+│   ├── tests
+│   │   ├── __init__.py
+│   │   ├── config.test.yaml
+│   │   ├── conftest.py
+│   │   ├── test_adapters_integration.py
+│   │   ├── test_api_deps.py
+│   │   ├── test_api_e2e.py
+│   │   ├── test_chat_manager_direct.py
+│   │   ├── test_contracts.py
+│   │   ├── test_core_critical.py
+│   │   ├── test_fuzz.py
+│   │   ├── test_lifespan.py
+│   │   ├── test_malformed_sse.py
+│   │   ├── test_pipeline_frozen_compat.py
+│   │   ├── test_rag_pipeline.py
+│   │   ├── test_resilience.py
+│   │   ├── test_router_compile.py
+│   │   ├── test_scripts_and_platform.py
+│   │   ├── test_security.py
+│   │   ├── test_smoke_pyproject.py
+│   │   ├── test_stress.py
+│   │   └── test_tokenizer.py
+│   ├── AI_RULES.md
+│   ├── ERROR_TAXONOMY.md
+│   ├── README_DEV.md
+│   ├── TODO.md
+│   ├── TODO_DONE.md
+│   ├── ci.yml
+│   ├── launcher.py
+│   └── structure.txt
+├── documents
+│   ├── hacked
+│   │   └── test.md
+│   ├── other
+│   │   └── other_test.txt
+│   ├── personal
+│   │   └── personal_test.txt
+│   └── work
+│       └── work_test.txt
+├── ops
+│   └── scripts
+│       ├── clean_cache.py
+│       ├── download_tokenizers.py
+│       ├── index_documents.py
+│       ├── start.py
+│       └── stop.py
+├── src
+│   └── ai_assistant
+│       ├── adapters
+│       │   ├── __init__.py
+│       │   ├── chunker_simple.py
+│       │   ├── embedder_mock.py
+│       │   ├── embedder_openai_compatible.py
+│       │   ├── factory.py
+│       │   ├── llm_mock.py
+│       │   ├── llm_openai_compatible.py
+│       │   ├── reranker_api.py
+│       │   ├── storage_sqlite.py
+│       │   ├── vector_store_faiss.py
+│       │   └── vector_store_memory.py
+│       ├── api
+│       │   ├── __init__.py
+│       │   ├── admin.py
+│       │   ├── deps.py
+│       │   ├── lifespan.py
+│       │   ├── router.py
+│       │   ├── security.py
+│       │   └── static.py
+│       ├── core
+│       │   ├── domain
+│       │   │   ├── __init__.py
+│       │   │   ├── documents.py
+│       │   │   ├── errors.py
+│       │   │   ├── messages.py
+│       │   │   └── pipeline.py
+│       │   ├── ports
+│       │   │   ├── __init__.py
+│       │   │   ├── chunker.py
+│       │   │   ├── closable.py
+│       │   │   ├── embedder.py
+│       │   │   ├── initializable.py
+│       │   │   ├── llm.py
+│       │   │   ├── reranker.py
+│       │   │   ├── storage.py
+│       │   │   ├── tools.py
+│       │   │   └── vector_store.py
+│       │   ├── prompts
+│       │   │   ├── v1
+│       │   │   │   ├── rag_creative.j2
+│       │   │   │   ├── rag_default.j2
+│       │   │   │   ├── rag_strict.j2
+│       │   │   │   └── summarize.j2
+│       │   │   └── __init__.py
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── constants.py
+│       │   ├── io_utils.py
+│       │   ├── logger.py
+│       │   ├── pipeline.py
+│       │   ├── retry.py
+│       │   └── utils.py
+│       ├── features
+│       │   ├── chat
+│       │   │   ├── __init__.py
+│       │   │   ├── handlers.py
+│       │   │   ├── manager.py
+│       │   │   └── schemas.py
+│       │   ├── rag
+│       │   │   ├── __init__.py
+│       │   │   ├── handlers.py
+│       │   │   ├── indexing.py
+│       │   │   ├── manager.py
+│       │   │   └── schemas.py
+│       │   └── __init__.py
+│       ├── pipeline
+│       │   ├── __init__.py
+│       │   └── steps.py
+│       ├── __init__.py
+│       └── main.py
+├── vendor
+│   └── models
+│       ├── embeddinggemma-300m-q8_0.gguf
+│       ├── google_gemma-4-e2b-it-iq4_xs.gguf
+│       ├── microsoft_phi-4-mini-reasoning-iq4_xs.gguf
+│       └── qwen_qwen3.5-4b-iq4_xs.gguf
+├── .gitattributes
+├── .gitignore
+├── LICENSE
+├── README.md
+├── config.yaml
+└── pyproject.toml
+```

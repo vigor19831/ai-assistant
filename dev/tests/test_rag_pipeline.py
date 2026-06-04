@@ -756,6 +756,40 @@ class TestHydeQuery:
         result = await hyde_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
 
+class TestNamespacePrefixes:
+    """Guard: RAG_NS_MAP must stay in sync with config.yaml namespaces."""
+
+    def test_rag_ns_map_covers_all_config_namespaces(self):
+        """If this fails, you added a namespace to config.yaml but forgot the prefix."""
+        from ai_assistant.core.constants import RAG_NS_MAP
+
+        # These must match config.yaml namespaces exactly
+        expected = {
+            "p": "personal",
+            "w": "work",
+            "o": "other",
+            "c": "code",
+            "b": "books",
+        }
+        assert RAG_NS_MAP == expected
+
+    def test_prefix_regex_matches_all_short_codes(self):
+        """RAG_PREFIX_RE must parse every registered short prefix."""
+        from ai_assistant.core.constants import RAG_NS_MAP, RAG_PREFIX_RE
+
+        for short, ns in RAG_NS_MAP.items():
+            m = RAG_PREFIX_RE.match(f"[{short}] query about {ns}")
+            assert m is not None, f"Failed to match prefix [{short}]"
+            assert m.group(1).lower() == short
+            assert m.group(2) == f"query about {ns}"
+
+    def test_prefix_regex_no_match_without_brackets(self):
+        """Plain queries without prefix must not match."""
+        from ai_assistant.core.constants import RAG_PREFIX_RE
+
+        assert RAG_PREFIX_RE.match("no prefix here") is None
+        assert RAG_PREFIX_RE.match("p] missing open bracket") is None
+
 
 class TestPromptCache:
     def test_get_prompt_cache_hit(self):

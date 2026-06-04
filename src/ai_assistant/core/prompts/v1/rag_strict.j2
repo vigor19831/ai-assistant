@@ -8,9 +8,7 @@ Rules:
 5. Be concise.
 
 Context:
-{% for chunk in chunks %}
-[{{ loop.index }}] {{ chunk.text }}
-{% endfor %}
+{{ context }}
 
 Question: {{ query }}
 Answer:

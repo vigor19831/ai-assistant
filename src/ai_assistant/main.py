@@ -37,12 +37,23 @@ def create_app(
     )
 
     # --- Middleware ---
+    # Use CORS config from AppState if available, otherwise defaults
+    _cors_origins = ["*"]
+    _cors_credentials = True
+    _cors_methods = ["*"]
+    _cors_headers = ["*"]
+    if state is not None:
+        _cors_origins = state.config.cors.allow_origins or _cors_origins
+        _cors_credentials = state.config.cors.allow_credentials
+        _cors_methods = state.config.cors.allow_methods or _cors_methods
+        _cors_headers = state.config.cors.allow_headers or _cors_headers
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=_cors_origins,
+        allow_credentials=_cors_credentials,
+        allow_methods=_cors_methods,
+        allow_headers=_cors_headers,
     )
 
     # --- Routes ---

@@ -53,6 +53,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state = await init_adapters(config)
     app.state.app_state = state
 
+    # Load persisted indices from disk
+    vs_cfg = getattr(config, "vector_store", None)
+    index_path = vs_cfg.index_path if vs_cfg is not None else None
+    if index_path and state.vector_store is not None:
+        try:
+            namespaces = await state.vector_store.list_namespaces(index_path)
+            for ns in namespaces:
+                await state.vector_store.load(index_path, namespace=ns)
+            logger.info(
+                "Loaded %d namespace indices from %s", len(namespaces), index_path
+            )
+        except Exception:
+            logger.exception("Index load failed on startup")
+
     pid_file = Path("data/server.pid")
     try:
         pid_file.parent.mkdir(parents=True, exist_ok=True)
@@ -89,10 +103,18 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     if index_path and state.vector_store is not None:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
+            saved = 0
             for ns in namespaces:
-                await state.vector_store.save(index_path, namespace=ns)
-                logger.info("Index saved: %s/%s", index_path, ns)
-            logger.info("Indices persisted: %d namespace(s)", len(namespaces))
+                try:
+                    await asyncio.wait_for(
+                        state.vector_store.save(index_path, namespace=ns),
+                        timeout=10.0,
+                    )
+                    logger.info("Index saved: %s/%s", index_path, ns)
+                    saved += 1
+                except TimeoutError:
+                    logger.warning("Index save timed out: %s/%s", index_path, ns)
+            logger.info("Indices persisted: %d/%d namespace(s)", saved, len(namespaces))
         except Exception:
             logger.exception("Index save failed")
 

@@ -97,6 +97,7 @@ def cleanup_test_artifacts():
         "./data/test_storage.db",
         "./data/test_memory.db",
         "./data/indices/test",
+        "./MagicMock",
     ]:
         p = Path(path)
         if p.exists():

@@ -103,11 +103,9 @@ async def main() -> int:
 
     # Test full pipeline for each prefix
     test_queries = [
-        ("[p] test query personal", "personal"),
-        ("[w] test query work", "work"),
-        ("[o] test query other", "other"),
-        ("no prefix at all", cfg.rag.default_namespace),
-    ]
+        (f"[{short}] test query {ns}", ns)
+        for short, ns in RAG_NS_MAP.items()
+    ] + [("no prefix at all", cfg.rag.default_namespace)]
 
     relevance_threshold = getattr(
         cfg.rag, "relevance_threshold",
