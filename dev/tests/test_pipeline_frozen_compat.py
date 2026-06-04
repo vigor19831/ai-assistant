@@ -86,3 +86,15 @@ class TestPipelineDataCompatibility:
         assert data.response is None
         assert data.metadata == {}
         assert data.errors == ()
+
+    def test_frozen_rejects_direct_mutation(self) -> None:
+        """Frozen instance must reject direct field mutation."""
+        data = PipelineData(metadata={"a": 1})
+        with pytest.raises(FrozenInstanceError):
+            data.metadata = {"b": 2}  # type: ignore[misc]
+
+    def test_slots_prevents_arbitrary_fields(self) -> None:
+        """slots=True removes __dict__, preventing arbitrary attribute addition."""
+        assert hasattr(PipelineData, "__slots__")
+        data = PipelineData()
+        assert not hasattr(data, "__dict__")

@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -106,7 +112,6 @@ class VectorStoreConfig(BaseSettings):
     index_path: str = "./data/indices/default"
     metric: str = "l2"
     dim: int = 384
-    relevance_threshold: float = 0.1
     max_chunks: int = 100_000
     max_document_size: int = 10_485_760
 
@@ -121,7 +126,7 @@ class RerankerConfig(BaseSettings):
     """Reranker configuration — optional, backward compatible."""
 
     model_config = SettingsConfigDict(env_prefix="AI_RERANKER_", extra="forbid")
-    provider: str = "dummy"  # "dummy" | "api"
+    provider: str | None = None  # "api" or None for no reranker
     model: str = "rerank-multilingual-v3.0"
     api_base: str = "https://api.cohere.com"
     api_key: str | None = None
@@ -182,13 +187,13 @@ class NamespaceConfig(BaseModel):
 class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AI_",
-        extra="ignore",
+        extra="forbid",
     )
     app_name: str = "ai-assistant"
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1.3.0"
+    config_version: str = "1.5.0"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
@@ -222,6 +227,23 @@ class AppConfig(BaseSettings):
             return {**v, "steps": v["steps"].split(",")}
         return v
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_vector_store_relevance_threshold(cls, v: Any) -> Any:
+        """Backward-compatible loader: migrate vector_store.relevance_threshold → rag."""
+        if not isinstance(v, dict):
+            return v
+        vs = v.get("vector_store")
+        if isinstance(vs, dict) and "relevance_threshold" in vs:
+            rag = v.get("rag", {})
+            if isinstance(rag, dict) and "relevance_threshold" not in rag:
+                rag = {**rag, "relevance_threshold": vs["relevance_threshold"]}
+                v = {**v, "rag": rag}
+            # Strip the removed field so VectorStoreConfig(extra="forbid") doesn't choke
+            vs = {k: val for k, val in vs.items() if k != "relevance_threshold"}
+            v = {**v, "vector_store": vs}
+        return v
+
     @model_validator(mode="after")
     def _check_dimensions(self) -> AppConfig:
         if self.embedder.dim != self.vector_store.dim:
@@ -243,6 +265,7 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
 
     Raises:
         ValueError: If the file contains invalid YAML.
+        ValidationError: If unknown keys or env vars are present.
     """
     config_path = Path(path)
     if not config_path.exists():

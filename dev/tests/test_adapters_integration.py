@@ -6,6 +6,7 @@ Covers: chunker, embedder (2 types), LLM (2 types), vector store (2 types),
 
 from __future__ import annotations
 
+from dataclasses import make_dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,7 +19,6 @@ from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmb
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 from ai_assistant.adapters.reranker_api import APIReranker
-from ai_assistant.adapters.reranker_dummy import DummyReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
@@ -42,7 +42,7 @@ class TestChunker:
     )
     @pytest.mark.asyncio
     async def test_chunk_variations(self, size, overlap, text, expected_count):
-        config = type("C", (), {"chunk_size": size, "chunk_overlap": overlap})()
+        config = make_dataclass("C", [("chunk_size", int, size), ("chunk_overlap", int, overlap)], frozen=True)()
         chunker = SimpleChunker(config)
         doc = Document(id="d1", content=text)
         chunks = await chunker.chunk(doc)
@@ -54,7 +54,7 @@ class TestChunker:
 
     @pytest.mark.asyncio
     async def test_chunk_preserves_metadata(self):
-        config = type("C", (), {"chunk_size": 10, "chunk_overlap": 2})()
+        config = make_dataclass("C", [("chunk_size", int, 10), ("chunk_overlap", int, 2)], frozen=True)()
         chunker = SimpleChunker(config)
         doc = Document(id="d1", content="hello world", metadata={"tag": "test"})
         chunks = await chunker.chunk(doc)
@@ -67,7 +67,7 @@ class TestChunker:
 class TestEmbedders:
     @pytest.mark.parametrize("dim", [128, 384, 768, 1536])
     def test_mock_dimension(self, dim):
-        config = type("C", (), {"dim": dim})()
+        config = make_dataclass("C", [("dim", int, dim)], frozen=True)()
         emb = MockEmbedder(config)
         assert emb.dimension == dim
 
@@ -92,7 +92,7 @@ class TestEmbedders:
     )
     @pytest.mark.asyncio
     async def test_mock_embed(self, texts, expected_count):
-        config = type("C", (), {"dim": 384})()
+        config = make_dataclass("C", [("dim", int, 384)], frozen=True)()
         emb = MockEmbedder(config)
         result = await emb.embed(texts)
         assert len(result) == expected_count
@@ -218,8 +218,8 @@ class TestVectorStores:
     @pytest.mark.parametrize(
         "store_cls,config",
         [
-            (FaissVectorStore, type("C", (), {"dim": 3, "metric": "l2"})()),
-            (MemoryVectorStore, type("C", (), {"dim": 3})()),
+            (FaissVectorStore, make_dataclass("C", [("dim", int, 3), ("metric", str, "l2")], frozen=True)()),
+            (MemoryVectorStore, make_dataclass("C", [("dim", int, 3)], frozen=True)()),
         ],
     )
     @pytest.mark.asyncio
@@ -237,8 +237,8 @@ class TestVectorStores:
     @pytest.mark.parametrize(
         "store_cls,config",
         [
-            (FaissVectorStore, type("C", (), {"dim": 3, "metric": "l2"})()),
-            (MemoryVectorStore, type("C", (), {"dim": 3})()),
+            (FaissVectorStore, make_dataclass("C", [("dim", int, 3), ("metric", str, "l2")], frozen=True)()),
+            (MemoryVectorStore, make_dataclass("C", [("dim", int, 3)], frozen=True)()),
         ],
     )
     @pytest.mark.asyncio
@@ -262,7 +262,7 @@ class TestVectorStores:
 
     @pytest.mark.asyncio
     async def test_faiss_list_by_filter(self):
-        store = FaissVectorStore(type("C", (), {"dim": 3, "metric": "l2"})())
+        store = FaissVectorStore(make_dataclass("C", [("dim", int, 3), ("metric", str, "l2")], frozen=True)())
         meta = ChunkMetadata(
             source="doc1", index=0, total_chunks=1, custom={"tag": "important"}
         )
@@ -276,14 +276,14 @@ class TestVectorStores:
 
     @pytest.mark.asyncio
     async def test_faiss_save_and_load(self, tmp_path):
-        store = FaissVectorStore(type("C", (), {"dim": 3, "metric": "l2"})())
+        store = FaissVectorStore(make_dataclass("C", [("dim", int, 3), ("metric", str, "l2")], frozen=True)())
         await store.add(
             [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
         )
         path = str(tmp_path / "idx")
         await store.save(path, namespace="test")
 
-        store2 = FaissVectorStore(type("C", (), {"dim": 3, "metric": "l2"})())
+        store2 = FaissVectorStore(make_dataclass("C", [("dim", int, 3), ("metric", str, "l2")], frozen=True)())
         await store2.load(path, namespace="test")
         results = await store2.search([1.0, 0.0, 0.0], top_k=1, namespace="test")
         assert len(results) == 1
@@ -291,7 +291,7 @@ class TestVectorStores:
     @pytest.mark.asyncio
     async def test_faiss_version_mismatch(self, tmp_path):
         store3 = FaissVectorStore(
-            type("C", (), {"dim": 3, "metric": "l2", "embedder_model": "test"})()
+            make_dataclass("C", [("dim", int, 3), ("metric", str, "l2"), ("embedder_model", str, "test")], frozen=True)()
         )
         await store3.add(
             [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
@@ -300,25 +300,28 @@ class TestVectorStores:
         await store3.save(path, namespace="test")
 
         store5 = FaissVectorStore(
-            type("C", (), {"dim": 5, "metric": "l2", "embedder_model": "test"})()
+            make_dataclass("C", [("dim", int, 5), ("metric", str, "l2"), ("embedder_model", str, "test")], frozen=True)()
         )
         with pytest.raises(VersionMismatchError, match="Reindex required"):
             await store5.load(path, namespace="test")
 
     @pytest.mark.asyncio
-    async def test_memory_threshold_filtering(self):
-        """Memory store: low similarity → empty results."""
-        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+    async def test_memory_returns_nearest_neighbors_without_cutoff(self):
+        """Memory store returns nearest neighbors regardless of similarity.
+        Quality filtering is the responsibility of the rerank pipeline step."""
+        store = MemoryVectorStore(make_dataclass("C", [("dim", int, 3)], frozen=True)())
         await store.add(
             [Chunk(id="c1", text="a", embedding=[0.0, 1.0, 0.0])], namespace="test"
         )
         results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
-        assert results == []  # Orthogonal vectors, similarity ~0
+        # Orthogonal vectors are still returned as nearest neighbors (only one chunk)
+        assert len(results) == 1
+        assert results[0].id == "c1"
 
     @pytest.mark.asyncio
     async def test_memory_high_similarity(self):
         """Memory store: high similarity → results."""
-        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(make_dataclass("C", [("dim", int, 3)], frozen=True)())
         await store.add(
             [Chunk(id="c1", text="a", embedding=[0.99, 0.01, 0.0])], namespace="test"
         )
@@ -328,7 +331,7 @@ class TestVectorStores:
 
     @pytest.mark.asyncio
     async def test_memory_skips_no_embedding(self):
-        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(make_dataclass("C", [("dim", int, 3)], frozen=True)())
         await store.add(
             [
                 Chunk(id="c1", text="no emb", embedding=None),
@@ -342,7 +345,7 @@ class TestVectorStores:
 
     @pytest.mark.asyncio
     async def test_memory_skips_wrong_dimension(self):
-        store = MemoryVectorStore(type("C", (), {"dim": 3})())
+        store = MemoryVectorStore(make_dataclass("C", [("dim", int, 3)], frozen=True)())
         await store.add(
             [
                 Chunk(id="c1", text="wrong", embedding=[1.0, 0.0]),
@@ -359,26 +362,6 @@ class TestVectorStores:
 
 
 class TestRerankers:
-    @pytest.mark.asyncio
-    async def test_dummy_pass_through(self):
-        reranker = DummyReranker(config={})
-        chunks = [Chunk(id="c1", text="hello"), Chunk(id="c2", text="world")]
-        results = await reranker.rerank("query", chunks)
-        assert len(results) == 2
-        assert all(r.score == 1.0 for r in results)
-        assert results[0].chunk.id == "c1"
-
-    @pytest.mark.asyncio
-    async def test_dummy_top_k(self):
-        reranker = DummyReranker(config={})
-        chunks = [Chunk(id=f"c{i}", text=f"t{i}") for i in range(10)]
-        results = await reranker.rerank("q", chunks, top_k=3)
-        assert len(results) == 3
-
-    @pytest.mark.asyncio
-    async def test_dummy_empty(self):
-        assert await DummyReranker(config={}).rerank("q", []) == []
-
     @pytest.mark.asyncio
     async def test_api_rerank_success(self):
         config = MagicMock()
@@ -463,7 +446,7 @@ class TestRerankers:
 class TestStorage:
     @pytest.fixture
     def storage(self, tmp_path):
-        config = type("C", (), {"db_path": str(tmp_path / "test.db")})()
+        config = make_dataclass("C", [("db_path", str, str(tmp_path / "test.db"))], frozen=True)()
         return SQLiteStorage(config)
 
     @pytest.mark.asyncio

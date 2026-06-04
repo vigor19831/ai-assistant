@@ -132,7 +132,9 @@ class ChatManager:
         keep.reverse()
         return keep
 
-    async def _maybe_rag(self, message: str) -> tuple[str, str, tuple[Chunk, ...]]:
+    async def _maybe_rag(
+        self, message: str, trace_id: str | None = None
+    ) -> tuple[str, str, tuple[Chunk, ...]]:
         """Return (prompt_for_llm, original_query, rag_chunks).
 
         If RAG not triggered, prompt_for_llm == original_query == message.
@@ -154,6 +156,7 @@ class ChatManager:
 
         data = PipelineData(
             query=UserMessage(text=query_text),
+            trace_id=trace_id or "",
         )
 
         metadata = {
@@ -188,10 +191,12 @@ class ChatManager:
     ) -> AssistantMessage:
         """Process a chat message."""
         meta = metadata or {}
+        trace_id = meta.get("trace_id")
         logger.info(
-            "Chat request: conv=%s, msg_len=%d",
+            "Chat request: conv=%s, msg_len=%d, trace_id=%s",
             conversation_id,
             len(message),
+            trace_id or "none",
         )
 
         # Graceful degradation: RAG requested but infrastructure unavailable
@@ -200,7 +205,9 @@ class ChatManager:
                 text="Поиск по документам (RAG) временно недоступен."
             )
 
-        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
+        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(
+            message, trace_id=trace_id
+        )
 
         user_msg = UserMessage(
             text=prompt_for_llm,
@@ -247,15 +254,17 @@ class ChatManager:
             raise
         except Exception as exc:
             logger.error(
-                "Chat failed: conv=%s, error=%s",
+                "Chat failed: conv=%s, trace_id=%s, error=%s",
                 conversation_id,
+                trace_id or "none",
                 exc,
             )
             raise AdapterError(f"LLM call failed: {exc}") from exc
 
         logger.info(
-            "Chat response: conv=%s, resp_len=%d",
+            "Chat response: conv=%s, trace_id=%s, resp_len=%d",
             conversation_id,
+            trace_id or "none",
             len(response.text or ""),
         )
 
@@ -299,13 +308,16 @@ class ChatManager:
         TODO: tool calls are not handled in streaming mode.
         """
         meta = metadata or {}
+        trace_id = meta.get("trace_id")
 
         # Graceful degradation: RAG requested but infrastructure unavailable
         if _PREFIX_RE.match(message) and not self.pipeline:
             yield "Поиск по документам (RAG) временно недоступен."
             return
 
-        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(message)
+        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(
+            message, trace_id=trace_id
+        )
 
         user_msg = UserMessage(
             text=prompt_for_llm,

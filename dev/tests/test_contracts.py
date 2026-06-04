@@ -201,6 +201,40 @@ def test_embedder_config_rejects_unknown_fields():
         EmbedderConfig(chunck_size=512)
 
 
+def test_vector_store_relevance_threshold_backward_compatible():
+    """Removed field vector_store.relevance_threshold is migrated to rag."""
+    from ai_assistant.core.config import AppConfig
+
+    # When rag lacks the field, vector_store value is migrated
+    cfg = AppConfig(
+        vector_store={"relevance_threshold": 0.5, "dim": 384},
+    )
+    assert cfg.rag.relevance_threshold == 0.5
+    assert not hasattr(cfg.vector_store, "relevance_threshold")
+
+    # When rag already has the field, it wins
+    cfg2 = AppConfig(
+        vector_store={"relevance_threshold": 0.5, "dim": 384},
+        rag={"relevance_threshold": 0.2},
+    )
+    assert cfg2.rag.relevance_threshold == 0.2
+
+def test_load_config_rejects_unknown_yaml_key(tmp_path):
+    """AppConfig uses extra='forbid': unknown YAML keys raise ValidationError."""
+    from pydantic import ValidationError
+
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("debug: false\nunknown_key: 123\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        load_config(str(yaml_file))
+
+
+# Env-var strict check requires CORE CHANGE (extra="forbid" on AppConfig).
+# Pydantic-settings filters unknown env vars before extra="forbid" sees them,
+# making a reliable warning impossible without fragile internals traversal.
+# Defer to ADR-XXX if strict env-var validation is needed.
+
+
 from pathlib import Path
 
 PORTS_DIR = (
@@ -213,6 +247,3 @@ def test_registry_removed() -> None:
     from pathlib import Path
     core_dir = Path(__file__).parent.parent.parent / "src" / "ai_assistant" / "core"
     assert not (core_dir / "registry.py").exists()
-
-
-# ToolRegistry removed from AppState — tests moved to feature/voice-vision branch

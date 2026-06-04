@@ -81,6 +81,15 @@ class TestEmbedQuery:
         result = await embed_query(data)
         assert "query_embedding" in result.metadata
         assert len(result.metadata["query_embedding"]) == embedder.dimension
+        assert result.trace_id  # auto-generated trace_id preserved
+
+    @pytest.mark.asyncio
+    async def test_embed_query_preserves_trace_id(self):
+        embedder = FakeEmbedder()
+        data = PipelineData(query=UserMessage(text="hello"), trace_id="abc123")
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        result = await embed_query(data)
+        assert result.trace_id == "abc123"
 
     @pytest.mark.asyncio
     async def test_embed_query_no_embedder(self):
@@ -116,6 +125,22 @@ class TestRetrieve:
         result = await retrieve(data)
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_preserves_trace_id(self):
+        store = FakeVectorStore()
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            metadata={
+                "query_embedding": [0.0, 1.0, 0.0],
+                "top_k": 5,
+                "namespace": "test",
+            },
+            trace_id="retrieve-123",
+        )
+        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        result = await retrieve(data)
+        assert result.trace_id == "retrieve-123"
 
     @pytest.mark.asyncio
     async def test_retrieve_no_store(self):
@@ -164,6 +189,16 @@ class TestBuildContext:
         result = await build_context(data)
         assert result.context == "valid"
 
+    @pytest.mark.asyncio
+    async def test_build_context_preserves_trace_id(self):
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+            trace_id="ctx-123",
+        )
+        result = await build_context(data)
+        assert result.trace_id == "ctx-123"
+
 
 class TestRerank:
     @pytest.mark.asyncio
@@ -180,6 +215,21 @@ class TestRerank:
         result = await rerank(data)
         assert len(result.chunks) == 1
         assert result.metadata.get("rerank_scores") == [0.9]
+
+    @pytest.mark.asyncio
+    async def test_rerank_preserves_trace_id(self):
+        class FakeReranker:
+            async def rerank(self, query, chunks, top_k=None):
+                return [RerankResult(chunk=c, score=0.9) for c in chunks]
+
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+            trace_id="rerank-123",
+        )
+        data = replace(data, metadata={**data.metadata, "reranker": FakeReranker()})
+        result = await rerank(data)
+        assert result.trace_id == "rerank-123"
 
     @pytest.mark.asyncio
     async def test_rerank_without_reranker_passes_through(self):
@@ -272,6 +322,19 @@ class TestGenerate:
         result = await generate(data)
         assert result.response is not None
         assert result.response.text == "answer"
+
+    @pytest.mark.asyncio
+    async def test_generate_preserves_trace_id(self):
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            trace_id="gen-123",
+        )
+        llm = FakeLLM("answer")
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        result = await generate(data)
+        assert result.trace_id == "gen-123"
 
     @pytest.mark.asyncio
     async def test_generate_no_llm(self):
@@ -377,7 +440,7 @@ class TestFullPipeline:
         chunks = embedded_chunks
 
         store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
+            type("C", (), {"dim": 3})()
         )
         await store.add(chunks, namespace="test")
 
@@ -389,8 +452,8 @@ class TestFullPipeline:
                 "prompt_version": "v1",
                 "prompt_name": "rag_default",
                 "namespace": "test",
-                "relevance_threshold": -1.0,
             },
+            trace_id="e2e-test-123",
         )
 
         data = replace(data, metadata={**data.metadata, "embedder": embedder})
@@ -404,6 +467,7 @@ class TestFullPipeline:
 
         assert data.response is not None
         assert "Paris" in (data.response.text or "")
+        assert data.trace_id == "e2e-test-123"  # trace_id preserved through pipeline
 
     @pytest.mark.asyncio
     async def test_rag_no_relevant_chunks(self):
@@ -411,7 +475,7 @@ class TestFullPipeline:
         from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 
         store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": 0.99})()
+            type("C", (), {"dim": 3})()
         )
         await store.add(
             [Chunk(id="c1", text="irrelevant", embedding=[0.0, 1.0, 0.0])],
@@ -429,11 +493,20 @@ class TestFullPipeline:
             },
         )
 
+        class FakeRerankerLowScore:
+            async def rerank(self, query, chunks, top_k=None):
+                return [RerankResult(chunk=c, score=0.1) for c in chunks]
+
         embedder = FakeEmbedder(3)
         data = replace(data, metadata={**data.metadata, "embedder": embedder})
         data = await embed_query(data)
         data = replace(data, metadata={**data.metadata, "vector_store": store})
         data = await retrieve(data)
+        data = replace(
+            data,
+            metadata={**data.metadata, "reranker": FakeRerankerLowScore()},
+        )
+        data = await rerank(data)
         data = await build_context(data)
         llm = FakeLLM("no info")
         data = replace(data, metadata={**data.metadata, "llm": llm})
@@ -468,7 +541,7 @@ class TestFullPipeline:
         chunks = embedded_chunks
 
         store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": -1.0})()
+            type("C", (), {"dim": 3})()
         )
         await store.add(chunks, namespace="test")
 
@@ -480,7 +553,6 @@ class TestFullPipeline:
                 "prompt_version": "v1",
                 "prompt_name": "rag_default",
                 "namespace": "test",
-                "relevance_threshold": -1.0,
             },
         )
 
@@ -640,6 +712,18 @@ class TestHydeQuery:
         assert "query_embedding" in result.metadata
         assert len(result.metadata["query_embedding"]) == embedder.dimension
         assert not result.errors
+
+    @pytest.mark.asyncio
+    async def test_hyde_query_preserves_trace_id(self):
+        embedder = FakeEmbedder()
+        llm = FakeLLM("Paris is the capital of France.")
+        data = PipelineData(
+            query=UserMessage(text="What is the capital of France?"),
+            metadata={"embedder": embedder, "llm": llm},
+            trace_id="hyde-123",
+        )
+        result = await hyde_query(data)
+        assert result.trace_id == "hyde-123"
 
     @pytest.mark.asyncio
     async def test_hyde_query_no_embedder(self):

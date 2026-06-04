@@ -57,20 +57,23 @@ async def chat(
         raise HTTPException(status_code=500, detail="Chat manager not initialized")
     chat_manager = state.chat_manager
     conv_id = req.conversation_id or str(uuid.uuid4())
+    trace_id = uuid.uuid4().hex
+    _logger.info("Chat handler start: trace_id=%s", trace_id)
     try:
         response = await chat_manager.chat(
             message=req.message,
             conversation_id=conv_id,
-            metadata=req.metadata,
+            metadata={**req.metadata, "trace_id": trace_id},
         )
     except AdapterError as exc:
-        _logger.warning("LLM unavailable: %s", exc)
+        _logger.warning("LLM unavailable: %s", exc, extra={"trace_id": trace_id})
         _raise_llm_unavailable(exc)
     except HTTPException:
         raise
     except Exception:
-        _logger.exception("Chat failed")
+        _logger.exception("Chat failed", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Internal server error") from None
+    _logger.info("Chat handler done: trace_id=%s", trace_id)
     return ChatResponse(
         message=response.text or "",
         conversation_id=conv_id,
@@ -87,18 +90,22 @@ async def chat_stream(
         raise HTTPException(status_code=500, detail="Chat manager not initialized")
     chat_manager = state.chat_manager
     conv_id = req.conversation_id or str(uuid.uuid4())
+    trace_id = uuid.uuid4().hex
+    _logger.info("Chat stream handler start: trace_id=%s", trace_id)
 
     async def event_generator() -> AsyncIterator[str]:
         try:
             async for chunk in chat_manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
-                metadata=req.metadata,
+                metadata={**req.metadata, "trace_id": trace_id},
             ):
                 yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
         except AdapterError as exc:
-            _logger.warning("LLM unavailable in stream: %s", exc)
+            _logger.warning(
+                "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
+            )
             payload = json.dumps(
                 {
                     "error": "LLM service temporarily unavailable. Please try again later."
@@ -106,7 +113,7 @@ async def chat_stream(
             )
             yield f"data: {payload}\n\n"
         except Exception:
-            _logger.exception("Stream failed")
+            _logger.exception("Stream failed", extra={"trace_id": trace_id})
             payload = json.dumps({"error": "Internal server error"})
             yield f"data: {payload}\n\n"
 
@@ -125,7 +132,7 @@ async def list_models(state: Annotated[AppState, Depends(get_state)]) -> OAIMode
     cfg = state.config.llm
     cache_key = id(cfg)
     if cache_key not in _model_list_cache:
-        models = getattr(cfg, "available_models", [])
+        models = cfg.available_models if cfg.available_models else []
         if not models:
             models = [cfg.model]
         _model_list_cache[cache_key] = OAIModelList(
@@ -150,7 +157,9 @@ async def openai_chat_completions(
             break
 
     conv_id = str(uuid.uuid4())
-    model_id = getattr(req, "model", state.config.llm.model)
+    trace_id = uuid.uuid4().hex
+    _logger.info("OpenAI handler start: trace_id=%s", trace_id)
+    model_id = req.model if req.model is not None else state.config.llm.model
 
     if req.stream:
 
@@ -159,6 +168,7 @@ async def openai_chat_completions(
                 async for chunk in chat_manager.stream_chat(
                     message=last_user_msg,
                     conversation_id=conv_id,
+                    metadata={"trace_id": trace_id},
                 ):
                     delta = OAIDeltaChunk(
                         model=model_id,
@@ -173,7 +183,9 @@ async def openai_chat_completions(
                     yield f"data: {delta.model_dump_json()}\n\n"
                 yield "data: [DONE]\n\n"
             except AdapterError as exc:
-                _logger.warning("LLM unavailable in stream: %s", exc)
+                _logger.warning(
+                    "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
+                )
                 payload = json.dumps(
                     {
                         "error": "LLM service temporarily unavailable. Please try again later."
@@ -181,7 +193,7 @@ async def openai_chat_completions(
                 )
                 yield f"data: {payload}\n\n"
             except Exception:
-                _logger.exception("OpenAI stream failed")
+                _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 payload = json.dumps({"error": "Internal server error"})
                 yield f"data: {payload}\n\n"
 
@@ -191,16 +203,18 @@ async def openai_chat_completions(
         response = await chat_manager.chat(
             message=last_user_msg,
             conversation_id=conv_id,
+            metadata={"trace_id": trace_id},
         )
     except AdapterError as exc:
-        _logger.warning("LLM unavailable: %s", exc)
+        _logger.warning("LLM unavailable: %s", exc, extra={"trace_id": trace_id})
         _raise_llm_unavailable(exc)
     except HTTPException:
         raise
     except Exception:
-        _logger.exception("OpenAI chat failed")
+        _logger.exception("OpenAI chat failed", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
+    _logger.info("OpenAI handler done: trace_id=%s", trace_id)
     return OAIChatCompletion(
         model=model_id,
         created=int(time.time()),

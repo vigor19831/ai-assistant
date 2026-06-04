@@ -16,6 +16,18 @@ _VALID_LEVELS: Final[frozenset[str]] = frozenset(
 )
 
 
+class _TraceFormatter(logging.Formatter):
+    """Formatter that includes trace_id when present in extra."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        trace_id = getattr(record, "trace_id", None)
+        if trace_id:
+            record.trace_id_str = f" | trace_id={trace_id}"
+        else:
+            record.trace_id_str = ""
+        return super().format(record)
+
+
 def setup_logging(
     level: str = "INFO",
     log_file: str | Path | None = "./data/app.log",
@@ -38,8 +50,8 @@ def setup_logging(
         if logger.handlers:
             return logger
 
-        fmt = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-        formatter = logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
+        fmt = "%(asctime)s | %(levelname)-8s | %(name)s%(trace_id_str)s | %(message)s"
+        formatter = _TraceFormatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
 
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(formatter)

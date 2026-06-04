@@ -104,17 +104,21 @@ async def embed_query(data: PipelineData) -> PipelineData:
     Errors added on failure:
         EMBEDDER_NOT_PROVIDED, QUERY_TEXT_MISSING, INTERNAL_SERVER_ERROR.
     """
+    _logger.info("embed_query start", extra={"trace_id": data.trace_id})
     embedder = data.metadata.get("embedder")
     if embedder is None:
+        _logger.warning("embed_query: no embedder", extra={"trace_id": data.trace_id})
         return data.add_error(EMBEDDER_NOT_PROVIDED)
     if data.query is None or not data.query.text:
+        _logger.warning("embed_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
     try:
         embeddings = await _call_embed(embedder, data.query.text)
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
+        _logger.info("embed_query done", extra={"trace_id": data.trace_id})
         return replace(data, metadata=new_metadata)
     except Exception:
-        _logger.exception("embed_query failed")
+        _logger.exception("embed_query failed", extra={"trace_id": data.trace_id})
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
@@ -133,19 +137,25 @@ async def retrieve(data: PipelineData) -> PipelineData:
     Errors added on failure:
         VECTOR_STORE_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, INTERNAL_SERVER_ERROR.
     """
+    _logger.info("retrieve start", extra={"trace_id": data.trace_id})
     vector_store = data.metadata.get("vector_store")
     if vector_store is None:
+        _logger.warning("retrieve: no vector_store", extra={"trace_id": data.trace_id})
         return data.add_error(VECTOR_STORE_NOT_PROVIDED)
     embedding = data.metadata.get("query_embedding")
     if embedding is None:
+        _logger.warning("retrieve: no embedding", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
         top_k = data.metadata.get("top_k", 5)
         namespace = data.metadata.get("namespace") or "default"
         chunks = await _call_search(vector_store, embedding, top_k, namespace)
+        _logger.info(
+            "retrieve done: %d chunks", len(chunks), extra={"trace_id": data.trace_id}
+        )
         return data.with_chunks(chunks)
     except Exception:
-        _logger.exception("retrieve failed")
+        _logger.exception("retrieve failed", extra={"trace_id": data.trace_id})
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
@@ -166,6 +176,9 @@ async def rerank(data: PipelineData) -> PipelineData:
     Errors added on failure:
         INTERNAL_SERVER_ERROR.
     """
+    _logger.info(
+        "rerank start: %d chunks", len(data.chunks), extra={"trace_id": data.trace_id}
+    )
     if not data.chunks:
         return data
 
@@ -195,12 +208,20 @@ async def rerank(data: PipelineData) -> PipelineData:
                 **data.metadata,
                 "rerank_filtered_out": True,
             }
+            _logger.info(
+                "rerank: all chunks filtered out", extra={"trace_id": data.trace_id}
+            )
             return replace(data, chunks=(), metadata=new_metadata)
         else:
             new_metadata = {
                 **data.metadata,
                 "rerank_scores": [r.score for r in filtered],
             }
+            _logger.info(
+                "rerank done: %d chunks",
+                len(filtered),
+                extra={"trace_id": data.trace_id},
+            )
             return replace(
                 data,
                 chunks=tuple(r.chunk for r in filtered),
@@ -208,7 +229,7 @@ async def rerank(data: PipelineData) -> PipelineData:
             )
 
     except Exception:
-        _logger.exception("rerank failed")
+        _logger.exception("rerank failed", extra={"trace_id": data.trace_id})
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
@@ -219,18 +240,30 @@ async def build_context(data: PipelineData) -> PipelineData:
     Metadata contract:
         DATA: chunks (list[Chunk]) — read; context (str) — produced.
     """
+    _logger.info(
+        "build_context start: %d chunks",
+        len(data.chunks),
+        extra={"trace_id": data.trace_id},
+    )
     if not data.chunks:
         return data.with_context("")
     lines = [chunk.text for chunk in data.chunks if chunk.text]
-    return data.with_context("\n\n".join(lines))
+    context = "\n\n".join(lines)
+    _logger.info(
+        "build_context done: %d chars", len(context), extra={"trace_id": data.trace_id}
+    )
+    return data.with_context(context)
 
 
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
+    _logger.info("generate start", extra={"trace_id": data.trace_id})
     llm = data.metadata.get("llm")
     if llm is None:
+        _logger.warning("generate: no llm", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_NOT_PROVIDED)
     if data.query is None:
+        _logger.warning("generate: no query", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_MISSING)
 
     query_text = data.query.text or ""
@@ -300,10 +333,12 @@ async def generate(data: PipelineData) -> PipelineData:
     except AdapterError:
         # Intentional bypass: LLM unavailability is a transient infrastructure
         # failure, not a pipeline logic error. The HTTP layer maps this to 503.
-        _logger.exception("LLM unavailable")
+        _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
         raise
     except Exception:
-        _logger.exception("generate failed after retries")
+        _logger.exception(
+            "generate failed after retries", extra={"trace_id": data.trace_id}
+        )
         return data.add_error(INTERNAL_SERVER_ERROR).with_response(
             AssistantMessage(
                 text="Sorry, I encountered an error generating the response."
@@ -356,10 +391,16 @@ async def generate(data: PipelineData) -> PipelineData:
                 response = await _call_llm(llm, messages)
             except AdapterError:
                 # Intentional bypass — same reasoning as the main LLM call.
-                _logger.exception("LLM unavailable during tool follow-up")
+                _logger.exception(
+                    "LLM unavailable during tool follow-up",
+                    extra={"trace_id": data.trace_id},
+                )
                 raise
             except Exception:
-                _logger.exception("tool follow-up call failed after retries")
+                _logger.exception(
+                    "tool follow-up call failed after retries",
+                    extra={"trace_id": data.trace_id},
+                )
                 response = AssistantMessage(text="Sorry, a tool call failed.")
                 break
         else:
@@ -370,6 +411,7 @@ async def generate(data: PipelineData) -> PipelineData:
         if response
         else AssistantMessage(text="Sorry, tool call loop exhausted.")
     )
+    _logger.info("generate done", extra={"trace_id": data.trace_id})
     return data.with_response(final_response)
 
 
@@ -380,13 +422,17 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     Generates a hypothetical answer to the query, embeds it,
     and stores the embedding in metadata for downstream retrieval.
     """
+    _logger.info("hyde_query start", extra={"trace_id": data.trace_id})
     embedder = data.metadata.get("embedder")
     llm = data.metadata.get("llm")
     if embedder is None:
+        _logger.warning("hyde_query: no embedder", extra={"trace_id": data.trace_id})
         return data.add_error(EMBEDDER_NOT_PROVIDED)
     if llm is None:
+        _logger.warning("hyde_query: no llm", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_NOT_PROVIDED)
     if data.query is None or not data.query.text:
+        _logger.warning("hyde_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
 
     # Generate hypothetical answer
@@ -398,7 +444,9 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     try:
         hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages)
     except Exception:
-        _logger.exception("hyde_query: LLM call failed")
+        _logger.exception(
+            "hyde_query: LLM call failed", extra={"trace_id": data.trace_id}
+        )
         return data.add_error(INTERNAL_SERVER_ERROR)
 
     hyde_text = hyde_resp.text or ""
@@ -409,8 +457,11 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     try:
         embeddings = await _call_embed(embedder, hyde_text)
     except Exception:
-        _logger.exception("hyde_query: embedding failed")
+        _logger.exception(
+            "hyde_query: embedding failed", extra={"trace_id": data.trace_id}
+        )
         return data.add_error(INTERNAL_SERVER_ERROR)
 
     new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
+    _logger.info("hyde_query done", extra={"trace_id": data.trace_id})
     return replace(data, metadata=new_metadata)

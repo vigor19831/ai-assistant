@@ -137,6 +137,24 @@ class TestChatOffline:
         assert "data: " in text
         assert "[DONE]" in text
 
+    def test_chat_handler_passes_trace_id(self, client, mock_state):
+        """trace_id must be passed from handler through chat_manager to metadata."""
+        captured_meta = {}
+
+        async def capture_chat(*args, **kwargs):
+            captured_meta["metadata"] = kwargs.get("metadata", {})
+            return MagicMock(text="OK", metadata={}, tool_calls=[])
+
+        mock_state.chat_manager.chat = capture_chat
+
+        resp = client.post(
+            "/api/v1/chat",
+            json={"message": "Hello", "conversation_id": "test-trace"},
+        )
+        assert resp.status_code == 200
+        assert "trace_id" in captured_meta["metadata"]
+        assert captured_meta["metadata"]["trace_id"]
+
 
 class TestOpenAICompatibleOffline:
     """OpenAI-compatible endpoints for Page Assist."""
@@ -177,6 +195,28 @@ class TestOpenAICompatibleOffline:
         assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
         assert "data:" in resp.text
         assert "[DONE]" in resp.text
+
+    def test_openai_handler_passes_trace_id(self, client, mock_state):
+        """OpenAI-compatible handler must pass trace_id to chat_manager."""
+        captured_meta = {}
+
+        async def capture_chat(*args, **kwargs):
+            captured_meta["metadata"] = kwargs.get("metadata", {})
+            return MagicMock(text="OK", metadata={}, tool_calls=[])
+
+        mock_state.chat_manager.chat = capture_chat
+
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": False,
+            },
+        )
+        assert resp.status_code == 200
+        assert "trace_id" in captured_meta["metadata"]
+        assert captured_meta["metadata"]["trace_id"]
 
 
 class TestRAGOffline:
@@ -617,7 +657,7 @@ def test_lifespan_reconfigures_middleware_and_mounts_static(client):
 
 
 def test_middleware_present_at_import_time():
-    """Middleware must be registered when main.py is imported, without load_config."""
+    """Middleware must be registered when main.py is imported, without loadConfig."""
     from ai_assistant.main import create_app
 
     app = create_app(lifespan=None)

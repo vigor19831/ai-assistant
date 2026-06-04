@@ -44,7 +44,7 @@ storage:
   db_path: ./data/test_storage.db
 
 reranker:
-  provider: dummy
+  provider: null
   timeout: 5.0
   threshold: 0.3
 

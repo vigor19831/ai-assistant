@@ -7,7 +7,7 @@ import json
 import os
 import sys
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, make_dataclass
 from pathlib import Path
 
 # Ensure project root is on path (works from any cwd)
@@ -281,11 +281,13 @@ def check_rag_pipeline() -> str:
 
     async def run():
         chunker = SimpleChunker(
-            type("C", (), {"chunk_size": 100, "chunk_overlap": 5})()
+            make_dataclass("C", [("chunk_size", int, 100), ("chunk_overlap", int, 5)], frozen=True)()
         )
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        embedder = MockEmbedder(
+            make_dataclass("C", [("dim", int, 3)], frozen=True)()
+        )
         store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+            make_dataclass("C", [("dim", int, 3), ("relevance_threshold", float, 0.0)], frozen=True)()
         )
         doc = Document(id="d1", content="Paris is capital. France has Eiffel Tower.")
         chunks = await chunker.chunk(doc)
@@ -315,9 +317,11 @@ def check_chat_manager() -> str:
 
     async def run():
         llm = MockLLM({})
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
+        embedder = MockEmbedder(
+            make_dataclass("C", [("dim", int, 3)], frozen=True)()
+        )
         store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
+            make_dataclass("C", [("dim", int, 3), ("relevance_threshold", float, 0.0)], frozen=True)()
         )
         await store.add(
             [replace(Chunk(id="c1", text="Paris is capital."), embedding=[0.1] * 3)],
@@ -397,30 +401,35 @@ def check_lifespan() -> str:
         st.llm_server_manager = None
 
         with patch("ai_assistant.api.lifespan._load_config") as mock_cfg:
-            cfg = type(
-                "C",
-                (),
-                {
-                    "debug": False,
-                    "security": type(
-                        "S",
-                        (),
-                        {"api_key": None, "rate_limit": "100/minute"},
-                    )(),
-                    "llm": type(
-                        "LLM",
-                        (),
-                        {
-                            "server_bin": None,
-                            "model_path": None,
-                            "server_context_size": 4096,
-                            "n_gpu_layers": 0,
-                        },
-                    )(),
-                    "vector_store": type("VS", (), {"index_path": None})(),
-                },
-            )()
-            mock_cfg.return_value = cfg
+            SecurityCfg = make_dataclass(
+                "SecurityCfg",
+                [("api_key", type(None), None), ("rate_limit", str, "100/minute")],
+                frozen=True,
+            )
+            LLMCfg = make_dataclass(
+                "LLMCfg",
+                [
+                    ("server_bin", type(None), None),
+                    ("model_path", type(None), None),
+                    ("server_context_size", int, 4096),
+                    ("n_gpu_layers", int, 0),
+                ],
+                frozen=True,
+            )
+            VSCfg = make_dataclass(
+                "VSCfg", [("index_path", type(None), None)], frozen=True
+            )
+            Cfg = make_dataclass(
+                "Cfg",
+                [
+                    ("debug", bool, False),
+                    ("security", object, SecurityCfg()),
+                    ("llm", object, LLMCfg()),
+                    ("vector_store", object, VSCfg()),
+                ],
+                frozen=True,
+            )
+            cfg = Cfg()
 
             with patch(
                 "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock

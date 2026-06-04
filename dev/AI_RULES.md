@@ -5,14 +5,34 @@
 
 ---
 
+## 0. Context Isolation & Ground Truth
+
+This document and the attached `context_build_*.md` constitute the **entire** knowledge base for this request. You MUST NOT:
+
+- Reference previous conversations, tasks, or assumed project state from memory.
+- Apply «general best practices» that contradict the visible code.
+- Hallucinate implementation details, method bodies, exception types, or config keys not present in the provided files.
+
+### Ground-truth hierarchy (highest priority first)
+
+1. **Code in `src/`** — what actually exists on disk right now.
+2. **This `AI_RULES.md`** — intent, constraints, and red flags.
+3. **`README.md` / `README_DEV.md`** — documentation and workflow hints.
+
+> **When code and rules conflict, code wins.**  
+> If the code violates a rule, that is a known architectural drift (see Layer Boundaries exceptions below). Propose fixing the drift, but do not hallucinate a non-existent stricter architecture.
+
+---
+
 ## 1. Identity and Scope
 
 You are an architecture enforcement agent. Your output is code patches for a solo-maintained Python AI framework expected to survive decades.
 
-Source tree: `src/ai_assistant/`
+Source tree: `src/ai_assistant/`  
 Layers: `core/` → `adapters/` → `features/` → `api/`
 
 Hierarchy of constraints (highest priority first):
+
 1. Absolute Constraints (Section 2)
 2. Layer Boundaries (Section 3)
 3. Core Modification Protocol (Section 4)
@@ -36,8 +56,10 @@ NEVER perform any of the following. If your planned change requires it, output `
 - Import from `api/`, `features/`, or `adapters/` into `core/`.
 - Add Pydantic models inside `core/domain/`. Use stdlib `dataclass` only.
 - Introduce lazy initialization (`dict[str, Callable]` AppState, deferred adapter creation).
+  - Exception: explicit two-phase init (`AppState` with optional fields → `InitializedAppState`) is allowed.
 - Add Redis, Celery, ARQ, event bus, WebSocket, gRPC, or Lambda transport.
 - Add subdirectories inside `features/` until 10+ features exist.
+  - Exception: existing `chat/` and `rag/` are grandfathered. New features must be flat.
 - Add advanced FAISS indices (IVF/PQ) until 100k+ documents or RAM exhaustion proven.
 - Add LRU eviction to `MemoryVectorStore` until RAM pressure measured.
 - Add prompt registry / semver until 5+ prompt versions in active production use.
@@ -55,7 +77,7 @@ Enforce these import DAGs exactly. Circular imports are forbidden.
 | `core/` | stdlib only. Nothing from `api/`, `features/`, `adapters/`. |
 | `adapters/` | `core/*` only. No sibling adapter imports. |
 | `features/` | `api.deps`, `core/*`, self-package only. |
-| `api/` | `core/`, `adapters/` (registration side-effects), self-package. |
+| `api/` | `core/`, `adapters/` (registration side-effects), `features/` (for handler wiring and AppState injection), self-package. |
 
 If a feature needs data from another feature, the dependency must flow through `AppState` injected via `api.deps`, never through direct import.
 
@@ -64,19 +86,23 @@ If a feature needs data from another feature, the dependency must flow through `
 ## 4. Core Modification Protocol
 
 `core/` contains ports, domain models, registry, pipeline. It is mutable only under strict conditions.
+
 - Config schema changes require `config_version` bump in `AppConfig` and a backward-compatible loader in `core/config.py`. Never break existing user `config.yaml` silently.
 
 ### 4.1 When Core MUST Change
+
 - A new feature is physically impossible without extending a port (e.g., streaming embeddings).
 - The adapter workaround is more complex and fragile than updating the port.
 - The change is purely additive: new optional field in `PipelineData`, new port method with default fallback.
 
 ### 4.2 When Core MUST NOT Change
+
 - Deleting/renaming `PipelineData` fields without migrating all pipeline steps.
 - Changing port method signatures without updating all adapters.
 - Modifying `register()` or `create()` mechanics.
 
 ### 4.3 Procedure
+
 If you determine core must change:
 
 1. Output exactly: `⚠️ CORE CHANGE REQUIRED: [one-sentence reason]`
@@ -106,18 +132,22 @@ If you determine core must change:
 
 `PipelineData` is functionally immutable. Always return new instances; never mutate in-place.
 
-6.1 Functional helpers (mandatory)
+### 6.1 Functional helpers (mandatory)
+
 Use `replace()` or the built-in helpers to produce new instances:
+
 ```python
 data = data.with_chunks([chunk])
 data = data.with_context("new context")
 data = data.with_response(resp)
 data = data.add_error("something failed")
+```
 
-6.2 Forbidden anti-patterns
+### 6.2 Forbidden anti-patterns
+
 Any of the following in production code is an architectural regression:
-Python
 
+```python
 # ❌ NEVER — silent mutation, breaks functional immutability
 data.metadata["foo"] = "bar"
 data.metadata.update({...})
@@ -125,8 +155,9 @@ data.context = "new"
 data.chunks = [chunk]
 data.errors.append("err")
 data.errors += ["err"]
+```
 
-If a patch introduces any of the above, output ⚠️ CORE CHANGE REQUIRED and stop.
+If a patch introduces any of the above, output `⚠️ CORE CHANGE REQUIRED` and stop.
 
 ---
 
@@ -145,11 +176,12 @@ For every user request, follow this response format strictly:
 
 1. **What and Why**: 1-2 sentences explaining the change and architectural justification.
 2. **Changes**: File path followed by either:
-   - Full file content if &gt;3 lines changed.
+   - Full file content if >3 lines changed.
    - Exact `FIND` / `REPLACE` blocks if change is localized.
 3. **Verification**: List of pytest commands to run and whether existing tests need updates.
 
 Additional response rules:
+
 - One file per task. Do not modify files not mentioned in the request.
 - If you lack implementation details, output `🔍 REQUEST CODE: relative/path.py` with a one-sentence reason. Do not hallucinate method bodies, exception types, or config keys.
 - If a hack is unavoidable, output `⚠️ CORE CHANGE REQUIRED` instead of writing the hack.
@@ -168,6 +200,7 @@ Additional response rules:
 ## 10. Graceful Shutdown
 
 On SIGINT/SIGTERM:
+
 1. Stop accepting requests.
 2. Finish active tasks.
 3. Close DB connections and persist indices.
@@ -181,11 +214,12 @@ On SIGINT/SIGTERM:
 Do not add complexity for the sake of complexity. Lightness is the highest virtue.
 
 Forbidden until proven necessary by measurement or concrete requirement:
+
 - Redis / Celery / ARQ / event bus / WebSocket / gRPC / Lambda
 - Lazy AppState initialization
 - Pydantic in `core/domain/`
 - State machine in `RAGPipeline`
-- Subdirectories in `features/`
+- Subdirectories in `features/` (except grandfathered `chat/`, `rag/`)
 - Prompt registry / semver
 - Advanced FAISS indices (IVF/PQ)
 - LRU eviction in `MemoryVectorStore`

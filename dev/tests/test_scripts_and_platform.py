@@ -9,6 +9,7 @@ import importlib.util
 import os
 import re
 import sys
+from dataclasses import make_dataclass
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,6 @@ def load_launcher() -> object:
     if "launcher" not in _MODULE_CACHE:
         _MODULE_CACHE["launcher"] = _import_from_path("_test_launcher", _LAUNCHER_PATH)
     return _MODULE_CACHE["launcher"]
-
 
 # ── launcher helpers ──
 
@@ -319,3 +319,18 @@ class TestWindowsSpecific:
         assert "posix" in launcher.TERMINAL_CMD
         cmd = launcher.TERMINAL_CMD["posix"]("venv", "root")
         assert "gnome-terminal" in cmd or "bash" in cmd
+
+
+class TestLauncherConstants:
+    def test_target_terminal_constant(self):
+        launcher = load_launcher()
+        assert hasattr(launcher, "TARGET_TERMINAL")
+        assert launcher.TARGET_TERMINAL == "__terminal__"
+
+    def test_terminal_in_menu(self, capsys):
+        launcher = load_launcher()
+        scripts = [(1, "TERMINAL (.venv)", launcher.TARGET_TERMINAL)]
+        tests = []
+        launcher.print_menu(scripts, tests, last=None)
+        out = capsys.readouterr().out
+        assert "TERMINAL" in out

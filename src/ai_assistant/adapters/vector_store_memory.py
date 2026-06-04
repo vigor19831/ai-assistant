@@ -74,10 +74,10 @@ class MemoryVectorStore(IVectorStore):
         top_k: int = 5,
         namespace: str = "default",
     ) -> list[Chunk]:
-        """Search for relevant chunks with strict similarity threshold.
+        """Search for nearest neighbors by cosine similarity.
 
-        Returns empty list if no chunks meet the relevance threshold,
-        preventing irrelevant results from being returned.
+        Returns top_k closest chunks without applying a relevance cutoff.
+        Quality filtering is the responsibility of the rerank pipeline step.
         """
         async with self._lock:
             if namespace not in self._namespaces:
@@ -91,19 +91,8 @@ class MemoryVectorStore(IVectorStore):
             matrix = np.stack([ns.embeddings[i] for i in ids])
             scores = matrix @ q
 
-            raw_threshold = getattr(self.config, "relevance_threshold", 0.3)
-            try:
-                threshold = float(raw_threshold)
-            except (TypeError, ValueError):
-                threshold = 0.3
-
-            valid_indices = np.where(scores >= threshold)[0]
-            if len(valid_indices) == 0:
-                return []
-
-            valid_scores = scores[valid_indices]
-            sorted_order = np.argsort(valid_scores)[::-1]
-            top_indices = valid_indices[sorted_order[:top_k]]
+            sorted_order = np.argsort(scores)[::-1]
+            top_indices = sorted_order[:top_k]
 
             return [ns.chunks[ids[i]] for i in top_indices]
 

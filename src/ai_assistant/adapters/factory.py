@@ -89,10 +89,6 @@ def create_adapter(port: str, name: str, config: Any) -> Any:
 
     # -- Reranker --
     if port == "reranker":
-        if name == "dummy":
-            from ai_assistant.adapters.reranker_dummy import DummyReranker
-
-            return DummyReranker(config)
         if name == "api":
             from ai_assistant.adapters.reranker_api import APIReranker
 

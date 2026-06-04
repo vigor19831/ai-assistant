@@ -7,7 +7,7 @@ app_name: ai-assistant
 debug: false
 host: 0.0.0.0
 port: 8000
-config_version: "1.3.0"
+config_version: "1.4.0"
 
 # ── CORS ──
 cors:
@@ -74,7 +74,6 @@ vector_store:
   index_path: ./data/indices
   metric: l2
   dim: 768                # ← ОБЯЗАТЕЛЬНО равно embedder.dim
-  relevance_threshold: 0.1
 
 # ── Storage ──
 storage:
@@ -84,7 +83,7 @@ storage:
 
 # ── Reranker ──
 reranker:
-  provider: dummy
+  provider: null
   model: rerank-multilingual-v3.0
   api_base: https://api.cohere.com
   api_key: null

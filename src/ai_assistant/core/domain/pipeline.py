@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 __all__ = ["PipelineData"]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PipelineData:
     query: UserMessage | None = None
     chunks: tuple[Chunk, ...] = field(default_factory=tuple)
@@ -20,12 +21,7 @@ class PipelineData:
     response: AssistantMessage | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     errors: tuple[str, ...] = field(default_factory=tuple)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.chunks, tuple):  # noqa: UP037
-            self.chunks = tuple(self.chunks)
-        if not isinstance(self.errors, tuple):  # noqa: UP037
-            self.errors = tuple(self.errors)
+    trace_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def with_chunks(self, chunks: list[Chunk] | tuple[Chunk, ...]) -> PipelineData:
         """Return a new PipelineData with updated chunks."""

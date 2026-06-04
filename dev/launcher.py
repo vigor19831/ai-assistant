@@ -72,6 +72,9 @@ TERMINAL_CMD: dict[str, Callable[[str, str], list[str]]] = {
     ],
 }
 
+# --- special target constants ---------------------------------------------
+TARGET_TERMINAL: str = "__terminal__"  # Explicit mapping for terminal menu item
+
 # --- helpers --------------------------------------------------------------
 
 
@@ -588,7 +591,7 @@ def main() -> int:
         scripts.append((n, f.name, str(f)))
         n += 1
 
-    scripts.append((n, "TERMINAL (.venv)", "__terminal__"))
+    scripts.append((n, "TERMINAL (.venv)", TARGET_TERMINAL))
     n += 1
 
     if test_files:
@@ -635,7 +638,7 @@ def main() -> int:
         mode_extra: list[str] = []
         # In non-interactive mode, use default modes
 
-        if target == "__terminal__":
+        if target == TARGET_TERMINAL:
             return run_terminal(root)
 
         if Path(target).stem == "audit_project":
@@ -707,7 +710,7 @@ def main() -> int:
             continue
         extra = sanitized
 
-        if target == "__terminal__":
+        if target == TARGET_TERMINAL:
             run_terminal(root)
             continue
 

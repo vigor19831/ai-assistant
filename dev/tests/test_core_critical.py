@@ -35,11 +35,11 @@ class TestPipelineDataFunctional:
         resp = AssistantMessage(text="answer")
         data = PipelineData(
             query=msg,
-            chunks=[chunk],
+            chunks=(chunk,),
             context="ctx",
             response=resp,
             metadata={"k": "v"},
-            errors=["old"],
+            errors=("old",),
         )
         data2 = data.add_error("new")
 
@@ -106,13 +106,13 @@ class TestPipelineDataFunctional:
         assert data.errors == ("e1", "e2")
 
     def test_chunks_type_is_tuple(self) -> None:
-        """chunks must be tuple even when initialized with list."""
-        data = PipelineData(chunks=[Chunk(id="c", text="t")])
+        """chunks must be tuple."""
+        data = PipelineData(chunks=(Chunk(id="c", text="t"),))
         assert isinstance(data.chunks, tuple)
 
     def test_errors_type_is_tuple(self) -> None:
-        """errors must be tuple even when initialized with list."""
-        data = PipelineData(errors=["e1"])
+        """errors must be tuple."""
+        data = PipelineData(errors=("e1",))
         assert isinstance(data.errors, tuple)
 
     def test_metadata_is_plain_dict(self) -> None:
@@ -120,6 +120,51 @@ class TestPipelineDataFunctional:
         data = PipelineData(metadata={"a": 1})
         assert isinstance(data.metadata, dict)
         assert not isinstance(data.metadata, MappingProxyType)
+
+
+class TestPipelineDataFrozen:
+    """Tests for frozen PipelineData — must raise FrozenInstanceError on mutation."""
+
+    def test_frozen_query_mutation(self) -> None:
+        data = PipelineData(query=UserMessage(text="q"))
+        with pytest.raises(FrozenInstanceError):
+            data.query = None  # type: ignore[misc]
+
+    def test_frozen_chunks_mutation(self) -> None:
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.chunks = ()  # type: ignore[misc]
+
+    def test_frozen_context_mutation(self) -> None:
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.context = "x"  # type: ignore[misc]
+
+    def test_frozen_response_mutation(self) -> None:
+        data = PipelineData(response=AssistantMessage(text="r"))
+        with pytest.raises(FrozenInstanceError):
+            data.response = None  # type: ignore[misc]
+
+    def test_frozen_metadata_reassignment(self) -> None:
+        data = PipelineData(metadata={"a": 1})
+        with pytest.raises(FrozenInstanceError):
+            data.metadata = {}  # type: ignore[misc]
+
+    def test_frozen_errors_mutation(self) -> None:
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.errors = ()  # type: ignore[misc]
+
+    def test_frozen_trace_id_mutation(self) -> None:
+        data = PipelineData()
+        with pytest.raises(FrozenInstanceError):
+            data.trace_id = "x"  # type: ignore[misc]
+
+    def test_slots_prevents_arbitrary_fields(self) -> None:
+        """slots=True removes __dict__, preventing arbitrary attribute addition."""
+        assert hasattr(PipelineData, "__slots__")
+        data = PipelineData()
+        assert not hasattr(data, "__dict__")
 
 
 def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
@@ -174,8 +219,6 @@ class TestToolResultFrozen:
 
     def test_frozen_instance_error_on_error_mutation(self) -> None:
         """Setting result.error after construction must raise FrozenInstanceError."""
-        from dataclasses import FrozenInstanceError
-
         from ai_assistant.core.ports.tools import ToolResult
 
         result = ToolResult(call_id="c1", output="ok")
@@ -184,8 +227,6 @@ class TestToolResultFrozen:
 
     def test_frozen_instance_error_on_is_error_mutation(self) -> None:
         """Setting result.is_error after construction must raise FrozenInstanceError."""
-        from dataclasses import FrozenInstanceError
-
         from ai_assistant.core.ports.tools import ToolResult
 
         result = ToolResult(call_id="c1", output="ok")
@@ -194,8 +235,6 @@ class TestToolResultFrozen:
 
     def test_frozen_instance_error_on_output_mutation(self) -> None:
         """Setting result.output after construction must raise FrozenInstanceError."""
-        from dataclasses import FrozenInstanceError
-
         from ai_assistant.core.ports.tools import ToolResult
 
         result = ToolResult(call_id="c1", output="ok")
