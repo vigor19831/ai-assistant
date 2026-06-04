@@ -8,11 +8,9 @@ from typing import Any
 
 __all__ = [
     "AssistantMessage",
-    "ImagePayload",
     "MessageRole",
     "TextPayload",
     "UserMessage",
-    "VoicePayload",
 ]
 
 
@@ -28,30 +26,14 @@ class TextPayload:
 
 
 @dataclass(frozen=True)
-class ImagePayload:
-    url: str | None = None
-    base64_data: str | None = None
-    mime_type: str = "image/png"
-
-
-@dataclass(frozen=True)
-class VoicePayload:
-    audio_base64: str
-    mime_type: str = "audio/wav"
-    duration_ms: int | None = None
-
-
-@dataclass(frozen=True)
 class UserMessage:
     role: MessageRole = field(default=MessageRole.USER, init=False)
     text: str | None = None
-    image: ImagePayload | None = None
-    voice: VoicePayload | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.text is None and self.image is None and self.voice is None:
-            raise ValueError("UserMessage must contain at least one payload")
+        if self.text is None:
+            raise ValueError("UserMessage must contain text payload")
 
 
 @dataclass(frozen=True)

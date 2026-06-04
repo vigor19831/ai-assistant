@@ -292,8 +292,7 @@ async def generate(data: PipelineData) -> PipelineData:
             )
         data = current_data
 
-    original_image = data.query.image if data.query else None
-    messages: list[Any] = [UserMessage(text=prompt, image=original_image)]
+    messages: list[Any] = [UserMessage(text=prompt)]
     response: AssistantMessage | None = None
 
     try:

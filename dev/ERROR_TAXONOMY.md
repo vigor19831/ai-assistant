@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-03 21:42 UTC
+> Auto-generated from source code. Updated: 2026-06-04 05:49 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -30,7 +30,7 @@
 | `api.security` | `HTTPException` | Unknown error | High | 61 |
 | `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 228 |
 | `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 254 |
-| `core.domain.messages` | `ValueError` | UserMessage must contain at least one payload | High | 54 |
+| `core.domain.messages` | `ValueError` | UserMessage must contain text payload | High | 36 |
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 29 |
 | `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 30 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
@@ -50,8 +50,8 @@
 | `dev.tests.test_rag_pipeline` | `ValueError` | bad index | High | 593 |
 | `dev.tests.test_resilience` | `RuntimeError` | shutdown boom | High | 185 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 36 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 265 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 370 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 254 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 349 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 83 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
@@ -85,29 +85,28 @@
 | `core.utils` | `KeyError` | try: | Medium | 77 |
 | `core.utils` | `OSError` | return None | Medium | 64 |
 | `dev.tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
-| `dev.tests.test_api_e2e` | `OSError` | return False | Medium | 599 |
+| `dev.tests.test_api_e2e` | `OSError` | return False | Medium | 491 |
 | `dev.tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 91 |
 | `dev.tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 131 |
 | `dev.tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 162 |
 | `dev.tests.test_scripts_and_platform` | `ImportError` | Cannot load {...} | Medium | 31 |
 | `dev.tests.test_scripts_and_platform` | `ModuleNotFoundError` | pytest.skip("mypy not installed") | Medium | 250 |
 | `dev.tests.test_scripts_and_platform` | `ModuleNotFoundError` | pytest.skip("ruff not installed") | Medium | 263 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc) | Medium | 108 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable in stream: %s", exc) | Medium | 145 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed") | Medium | 113 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed") | Medium | 153 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed") | Medium | 234 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed") | Medium | 253 |
-| `features.chat.handlers` | `HTTPException` | raise | Medium | 111 |
-| `features.chat.handlers` | `ValueError` | pass | Medium | 76 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 257 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 234 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 252 |
-| `features.chat.manager` | `Exception` | logger.error( | Medium | 259 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 297 |
-| `features.chat.manager` | `Exception` | history = ( | Medium | 347 |
-| `features.chat.manager` | `Exception` | raise AdapterError(f"LLM stream failed: {exc}") from exc | Medium | 369 |
-| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 52 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc) | Medium | 66 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable in stream: %s", exc) | Medium | 100 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed") | Medium | 71 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed") | Medium | 108 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed") | Medium | 183 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed") | Medium | 200 |
+| `features.chat.handlers` | `HTTPException` | raise | Medium | 69 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 246 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 223 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 241 |
+| `features.chat.manager` | `Exception` | logger.error( | Medium | 248 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 286 |
+| `features.chat.manager` | `Exception` | history = ( | Medium | 326 |
+| `features.chat.manager` | `Exception` | raise AdapterError(f"LLM stream failed: {exc}") from exc | Medium | 348 |
+| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 51 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 135 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 198 |
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 229 |
@@ -119,17 +118,17 @@
 | `features.rag.manager` | `Exception` | errors.append(f"Vector store add failed: {e}") | Medium | 89 |
 | `features.rag.manager` | `Exception` | _logger.debug("RAG health check failed: %s", exc) | Medium | 209 |
 | `features.rag.manager` | `ValueError/IndexError` | continue | Medium | 167 |
-| `pipeline.steps` | `AdapterError` | _logger.exception("LLM unavailable") | Medium | 301 |
-| `pipeline.steps` | `AdapterError` | _logger.exception("LLM unavailable during tool follow-up") | Medium | 358 |
+| `pipeline.steps` | `AdapterError` | _logger.exception("LLM unavailable") | Medium | 300 |
+| `pipeline.steps` | `AdapterError` | _logger.exception("LLM unavailable during tool follow-up") | Medium | 357 |
 | `pipeline.steps` | `Exception` | _logger.exception("embed_query failed") | Medium | 116 |
 | `pipeline.steps` | `Exception` | _logger.exception("retrieve failed") | Medium | 147 |
 | `pipeline.steps` | `Exception` | _logger.exception("rerank failed") | Medium | 210 |
 | `pipeline.steps` | `Exception` | prompt = _build_fallback_prompt() | Medium | 253 |
-| `pipeline.steps` | `Exception` | _logger.exception("generate failed after retries") | Medium | 306 |
-| `pipeline.steps` | `Exception` | content = f"Error: {e}" | Medium | 346 |
-| `pipeline.steps` | `Exception` | _logger.exception("tool follow-up call failed after retries" | Medium | 362 |
-| `pipeline.steps` | `Exception` | _logger.exception("hyde_query: LLM call failed") | Medium | 401 |
-| `pipeline.steps` | `Exception` | _logger.exception("hyde_query: embedding failed") | Medium | 412 |
+| `pipeline.steps` | `Exception` | _logger.exception("generate failed after retries") | Medium | 305 |
+| `pipeline.steps` | `Exception` | content = f"Error: {e}" | Medium | 345 |
+| `pipeline.steps` | `Exception` | _logger.exception("tool follow-up call failed after retries" | Medium | 361 |
+| `pipeline.steps` | `Exception` | _logger.exception("hyde_query: LLM call failed") | Medium | 400 |
+| `pipeline.steps` | `Exception` | _logger.exception("hyde_query: embedding failed") | Medium | 411 |
 | `dev.tests.test_scripts_and_platform` | `FileNotFoundError` | Config not found: {...} | Low | 294 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.

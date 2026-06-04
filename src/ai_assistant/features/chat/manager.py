@@ -17,7 +17,6 @@ from ai_assistant.core.constants import (
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
-    ImagePayload,
     UserMessage,
 )
 from ai_assistant.core.domain.pipeline import PipelineData
@@ -185,24 +184,15 @@ class ChatManager:
         self,
         message: str,
         conversation_id: str,
-        image_url: str | None = None,
-        image_base64: str | None = None,
-        voice_base64: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AssistantMessage:
-        """Process a chat message (text, image, or voice)."""
+        """Process a chat message."""
         meta = metadata or {}
         logger.info(
             "Chat request: conv=%s, msg_len=%d",
             conversation_id,
             len(message),
         )
-
-        image_payload = None
-        if image_url:
-            image_payload = ImagePayload(url=image_url)
-        elif image_base64:
-            image_payload = ImagePayload(base64_data=image_base64)
 
         # Graceful degradation: RAG requested but infrastructure unavailable
         if _PREFIX_RE.match(message) and not self.pipeline:
@@ -214,7 +204,6 @@ class ChatManager:
 
         user_msg = UserMessage(
             text=prompt_for_llm,
-            image=image_payload,
             metadata=meta,
         )
 
@@ -303,9 +292,6 @@ class ChatManager:
         self,
         message: str,
         conversation_id: str,
-        image_url: str | None = None,
-        image_base64: str | None = None,
-        voice_base64: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """Stream chat response.
@@ -313,12 +299,6 @@ class ChatManager:
         TODO: tool calls are not handled in streaming mode.
         """
         meta = metadata or {}
-
-        image_payload = None
-        if image_url:
-            image_payload = ImagePayload(url=image_url)
-        elif image_base64:
-            image_payload = ImagePayload(base64_data=image_base64)
 
         # Graceful degradation: RAG requested but infrastructure unavailable
         if _PREFIX_RE.match(message) and not self.pipeline:
@@ -329,7 +309,6 @@ class ChatManager:
 
         user_msg = UserMessage(
             text=prompt_for_llm,
-            image=image_payload,
             metadata=meta,
         )
 

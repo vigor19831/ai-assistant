@@ -70,34 +70,73 @@ def make_mock_state():
     mock.config.vector_store.dim = 384
     mock.config.storage.provider = "sqlite"
     mock.config.storage.db_path = "./data/test_storage.db"
-    mock.config.voice.enabled = False
-    mock.config.vision.enabled = False
+
+    # LLM
+    async def _complete(msgs):
+        return MagicMock(text="ok", metadata={}, tool_calls=[])
+
+    async def _stream(*a, **k):
+        yield "ok"
+
     mock.llm = MagicMock()
-    mock.llm.complete = lambda msgs: MagicMock(text="ok", metadata={}, tool_calls=[])
-    mock.llm.stream = lambda msgs: (yield "ok")
+    mock.llm.complete = _complete
+    mock.llm.stream = _stream
+
+    # Embedder
+    async def _embed(texts):
+        return [[0.1] * 384]
+
     mock.embedder = MagicMock()
-    mock.embedder.embed = lambda texts: [[0.1] * 384]
+    mock.embedder.embed = _embed
     mock.embedder.dimension = 384
+
+    # Vector store
+    async def _add(*a, **k):
+        pass
+
+    async def _search(*a, **k):
+        return []
+
     mock.vector_store = MagicMock()
-    mock.vector_store.add = lambda *a, **k: None
-    mock.vector_store.search = lambda *a, **k: []
+    mock.vector_store.add = _add
+    mock.vector_store.search = _search
+
+    # Chunker
+    async def _chunk(doc):
+        return []
+
     mock.chunker = MagicMock()
-    mock.chunker.chunk = lambda doc: []
+    mock.chunker.chunk = _chunk
+
     mock.reranker = None
+
+    # Pipeline
+    async def _pipeline_run(data, **kwargs):
+        return MagicMock(chunks=[], response=MagicMock(text="answer"), errors=[])
+
     mock.pipeline = MagicMock()
-    mock.pipeline.run = lambda data: MagicMock(
-        chunks=[], response=MagicMock(text="answer"), errors=[]
-    )
+    mock.pipeline.run = _pipeline_run
+
+    # ChatManager — real async methods to survive await in handlers
+    class FakeChatManager:
+        async def chat(self, message, conversation_id, metadata=None):
+            return MagicMock(text="ok", metadata={}, tool_calls=[])
+
+        async def stream_chat(self, message, conversation_id, metadata=None):
+            yield "ok"
+
+    mock.chat_manager = FakeChatManager()
+
+    # Storage
+    async def _get_history(*a, **k):
+        return []
+
+    async def _save_message(*a, **k):
+        pass
+
     mock.storage = MagicMock()
-    mock.storage.get_history = lambda *a, **k: []
-    mock.storage.save_message = lambda *a, **k: None
-    mock.vision = None
-    mock.voice_recognizer = None
-    mock.voice_synthesizer = None
-    mock.tool_registry = MagicMock()
-    mock.tool_registry.register = lambda t: None
-    mock.tool_registry.list_tools = lambda: []
-    mock.tool_registry.execute = lambda c: MagicMock(output="tool", is_error=False)
+    mock.storage.get_history = _get_history
+    mock.storage.save_message = _save_message
 
     # Bypass API key check for smoke tests (no auth required)
     os.environ["AI_API_KEY"] = ""
@@ -176,11 +215,13 @@ def check_http_endpoints() -> str:
     from fastapi.testclient import TestClient
 
     from ai_assistant.api.deps import get_state
+    from ai_assistant.api.security import require_api_key
     from ai_assistant.main import app
 
     mock = make_mock_state()
     app.state.app_state = mock
     app.dependency_overrides[get_state] = lambda: mock
+    app.dependency_overrides[require_api_key] = lambda: None
     try:
         client = TestClient(app)
         r1 = client.get("/health")
@@ -205,6 +246,7 @@ def check_sse_format() -> str:
     from fastapi.testclient import TestClient
 
     from ai_assistant.api.deps import get_state
+    from ai_assistant.api.security import require_api_key
     from ai_assistant.main import app
 
     async def fake_stream(*a, **k):
@@ -215,6 +257,7 @@ def check_sse_format() -> str:
     mock.llm.stream = fake_stream
     app.state.app_state = mock
     app.dependency_overrides[get_state] = lambda: mock
+    app.dependency_overrides[require_api_key] = lambda: None
     try:
         client = TestClient(app)
         r = client.post(

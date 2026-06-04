@@ -118,43 +118,6 @@ def main() -> int:
         for p in sub.rglob('*.py'):
             if 'test' in p.name or 'conftest' in p.name:
                 continue
-            # llm.py excluded — sampling params are open-ended by design
-            if subdir == 'core' and 'ports' in str(p) and p.name == 'llm.py':
-                continue
-            try:
-                text = p.read_text(encoding='utf-8', errors='replace')
-            except (OSError, UnicodeDecodeError):
-                continue
-            lines = text.splitlines()
-            for n, line in enumerate(lines, 1):
-                stripped = line.strip()
-                if stripped.startswith('#'):
-                    continue
-                clean = _clean_line(line)
-                if '**kwargs' not in clean:
-                    continue
-                # Broader context for decorators and function definitions
-                context = '\n'.join(lines[max(0, n-10):n])
-                if '@functools.wraps' in context or '@wraps' in context or '@lru_cache' in context:
-                    continue
-                # get_prompt and _render are template functions — kwargs are template variables
-                if 'def get_prompt(' in context or 'def _render(' in context:
-                    continue
-                # Also allow **kwargs in Jinja2 render() calls
-                if '.render(' in clean:
-                    continue
-                issues.append((p, n, 'no-kwargs-in-production', False))
-
-    # 2. **kwargs in production code
-    # AI_RULES: NEVER Add **kwargs to pass data that belongs in PipelineData
-    # Exceptions: decorators with @functools.wraps / @lru_cache, get_prompt template variables
-    for subdir in _PROD_DIRS:
-        sub = src / subdir
-        if not sub.exists():
-            continue
-        for p in sub.rglob('*.py'):
-            if 'test' in p.name or 'conftest' in p.name:
-                continue
             # Config validators use isinstance for type narrowing — exempt
             if p.name == 'config.py':
                 continue

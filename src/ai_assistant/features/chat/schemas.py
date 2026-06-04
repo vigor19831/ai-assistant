@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import binascii
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatRequest(BaseModel):
@@ -15,23 +12,8 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = Field(
         default=None, description="Thread ID for continuity"
     )
-    image_url: str | None = None
-    image_base64: str | None = None
-    voice_base64: str | None = None
     stream: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
-
-    @field_validator("image_base64", "voice_base64")
-    @classmethod
-    def _validate_base64(cls, v: str | None) -> str | None:
-        """Validate base64-encoded payload."""
-        if v is None:
-            return None
-        try:
-            binascii.a2b_base64(v.encode())
-        except binascii.Error as exc:
-            raise ValueError("Invalid base64 encoding") from exc
-        return v
 
 
 class ChatResponse(BaseModel):
@@ -57,7 +39,7 @@ class ChatStreamChunk(BaseModel):
 class OAIChatMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
     role: str
-    content: str | list[dict[str, Any]] | None = None
+    content: str | None = None
     name: str | None = None
 
 

@@ -126,28 +126,6 @@ class TestChatOffline:
         )
         assert resp.status_code == 200
 
-    def test_with_image_base64(self, client):
-        resp = client.post(
-            "/api/v1/chat",
-            json={
-                "message": "Describe this",
-                "conversation_id": "test",
-                "image_base64": "iVBORw0KGgo=",
-            },
-        )
-        assert resp.status_code == 200
-
-    def test_with_image_url(self, client):
-        resp = client.post(
-            "/api/v1/chat",
-            json={
-                "message": "Describe this",
-                "conversation_id": "test",
-                "image_url": "http://example.com/img.png",
-            },
-        )
-        assert resp.status_code == 200
-
     def test_stream_returns_sse(self, client):
         resp = client.post(
             "/api/v1/chat/stream",
@@ -158,18 +136,6 @@ class TestChatOffline:
         text = resp.text
         assert "data: " in text
         assert "[DONE]" in text
-
-    def test_stream_with_image(self, client):
-        resp = client.post(
-            "/api/v1/chat/stream",
-            json={
-                "message": "Describe",
-                "conversation_id": "test",
-                "image_base64": "iVBORw0KGgo=",
-            },
-        )
-        assert resp.status_code == 200
-        assert "data:" in resp.text
 
 
 class TestOpenAICompatibleOffline:
@@ -204,80 +170,6 @@ class TestOpenAICompatibleOffline:
             json={
                 "model": "local",
                 "messages": [{"role": "user", "content": "Hello"}],
-                "stream": True,
-            },
-        )
-        assert resp.status_code == 200
-        assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
-        assert "data:" in resp.text
-        assert "[DONE]" in resp.text
-
-    def test_chat_completions_with_image_url(self, client):
-        resp = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "local",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Describe this"},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": "http://example.com/img.png"},
-                            },
-                        ],
-                    }
-                ],
-                "stream": False,
-            },
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["object"] == "chat.completion"
-        assert data["choices"][0]["message"]["role"] == "assistant"
-
-    def test_chat_completions_with_image_base64(self, client):
-        resp = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "local",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Describe this"},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": "data:image/png;base64,iVBORw0KGgo="
-                                },
-                            },
-                        ],
-                    }
-                ],
-                "stream": False,
-            },
-        )
-        assert resp.status_code == 200
-
-    def test_chat_completions_stream_with_image(self, client):
-        resp = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "local",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Describe"},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": "http://example.com/img.png"},
-                            },
-                        ],
-                    }
-                ],
                 "stream": True,
             },
         )

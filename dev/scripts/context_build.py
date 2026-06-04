@@ -76,6 +76,7 @@ ALWAYS_SKIP_PATTERNS: list[str] = [
     "*context_build_*.md",
     "dev/README_DEV.md",
     "dev/TODO.md",
+    "dev/TODO_DONE.md",
     "tests_run_*.log",
 ]
 

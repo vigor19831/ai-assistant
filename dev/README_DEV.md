@@ -142,12 +142,11 @@ check_mypy.py   Статический анализ типов
 check_rag.py    Диагностика RAG: embed → retrieve → build_context
 check_ruff.py   Линтер и форматтер
 check_smoke.py  Универсальный smoke-тест: импорты, endpoints, pipeline, tools
-check_vulture.py    Поиск мёртвого кода
 context_build.py    [AUTO] Сборщик контекста для AI
 error_taxonomy_build.py [AUTO] Генератор таблицы ошибок
 pre_commit_check.py Архитектурные guardrails: hasattr, kwargs, cross-feature imports
 structure.py    Генератор дерева проекта с метриками
-checck_orphans.py    Поиск мусора
+audit_project.py    Поиск мусора
 
 ### Полный вывод тестов в файл:
 
@@ -158,3 +157,5 @@ pytest dev/tests -vvs --tb=long --show-capture=all > test_failures.txt 2>&1
 
 # Unix
 pytest dev/tests/ --tb=long -v 2>&1 | tee test_failures_full.txt
+
+# Новые фичи через config.yaml или новый файл в adapters/

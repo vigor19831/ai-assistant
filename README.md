@@ -3,10 +3,8 @@
 
 ## Возможности
 - 💬 Чат с памятью и контекстом
-- 📚 RAG: поиск по документам с namespace'ами ([p]ersonal, [w]ork, [o]ther)
+- 📚 RAG: поиск по документам с namespace'ами ([p]ersonal, [w]ork, [o]ther, [c]ode, [b]ooks)
 - 🔌 Поддержка любых OpenAI-compatible серверов (llama.cpp, Ollama, vLLM)
-- 🖼️ Анализ изображений (заглушка, требует настройки)
-- 🔊 Голосовой ввод/вывод (заглушка, требует настройки)
 - 🧠 Работает полностью offline (mock-режим)
 
 ## Быстрый старт
@@ -47,6 +45,8 @@ python ops/scripts/index_documents.py --folder personal
 # [p] твой вопрос  → поиск в personal
 # [w] твой вопрос  → поиск в work
 # [o] твой вопрос  → поиск в other
+# [c] твой вопрос  → поиск в code
+# [b] твой вопрос  → поиск в books
 
 Рекомендуемые модели
 LLM:

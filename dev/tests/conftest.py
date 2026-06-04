@@ -246,7 +246,6 @@ def mock_state(
             chunks=[], response=MagicMock(text="RAG answer"), errors=[]
         )
     )
-    # Removed: voice_recognizer, voice_synthesizer, vision, tool_registry, long_term_memory
 
     # AppState is mutable for test injection
     state.chat_manager = MagicMock()
@@ -326,7 +325,6 @@ def httpx_client():
         api_key = cfg.security.api_key
     api_key = api_key or "test-key"
 
-### REPLACE
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     # Chat endpoints may need longer timeout for slow local LLMs
     timeout = httpx.Timeout(60.0, connect=10.0)

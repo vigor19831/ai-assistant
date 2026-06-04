@@ -41,7 +41,6 @@ NEVER perform any of the following. If your planned change requires it, output `
 - Add advanced FAISS indices (IVF/PQ) until 100k+ documents or RAM exhaustion proven.
 - Add LRU eviction to `MemoryVectorStore` until RAM pressure measured.
 - Add prompt registry / semver until 5+ prompt versions in active production use.
-- Add `IModalityPipeline` port or state machine to `RAGPipeline` until parallel retrieve is a measured bottleneck.
 - No `print()`, `pprint()`, `logging.basicConfig()`, or ad-hoc debug output in production code. Use `get_logger(name)` only.
 - No orphaned functions or classes. If a patch removes the last caller of a function, remove the callee in the same commit unless it is a public port method.
 
@@ -186,7 +185,6 @@ Forbidden until proven necessary by measurement or concrete requirement:
 - Lazy AppState initialization
 - Pydantic in `core/domain/`
 - State machine in `RAGPipeline`
-- `IModalityPipeline` port
 - Subdirectories in `features/`
 - Prompt registry / semver
 - Advanced FAISS indices (IVF/PQ)
