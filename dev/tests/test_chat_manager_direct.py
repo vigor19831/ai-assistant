@@ -18,7 +18,7 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.features.chat.manager import ChatManager
-from ai_assistant.pipeline.steps import build_context, embed_query, generate, retrieve
+from ai_assistant.core.pipeline_steps import build_context, embed_query, generate, retrieve
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 

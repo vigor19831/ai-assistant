@@ -176,7 +176,6 @@ def check_file_structure() -> str:
         pkg / "core/ports",
         pkg / "adapters",
         pkg / "features",
-        pkg / "pipeline",
         pkg / "api",
     ]
     missing = [str(p.relative_to(pkg.parent)) for p in required if not p.exists()]

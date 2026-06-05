@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ai_assistant.api.deps import AppState, get_state
+from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.chat.schemas import (
@@ -51,16 +51,13 @@ router_oai = APIRouter(tags=["chat-oai"])
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> ChatResponse:
-    if state.chat_manager is None:
-        raise HTTPException(status_code=500, detail="Chat manager not initialized")
-    chat_manager = state.chat_manager
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
     _logger.info("Chat handler start: trace_id=%s", trace_id)
     try:
-        response = await chat_manager.chat(
+        response = await state.chat_manager.chat(
             message=req.message,
             conversation_id=conv_id,
             metadata={**req.metadata, "trace_id": trace_id},
@@ -84,18 +81,15 @@ async def chat(
 @router.post("/chat/stream", response_model=None)
 async def chat_stream(
     req: ChatRequest,
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> StreamingResponse:
-    if state.chat_manager is None:
-        raise HTTPException(status_code=500, detail="Chat manager not initialized")
-    chat_manager = state.chat_manager
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
     _logger.info("Chat stream handler start: trace_id=%s", trace_id)
 
     async def event_generator() -> AsyncIterator[str]:
         try:
-            async for chunk in chat_manager.stream_chat(
+            async for chunk in state.chat_manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
                 metadata={**req.metadata, "trace_id": trace_id},
@@ -128,7 +122,9 @@ _model_list_cache: dict[int, OAIModelList] = {}
 
 
 @router_oai.get("/v1/models", response_model=OAIModelList)
-async def list_models(state: Annotated[AppState, Depends(get_state)]) -> OAIModelList:
+async def list_models(
+    state: Annotated[InitializedAppState, Depends(get_state)],
+) -> OAIModelList:
     cfg = state.config.llm
     cache_key = id(cfg)
     if cache_key not in _model_list_cache:
@@ -144,11 +140,8 @@ async def list_models(state: Annotated[AppState, Depends(get_state)]) -> OAIMode
 @router_oai.post("/v1/chat/completions", response_model=None)
 async def openai_chat_completions(
     req: OAIChatCompletionRequest,
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
-    if state.chat_manager is None:
-        raise HTTPException(status_code=500, detail="Chat manager not initialized")
-    chat_manager = state.chat_manager
 
     last_user_msg = ""
     for m in reversed(req.messages):
@@ -165,7 +158,7 @@ async def openai_chat_completions(
 
         async def event_generator() -> AsyncIterator[str]:
             try:
-                async for chunk in chat_manager.stream_chat(
+                async for chunk in state.chat_manager.stream_chat(
                     message=last_user_msg,
                     conversation_id=conv_id,
                     metadata={"trace_id": trace_id},
@@ -200,7 +193,7 @@ async def openai_chat_completions(
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     try:
-        response = await chat_manager.chat(
+        response = await state.chat_manager.chat(
             message=last_user_msg,
             conversation_id=conv_id,
             metadata={"trace_id": trace_id},

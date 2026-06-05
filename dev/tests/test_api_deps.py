@@ -23,7 +23,7 @@ from ai_assistant.api.deps import (
 )
 from ai_assistant.core.config import AppConfig, RAGStep
 from ai_assistant.core.pipeline import RAGPipeline
-from ai_assistant.pipeline.steps import STEP_REGISTRY
+from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 
 # ── AppState dataclass ──
 
@@ -251,8 +251,8 @@ class TestInitAdapters:
         assert result.reranker is None
 
     @pytest.mark.asyncio
-    async def test_storage_skipped_when_not_in_registry(self, minimal_config):
-        """Storage adapter not available should be skipped gracefully."""
+    async def test_storage_raises_when_not_in_registry(self, minimal_config):
+        """Storage adapter not available raises RuntimeError."""
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -267,13 +267,12 @@ class TestInitAdapters:
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            result = await init_adapters(minimal_config)
-
-        assert result.storage is None
+            with pytest.raises(RuntimeError, match="Storage adapter failed to initialize"):
+                await init_adapters(minimal_config)
 
     @pytest.mark.asyncio
-    async def test_storage_none_on_import_error(self, minimal_config):
-        """Storage adapter raising ImportError should be skipped gracefully."""
+    async def test_storage_raises_on_import_error(self, minimal_config):
+        """Storage adapter raising ImportError raises RuntimeError."""
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -288,13 +287,12 @@ class TestInitAdapters:
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            result = await init_adapters(minimal_config)
-
-        assert result.storage is None
+            with pytest.raises(RuntimeError, match="Storage adapter failed to initialize"):
+                await init_adapters(minimal_config)
 
     @pytest.mark.asyncio
-    async def test_storage_caught_on_value_error(self, minimal_config):
-        """Storage adapter raising ValueError is caught and storage becomes None."""
+    async def test_storage_raises_on_value_error(self, minimal_config):
+        """Storage adapter raising ValueError raises RuntimeError."""
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -309,9 +307,8 @@ class TestInitAdapters:
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
         ):
-            result = await init_adapters(minimal_config)
-
-        assert result.storage is None
+            with pytest.raises(RuntimeError, match="Storage adapter failed to initialize"):
+                await init_adapters(minimal_config)
 
     @pytest.mark.asyncio
     async def test_init_adapters_returns_fresh_state(self, minimal_config):
@@ -372,6 +369,8 @@ class TestGetState:
             vector_store=MagicMock(),
             pipeline=MagicMock(),
             storage=MagicMock(),
+            chunker=MagicMock(),
+            chat_manager=MagicMock(),
         )
         app.state.app_state = mock_state
 

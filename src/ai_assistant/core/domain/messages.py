@@ -28,12 +28,8 @@ class TextPayload:
 @dataclass(frozen=True)
 class UserMessage:
     role: MessageRole = field(default=MessageRole.USER, init=False)
-    text: str | None = None
+    text: str
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.text is None:
-            raise ValueError("UserMessage must contain text payload")
 
 
 @dataclass(frozen=True)

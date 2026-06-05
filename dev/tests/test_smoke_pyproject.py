@@ -73,7 +73,7 @@ def test_all_python_files_compile():
         "src/ai_assistant/features/rag/handlers.py",
         "src/ai_assistant/main.py",
         "src/ai_assistant/api/static.py",
-        "src/ai_assistant/pipeline/steps.py",
+        "src/ai_assistant/core/pipeline_steps.py",
     ]
 
     for rel_path in files_to_check:

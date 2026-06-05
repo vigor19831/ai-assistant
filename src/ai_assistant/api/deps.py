@@ -11,8 +11,8 @@ from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.core.config import AppConfig, RAGStep
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
+from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.features.chat.manager import ChatManager
-from ai_assistant.pipeline.steps import STEP_REGISTRY
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -49,7 +49,7 @@ class AppState:
     reranker: IReranker | None = None
     pipeline: RAGPipeline | None = None
     storage: IChatStorage | None = None
-    chat_manager: Any | None = None
+    chat_manager: ChatManager | None = None
     limiter: Any | None = None
 
 
@@ -63,9 +63,9 @@ class InitializedAppState:
     vector_store: IVectorStore
     pipeline: RAGPipeline
     storage: IChatStorage
-    chunker: IChunker | None = None
+    chunker: IChunker
+    chat_manager: ChatManager
     reranker: IReranker | None = None
-    chat_manager: Any | None = None
     limiter: Any | None = None
 
 
@@ -100,13 +100,25 @@ def _rehydrate_state(state: AppState) -> InitializedAppState:
     """Convert already-initialized AppState into InitializedAppState."""
     if state.pipeline is None:
         raise ValueError("AppState is not initialized")
+    if state.llm is None:
+        raise RuntimeError("LLM adapter failed to initialize")
+    if state.embedder is None:
+        raise RuntimeError("Embedder adapter failed to initialize")
+    if state.vector_store is None:
+        raise RuntimeError("Vector store adapter failed to initialize")
+    if state.storage is None:
+        raise RuntimeError("Storage adapter failed to initialize")
+    if state.chunker is None:
+        raise RuntimeError("Chunker adapter failed to initialize")
+    if state.chat_manager is None:
+        raise RuntimeError("Chat manager failed to initialize")
     return InitializedAppState(
         config=state.config,
-        llm=state.llm,  # type: ignore[arg-type]
-        embedder=state.embedder,  # type: ignore[arg-type]
-        vector_store=state.vector_store,  # type: ignore[arg-type]
-        pipeline=state.pipeline,  # type: ignore[arg-type]
-        storage=state.storage,  # type: ignore[arg-type]
+        llm=state.llm,
+        embedder=state.embedder,
+        vector_store=state.vector_store,
+        pipeline=state.pipeline,
+        storage=state.storage,
         chunker=state.chunker,
         reranker=state.reranker,
         chat_manager=state.chat_manager,
@@ -180,13 +192,27 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         prompt_version=cfg.rag.prompt_version,
     )
 
+    if state.llm is None:
+        raise RuntimeError("LLM adapter failed to initialize")
+    if state.embedder is None:
+        raise RuntimeError("Embedder adapter failed to initialize")
+    if state.vector_store is None:
+        raise RuntimeError("Vector store adapter failed to initialize")
+    if state.pipeline is None:
+        raise RuntimeError("Pipeline failed to initialize")
+    if state.storage is None:
+        raise RuntimeError("Storage adapter failed to initialize")
+    if state.chunker is None:
+        raise RuntimeError("Chunker adapter failed to initialize")
+    if state.chat_manager is None:
+        raise RuntimeError("Chat manager failed to initialize")
     return InitializedAppState(
         config=cfg,
-        llm=state.llm,  # type: ignore[arg-type]
-        embedder=state.embedder,  # type: ignore[arg-type]
-        vector_store=state.vector_store,  # type: ignore[arg-type]
-        pipeline=state.pipeline,  # type: ignore[arg-type]
-        storage=state.storage,  # type: ignore[arg-type]
+        llm=state.llm,
+        embedder=state.embedder,
+        vector_store=state.vector_store,
+        pipeline=state.pipeline,
+        storage=state.storage,
         chunker=state.chunker,
         reranker=state.reranker,
         chat_manager=state.chat_manager,

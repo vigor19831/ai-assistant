@@ -12,7 +12,6 @@ from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.router import assemble_routers
 from ai_assistant.api.security import require_api_key
-from ai_assistant.api.static import _mount_static
 
 __all__ = ["create_app", "app"]
 
@@ -38,7 +37,7 @@ def create_app(
 
     # --- Middleware ---
     # Use CORS config from AppState if available, otherwise defaults
-    _cors_origins = ["*"]
+    _cors_origins = ["http://localhost", "http://127.0.0.1"]
     _cors_credentials = True
     _cors_methods = ["*"]
     _cors_headers = ["*"]
@@ -60,10 +59,8 @@ def create_app(
     for router in assemble_routers():
         app.include_router(router)
 
-    # --- Static files (lazy mount) ---
     if state is not None:
         app.state.app_state = state
-        _mount_static(app, state.config)
 
     # --- Endpoints ---
     @app.get("/")

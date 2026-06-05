@@ -65,6 +65,7 @@ NEVER perform any of the following. If your planned change requires it, output `
 - Add prompt registry / semver until 5+ prompt versions in active production use.
 - No `print()`, `pprint()`, `logging.basicConfig()`, or ad-hoc debug output in production code. Use `get_logger(name)` only.
 - No orphaned functions or classes. If a patch removes the last caller of a function, remove the callee in the same commit unless it is a public port method.
+- All `.py` files must begin with `from __future__ import annotations`.
 
 ---
 
@@ -172,15 +173,38 @@ If a patch introduces any of the above, output `⚠️ CORE CHANGE REQUIRED` and
 
 ## 8. Output Protocol
 
-For every user request, follow this response format strictly:
+### 8.1 Response Structure
+
+For every user request, follow this format strictly:
 
 1. **What and Why**: 1-2 sentences explaining the change and architectural justification.
 2. **Changes**: File path followed by either:
-   - Full file content if >3 lines changed.
+   - Full file content if &gt;3 lines changed.
    - Exact `FIND` / `REPLACE` blocks if change is localized.
 3. **Verification**: List of pytest commands to run and whether existing tests need updates.
 
-Additional response rules:
+### 8.2 File Review Checklist
+
+When a user uploads, pastes, or references a source file, apply these checks
+in order. Output findings only; skip sections with no issues.
+
+[ ] **LANGUAGE**: No Cyrillic in code/comments/docstrings (domain constants exempt).
+[ ] **EMOJI**: No U+1F600+ characters in `.py` files (README/TODO exempt).
+[ ] **DUPLICATES**: No copy-paste artifacts, orphaned code, or commented dead code.
+[ ] **MAGIC**: No bare literals used &gt;1 place without named constant.
+[ ] **TYPES**: No `Any` where concrete type is visible in same file.
+[ ] **LAYERS**: Imports comply with Section 3 for this file's layer.
+[ ] **IMMUTABILITY**: No PipelineData mutation (Section 6.2).
+[ ] **PORTS**: No `hasattr`, `isinstance` on port objects (Section 2).
+[ ] **DOCS**: Docstrings in English, triple quotes, describe intent not mechanics.
+[ ] **LOGGING**: `get_logger(name)` used; no `print`, `pprint`, `basicConfig`.
+[ ] **SECRETS**: No hardcoded keys/tokens (even fake ones like `sk-local`).
+[ ] **STYLE**: Line length ≤88, double quotes, f-strings.
+
+Format per finding:
+`[SEVERITY] FILE:LINE — CHECK: description`
+
+### 8.3 Additional Response Rules
 
 - One file per task. Do not modify files not mentioned in the request.
 - If you lack implementation details, output `🔍 REQUEST CODE: relative/path.py` with a one-sentence reason. Do not hallucinate method bodies, exception types, or config keys.

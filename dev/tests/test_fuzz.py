@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
-from ai_assistant.pipeline.steps import build_context
+from ai_assistant.core.pipeline_steps import build_context
 
 
 class TestFuzzPipeline:

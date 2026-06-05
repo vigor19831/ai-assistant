@@ -29,6 +29,13 @@ if TYPE_CHECKING:
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.pipeline import RAGPipeline
+    from ai_assistant.core.ports import (
+        ILLM,
+        IChatStorage,
+        IEmbedder,
+        IReranker,
+        IVectorStore,
+    )
 
 __all__ = ["ChatManager"]
 
@@ -55,23 +62,19 @@ class ChatManager:
             for i in sorted(cited)
             if 0 <= i < len(chunks)
         ]
-        return (
-            f"{answer}\n\n📎 Источники:\n" + "\n".join(src_lines)
-            if src_lines
-            else answer
-        )
+        return f"{answer}\n\nSources:\n" + "\n".join(src_lines) if src_lines else answer
 
     def __init__(
         self,
-        llm: Any,
-        storage: Any | None = None,
+        llm: ILLM,
+        storage: IChatStorage | None = None,
         history_limit: int = 10,
         max_history_messages: int = 10_000,
         max_context_tokens: int | None = None,
         tokenizer_model: str = "gpt-4o",
-        embedder: Any | None = None,
-        vector_store: Any | None = None,
-        reranker: Any | None = None,
+        embedder: IEmbedder | None = None,
+        vector_store: IVectorStore | None = None,
+        reranker: IReranker | None = None,
         pipeline: RAGPipeline | None = None,
         namespaces: dict[str, Any] | None = None,
         prompt_version: str = "v1",
@@ -172,7 +175,7 @@ class ChatManager:
         data = await self.pipeline.run(data, metadata=metadata)
 
         if not data.chunks:
-            # Возвращаем query_text (без префикса), а не message (с префиксом)
+            # Return query_text (without prefix), not message (with prefix)
             return query_text, query_text, ()
 
         prompt = get_prompt(
@@ -202,7 +205,7 @@ class ChatManager:
         # Graceful degradation: RAG requested but infrastructure unavailable
         if _PREFIX_RE.match(message) and not self.pipeline:
             return AssistantMessage(
-                text="Поиск по документам (RAG) временно недоступен."
+                text="Document search (RAG) temporarily unavailable."
             )
 
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(
@@ -312,7 +315,7 @@ class ChatManager:
 
         # Graceful degradation: RAG requested but infrastructure unavailable
         if _PREFIX_RE.match(message) and not self.pipeline:
-            yield "Поиск по документам (RAG) временно недоступен."
+            yield "Document search (RAG) temporarily unavailable."
             return
 
         prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(

@@ -10,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ai_assistant.api.deps import AppState, get_state
+from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
@@ -69,7 +69,7 @@ def _cleanup_reindex_status() -> None:
 
 
 def _get_indexing_manager(
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> IndexingManager:
     return IndexingManager(
         chunker=state.chunker,
@@ -78,9 +78,9 @@ def _get_indexing_manager(
     )
 
 
-def _get_rag_manager(state: Annotated[AppState, Depends(get_state)]) -> RAGManager:
-    if state.pipeline is None:
-        raise HTTPException(status_code=500, detail="RAG pipeline not initialized")
+def _get_rag_manager(
+    state: Annotated[InitializedAppState, Depends(get_state)],
+) -> RAGManager:
     return RAGManager(
         pipeline=state.pipeline,
         llm=state.llm,
@@ -94,7 +94,7 @@ def _get_rag_manager(state: Annotated[AppState, Depends(get_state)]) -> RAGManag
 async def index_documents(
     req: IndexRequest,
     manager: Annotated[IndexingManager, Depends(_get_indexing_manager)],
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> IndexResponse:
     namespace = req.namespace or state.config.rag.default_namespace
 
@@ -128,8 +128,6 @@ async def index_documents(
     # Auto-save after indexing
     index_path = state.config.vector_store.index_path
     if index_path:
-        if state.vector_store is None:
-            raise HTTPException(status_code=500, detail="Vector store not initialized")
         try:
             await state.vector_store.save(index_path, namespace=namespace)
         except Exception:
@@ -142,7 +140,7 @@ async def index_documents(
 async def query_rag(
     req: QueryRequest,
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> QueryResponse:
     cfg = state.config.rag
     ns = req.namespace or cfg.default_namespace
@@ -173,10 +171,8 @@ async def query_rag(
 @router.post("/delete", response_model=DeleteResponse)
 async def delete_chunks(
     req: DeleteRequest,
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> DeleteResponse:
-    if state.vector_store is None:
-        raise HTTPException(status_code=500, detail="Vector store not initialized")
     namespace = req.namespace or state.config.rag.default_namespace
     errors: list[str] = []
     deleted = 0
@@ -204,26 +200,24 @@ async def delete_chunks(
 @router.get("/health", response_model=HealthResponse)
 async def rag_health(
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> HealthResponse:
     health = await manager.health()
     return HealthResponse(
         status=health["status"],
         index_loaded=health["index_loaded"],
         chunk_count=health["chunk_count"],
-        embedder_dim=state.embedder.dimension if state.embedder is not None else None,
+        embedder_dim=state.embedder.dimension,
     )
 
 
 @router.get("/namespaces", response_model=NamespaceListResponse)
 async def list_namespaces(
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> NamespaceListResponse:
     index_path = state.config.vector_store.index_path
     namespaces: list[str] = []
     if index_path:
-        if state.vector_store is None:
-            raise HTTPException(status_code=500, detail="Vector store not initialized")
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
         except Exception:
@@ -236,7 +230,7 @@ async def list_namespaces(
 @router.post("/save-chat", response_model=None)
 async def save_chat(
     req: SaveChatRequest,
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> dict[str, Any]:
     namespace = req.namespace
     filename = req.filename
@@ -282,10 +276,6 @@ async def save_chat(
         # Auto-save index
         index_path = state.config.vector_store.index_path
         if index_path:
-            if state.vector_store is None:
-                raise HTTPException(
-                    status_code=500, detail="Vector store not initialized"
-                )
             await state.vector_store.save(index_path, namespace=namespace)
 
         return {
@@ -309,7 +299,7 @@ async def save_chat(
 @router.post("/reindex", response_model=None)
 async def reindex_documents(
     req: dict[str, Any],
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> dict[str, Any]:
     """Reindex documents from folders. Returns immediately, runs in background."""
     folder = req.get("folder")

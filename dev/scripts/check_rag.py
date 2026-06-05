@@ -20,7 +20,7 @@ from ai_assistant.core.constants import RAG_NS_MAP, RAG_PREFIX_RE  # noqa: E402
 from ai_assistant.core.domain.pipeline import PipelineData  # noqa: E402
 from ai_assistant.core.logger import get_logger  # noqa: E402
 from ai_assistant.adapters.factory import create_adapter  # noqa: E402
-from ai_assistant.pipeline.steps import (  # noqa: E402
+from ai_assistant.core.pipeline_steps import (  # noqa: E402
     build_context,
     embed_query,
     retrieve,

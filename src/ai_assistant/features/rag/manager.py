@@ -14,6 +14,13 @@ from ai_assistant.core.logger import get_logger
 
 if TYPE_CHECKING:
     from ai_assistant.core.pipeline import RAGPipeline
+    from ai_assistant.core.ports import (
+        ILLM,
+        IChunker,
+        IEmbedder,
+        IReranker,
+        IVectorStore,
+    )
 
 __all__ = ["IndexingManager", "RAGManager"]
 
@@ -25,9 +32,9 @@ class IndexingManager:
 
     def __init__(
         self,
-        chunker: Any,
-        embedder: Any,
-        vector_store: Any,
+        chunker: IChunker,
+        embedder: IEmbedder,
+        vector_store: IVectorStore,
     ) -> None:
         self.chunker = chunker
         self.embedder = embedder
@@ -95,9 +102,6 @@ class IndexingManager:
             "errors": errors,
         }
 
-    async def save_index(self, path: str, namespace: str = "default") -> None:
-        await self.vector_store.save(path, namespace=namespace)
-
 
 class RAGManager:
     """Handles RAG queries using the pipeline per namespace."""
@@ -105,10 +109,10 @@ class RAGManager:
     def __init__(
         self,
         pipeline: RAGPipeline,
-        llm: Any,
-        vector_store: Any,
-        embedder: Any | None = None,
-        reranker: Any | None = None,
+        llm: ILLM,
+        vector_store: IVectorStore,
+        embedder: IEmbedder | None = None,
+        reranker: IReranker | None = None,
     ) -> None:
         self.pipeline = pipeline
         self.llm = llm
@@ -179,7 +183,7 @@ class RAGManager:
                     src_lines.append(f"[{idx + 1}] {src}")
 
             if src_lines:
-                answer += "\n\n📎 Источники:\n" + "\n".join(src_lines)
+                answer += "\n\nSources:\n" + "\n".join(src_lines)
 
             sources = [
                 {

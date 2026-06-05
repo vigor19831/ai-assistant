@@ -147,8 +147,8 @@ def test_pipeline_steps_no_kwargs() -> None:
         Path(__file__).parent.parent.parent
         / "src"
         / "ai_assistant"
-        / "pipeline"
-        / "steps.py"
+        / "core"
+        / "pipeline_steps.py"
     )
     source = steps_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -177,7 +177,7 @@ class TestInitAdaptersContracts:
         assert state.llm is not None
         assert state.embedder is not None
         assert state.vector_store is not None
-        assert state.chunker is None or isinstance(state.chunker, IChunker)
+        assert isinstance(state.chunker, IChunker)
         assert state.reranker is None or isinstance(state.reranker, IReranker)
         assert state.storage is not None
         assert state.pipeline is not None

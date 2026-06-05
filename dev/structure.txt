@@ -1,21 +1,24 @@
 # Project Structure
-**Generated:** 2026-06-04T23:31:16.757514
+**Generated:** 2026-06-05T11:00:08.463819
 **Root:** `D:\ai`
 
 ## Summary
 | Metric | Value |
 |--------|-------|
-| Total files | 133 |
-| Python files | 93 |
-| Python LOC | 16,828 |
+| Total files | 136 |
+| Python files | 94 |
+| Python LOC | 17,172 |
 | Total size | 7.9 GB |
 
 ```
-├── MagicMock
-│   └── _load_config().log_file
-│       └── 2671562178640
 ├── data
 │   ├── indices
+│   │   ├── books
+│   │   │   ├── index_meta.json
+│   │   │   └── store.json
+│   │   ├── code
+│   │   │   ├── index_meta.json
+│   │   │   └── store.json
 │   │   ├── hacked
 │   │   │   ├── index_meta.json
 │   │   │   └── store.json
@@ -28,18 +31,17 @@
 │   │   └── work
 │   │       ├── index_meta.json
 │   │       └── store.json
-│   ├── tokenizers
-│   │   ├── gemma-4-e2b-it
-│   │   │   └── tokenizer.json
-│   │   ├── phi-4-mini-reasoning
-│   │   │   └── tokenizer.json
-│   │   └── qwen3.5-4b
-│   │       └── tokenizer.json
-│   ├── llama-server.pid
-│   └── server.pid
+│   └── tokenizers
+│       ├── gemma-4-e2b-it
+│       │   └── tokenizer.json
+│       ├── phi-4-mini-reasoning
+│       │   └── tokenizer.json
+│       └── qwen3.5-4b
+│           └── tokenizer.json
 ├── dev
 │   ├── scripts
 │   │   ├── audit_project.py
+│   │   ├── check_all.py
 │   │   ├── check_llm.py
 │   │   ├── check_mutations.py
 │   │   ├── check_mypy.py
@@ -81,8 +83,10 @@
 │   ├── launcher.py
 │   └── structure.txt
 ├── documents
-│   ├── hacked
-│   │   └── test.md
+│   ├── books
+│   │   └── boooks_test.md
+│   ├── code
+│   │   └── code_test.md
 │   ├── other
 │   │   └── other_test.txt
 │   ├── personal

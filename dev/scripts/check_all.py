@@ -35,7 +35,7 @@ except Exception as e:
     error("Core импорты сломаны: " + str(e))
 
 try:
-    from ai_assistant.pipeline.steps import STEP_REGISTRY, embed_query, retrieve, build_context, generate, rerank
+    from ai_assistant.core.pipeline_steps import STEP_REGISTRY, embed_query, retrieve, build_context, generate, rerank
     print("   OK: pipeline steps")
 except Exception as e:
     error("Pipeline steps сломаны: " + str(e))

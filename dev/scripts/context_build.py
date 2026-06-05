@@ -108,7 +108,6 @@ CRITICAL_PATTERNS: list[str] = [
     "src/ai_assistant/api/**/*.py",
     "src/ai_assistant/features/**/handlers.py",
     "src/ai_assistant/features/**/schemas.py",
-    "src/ai_assistant/pipeline/**/*.py",
     "src/ai_assistant/adapters/__init__.py",
     "dev/launcher.py",
     "dev/tests/conftest.py",
@@ -136,7 +135,6 @@ SUPER_PATTERNS: list[str] = [
     "src/ai_assistant/__init__.py",
     "src/ai_assistant/adapters/__init__.py",
     "src/ai_assistant/features/**/schemas.py",
-    "src/ai_assistant/pipeline/decorators.py",
 ]
 
 # P1: Adapters and tests — AST signatures with 🔒 markers
@@ -475,8 +473,6 @@ def get_file_group(rel_path: str) -> str:
         return "🔌 API Layer"
     if rel_path.startswith("src/ai_assistant/features/"):
         return "✨ Features"
-    if rel_path.startswith("src/ai_assistant/pipeline/"):
-        return "⚡ Pipeline"
     if rel_path.startswith("src/ai_assistant/adapters/"):
         return "🔌 Adapters"
     if rel_path in (

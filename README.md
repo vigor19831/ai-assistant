@@ -39,7 +39,7 @@ python ops/scripts/start.py
 RAG — поиск по документам
 
 # Индексация документов
-python ops/scripts/index_documents.py --folder personal
+python ops/scripts/index_documents.py
 
 # В чате используй префиксы:
 # [p] твой вопрос  → поиск в personal

@@ -119,10 +119,10 @@ def count_tokens(
             return len(text)
         return len(text) // 4
     try:
-        # HF tokenizers: encode() returns Encoding с .tokens
+        # HF tokenizers: encode() returns Encoding with .tokens
         return len(enc.encode(text).tokens)
     except AttributeError:
-        # tiktoken: encode() возвращает list[int]
+        # tiktoken: encode() returns list[int]
         return len(enc.encode(text))
     except Exception:
         if _cjk_ratio(text) > 0.3:

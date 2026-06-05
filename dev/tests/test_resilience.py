@@ -51,7 +51,7 @@ class TestGracefulDegradation:
     async def test_generate_without_llm(self):
         from ai_assistant.core.domain.messages import UserMessage
         from ai_assistant.core.domain.pipeline import PipelineData
-        from ai_assistant.pipeline.steps import generate
+        from ai_assistant.core.pipeline_steps import generate
 
         data = PipelineData(query=UserMessage(text="q"))
         result = await generate(data)
@@ -211,7 +211,7 @@ class TestLLMUnavailable:
         from ai_assistant.core.domain.errors import AdapterError
         from ai_assistant.core.domain.messages import UserMessage
         from ai_assistant.core.domain.pipeline import PipelineData
-        from ai_assistant.pipeline.steps import generate
+        from ai_assistant.core.pipeline_steps import generate
 
         mock_llm = AsyncMock()
         mock_llm.complete = AsyncMock(side_effect=AdapterError("LLM unreachable"))
@@ -254,7 +254,7 @@ class TestLLMUnavailable:
         from ai_assistant.core.domain.errors import AdapterError
         from ai_assistant.core.domain.messages import UserMessage
         from ai_assistant.core.domain.pipeline import PipelineData
-        from ai_assistant.pipeline.steps import embed_query
+        from ai_assistant.core.pipeline_steps import embed_query
 
         mock_embedder = AsyncMock()
         mock_embedder.embed = AsyncMock(side_effect=AdapterError("embedder down"))

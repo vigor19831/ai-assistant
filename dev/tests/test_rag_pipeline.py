@@ -20,7 +20,7 @@ from ai_assistant.core.domain.errors import (
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.ports.reranker import RerankResult
-from ai_assistant.pipeline.steps import (
+from ai_assistant.core.pipeline_steps import (
     STEP_REGISTRY,
     build_context,
     embed_query,

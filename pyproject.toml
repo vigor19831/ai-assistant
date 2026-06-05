@@ -70,7 +70,7 @@ warn_unused_ignores = false
 [[tool.mypy.overrides]]
 module = [
     "ai_assistant.api.security",
-    "ai_assistant.pipeline.steps",
+    "ai_assistant.core.pipeline_steps",
     "ai_assistant.features.chat.manager",
     "ai_assistant.adapters.*",
     "ai_assistant.core.utils",
