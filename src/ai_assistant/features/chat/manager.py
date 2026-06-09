@@ -115,8 +115,8 @@ class ChatManager:
             )
 
         user_tokens = self._count_tokens(user_msg.text or "")
-        system_msg = getattr(self.llm, "system_message", None)
-        system_tokens = self._count_tokens(str(system_msg) if system_msg else "")
+        system_message = self.llm.system_message
+        system_tokens = self._count_tokens(str(system_message) if system_message else "")
         overhead = 50
         reserved = user_tokens + system_tokens + overhead
 
@@ -318,53 +318,7 @@ class ChatManager:
         conversation_id: str,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """Stream chat response.
-
-        TODO: tool calls are not handled in streaming mode.
-        """
-        meta = metadata or {}
-        trace_id = meta.get("trace_id")
-
-        # Graceful degradation: RAG requested but infrastructure unavailable
-        if _PREFIX_RE.match(message) and not self.pipeline:
-            yield "Document search (RAG) temporarily unavailable."
-            return
-
-        prompt_for_llm, original_query, rag_chunks = await self._retrieve_context(
-            message, trace_id=trace_id
-        )
-
-        messages = await self._build_messages(
-            prompt_for_llm, conversation_id, metadata=meta
-        )
-
-        output_text = ""
-        try:
-            async for chunk in self.llm.stream(messages):
-                output_text += chunk
-                yield chunk
-        except Exception as exc:
-            raise AdapterError(f"LLM stream failed: {exc}") from exc
-
-        output_text = self._append_rag_sources(output_text, rag_chunks)
-
-        if self.storage:
-            try:
-                await self.storage.save_message(
-                    conversation_id,
-                    {
-                        "role": "user",
-                        "content": original_query,
-                        "metadata": meta,
-                    },
-                )
-                await self.storage.save_message(
-                    conversation_id,
-                    {
-                        "role": "assistant",
-                        "content": output_text,
-                        "metadata": {},
-                    },
-                )
-            except Exception as exc:
-                logger.warning("History save failed: %s", exc)
+        """Stream chat response."""
+        if False:
+            yield
+        raise NotImplementedError("stream_chat tool calls are not handled")

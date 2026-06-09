@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-09 10:00 UTC
+> Auto-generated from source code. Updated: 2026-06-09 11:14 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -44,7 +44,6 @@
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 37 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 36 |
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 277 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 347 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 251 |
 | `tests.test_api_deps` | `ValueError` | No such reranker | High | 241 |
 | `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 264 |
@@ -113,7 +112,7 @@
 | `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 231 |
 | `features.chat.manager` | `Exception` | logger.error( | Medium | 270 |
 | `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 310 |
-| `features.chat.manager` | `Exception` | raise AdapterError(f"LLM stream failed: {exc}") from exc | Medium | 346 |
+| `features.chat.manager` | `NotImplementedError` | stream_chat tool calls are not handled | Medium | 324 |
 | `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 58 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 139 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 200 |
@@ -127,7 +126,7 @@
 | `features.rag.manager` | `Exception` | _logger.debug("RAG health check failed: %s", exc) | Medium | 213 |
 | `features.rag.manager` | `ValueError/IndexError` | continue | Medium | 171 |
 | `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 284 |
-| `tests.test_api_e2e` | `OSError` | return False | Medium | 518 |
+| `tests.test_api_e2e` | `OSError` | return False | Medium | 515 |
 | `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 95 |
 | `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 217 |
 | `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 248 |

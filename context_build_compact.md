@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-09 10:01:00 UTC | **Mode:** `compact`
-> **Metrics:** 176 files | 97 Python | 14,505 LOC
-> **Full:** 47 | **Signatures:** 20 | **Listed:** 102
+> **Generated:** 2026-06-09 11:14:17 UTC | **Mode:** `compact`
+> **Metrics:** 115 files | 97 Python | 14,392 LOC
+> **Full:** 46 | **Signatures:** 20 | **Listed:** 42
 
 ---
 
@@ -180,7 +180,7 @@ data.errors += ["err"]
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-09 10:00 UTC
+> Auto-generated from source code. Updated: 2026-06-09 11:14 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -272,72 +272,6 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
     launcher.py
     open_terminal.bat
     pyproject.toml
-.hypothesis/
-    .gitignore
-    constants/
-        00d08ecc206d19a2
-        062da15881e1bbb7
-        0a9a37d490bd2ac6
-        0e1b7747ffb570b8
-        0fea382fa0f49e77
-        121d3a7af69b2e20
-        1517471990e5338f
-        176e90709ffa84f7
-        1a2848e19324b132
-        1f0c0635d7b70b2e
-        1f3ca08de451d5fa
-        2373115ed2705e46
-        26210ca72a1b6627
-        2662f70833eb6408
-        26bbf6f8657ded2f
-        2e0038433715aceb
-        300be2b7c00adf58
-        34ae9ae2a7915f47
-        42c8d01dab10446b
-        4bf5a448f35f8728
-        53ddf82fba92383e
-        547983fd2998eac5
-        567fa9acd526ce98
-        5a77869d21ccf7f0
-        5d66fcc73a312cf6
-        65af6fe9597bc739
-        68badcc12bc11d16
-        68e2d4459133caa9
-        6b4e2be9f971086f
-        72ba1bf5d8575399
-        72ff6543086ffeab
-        7aa6bbe0ad659d13
-        82d84f628bfde547
-        86119404a24cc8b5
-        86783eff27f53448
-        8aa58d636feff795
-        8bfcfc15e19711e1
-        8cb43f130c8f3a11
-        8cfdcaffaa4b0f87
-        9165caa579a5ca7a
-        9bfda43d3142e126
-        9dd7b7551596bfad
-        a0f8740ab7f36456
-        a4232c03c0a5df7d
-        a541d6fdb5926928
-        a9be3382e044cca6
-        acbcc51f48b8db85
-        b1ed91e5d16f251d
-        bb1fe1dc12b93764
-        bd3fbe66aa331706
-        cd30ec032838cc80
-        cdd098fb9d7cc65a
-        de1cc2969519f477
-        e47a51605024a02e
-        eff07b744e4ce459
-        fc0f735ee28793ba
-        fcc7def15a753093
-    tmp/
-        tmphug7pvx0
-    unicode_data/
-        15.1.0/
-            charmap.json.gz
-            codec-utf-8.json.gz
 docs/
     ai_rules.md
     drift.md
@@ -815,7 +749,6 @@ tests/
 
 ### Full Content
 - `.gitignore`
-- `.hypothesis/.gitignore`
 - `README.md`
 - `config.yaml`
 - `pyproject.toml`
@@ -886,66 +819,6 @@ tests/
 
 ### Listed Only (no content)
 - `.gitattributes`
-- `.hypothesis/constants/00d08ecc206d19a2`
-- `.hypothesis/constants/062da15881e1bbb7`
-- `.hypothesis/constants/0a9a37d490bd2ac6`
-- `.hypothesis/constants/0e1b7747ffb570b8`
-- `.hypothesis/constants/0fea382fa0f49e77`
-- `.hypothesis/constants/121d3a7af69b2e20`
-- `.hypothesis/constants/1517471990e5338f`
-- `.hypothesis/constants/176e90709ffa84f7`
-- `.hypothesis/constants/1a2848e19324b132`
-- `.hypothesis/constants/1f0c0635d7b70b2e`
-- `.hypothesis/constants/1f3ca08de451d5fa`
-- `.hypothesis/constants/2373115ed2705e46`
-- `.hypothesis/constants/26210ca72a1b6627`
-- `.hypothesis/constants/2662f70833eb6408`
-- `.hypothesis/constants/26bbf6f8657ded2f`
-- `.hypothesis/constants/2e0038433715aceb`
-- `.hypothesis/constants/300be2b7c00adf58`
-- `.hypothesis/constants/34ae9ae2a7915f47`
-- `.hypothesis/constants/42c8d01dab10446b`
-- `.hypothesis/constants/4bf5a448f35f8728`
-- `.hypothesis/constants/53ddf82fba92383e`
-- `.hypothesis/constants/547983fd2998eac5`
-- `.hypothesis/constants/567fa9acd526ce98`
-- `.hypothesis/constants/5a77869d21ccf7f0`
-- `.hypothesis/constants/5d66fcc73a312cf6`
-- `.hypothesis/constants/65af6fe9597bc739`
-- `.hypothesis/constants/68badcc12bc11d16`
-- `.hypothesis/constants/68e2d4459133caa9`
-- `.hypothesis/constants/6b4e2be9f971086f`
-- `.hypothesis/constants/72ba1bf5d8575399`
-- `.hypothesis/constants/72ff6543086ffeab`
-- `.hypothesis/constants/7aa6bbe0ad659d13`
-- `.hypothesis/constants/82d84f628bfde547`
-- `.hypothesis/constants/86119404a24cc8b5`
-- `.hypothesis/constants/86783eff27f53448`
-- `.hypothesis/constants/8aa58d636feff795`
-- `.hypothesis/constants/8bfcfc15e19711e1`
-- `.hypothesis/constants/8cb43f130c8f3a11`
-- `.hypothesis/constants/8cfdcaffaa4b0f87`
-- `.hypothesis/constants/9165caa579a5ca7a`
-- `.hypothesis/constants/9bfda43d3142e126`
-- `.hypothesis/constants/9dd7b7551596bfad`
-- `.hypothesis/constants/a0f8740ab7f36456`
-- `.hypothesis/constants/a4232c03c0a5df7d`
-- `.hypothesis/constants/a541d6fdb5926928`
-- `.hypothesis/constants/a9be3382e044cca6`
-- `.hypothesis/constants/acbcc51f48b8db85`
-- `.hypothesis/constants/b1ed91e5d16f251d`
-- `.hypothesis/constants/bb1fe1dc12b93764`
-- `.hypothesis/constants/bd3fbe66aa331706`
-- `.hypothesis/constants/cd30ec032838cc80`
-- `.hypothesis/constants/cdd098fb9d7cc65a`
-- `.hypothesis/constants/de1cc2969519f477`
-- `.hypothesis/constants/e47a51605024a02e`
-- `.hypothesis/constants/eff07b744e4ce459`
-- `.hypothesis/constants/fc0f735ee28793ba`
-- `.hypothesis/constants/fcc7def15a753093`
-- `.hypothesis/tmp/tmphug7pvx0`
-- `.hypothesis/unicode_data/15.1.0/charmap.json.gz`
-- `.hypothesis/unicode_data/15.1.0/codec-utf-8.json.gz`
 - `open_terminal.bat`
 - `scripts/audit_project.py`
 - `scripts/check_all.py`
@@ -1059,20 +932,6 @@ tests/.pytest_cache/
 docs/context_build_*.md
 tests/tests_run_*.log
 MagicMock/
-
-```
-
-### `.hypothesis/.gitignore`
-```text
-# This .gitignore file was automatically created by Hypothesis. Hypothesis gitignores
-# .hypothesis by default, because we generally recommend that .hypothesis not be checked
-# into version control.
-#
-# If you *would* like to check .hypothesis into version control, you should delete this
-# file. Hypothesis will not re-create this .gitignore unless .hypothesis is deleted (and
-# if it does, that's a bug - please report it!)
-
-*
 
 ```
 
@@ -1444,7 +1303,7 @@ async def get_current_model(
 ) -> _CurrentModelResponse:
     cfg = state.config.llm
     return _CurrentModelResponse(
-        model=getattr(cfg, "model", "unknown"),
+        model=cfg.model,
         provider=cfg.provider,
     )
 
@@ -1866,8 +1725,8 @@ from ai_assistant.api.security import require_api_key
 
 # Explicit feature handler imports — import errors surface at compile time
 # instead of being deferred to the first HTTP request.
-from ai_assistant.features.chat import handlers as _chat_handlers
-from ai_assistant.features.rag import handlers as _rag_handlers
+from ai_assistant.features.chat import handlers as chat_handlers
+from ai_assistant.features.rag import handlers as rag_handlers
 
 __all__ = ["assemble_routers"]
 
@@ -1878,9 +1737,9 @@ _OAI_TAG = "chat-oai"
 # Add new routers here when adding feature handlers.
 _ROUTERS: list[APIRouter] = [
     admin.router,
-    _chat_handlers.router,
-    _chat_handlers.router_oai,
-    _rag_handlers.router,
+    chat_handlers.router,
+    chat_handlers.router_oai,
+    rag_handlers.router,
 ]
 
 
@@ -2008,9 +1867,7 @@ def _mount_static(app: FastAPI, config: Any) -> None:
     """Mount /ui once, only if directory exists."""
     if getattr(app.state, "static_mounted", False):
         return
-    ui_cfg = getattr(config, "ui", None)
-    if ui_cfg is None:
-        return
+    ui_cfg = config.ui
     static_dir = Path(ui_cfg.static_path)
     if not static_dir.is_absolute():
         static_dir = Path(__file__).parent.parent / static_dir

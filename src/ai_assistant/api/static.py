@@ -17,9 +17,7 @@ def _mount_static(app: FastAPI, config: Any) -> None:
     """Mount /ui once, only if directory exists."""
     if getattr(app.state, "static_mounted", False):
         return
-    ui_cfg = getattr(config, "ui", None)
-    if ui_cfg is None:
-        return
+    ui_cfg = config.ui
     static_dir = Path(ui_cfg.static_path)
     if not static_dir.is_absolute():
         static_dir = Path(__file__).parent.parent / static_dir

@@ -65,7 +65,7 @@ def create_app(
             app_name=cfg.app_name,
             config_version=cfg.config_version,
             debug=cfg.debug,
-            llm_model=getattr(cfg.llm, "model", "unknown"),
+            llm_model=cfg.llm.model,
             llm_provider=cfg.llm.provider,
         )
 

@@ -9,8 +9,8 @@ from ai_assistant.api.security import require_api_key
 
 # Explicit feature handler imports — import errors surface at compile time
 # instead of being deferred to the first HTTP request.
-from ai_assistant.features.chat import handlers as _chat_handlers
-from ai_assistant.features.rag import handlers as _rag_handlers
+from ai_assistant.features.chat import handlers as chat_handlers
+from ai_assistant.features.rag import handlers as rag_handlers
 
 __all__ = ["assemble_routers"]
 
@@ -21,9 +21,9 @@ _OAI_TAG = "chat-oai"
 # Add new routers here when adding feature handlers.
 _ROUTERS: list[APIRouter] = [
     admin.router,
-    _chat_handlers.router,
-    _chat_handlers.router_oai,
-    _rag_handlers.router,
+    chat_handlers.router,
+    chat_handlers.router_oai,
+    rag_handlers.router,
 ]
 
 

@@ -35,7 +35,7 @@ async def get_current_model(
 ) -> _CurrentModelResponse:
     cfg = state.config.llm
     return _CurrentModelResponse(
-        model=getattr(cfg, "model", "unknown"),
+        model=cfg.model,
         provider=cfg.provider,
     )
 

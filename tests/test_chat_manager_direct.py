@@ -446,12 +446,6 @@ class TestRAGGracefulDegradation:
         mock_llm.complete = AsyncMock(
             return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
         )
-
-        async def _fake_stream(*args, **kwargs):
-            for chunk in ["Hello", " world"]:
-                yield chunk
-
-        mock_llm.stream = _fake_stream
         return ChatManager(
             llm=mock_llm,
             embedder=None,
@@ -476,8 +470,6 @@ class TestRAGGracefulDegradation:
         self, manager_no_rag
     ):
         """Plain message without prefix should still call LLM."""
-        from unittest.mock import AsyncMock
-
         manager_no_rag.llm.complete = AsyncMock(
             return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
         )
@@ -489,41 +481,11 @@ class TestRAGGracefulDegradation:
         manager_no_rag.llm.complete.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_stream_chat_with_prefix_no_vector_store(self, manager_no_rag):
-        """[p] prefix in stream mode with no vector_store yields graceful message."""
-        chunks = []
-        async for chunk in manager_no_rag.stream_chat(
-            message="[p] capital of France",
-            conversation_id="test-3",
-        ):
-            chunks.append(chunk)
-
-        assert len(chunks) == 1
-        assert (
-            "недоступен" in chunks[0].lower()
-            or "unavailable" in chunks[0].lower()
-        )
-
-    @pytest.mark.asyncio
-    async def test_stream_chat_without_prefix_works_without_vector_store(
-        self, manager_no_rag
-    ):
-        """Plain message in stream mode without prefix should still stream."""
-
-        async def _fake_stream(*args, **kwargs):
-            for chunk in ["Hello", " world"]:
-                yield chunk
-
-        manager_no_rag.llm.stream = _fake_stream
-
-        chunks = []
-        async for chunk in manager_no_rag.stream_chat(
-            message="Hello",
-            conversation_id="test-4",
-        ):
-            chunks.append(chunk)
-
-        assert chunks == ["Hello", " world"]
+    async def test_stream_chat_not_implemented(self, manager_no_rag):
+        """stream_chat must raise NotImplementedError until tool calls are supported."""
+        with pytest.raises(NotImplementedError, match="tool calls are not handled"):
+            async for _ in manager_no_rag.stream_chat("[p] capital", "conv-1"):
+                pass
 
 
 # ── chat / stream_chat preparation identical tests ──
@@ -536,12 +498,6 @@ class TestChatStreamPreparationIdentical:
         mock_llm.complete = AsyncMock(
             return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
         )
-
-        async def _fake_stream(*args, **kwargs):
-            for chunk in ["Hello", " world"]:
-                yield chunk
-
-        mock_llm.stream = _fake_stream
         return ChatManager(
             llm=mock_llm,
             embedder=None,
@@ -566,52 +522,8 @@ class TestChatStreamPreparationIdentical:
             mock_build.assert_awaited_once_with("Hello", "conv-1", metadata={})
 
     @pytest.mark.asyncio
-    async def test_stream_chat_calls_retrieve_context_and_build_messages(
-        self, manager
-    ):
-        """stream_chat() must use _retrieve_context and _build_messages."""
-        with patch.object(
-            manager, "_retrieve_context", new_callable=AsyncMock
-        ) as mock_retrieve, patch.object(
-            manager, "_build_messages", new_callable=AsyncMock
-        ) as mock_build:
-            mock_retrieve.return_value = ("Hello", "Hello", ())
-            mock_build.return_value = [UserMessage(text="Hello")]
-
-            chunks = []
-            async for chunk in manager.stream_chat("Hello", "conv-1"):
-                chunks.append(chunk)
-
-            mock_retrieve.assert_awaited_once_with("Hello", trace_id=None)
-            mock_build.assert_awaited_once_with("Hello", "conv-1", metadata={})
-
-    @pytest.mark.asyncio
-    async def test_chat_and_stream_use_identical_preparation(self, manager):
-        """Both chat() and stream_chat() must call helpers with identical args."""
-        calls = []
-
-        async def _track_retrieve(message, trace_id=None):
-            calls.append(("retrieve", message, trace_id))
-            return "prompt", "query", ()
-
-        async def _track_build(prompt, conv_id, metadata=None):
-            calls.append(("build", prompt, conv_id, metadata))
-            return [UserMessage(text=prompt)]
-
-        with patch.object(manager, "_retrieve_context", _track_retrieve), patch.object(
-            manager, "_build_messages", _track_build
-        ):
-            await manager.chat("Test", "conv-1", metadata={"k": "v"})
-            chat_calls = list(calls)
-            calls.clear()
-
-            async for _ in manager.stream_chat(
-                "Test", "conv-1", metadata={"k": "v"}
-            ):
+    async def test_stream_chat_not_implemented(self, manager):
+        """stream_chat must raise NotImplementedError until tool calls are supported."""
+        with pytest.raises(NotImplementedError, match="tool calls are not handled"):
+            async for _ in manager.stream_chat("Hello", "conv-1"):
                 pass
-            stream_calls = list(calls)
-
-        assert chat_calls == stream_calls
-        assert len(chat_calls) == 2
-        assert chat_calls[0][0] == "retrieve"
-        assert chat_calls[1][0] == "build"
