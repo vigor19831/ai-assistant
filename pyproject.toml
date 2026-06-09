@@ -50,7 +50,7 @@ include = ["ai_assistant*"]
 [tool.ruff]
 line-length = 88
 target-version = "py313"
-extend-exclude = ["dev/", "ops/", "vendor/"]
+extend-exclude = ["scripts/", "tests/", "vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH"]
@@ -60,7 +60,7 @@ ignore = ["E501"]
 python_version = "3.13"
 strict = true
 ignore_missing_imports = true
-exclude = ["dev/", "ops/", "vendor/"]
+exclude = ["scripts/", "tests/", "vendor/"]
 warn_return_any = false
 disallow_untyped_calls = false
 disallow_untyped_defs = false
@@ -81,11 +81,11 @@ disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["dev/tests"]
+testpaths = ["tests"]
 timeout = 240
 addopts = "-m 'not online'"
 
 [tool.mutmut]
 paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/", "src/ai_assistant/pipeline/"]
-pytest_add_cli_args_test_selection = ["dev/tests/"]
+pytest_add_cli_args_test_selection = ["tests/"]
 backup = false

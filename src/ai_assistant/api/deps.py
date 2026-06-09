@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-from starlette.requests import Request  # noqa: TC002
+from typing import TYPE_CHECKING
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.core.config import AppConfig, RAGStep
@@ -16,6 +14,8 @@ from ai_assistant.features.chat.manager import ChatManager
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+
+    from starlette.requests import Request
 
     from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports import (
@@ -50,7 +50,7 @@ class AppState:
     pipeline: RAGPipeline | None = None
     storage: IChatStorage | None = None
     chat_manager: ChatManager | None = None
-    limiter: Any | None = None
+    limiter: object | None = None
 
 
 @dataclass
@@ -66,7 +66,7 @@ class InitializedAppState:
     chunker: IChunker
     chat_manager: ChatManager
     reranker: IReranker | None = None
-    limiter: Any | None = None
+    limiter: object | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -79,11 +79,14 @@ _STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
 
 
 def _build_step_funcs(
-    cfg: AppConfig, state: AppState
+    cfg: AppConfig,
+    stop_at: RAGStep | None = None,
 ) -> list[Callable[[PipelineData], Awaitable[PipelineData]]]:
-    """Build pipeline step functions. Dependencies injected via metadata."""
+    """Build pipeline step functions. Stops before *stop_at* if provided."""
     step_funcs: list[Callable[[PipelineData], Awaitable[PipelineData]]] = []
     for step in cfg.rag.steps:
+        if stop_at is not None and step == stop_at:
+            break
         func = _STEP_MAP.get(step)
         if func is None:
             raise ValueError(f"Unknown step: {step}")
@@ -94,36 +97,6 @@ def _build_step_funcs(
 # ---------------------------------------------------------------------------
 # Adapter initialization
 # ---------------------------------------------------------------------------
-
-
-def _rehydrate_state(state: AppState) -> InitializedAppState:
-    """Convert already-initialized AppState into InitializedAppState."""
-    if state.pipeline is None:
-        raise ValueError("AppState is not initialized")
-    if state.llm is None:
-        raise RuntimeError("LLM adapter failed to initialize")
-    if state.embedder is None:
-        raise RuntimeError("Embedder adapter failed to initialize")
-    if state.vector_store is None:
-        raise RuntimeError("Vector store adapter failed to initialize")
-    if state.storage is None:
-        raise RuntimeError("Storage adapter failed to initialize")
-    if state.chunker is None:
-        raise RuntimeError("Chunker adapter failed to initialize")
-    if state.chat_manager is None:
-        raise RuntimeError("Chat manager failed to initialize")
-    return InitializedAppState(
-        config=state.config,
-        llm=state.llm,
-        embedder=state.embedder,
-        vector_store=state.vector_store,
-        pipeline=state.pipeline,
-        storage=state.storage,
-        chunker=state.chunker,
-        reranker=state.reranker,
-        chat_manager=state.chat_manager,
-        limiter=state.limiter,
-    )
 
 
 async def init_adapters(config: AppConfig) -> InitializedAppState:
@@ -164,18 +137,10 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     if state.storage is not None:
         await state.storage.init_db()
 
-    step_funcs = _build_step_funcs(cfg, state)
+    step_funcs = _build_step_funcs(cfg)
     state.pipeline = RAGPipeline(step_funcs)
 
-    # Build retrieval sub-pipeline for ChatManager (all steps before generate)
-    retrieval_funcs: list[Callable[[PipelineData], Awaitable[PipelineData]]] = []
-    for step in cfg.rag.steps:
-        if step == RAGStep.GENERATE:
-            break
-        func = _STEP_MAP.get(step)
-        if func is None:
-            raise ValueError(f"Unknown step: {step}")
-        retrieval_funcs.append(func)
+    retrieval_funcs = _build_step_funcs(cfg, stop_at=RAGStep.GENERATE)
     retrieval_pipeline = RAGPipeline(retrieval_funcs) if retrieval_funcs else None
 
     state.chat_manager = ChatManager(
@@ -190,6 +155,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         pipeline=retrieval_pipeline,
         namespaces=cfg.namespaces,
         prompt_version=cfg.rag.prompt_version,
+        top_k=cfg.rag.top_k,
     )
 
     if state.llm is None:
@@ -221,11 +187,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
 
 
 def get_state(request: Request) -> InitializedAppState:
-    """Get initialized app state from the FastAPI application state.
-
-    Raises RuntimeError if app_state has not been set on the application.
-    """
+    """Get initialized app state. Raises RuntimeError if missing."""
     app_state = getattr(request.app.state, "app_state", None)
-    if app_state is not None:
-        return app_state  # type: ignore[return-value]
-    raise RuntimeError("State not initialized")
+    if app_state is None:
+        raise RuntimeError("State not initialized")
+    return app_state

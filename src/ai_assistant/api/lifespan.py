@@ -39,11 +39,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _mount_static(app, config)
 
-    log_file = getattr(config, "log_file", None)
+    log_file = config.log_file
     if log_file is None:
         log_file = "./data/app.log"
     setup_logging(
-        level="DEBUG" if getattr(config, "debug", False) else "INFO",
+        level="DEBUG" if config.debug else "INFO",
         log_file=log_file,
     )
 
@@ -54,8 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.app_state = state
 
     # Load persisted indices from disk
-    vs_cfg = getattr(config, "vector_store", None)
-    index_path = vs_cfg.index_path if vs_cfg is not None else None
+    index_path = config.vector_store.index_path if config.vector_store else None
     if index_path and state.vector_store is not None:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
@@ -92,14 +91,14 @@ def _cleanup(app: FastAPI, config: AppConfig, pid_file: Path) -> None:
 
 async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     """Async cleanup actions."""
-    state = getattr(app.state, "app_state", None)
-    if state is None:
+    try:
+        state = app.state.app_state
+    except AttributeError:
         logger.warning("No app state found during shutdown")
         return
 
     # 1. Persist indices FIRST — metrics/adapter shutdown may block/hang
-    vs_cfg = getattr(config, "vector_store", None)
-    index_path = vs_cfg.index_path if vs_cfg is not None else None
+    index_path = config.vector_store.index_path if config.vector_store else None
     if index_path and state.vector_store is not None:
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
@@ -118,14 +117,20 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         except Exception:
             logger.exception("Index save failed")
 
-    # 2. Graceful adapter shutdown
-    for attr, name in (
+    # 2. Graceful adapter shutdown — add new closable adapters here
+    adapters = (
         (state.llm, "llm"),
         (state.embedder, "embedder"),
         (state.vector_store, "vector_store"),
-    ):
-        if attr is not None:
+        (state.storage, "storage"),
+        (state.reranker, "reranker"),
+        (state.chunker, "chunker"),
+    )
+    for adapter, name in adapters:
+        if adapter is not None:
             try:
-                await attr.shutdown()
+                shutdown = getattr(adapter, "shutdown", None)
+                if shutdown is not None and callable(shutdown):
+                    await shutdown()
             except Exception:
                 logger.exception("%s shutdown failed", name)

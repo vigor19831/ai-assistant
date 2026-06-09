@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -22,14 +22,16 @@ from ai_assistant.core.domain.errors import (
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import count_tokens, get_context_limit
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
+    from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
 
 __all__: list[str] = [
@@ -44,17 +46,24 @@ __all__: list[str] = [
 
 _logger = get_logger("pipeline.steps")
 
-STEP_REGISTRY: dict[str, Any] = {}
+STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
+
+# --- Token budget constants for generate() ---------------------------------
+TOKEN_MARGIN_MIN = 256  # absolute minimum tokens reserved for response
+TOKEN_MARGIN_PCT = 0.1  # fraction of context window reserved for response
 
 
-P = ParamSpec("P")
-R = TypeVar("R")
-
-
-def step(name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+def step(
+    name: str,
+) -> Callable[
+    [Callable[[PipelineData], Awaitable[PipelineData]]],
+    Callable[[PipelineData], Awaitable[PipelineData]],
+]:
     """Register a pipeline step by its config name."""
 
-    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+    def decorator(
+        func: Callable[[PipelineData], Awaitable[PipelineData]],
+    ) -> Callable[[PipelineData], Awaitable[PipelineData]]:
         STEP_REGISTRY[name] = func
         return func
 
@@ -150,6 +159,10 @@ async def retrieve(data: PipelineData) -> PipelineData:
         top_k = data.metadata.get("top_k", 5)
         namespace = data.metadata.get("namespace") or "default"
         chunks = await _call_search(vector_store, embedding, top_k, namespace)
+        increment_counter(
+            "ai_assistant_rag_retrieve_total",
+            labels={"namespace": namespace},
+        )
         _logger.info(
             "retrieve done: %d chunks", len(chunks), extra={"trace_id": data.trace_id}
         )
@@ -180,7 +193,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         "rerank start: %d chunks", len(data.chunks), extra={"trace_id": data.trace_id}
     )
     if not data.chunks:
-        return data
+        return replace(data)
 
     reranker = data.metadata.get("reranker")
 
@@ -255,6 +268,50 @@ async def build_context(data: PipelineData) -> PipelineData:
     return data.with_context(context)
 
 
+def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
+    """Build a minimal RAG prompt from chunks when template lookup fails."""
+    chunks_text = "\n".join(f"[{i + 1}] {c.text}" for i, c in enumerate(chunks))
+    return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
+
+
+def _truncate_to_fit(
+    data: PipelineData,
+    prompt: str,
+    prompt_name: str,
+    prompt_version: str,
+    query_text: str,
+    limit: int,
+) -> tuple[PipelineData, str]:
+    """Remove chunks from the end until prompt fits in the token limit.
+
+    Returns:
+        (updated_data, updated_prompt). If all chunks are exhausted and
+        the prompt still exceeds the limit, updated_data will have empty
+        chunks and updated_prompt will reflect the last attempted context.
+    """
+    prompt_tokens = _estimate_tokens(prompt)
+    current_data = data
+    while current_data.chunks and prompt_tokens > limit:
+        new_chunks = current_data.chunks[:-1]
+        if not new_chunks:
+            current_data = current_data.with_chunks(()).with_context("")
+            break
+        current_data = current_data.with_chunks(new_chunks)
+        lines = [chunk.text for chunk in current_data.chunks if chunk.text]
+        current_data = current_data.with_context("\n\n".join(lines))
+        try:
+            prompt = get_prompt(
+                prompt_name,
+                version=prompt_version,
+                query=query_text,
+                context=current_data.context,
+            )
+        except Exception:
+            prompt = _build_fallback_prompt(current_data.chunks, query_text)
+        prompt_tokens = _estimate_tokens(prompt)
+    return current_data, prompt
+
+
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
     _logger.info("generate start", extra={"trace_id": data.trace_id})
@@ -270,12 +327,6 @@ async def generate(data: PipelineData) -> PipelineData:
     prompt_version = data.metadata["prompt_version"]
     prompt_name = data.metadata["prompt_name"]
 
-    def _build_fallback_prompt() -> str:
-        chunks_text = "\n".join(
-            f"[{i + 1}] {c.text}" for i, c in enumerate(data.chunks)
-        )
-        return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
-
     try:
         prompt = get_prompt(
             prompt_name,
@@ -284,38 +335,28 @@ async def generate(data: PipelineData) -> PipelineData:
             context=data.context,
         )
     except Exception:
-        prompt = _build_fallback_prompt()
+        prompt = _build_fallback_prompt(data.chunks, query_text)
 
     max_ctx = _get_llm_context_limit(llm)
-    if max_ctx is not None and max_ctx > 0:
+    if max_ctx is None or max_ctx <= 0:
+        cfg_size = getattr(getattr(llm, "config", None), "server_context_size", None)
+        max_ctx = cfg_size if type(cfg_size) is int else 4096
+
+    prompt_tokens = _estimate_tokens(prompt)
+    margin = max(TOKEN_MARGIN_MIN, int(max_ctx * TOKEN_MARGIN_PCT))
+    limit = max_ctx - margin
+
+    if prompt_tokens > limit:
+        data, prompt = _truncate_to_fit(
+            data, prompt, prompt_name, prompt_version, query_text, limit
+        )
         prompt_tokens = _estimate_tokens(prompt)
-        margin = max(256, int(max_ctx * 0.1))
-        limit = max_ctx - margin
-        current_data = data
-        while current_data.chunks and prompt_tokens > limit:
-            new_chunks = current_data.chunks[:-1]
-            if not new_chunks:
-                current_data = current_data.with_context("")
-                break
-            current_data = current_data.with_chunks(new_chunks)
-            lines = [chunk.text for chunk in current_data.chunks if chunk.text]
-            current_data = current_data.with_context("\n\n".join(lines))
-            try:
-                prompt = get_prompt(
-                    prompt_name,
-                    version=prompt_version,
-                    query=query_text,
-                    context=current_data.context,
-                )
-            except Exception:
-                prompt = _build_fallback_prompt()
-            prompt_tokens = _estimate_tokens(prompt)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens) "
                 f"exceeds limit ({limit})"
             )
-            return current_data.add_error(error_msg).with_response(
+            return data.add_error(error_msg).with_response(
                 AssistantMessage(
                     text=(
                         "Sorry, the retrieved context is too large "
@@ -323,7 +364,6 @@ async def generate(data: PipelineData) -> PipelineData:
                     )
                 )
             )
-        data = current_data
 
     messages: list[Any] = [UserMessage(text=prompt)]
     response: AssistantMessage | None = None

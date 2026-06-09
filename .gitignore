@@ -49,7 +49,7 @@ data/
 *.log
 
 # User content (never commit)
-documents/
+sources/
 vendor/
 
 # src-layout build artifacts
@@ -57,9 +57,9 @@ src/*.egg-info/
 src/**/*.egg-info/
 
 # runtime
-ops/*.pid
-ops/*.log
-dev/.pytest_cache/
-dev/context_build_*.md
-dev/tests_run_*.log
+scripts/*.pid
+scripts/*.log
+tests/.pytest_cache/
+docs/context_build_*.md
+tests/tests_run_*.log
 MagicMock/

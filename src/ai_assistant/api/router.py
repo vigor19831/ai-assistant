@@ -14,6 +14,9 @@ from ai_assistant.features.rag import handlers as _rag_handlers
 
 __all__ = ["assemble_routers"]
 
+# Tag used to identify OpenAI-compatible routers (kept at root, no prefix).
+_OAI_TAG = "chat-oai"
+
 # Explicit router registry — missing handlers fail immediately at import time.
 # Add new routers here when adding feature handlers.
 _ROUTERS: list[APIRouter] = [
@@ -29,10 +32,10 @@ def assemble_routers() -> list[APIRouter]:
     routers = list(_ROUTERS)
 
     # Wrap each router with API key dependency and apply /api/v1 prefix
-    # OpenAI-compatible routers (tagged "chat-oai") stay at root without wrapping
+    # OpenAI-compatible routers (tagged with _OAI_TAG) stay at root without wrapping
     wrapped: list[APIRouter] = []
     for router in routers:
-        is_oai = "chat-oai" in router.tags
+        is_oai = _OAI_TAG in router.tags
         if is_oai:
             # OpenAI routers keep their original paths, no prefix, no extra wrapper
             wrapped.append(router)

@@ -190,8 +190,12 @@ if _FAISS_AVAILABLE:
                     return
                 p = Path(path) / namespace
                 p.mkdir(parents=True, exist_ok=True)
+                tmp_index = p / "index.faiss.tmp"
                 await asyncio.to_thread(
-                    faiss.write_index, ns.index, str(p / "index.faiss")
+                    faiss.write_index, ns.index, str(tmp_index)
+                )
+                await asyncio.to_thread(
+                    tmp_index.replace, p / "index.faiss"
                 )
 
                 meta = {

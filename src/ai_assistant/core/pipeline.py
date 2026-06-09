@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -10,9 +11,6 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
 
 __all__ = ["RAGPipeline"]
-
-
-from dataclasses import replace
 
 
 class RAGPipeline:

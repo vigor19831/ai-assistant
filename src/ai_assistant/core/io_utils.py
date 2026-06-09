@@ -40,13 +40,16 @@ async def atomic_write(
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
         try:
-            with os.fdopen(fd, mode, closefd=True) as fh:
-                if binary:
+            if binary:
+                with os.fdopen(fd, mode, closefd=True) as fh:
                     fh.write(cast("bytes", content))
-                else:
+                    fh.flush()
+                    os.fsync(fh.fileno())
+            else:
+                with os.fdopen(fd, mode, closefd=True, encoding="utf-8") as fh:
                     fh.write(cast("str", content))
-                fh.flush()
-                os.fsync(fh.fileno())
+                    fh.flush()
+                    os.fsync(fh.fileno())
             os.replace(tmp, target)
             # Persist directory metadata (POSIX)
             try:

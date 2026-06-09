@@ -33,7 +33,6 @@ class _UpdateApiKeyResponse(BaseModel):
 async def get_current_model(
     state: Annotated[AppState, Depends(get_state)],
 ) -> _CurrentModelResponse:
-    """Return currently configured model info from config.yaml."""
     cfg = state.config.llm
     return _CurrentModelResponse(
         model=getattr(cfg, "model", "unknown"),
@@ -46,14 +45,8 @@ async def update_api_key(
     req: _UpdateApiKeyRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> _UpdateApiKeyResponse:
-    """Runtime API key rotation. Sets override key in security module.
-
-    Setting api_key to None clears the override and falls back to env var.
-    """
     if req.api_key is not None and not req.api_key:
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
-
     set_api_key(req.api_key)
-
     source = "runtime_override" if req.api_key is not None else "env_var_or_none"
     return _UpdateApiKeyResponse(updated=True, source=source)

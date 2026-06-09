@@ -78,6 +78,7 @@ class ChatManager:
         pipeline: RAGPipeline | None = None,
         namespaces: dict[str, Any] | None = None,
         prompt_version: str = "v1",
+        top_k: int = 5,
     ) -> None:
         self.llm = llm
         self.storage = storage
@@ -91,6 +92,7 @@ class ChatManager:
         self.pipeline = pipeline
         self.namespaces = namespaces or {}
         self.prompt_version = prompt_version
+        self.top_k = top_k
 
     def _count_tokens(self, text: str) -> int:
         return count_tokens(text, self.tokenizer_model)
@@ -135,12 +137,13 @@ class ChatManager:
         keep.reverse()
         return keep
 
-    async def _maybe_rag(
+    async def _retrieve_context(
         self, message: str, trace_id: str | None = None
     ) -> tuple[str, str, tuple[Chunk, ...]]:
-        """Return (prompt_for_llm, original_query, rag_chunks).
+        """Run RAG retrieval and return (prompt_for_llm, original_query, rag_chunks).
 
-        If RAG not triggered, prompt_for_llm == original_query == message.
+        If RAG is not triggered or no results are found, returns the original
+        message unchanged with empty chunks.
         """
         if not self.pipeline:
             return message, message, ()
@@ -163,7 +166,7 @@ class ChatManager:
         )
 
         metadata = {
-            "top_k": 5,
+            "top_k": self.top_k,
             "prompt_name": prompt_name,
             "prompt_version": self.prompt_version,
             "namespace": namespace,
@@ -175,7 +178,6 @@ class ChatManager:
         data = await self.pipeline.run(data, metadata=metadata)
 
         if not data.chunks:
-            # Return query_text (without prefix), not message (with prefix)
             return query_text, query_text, ()
 
         prompt = get_prompt(
@@ -186,41 +188,20 @@ class ChatManager:
         )
         return prompt, query_text, data.chunks
 
-    async def chat(
+    async def _build_messages(
         self,
-        message: str,
+        prompt_for_llm: str,
         conversation_id: str,
         metadata: dict[str, Any] | None = None,
-    ) -> AssistantMessage:
-        """Process a chat message."""
-        meta = metadata or {}
-        trace_id = meta.get("trace_id")
-        logger.info(
-            "Chat request: conv=%s, msg_len=%d, trace_id=%s",
-            conversation_id,
-            len(message),
-            trace_id or "none",
-        )
+    ) -> list[UserMessage | AssistantMessage | dict[str, Any]]:
+        """Build message list with history, system prompt, and token trimming.
 
-        # Graceful degradation: RAG requested but infrastructure unavailable
-        if _PREFIX_RE.match(message) and not self.pipeline:
-            return AssistantMessage(
-                text="Document search (RAG) temporarily unavailable."
-            )
-
-        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(
-            message, trace_id=trace_id
-        )
-
-        user_msg = UserMessage(
-            text=prompt_for_llm,
-            metadata=meta,
-        )
-
+        Loads conversation history from storage, trims it to fit the token
+        budget, and prepends historical messages before the current user message.
+        """
+        user_msg = UserMessage(text=prompt_for_llm, metadata=metadata or {})
         messages: list[UserMessage | AssistantMessage | dict[str, Any]] = [user_msg]
-        input_tokens = self._count_tokens(prompt_for_llm or "")
 
-        history: list[dict[str, Any]] = []
         if self.storage:
             try:
                 history = await self.storage.get_history(
@@ -247,9 +228,40 @@ class ChatManager:
                         messages.insert(-1, UserMessage(text=content))
                     elif role == "assistant":
                         messages.insert(-1, AssistantMessage(text=content))
-                    input_tokens += self._count_tokens(content)
             except Exception as exc:
                 logger.warning("History load failed: %s", exc)
+
+        return messages
+
+    async def chat(
+        self,
+        message: str,
+        conversation_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> AssistantMessage:
+        """Process a chat message."""
+        meta = metadata or {}
+        trace_id = meta.get("trace_id")
+        logger.info(
+            "Chat request: conv=%s, msg_len=%d, trace_id=%s",
+            conversation_id,
+            len(message),
+            trace_id or "none",
+        )
+
+        # Graceful degradation: RAG requested but infrastructure unavailable
+        if _PREFIX_RE.match(message) and not self.pipeline:
+            return AssistantMessage(
+                text="Document search (RAG) temporarily unavailable."
+            )
+
+        prompt_for_llm, original_query, rag_chunks = await self._retrieve_context(
+            message, trace_id=trace_id
+        )
+
+        messages = await self._build_messages(
+            prompt_for_llm, conversation_id, metadata=meta
+        )
 
         try:
             response = await self.llm.complete(messages)
@@ -318,42 +330,13 @@ class ChatManager:
             yield "Document search (RAG) temporarily unavailable."
             return
 
-        prompt_for_llm, original_query, rag_chunks = await self._maybe_rag(
+        prompt_for_llm, original_query, rag_chunks = await self._retrieve_context(
             message, trace_id=trace_id
         )
 
-        user_msg = UserMessage(
-            text=prompt_for_llm,
-            metadata=meta,
+        messages = await self._build_messages(
+            prompt_for_llm, conversation_id, metadata=meta
         )
-
-        messages: list[UserMessage | AssistantMessage | dict[str, Any]] = [user_msg]
-        input_tokens = self._count_tokens(prompt_for_llm or "")
-
-        if self.storage:
-            try:
-                history = await self.storage.get_history(
-                    conversation_id,
-                    limit=min(self.history_limit, self.max_history_messages),
-                )
-                try:
-                    history = self._trim_history(history, user_msg)
-                except Exception:
-                    history = (
-                        history[-self.history_limit :]
-                        if len(history) > self.history_limit
-                        else history
-                    )
-                for h in history:
-                    role = h.get("role", "")
-                    content = h.get("content", "")
-                    if role == "user":
-                        messages.insert(-1, UserMessage(text=content))
-                    elif role == "assistant":
-                        messages.insert(-1, AssistantMessage(text=content))
-                    input_tokens += self._count_tokens(content)
-            except Exception as exc:
-                logger.warning("History load failed: %s", exc)
 
         output_text = ""
         try:

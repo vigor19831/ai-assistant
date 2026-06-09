@@ -5,12 +5,13 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
+from ai_assistant.core.constants import DOCUMENTS_ROOT
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
@@ -32,50 +33,40 @@ _logger = get_logger("rag.handlers")
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
-DOCUMENTS_ROOT = Path("documents")
-
 # ── Background reindex coordination ─────────────────────────────────────────
 _reindex_semaphore = asyncio.Semaphore(1)
 _reindex_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _reindex_status: dict[str, dict[str, Any]] = {}
+_reindex_lock = asyncio.Lock()
 
 _REINDEX_STATUS_TTL_SECONDS = 3600
 _REINDEX_STATUS_MAX_ENTRIES = 1000
 
 
-def _cleanup_reindex_status() -> None:
+async def _cleanup_reindex_status() -> None:
     """Remove expired entries and enforce max size cap on _reindex_status."""
-    now = time.time()
+    async with _reindex_lock:
+        now = time.time()
 
-    # TTL cleanup: remove entries whose last activity is older than TTL
-    expired = [
-        tid
-        for tid, info in _reindex_status.items()
-        if now - (info.get("finished_at") or info.get("started_at", 0))
-        > _REINDEX_STATUS_TTL_SECONDS
-    ]
-    for tid in expired:
-        _reindex_status.pop(tid, None)
-
-    # Cap cleanup: if still over max, remove oldest by started_at
-    if len(_reindex_status) > _REINDEX_STATUS_MAX_ENTRIES:
-        sorted_by_age = sorted(
-            _reindex_status.items(),
-            key=lambda item: item[1].get("started_at", 0),
-        )
-        excess = len(_reindex_status) - _REINDEX_STATUS_MAX_ENTRIES
-        for tid, _ in sorted_by_age[:excess]:
+        # TTL cleanup: remove entries whose last activity is older than TTL
+        expired = [
+            tid
+            for tid, info in _reindex_status.items()
+            if now - (info.get("finished_at") or info.get("started_at", 0))
+            > _REINDEX_STATUS_TTL_SECONDS
+        ]
+        for tid in expired:
             _reindex_status.pop(tid, None)
 
-
-def _get_indexing_manager(
-    state: Annotated[InitializedAppState, Depends(get_state)],
-) -> IndexingManager:
-    return IndexingManager(
-        chunker=state.chunker,
-        embedder=state.embedder,
-        vector_store=state.vector_store,
-    )
+        # Cap cleanup: if still over max, remove oldest by started_at
+        if len(_reindex_status) > _REINDEX_STATUS_MAX_ENTRIES:
+            sorted_by_age = sorted(
+                _reindex_status.items(),
+                key=lambda item: item[1].get("started_at", 0),
+            )
+            excess = len(_reindex_status) - _REINDEX_STATUS_MAX_ENTRIES
+            for tid, _ in sorted_by_age[:excess]:
+                _reindex_status.pop(tid, None)
 
 
 def _get_rag_manager(
@@ -93,10 +84,25 @@ def _get_rag_manager(
 @router.post("/index", response_model=IndexResponse)
 async def index_documents(
     req: IndexRequest,
-    manager: Annotated[IndexingManager, Depends(_get_indexing_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> IndexResponse:
     namespace = req.namespace or state.config.rag.default_namespace
+    ns_cfg = state.config.namespaces.get(namespace)
+
+    # ── Per-namespace chunker override (only if size differs from base) ──
+    chunker = state.chunker
+    if ns_cfg is not None and ns_cfg.chunk_size != state.config.chunker.chunk_size:
+        base_cfg = state.config.chunker
+        ns_chunker_cfg = base_cfg.model_copy(
+            update={"chunk_size": ns_cfg.chunk_size}
+        )
+        chunker = create_adapter("chunker", ns_chunker_cfg)
+
+    manager = IndexingManager(
+        chunker=chunker,
+        embedder=state.embedder,
+        vector_store=state.vector_store,
+    )
 
     # ── Resource guard: document size ──
     max_doc_size = state.config.vector_store.max_document_size
@@ -238,9 +244,13 @@ async def save_chat(
 
     # Save to documents folder
     folder = DOCUMENTS_ROOT / namespace
-    await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
     folder_resolved = await asyncio.to_thread(folder.resolve)
+    docs_resolved = await asyncio.to_thread(DOCUMENTS_ROOT.resolve)
 
+    if not folder_resolved.is_relative_to(docs_resolved):
+        raise HTTPException(status_code=400, detail="Invalid namespace")
+
+    await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
     file_path = (folder / filename).resolve()
     if not file_path.is_relative_to(folder_resolved):
         raise HTTPException(status_code=400, detail="Path traversal detected")
@@ -309,11 +319,12 @@ async def reindex_documents(
 
     async def _run() -> dict[str, Any]:
         async with _reindex_semaphore:
-            _cleanup_reindex_status()
-            _reindex_status[task_id] = {
-                "status": "running",
-                "started_at": time.time(),
-            }
+            await _cleanup_reindex_status()
+            async with _reindex_lock:
+                _reindex_status[task_id] = {
+                    "status": "running",
+                    "started_at": time.time(),
+                }
             try:
                 result = await index_folder(
                     folder=folder,
@@ -321,20 +332,23 @@ async def reindex_documents(
                     chunker=state.chunker,
                     embedder=state.embedder,
                     vector_store=state.vector_store,
+                    max_file_size=state.config.vector_store.max_document_size,
                 )
-                _reindex_status[task_id] = {
-                    "status": "completed",
-                    "result": result,
-                    "finished_at": time.time(),
-                }
+                async with _reindex_lock:
+                    _reindex_status[task_id] = {
+                        "status": "completed",
+                        "result": result,
+                        "finished_at": time.time(),
+                    }
                 return result
             except Exception:
                 _logger.exception("Background reindex failed")
-                _reindex_status[task_id] = {
-                    "status": "failed",
-                    "error": "Internal server error",
-                    "finished_at": time.time(),
-                }
+                async with _reindex_lock:
+                    _reindex_status[task_id] = {
+                        "status": "failed",
+                        "error": "Internal server error",
+                        "finished_at": time.time(),
+                    }
                 raise
             finally:
                 _reindex_tasks.pop(task_id, None)
@@ -347,8 +361,9 @@ async def reindex_documents(
 @router.get("/reindex/status/{task_id}", response_model=None)
 async def reindex_status(task_id: str) -> dict[str, Any]:
     """Get status of a background reindex task."""
-    _cleanup_reindex_status()
-    if task_id in _reindex_status:
-        info = _reindex_status[task_id]
-        return {"task_id": task_id, **info}
+    await _cleanup_reindex_status()
+    async with _reindex_lock:
+        if task_id in _reindex_status:
+            info = _reindex_status[task_id]
+            return {"task_id": task_id, **info}
     return {"task_id": task_id, "status": "unknown"}

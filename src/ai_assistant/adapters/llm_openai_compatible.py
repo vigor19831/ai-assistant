@@ -39,12 +39,13 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         self._max_stream_tokens: int = getattr(
             config, "max_stream_tokens", self.max_tokens * 2
         )
-
-        # Circuit breaker removed — premature complexity for solo server
+        self._client: httpx.AsyncClient | None = None
 
     async def shutdown(self) -> None:
-        """No-op: client is created per-request and auto-closed by context manager."""
-        pass
+        """Close persistent HTTP client."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     def _build_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -91,6 +92,41 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 out.append(msg)
         return out
 
+    @staticmethod
+    def _parse_tool_calls(raw: Any) -> list[dict[str, Any]]:
+        """Validate and normalize tool_calls from OpenAI API response."""
+        if not isinstance(raw, list):
+            return []
+        parsed: list[dict[str, Any]] = []
+        for tc in raw:
+            if not isinstance(tc, dict):
+                _logger.warning("Skipping non-dict tool_call: %s", tc)
+                continue
+            tid = tc.get("id")
+            ttype = tc.get("type")
+            func = tc.get("function", {})
+            if not isinstance(func, dict):
+                _logger.warning("Skipping tool_call without function dict: %s", tc)
+                continue
+            name = func.get("name")
+            if ttype == "function":
+                if not tid or not name:
+                    _logger.warning("Skipping incomplete function tool_call: %s", tc)
+                    continue
+                parsed.append(
+                    {
+                        "id": tid,
+                        "type": ttype,
+                        "function": {
+                            "name": name,
+                            "arguments": func.get("arguments") or "",
+                        },
+                    }
+                )
+            else:
+                _logger.warning("Unknown tool_call type %r; skipping: %s", ttype, tc)
+        return parsed
+
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
     async def _complete_impl(
         self,
@@ -110,10 +146,11 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             "max_tokens": max_tok,
             "temperature": temperature if temperature is not None else self.temperature,
         }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout)
+        resp = await self._client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
 
         try:
             choice = data["choices"][0]
@@ -121,7 +158,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         except (IndexError, KeyError, TypeError) as exc:
             raise AdapterError(f"Unexpected response shape: {exc}") from exc
 
-        tool_calls = msg.get("tool_calls", [])
+        tool_calls = self._parse_tool_calls(msg.get("tool_calls"))
         text = msg.get("content", "") or ""
         return AssistantMessage(text=text, tool_calls=tool_calls)
 
@@ -158,10 +195,9 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             "temperature": temperature if temperature is not None else self.temperature,
             "stream": True,
         }
-        async with (
-            httpx.AsyncClient(timeout=self._timeout) as client,
-            client.stream("POST", url, headers=headers, json=payload) as resp,
-        ):
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout)
+        async with self._client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
             token_count = 0
             async for line in resp.aiter_lines():
@@ -194,17 +230,11 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                         yield content
                     tcd = delta.get("tool_calls")
                     if tcd:
-                        for tc in tcd:
-                            args = tc.get("function", {}).get("arguments")
-                            if args:
-                                token_count += 1
-                                if token_count > self._max_stream_tokens:
-                                    _logger.warning(
-                                        "Stream limit (%d) reached",
-                                        self._max_stream_tokens,
-                                    )
-                                    return
-                                yield args
+                        _logger.warning(
+                            "Tool calls in streaming mode are not supported by current "
+                            "ILLM contract; received %d delta(s). Ignoring.",
+                            len(tcd),
+                        )
                 except (KeyError, IndexError, TypeError) as exc:
                     _logger.warning("Malformed SSE: %s (%s)", obj, exc)
                     continue

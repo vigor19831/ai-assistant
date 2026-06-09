@@ -11,7 +11,7 @@ __all__ = ["index_folder"]
 
 _logger = get_logger("rag.indexing")
 
-DOCUMENTS_ROOT = Path("documents")
+DOCUMENTS_ROOT = Path("sources")
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
 CHUNK_SIZE = 100_000  # Max chars per document chunk
 
@@ -27,7 +27,10 @@ def _read_file(path: Path) -> str:
     return ""
 
 
-def _discover_documents(folder: str | None = None) -> dict[str, list[dict[str, Any]]]:
+def _discover_documents(
+    folder: str | None = None,
+    max_file_size: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """Discover documents in folders. Returns {namespace: [docs]}."""
     result: dict[str, list[dict[str, Any]]] = {}
 
@@ -47,6 +50,21 @@ def _discover_documents(folder: str | None = None) -> dict[str, list[dict[str, A
                 continue
             if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
+
+            # Guard: skip files exceeding max size before reading into memory
+            if max_file_size is not None:
+                try:
+                    file_size = file_path.stat().st_size
+                    if file_size > max_file_size:
+                        _logger.warning(
+                            "Skipping oversized file %s (%d > %d bytes)",
+                            file_path,
+                            file_size,
+                            max_file_size,
+                        )
+                        continue
+                except OSError:
+                    continue
 
             content = _read_file(file_path)
             if not content.strip():
@@ -92,6 +110,7 @@ async def index_folder(
     chunker: Any,
     embedder: Any,
     vector_store: Any,
+    max_file_size: int | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -101,13 +120,14 @@ async def index_folder(
         chunker: IChunker instance.
         embedder: IEmbedder instance.
         vector_store: IVectorStore instance.
+        max_file_size: Max file size in bytes before skipping (guard).
 
     Returns:
         Dict with results per namespace and any errors.
     """
     from ai_assistant.features.rag.manager import IndexingManager
 
-    docs_by_ns = _discover_documents(folder)
+    docs_by_ns = _discover_documents(folder, max_file_size=max_file_size)
     if not docs_by_ns:
         return {"success": True, "results": {}, "errors": ["No documents found"]}
 

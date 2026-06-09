@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+from ai_assistant.core.domain.errors import VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.ports.vector_store import IVectorStore
 
@@ -65,8 +66,8 @@ class MemoryVectorStore(IVectorStore):
                     meta["source"] = chunk.metadata.source
                     meta["index"] = chunk.metadata.index
                 ns.metadata[chunk.id] = meta
-            ns._track(chunk.id)
-            ns._evict()
+                ns._track(chunk.id)
+                ns._evict()
 
     async def search(
         self,
@@ -142,6 +143,13 @@ class MemoryVectorStore(IVectorStore):
             return
         raw = await asyncio.to_thread(p.read_text)
         data = json.loads(raw)
+
+        stored_dim = data.get("dim")
+        if stored_dim is not None and stored_dim != self.dim:
+            raise VersionMismatchError(
+                f"Reindex required: stored dim {stored_dim} "
+                f"!= config dim {self.dim}"
+            )
 
         async with self._lock:
             ns = self._get_ns(namespace)

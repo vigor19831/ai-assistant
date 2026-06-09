@@ -61,6 +61,19 @@ class OpenAICompatibleEmbedder(IEmbedder):
         return self._dim
 
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
+    async def _post_embeddings(self, payload: dict[str, Any]) -> str:
+        """Execute HTTP POST to embeddings endpoint (retryable)."""
+        url = f"{self.api_base}/embeddings"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self._timeout)
+        resp = await self._client.post(url, headers=headers, json=payload)
+        resp.raise_for_status()
+        return resp.text
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Request embeddings from remote API.
 
@@ -70,20 +83,12 @@ class OpenAICompatibleEmbedder(IEmbedder):
         """
         if not texts:
             return []
-        url = f"{self.api_base}/embeddings"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
         payload = {
             "model": self.model,
             "input": texts,
         }
-        if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
-        resp = await self._client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
+        resp_text = await self._post_embeddings(payload)
         embeddings = await asyncio.to_thread(
-            _extract_embeddings, resp.text, self._dim, self.model
+            _extract_embeddings, resp_text, self._dim, self.model
         )
         return embeddings
