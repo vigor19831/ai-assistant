@@ -19,6 +19,7 @@ from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.core.pipeline_steps import build_context, embed_query, retrieve
 from ai_assistant.core.domain.pipeline import PipelineData
+from ai_assistant.adapters.reranker_null import NullReranker
 
 # ── _retrieve_context tests (formerly _maybe_rag) ──
 
@@ -39,11 +40,13 @@ class TestRetrieveContext:
             "personal": NamespaceConfig(threshold=0.1, chunk_size=512, prompt="rag_strict"),
             "work": NamespaceConfig(threshold=0.3, chunk_size=1024, prompt="rag_creative"),
         }
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         return ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
             embedder=embedder,
             vector_store=store,
-            reranker=None,
+            reranker=NullReranker(None),
             storage=None,
             pipeline=pipeline,
             namespaces=namespaces,
@@ -161,10 +164,13 @@ class TestRetrieveContext:
     @pytest.mark.asyncio
     async def test_no_embedder_returns_unchanged(self):
         """Without embedder, message should pass through."""
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         manager = ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
             embedder=None,
             vector_store=MagicMock(),
+            reranker=NullReranker(None),
             storage=None,
         )
         prompt, query, chunks = await manager._retrieve_context("[p] query")
@@ -175,10 +181,13 @@ class TestRetrieveContext:
     @pytest.mark.asyncio
     async def test_no_vector_store_returns_unchanged(self):
         """Without vector_store, message should pass through."""
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         manager = ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
             embedder=MagicMock(),
             vector_store=None,
+            reranker=NullReranker(None),
             storage=None,
         )
         prompt, query, chunks = await manager._retrieve_context("[p] query")
@@ -218,11 +227,13 @@ class TestRetrieveContext:
             retrieve,
             build_context,
         ])
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         manager = ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
             embedder=embedder,
             vector_store=store,
-            reranker=None,
+            reranker=NullReranker(None),
             storage=None,
             pipeline=pipeline,
             namespaces={},
@@ -248,8 +259,11 @@ class TestRetrieveContext:
 class TestBuildMessages:
     @pytest.fixture
     def manager_no_storage(self):
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         return ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
+            reranker=NullReranker(None),
             storage=None,
             history_limit=10,
             max_context_tokens=None,
@@ -263,8 +277,10 @@ class TestBuildMessages:
             {"role": "assistant", "content": "Previous answer"},
         ])
         mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         return ChatManager(
             llm=mock_llm,
+            reranker=NullReranker(None),
             storage=mock_storage,
             history_limit=10,
             max_context_tokens=None,
@@ -331,9 +347,11 @@ class TestTrimHistory:
         mock_llm.config = MagicMock()
         mock_llm.config.max_tokens = 100
         mock_llm.system_message = "System prompt"
+        mock_llm.get_context_limit.return_value = 100
 
         return ChatManager(
             llm=mock_llm,
+            reranker=NullReranker(None),
             max_context_tokens=100,
             tokenizer_model="gpt-4o",
             history_limit=10,
@@ -342,8 +360,11 @@ class TestTrimHistory:
 
     @pytest.fixture
     def manager_no_tokenizer(self):
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = None
         return ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
+            reranker=NullReranker(None),
             max_context_tokens=None,
             history_limit=3,
             storage=None,
@@ -417,14 +438,15 @@ class TestTrimHistory:
 
     def test_no_llm_config_fallback(self):
         """When LLM has no config, fallback to history_limit."""
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = None
         manager = ChatManager(
-            llm=MagicMock(),
+            llm=mock_llm,
+            reranker=NullReranker(None),
             max_context_tokens=50,
             history_limit=2,
             storage=None,
         )
-        manager.llm = MagicMock()
-        manager.llm.config = None
 
         history = [
             {"role": "user", "content": "1"},
@@ -443,6 +465,7 @@ class TestRAGGracefulDegradation:
     def manager_no_rag(self):
         """ChatManager without embedder/vector_store."""
         mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         mock_llm.complete = AsyncMock(
             return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
         )
@@ -450,6 +473,7 @@ class TestRAGGracefulDegradation:
             llm=mock_llm,
             embedder=None,
             vector_store=None,
+            reranker=NullReranker(None),
             storage=None,
         )
 
@@ -495,6 +519,7 @@ class TestChatStreamPreparationIdentical:
     @pytest.fixture
     def manager(self):
         mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
         mock_llm.complete = AsyncMock(
             return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
         )
@@ -502,6 +527,7 @@ class TestChatStreamPreparationIdentical:
             llm=mock_llm,
             embedder=None,
             vector_store=None,
+            reranker=NullReranker(None),
             storage=None,
         )
 

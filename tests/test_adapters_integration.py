@@ -19,6 +19,7 @@ from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmb
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 from ai_assistant.adapters.reranker_api import APIReranker
+from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
@@ -679,6 +680,35 @@ class TestRerankers:
             respx.post("https://api.cohere.com/v1/rerank").return_value = Response(500)
             with pytest.raises(Exception):
                 await APIReranker(config).rerank("q", [Chunk(id="c1", text="hello")])
+
+
+class TestNullReranker:
+    @pytest.mark.asyncio
+    async def test_null_reranker_returns_all_chunks(self):
+        """NullReranker returns all chunks with score 1.0, preserving order."""
+        reranker = NullReranker(None)
+        chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
+        results = await reranker.rerank("q", chunks)
+        assert len(results) == 2
+        assert results[0].chunk.id == "c1"
+        assert results[0].score == 1.0
+        assert results[1].chunk.id == "c2"
+        assert results[1].score == 1.0
+
+    @pytest.mark.asyncio
+    async def test_null_reranker_empty_chunks(self):
+        """NullReranker handles empty chunk list."""
+        reranker = NullReranker(None)
+        results = await reranker.rerank("q", [])
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_null_reranker_ignores_top_k(self):
+        """NullReranker ignores top_k parameter."""
+        reranker = NullReranker(None)
+        chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
+        results = await reranker.rerank("q", chunks, top_k=1)
+        assert len(results) == 2
 
 
 # ── Storage ──

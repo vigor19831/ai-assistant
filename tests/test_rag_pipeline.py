@@ -17,7 +17,7 @@ from ai_assistant.core.domain.errors import (
     QUERY_TEXT_MISSING,
     VECTOR_STORE_NOT_PROVIDED,
 )
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
@@ -72,6 +72,9 @@ class FakeLLM:
         temperature: float | None = None,
     ) -> AssistantMessage:
         return AssistantMessage(text=self._response)
+
+    def get_context_limit(self) -> int | None:
+        return 4096
 
 
 class TestEmbedQuery:
@@ -234,34 +237,21 @@ class TestRerank:
         assert result.trace_id == "rerank-123"
 
     @pytest.mark.asyncio
-    async def test_rerank_without_reranker_passes_through(self):
+    async def test_rerank_with_null_reranker(self):
+        """NullReranker returns all chunks with score 1.0, preserving order."""
+        from ai_assistant.adapters.reranker_null import NullReranker
+
+        reranker = NullReranker(None)
         data = PipelineData(
             query=UserMessage(text="hello"),
-            chunks=[Chunk(id="c1", text="test")],
+            chunks=[Chunk(id="c1", text="first"), Chunk(id="c2", text="second")],
         )
+        data = replace(data, metadata={**data.metadata, "reranker": reranker})
         result = await rerank(data)
-        assert len(result.chunks) == 1
-
-    @pytest.mark.asyncio
-    async def test_rerank_without_reranker_cleans_stale_metadata(self):
-        """Stale rerank_* keys must be removed when reranker is None (pass-through)."""
-        data = PipelineData(
-            query=UserMessage(text="hello"),
-            chunks=[Chunk(id="c1", text="test")],
-            metadata={
-                "rerank_scores": [0.9, 0.8],
-                "rerank_filtered_out": True,
-            },
-        )
-        # First pass-through run
-        result = await rerank(data)
-        assert "rerank_scores" not in result.metadata
-        assert "rerank_filtered_out" not in result.metadata
-
-        # Second consecutive run — must stay clean
-        result2 = await rerank(result)
-        assert "rerank_scores" not in result2.metadata
-        assert "rerank_filtered_out" not in result2.metadata
+        assert len(result.chunks) == 2
+        assert result.chunks[0].id == "c1"
+        assert result.chunks[1].id == "c2"
+        assert result.metadata.get("rerank_scores") == [1.0, 1.0]
 
     @pytest.mark.asyncio
     async def test_rerank_filters_by_threshold(self):
@@ -368,6 +358,9 @@ class TestGenerate:
             ) -> AssistantMessage:
                 raise RuntimeError("fail")
 
+            def get_context_limit(self) -> int | None:
+                return 4096
+
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
@@ -396,6 +389,9 @@ class TestGenerate:
                 if self._calls <= self._fails:
                     raise RuntimeError("network down")
                 return AssistantMessage(text="recovered")
+
+            def get_context_limit(self) -> int | None:
+                return 4096
 
         data = PipelineData(
             query=UserMessage(text="question"),
@@ -909,6 +905,9 @@ class TestToolLoopGuard:
                     tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
                 )
 
+            def get_context_limit(self) -> int | None:
+                return 4096
+
         llm = InfiniteToolLLM()
         data = PipelineData(
             query=UserMessage(text="question"),
@@ -950,6 +949,9 @@ class TestToolLoopGuard:
                     tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
                 )
 
+            def get_context_limit(self) -> int | None:
+                return 4096
+
         llm = InfiniteToolLLM()
         data = PipelineData(
             query=UserMessage(text="question"),
@@ -987,9 +989,6 @@ class TestGenerateTruncation:
         with patch(
             "ai_assistant.core.pipeline_steps._estimate_tokens",
             side_effect=[5000, 5000, 4000, 3000, 3000],
-        ), patch(
-            "ai_assistant.core.pipeline_steps.get_context_limit",
-            return_value=4096,
         ):
             result = await generate(data)
 
@@ -1012,9 +1011,6 @@ class TestGenerateTruncation:
         with patch(
             "ai_assistant.core.pipeline_steps._estimate_tokens",
             return_value=5000,
-        ), patch(
-            "ai_assistant.core.pipeline_steps.get_context_limit",
-            return_value=4096,
         ):
             result = await generate(data)
 
@@ -1033,9 +1029,7 @@ class TestGenerateTruncation:
                 server_context_size: int | None = None,
             ):
                 self._response = response
-                self.config = type(
-                    "C", (), {"server_context_size": server_context_size}
-                )()
+                self._server_context_size = server_context_size
 
             async def complete(
                 self,
@@ -1044,6 +1038,9 @@ class TestGenerateTruncation:
                 temperature: float | None = None,
             ) -> AssistantMessage:
                 return AssistantMessage(text=self._response)
+
+            def get_context_limit(self) -> int | None:
+                return self._server_context_size
 
         data = PipelineData(
             query=UserMessage(text="question"),
@@ -1054,9 +1051,6 @@ class TestGenerateTruncation:
         data = replace(data, metadata={**data.metadata, "llm": llm})
 
         with patch(
-            "ai_assistant.core.pipeline_steps.get_context_limit",
-            return_value=None,
-        ), patch(
             "ai_assistant.core.pipeline_steps._estimate_tokens",
             return_value=100,
         ):
@@ -1080,6 +1074,9 @@ class TestGenerateTruncation:
             ) -> AssistantMessage:
                 return AssistantMessage(text=self._response)
 
+            def get_context_limit(self) -> int | None:
+                return None
+
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
@@ -1089,9 +1086,6 @@ class TestGenerateTruncation:
         data = replace(data, metadata={**data.metadata, "llm": llm})
 
         with patch(
-            "ai_assistant.core.pipeline_steps.get_context_limit",
-            return_value=None,
-        ), patch(
             "ai_assistant.core.pipeline_steps._estimate_tokens",
             return_value=100,
         ):
@@ -1099,3 +1093,80 @@ class TestGenerateTruncation:
 
         assert result.response is not None
         assert result.response.text == "answer"
+
+
+@pytest.mark.asyncio
+async def test_generate_uses_llm_get_context_limit():
+    """generate() step calls llm.get_context_limit() instead of getattr."""
+    from ai_assistant.core.config import LLMConfig
+    from ai_assistant.adapters.llm_mock import MockLLM
+
+    cfg = LLMConfig(model="test", max_tokens=512)
+    llm = MockLLM(cfg)
+    data = PipelineData(
+        query=UserMessage(text="test"),
+        metadata={
+            "llm": llm,
+            "prompt_version": "v1",
+            "prompt_name": "rag_strict",
+        },
+    )
+    result = await generate(data)
+    assert result.response is not None
+
+
+class TestToolMessageInGenerate:
+    @pytest.mark.asyncio
+    async def test_generate_uses_tool_message_in_loop(self):
+        """Tool results in generate() must be passed as ToolMessage, not dict."""
+        captured_calls: list[list[Any]] = []
+
+        class CapturingLLM:
+            def __init__(self):
+                self._calls = 0
+
+            async def complete(
+                self,
+                messages: list[Any],
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+            ) -> AssistantMessage:
+                self._calls += 1
+                captured_calls.append(list(messages))
+                if self._calls == 1:
+                    return AssistantMessage(
+                        text="",
+                        tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
+                    )
+                return AssistantMessage(text="done")
+
+            def get_context_limit(self) -> int | None:
+                return 4096
+
+        class FakeToolRegistry:
+            async def dispatch(self, call):
+                return ToolResult(call_id=call.call_id, output="42")
+
+        llm = CapturingLLM()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "llm": llm,
+                "tool_registry": FakeToolRegistry(),
+            },
+        )
+        result = await generate(data)
+
+        # Second call should include a ToolMessage
+        assert len(captured_calls) >= 2
+        second_call_messages = captured_calls[1]
+        tool_msgs = [m for m in second_call_messages if isinstance(m, ToolMessage)]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0].content == "42"
+        assert tool_msgs[0].tool_call_id == "call_1"
+        assert tool_msgs[0].role == "tool"
+        assert result.response is not None
+        assert result.response.text == "done"

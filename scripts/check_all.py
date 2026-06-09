@@ -274,6 +274,9 @@ class FakeReranker:
 
 
 class FakeLLM:
+    def get_context_limit(self) -> int:
+        return 4096
+
     async def complete(
         self,
         messages: list,

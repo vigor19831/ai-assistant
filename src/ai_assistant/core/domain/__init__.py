@@ -5,6 +5,7 @@ from .errors import AdapterError, ConfigurationError, VersionMismatchError
 from .messages import (
     AssistantMessage,
     TextPayload,
+    ToolMessage,
     UserMessage,
 )
 from .pipeline import PipelineData
@@ -13,6 +14,7 @@ __all__ = [
     "UserMessage",
     "AssistantMessage",
     "TextPayload",
+    "ToolMessage",
     "Document",
     "Chunk",
     "ChunkMetadata",

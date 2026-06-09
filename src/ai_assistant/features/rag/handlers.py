@@ -93,10 +93,8 @@ async def index_documents(
     chunker = state.chunker
     if ns_cfg is not None and ns_cfg.chunk_size != state.config.chunker.chunk_size:
         base_cfg = state.config.chunker
-        ns_chunker_cfg = base_cfg.model_copy(
-            update={"chunk_size": ns_cfg.chunk_size}
-        )
-        chunker = create_adapter("chunker", ns_chunker_cfg)
+        ns_chunker_cfg = base_cfg.model_copy(update={"chunk_size": ns_cfg.chunk_size})
+        chunker = create_adapter("chunker", base_cfg.provider, ns_chunker_cfg)
 
     manager = IndexingManager(
         chunker=chunker,

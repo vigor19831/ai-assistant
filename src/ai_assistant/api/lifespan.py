@@ -53,9 +53,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state = await init_adapters(config)
     app.state.app_state = state
 
-    # Load persisted indices from disk
-    index_path = config.vector_store.index_path if config.vector_store else None
-    if index_path and state.vector_store is not None:
+    # Load persisted indices from disk via port contract
+    if state.vector_store is not None:
+        index_path = state.vector_store.index_path
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
             for ns in namespaces:
@@ -98,8 +98,8 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         return
 
     # 1. Persist indices FIRST — metrics/adapter shutdown may block/hang
-    index_path = config.vector_store.index_path if config.vector_store else None
-    if index_path and state.vector_store is not None:
+    if state.vector_store is not None:
+        index_path = state.vector_store.index_path
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
             saved = 0
@@ -126,11 +126,11 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         (state.reranker, "reranker"),
         (state.chunker, "chunker"),
     )
+
     for adapter, name in adapters:
         if adapter is not None:
             try:
-                shutdown = getattr(adapter, "shutdown", None)
-                if shutdown is not None and callable(shutdown):
-                    await shutdown()
+                await adapter.shutdown()
+                logger.info("Adapter '%s' shutdown complete", name)
             except Exception:
-                logger.exception("%s shutdown failed", name)
+                logger.exception("Adapter '%s' shutdown failed", name)

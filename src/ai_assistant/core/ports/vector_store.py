@@ -19,6 +19,16 @@ class IVectorStore(IClosable, ABC):
     def __init__(self, config: Any) -> None:
         self.config = config
 
+    @property
+    @abstractmethod
+    def index_path(self) -> str:
+        """Return the base path for index persistence.
+
+        Adapters must expose this so that lifespan and health checks
+        can locate indices without reaching into config internals.
+        """
+        ...
+
     @abstractmethod
     async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
         """Add chunks with embeddings to a namespace."""

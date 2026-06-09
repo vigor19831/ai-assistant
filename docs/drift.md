@@ -2,8 +2,8 @@
 
 | ID | File | Broken Rule | Why | Fix | Priority |
 |----|------|-------------|-----|-----|----------|
-| 1 | core/pipeline_steps.py:~312 | getattr(llm, "config") -- ILLM has no config field | Need context window size | Add get_context_limit() to ILLM, implement in all adapters | Medium |
-| 2 | core/pipeline_steps.py:rerank() | if reranker is None inside step | Reranker is optional by config | Make rerank optional in rag.steps, or NullReranker | Low |
-| 3 | api/lifespan.py | getattr(config, "vector_store") | Defensive against bad config | Direct access, fail at validation | Low |
+| 1 | Fixed 2026-06-09: get_context_limit() added to ILLM port. All adapters updated.
+| 2 | Fixed 2026-06-09: NullReranker introduced. `rerank()` no longer branches on `None`. `InitializedAppState.reranker` is `IReranker` (non-optional). |
+| 3 | Fixed 2026-06-09: getattr(config, "vector_store") removed. Pydantic validation guarantees field presence. |
 
 Rule: Do not add new drift if old pattern can be fixed properly.

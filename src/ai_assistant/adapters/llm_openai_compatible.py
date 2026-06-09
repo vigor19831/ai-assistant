@@ -11,7 +11,11 @@ if TYPE_CHECKING:
 import httpx
 
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage, MessageRole
+from ai_assistant.core.domain.messages import (
+    AssistantMessage,
+    ToolMessage,
+    UserMessage,
+)
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -47,14 +51,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             await self._client.aclose()
             self._client = None
 
-    def _build_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
+    def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for m in messages:
-            role_attr = getattr(m, "role", None)
-            if role_attr is None:
-                out.append(m)
-                continue
-            if role_attr == MessageRole.USER:
+            if isinstance(m, UserMessage):
                 content = m.text or ""
                 image = getattr(m, "image", None)
                 if image is not None:
@@ -81,15 +81,25 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                     out.append({"role": "user", "content": parts})
                 else:
                     out.append({"role": "user", "content": content})
-            else:
+            elif isinstance(m, AssistantMessage):
                 msg: dict[str, Any] = {
                     "role": "assistant",
                     "content": m.text or "",
                 }
-                tool_calls = getattr(m, "tool_calls", None)
-                if tool_calls:
-                    msg["tool_calls"] = tool_calls
+                if m.tool_calls:
+                    msg["tool_calls"] = m.tool_calls
                 out.append(msg)
+            elif isinstance(m, ToolMessage):
+                out.append(
+                    {
+                        "role": "tool",
+                        "content": m.content,
+                        "tool_call_id": m.tool_call_id,
+                    }
+                )
+            else:
+                _logger.warning("Unknown message type in _build_messages: %s", type(m))
+                out.append({"role": "user", "content": str(m)})
         return out
 
     @staticmethod
@@ -197,7 +207,9 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         }
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self._timeout)
-        async with self._client.stream("POST", url, headers=headers, json=payload) as resp:
+        async with self._client.stream(
+            "POST", url, headers=headers, json=payload
+        ) as resp:
             resp.raise_for_status()
             token_count = 0
             async for line in resp.aiter_lines():
@@ -238,6 +250,15 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 except (KeyError, IndexError, TypeError) as exc:
                     _logger.warning("Malformed SSE: %s (%s)", obj, exc)
                     continue
+
+    def get_context_limit(self) -> int | None:
+        """Return context limit from config."""
+        cfg = self.config
+        for attr in ("context_size", "server_context_size", "max_tokens"):
+            limit = getattr(cfg, attr, None)
+            if isinstance(limit, (int, float)) and limit > 0:
+                return int(limit)
+        return None
 
     async def stream(
         self,

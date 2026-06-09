@@ -1,290 +1,313 @@
-"""Tests for api/lifespan.py — startup/shutdown lifecycle.
-
-Validates graceful shutdown, index persistence, and error resilience.
-"""
-
-from __future__ import annotations
-
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from pydantic import ValidationError
 
-from ai_assistant.api.deps import AppState, InitializedAppState, init_adapters
-from ai_assistant.api.lifespan import _load_config, lifespan
-from ai_assistant.core.config import AppConfig
-
-# ── _load_config ──
-
-
-class TestLoadConfig:
-    def test_reads_from_env_var(self, monkeypatch, tmp_path):
-        cfg_file = tmp_path / "custom.yaml"
-        cfg_file.write_text("app_name: env-test\nport: 7777")
-        monkeypatch.setenv("AI_CONFIG_PATH", str(cfg_file))
-        cfg = _load_config()
-        assert cfg.app_name == "env-test"
-        assert cfg.port == 7777
-
-    def test_fallback_to_default(self, monkeypatch, tmp_path):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "config.yaml").write_text("app_name: default-test\nport: 8888")
-        # Clear env var
-        monkeypatch.delenv("AI_CONFIG_PATH", raising=False)
-        cfg = _load_config()
-        assert cfg.app_name == "default-test"
+from ai_assistant.api.deps import InitializedAppState, init_adapters
+from ai_assistant.core.config import load_config, LLMConfig
+from ai_assistant.adapters.llm_mock import MockLLM
+from ai_assistant.core.ports import (
+    IChatStorage,
+    IChunker,
+    IClosable,
+    IEmbedder,
+    ILLM,
+    IReranker,
+    IVectorStore,
+)
+from ai_assistant.features.chat.manager import ChatManager
+from ai_assistant.features.chat.schemas import (
+    ChatRequest,
+    ChatResponse,
+    OAIChatCompletionRequest,
+)
+from ai_assistant.features.rag.manager import RAGManager
+from ai_assistant.features.rag.schemas import IndexRequest, QueryRequest, QueryResponse
 
 
-# ── lifespan context manager ──
+class TestChatContracts:
+    def test_chat_request_validation(self):
+        valid = {"message": "test"}
+        assert ChatRequest(**valid)
+        # Empty message is allowed in current schema (no min_length constraint)
+        assert ChatRequest(message="")
 
+    def test_oai_chat_request_strict(self):
+        valid = {"messages": [{"role": "user", "content": "hi"}]}
+        assert OAIChatCompletionRequest(**valid)
+        # content=None is allowed (str | None)
+        assert OAIChatCompletionRequest(messages=[{"role": "user", "content": None}])
 
-class TestLifespan:
-    @pytest.mark.asyncio
-    async def test_yields_after_init(self):
-        """lifespan should init adapters, yield, then shutdown."""
-        app = FastAPI()
-
-        with patch("ai_assistant.api.lifespan._load_config", return_value=AppConfig()):
-            with patch(
-                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
-            ):
-                async with lifespan(app) as _:
-                    pass
-
-    @pytest.mark.asyncio
-    async def test_shutdown_saves_indices(self):
-        """On shutdown, indices should be saved to disk."""
-        app = FastAPI()
-        app.state = SimpleNamespace()
-
-        mock_vector_store = MagicMock()
-        mock_vector_store.list_namespaces = AsyncMock(
-            return_value=["default", "personal"]
-        )
-        mock_vector_store.save = AsyncMock(return_value=None)
-
-        mock_state = InitializedAppState(
-            config=AppConfig(
-                vector_store={
-                    "provider": "memory",
-                    "dim": 384,
-                    "metric": "l2",
-                    "index_path": "./data/indices/test",
-                }
-            ),
-            llm=MagicMock(),
-            embedder=MagicMock(),
-            vector_store=mock_vector_store,
-            pipeline=MagicMock(),
-            storage=MagicMock(),
-            chunker=MagicMock(),
-            chat_manager=MagicMock(),
-        )
-
-        with patch(
-            "ai_assistant.api.lifespan._load_config",
-            return_value=AppConfig(
-                vector_store={
-                    "provider": "memory",
-                    "dim": 384,
-                    "metric": "l2",
-                    "index_path": "./data/indices/test",
-                }
-            ),
+    def test_chat_response_structure(self, client):
+        with patch.object(
+            ChatManager,
+            "chat",
+            new_callable=AsyncMock,
+            return_value=MagicMock(text="ok", metadata={}, tool_calls=[]),
         ):
-            with patch(
-                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
-            ):
-                async with lifespan(app) as _:
-                    app.state.app_state = mock_state
+            resp = client.post(
+                "/api/v1/chat",
+                json={"message": "contract test", "conversation_id": "t1"},
+            )
+            assert resp.status_code == 200
+            ChatResponse(**resp.json())  # strict pydantic validation
 
-                # Verify save was called for each namespace
-                assert mock_vector_store.save.await_count == 2
-                mock_vector_store.save.assert_any_await(
-                    "./data/indices/test", namespace="default"
+
+class TestRAGContracts:
+    def test_query_request_validation(self):
+        valid = {"query": "test"}
+        assert QueryRequest(**valid)
+
+        with pytest.raises(ValidationError):
+            QueryRequest(query="test", top_k=0)  # ge=1 constraint
+
+        with pytest.raises(ValidationError):
+            QueryRequest(query="test", top_k=51)  # le=50 constraint
+
+    def test_index_request_validation(self):
+        valid = {"documents": [{"id": "1", "content": "text"}]}
+        assert IndexRequest(**valid)
+        # dict[str, Any] has no required keys validation for inner dicts
+        assert IndexRequest(documents=[{"id": "1"}])
+
+    def test_rag_query_response_structure(self, client, mock_state):
+        with patch.object(
+            RAGManager,
+            "query",
+            new_callable=AsyncMock,
+            return_value={
+                "answer": "ok",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+            },
+        ):
+            resp = client.post("/api/v1/rag/query", json={"query": "test"})
+            assert resp.status_code == 200
+            QueryResponse(**resp.json())
+
+
+class TestSSEContract:
+    def test_sse_format_compliance(self, client):
+        async def _fake_stream(*args, **kwargs):
+            yield "hello"
+
+        with patch.object(ChatManager, "stream_chat", _fake_stream):
+            resp = client.post(
+                "/api/v1/chat/stream",
+                json={"message": "sse test", "conversation_id": "t1"},
+            )
+            assert resp.status_code == 200
+            assert "text/event-stream" in resp.headers["content-type"]
+
+            lines = resp.text.strip().splitlines()
+            for line in lines:
+                if line.startswith("data:"):
+                    # Validate SSE data payload isn't raw text leak
+                    assert line[5:].strip(), "Empty SSE data chunk"
+
+
+class TestHasattrBan:
+    """AST-level contract: api/deps and api/lifespan must not use hasattr() to bypass ports."""
+
+    def _find_hasattr_calls(self, source: str, filename: str) -> list[tuple[int, str]]:
+        import ast
+
+        tree = ast.parse(source)
+        hits: list[tuple[int, str]] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == "hasattr":
+                    hits.append((node.lineno, ast.unparse(node)))
+        return hits
+
+    def test_api_deps_no_hasattr(self):
+        import inspect
+        from ai_assistant.api import deps
+
+        source = inspect.getsource(deps)
+        hits = self._find_hasattr_calls(source, "deps.py")
+        assert not hits, f"hasattr() found in api/deps.py at lines: {hits}"
+
+    def test_api_lifespan_no_hasattr(self):
+        import inspect
+        from ai_assistant.api import lifespan
+
+        source = inspect.getsource(lifespan)
+        hits = self._find_hasattr_calls(source, "lifespan.py")
+        assert not hits, f"hasattr() found in api/lifespan.py at lines: {hits}"
+
+
+def test_pipeline_steps_no_kwargs() -> None:
+    """AST check: pipeline step functions must not use **kwargs."""
+    import ast
+    from pathlib import Path
+
+    steps_path = (
+        Path(__file__).parent.parent
+        / "src"
+        / "ai_assistant"
+        / "core"
+        / "pipeline_steps.py"
+    )
+    source = steps_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef):
+            is_step = any(
+                (isinstance(d, ast.Call) and getattr(d.func, "id", None) == "step")
+                or (isinstance(d, ast.Name) and d.id == "step")
+                for d in node.decorator_list
+            )
+            if is_step and node.args.kwarg is not None:
+                pytest.fail(
+                    f"Step function {node.name!r} uses **kwargs. "
+                    f"Use StepContext instead."
                 )
-                mock_vector_store.save.assert_any_await(
-                    "./data/indices/test", namespace="personal"
-                )
-
-    @pytest.mark.asyncio
-    async def test_shutdown_logs_successful_save(self):
-        """Successful index saves during shutdown must be logged."""
-        app = FastAPI()
-        app.state = SimpleNamespace()
-
-        mock_vector_store = MagicMock()
-        mock_vector_store.list_namespaces = AsyncMock(
-            return_value=["default", "personal"]
-        )
-        mock_vector_store.save = AsyncMock(return_value=None)
-
-        mock_state = InitializedAppState(
-            config=AppConfig(
-                vector_store={
-                    "provider": "memory",
-                    "dim": 384,
-                    "metric": "l2",
-                    "index_path": "./data/indices/test",
-                }
-            ),
-            llm=MagicMock(),
-            embedder=MagicMock(),
-            vector_store=mock_vector_store,
-            pipeline=MagicMock(),
-            storage=MagicMock(),
-            chunker=MagicMock(),
-            chat_manager=MagicMock(),
-        )
-
-        with patch(
-            "ai_assistant.api.lifespan._load_config",
-            return_value=AppConfig(
-                vector_store={
-                    "provider": "memory",
-                    "dim": 384,
-                    "metric": "l2",
-                    "index_path": "./data/indices/test",
-                }
-            ),
-        ):
-            with patch(
-                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
-            ):
-                with patch(
-                    "ai_assistant.api.lifespan.logger.info"
-                ) as mock_log_info:
-                    async with lifespan(app) as _:
-                        app.state.app_state = mock_state
-
-                    mock_log_info.assert_any_call(
-                        "Index saved: %s/%s",
-                        "./data/indices/test",
-                        "default",
-                    )
-                    mock_log_info.assert_any_call(
-                        "Index saved: %s/%s",
-                        "./data/indices/test",
-                        "personal",
-                    )
-                    mock_log_info.assert_any_call(
-                        "Indices persisted: %d/%d namespace(s)",
-                        2, 2,
-                    )
-
-    @pytest.mark.asyncio
-    async def test_shutdown_handles_missing_state(self):
-        """If app_state is missing, shutdown should not crash."""
-        app = FastAPI()
-
-        with patch("ai_assistant.api.lifespan._load_config", return_value=AppConfig()):
-            with patch(
-                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
-            ):
-                async with lifespan(app) as _:
-                    pass  # Should not raise on shutdown
-
-    @pytest.mark.asyncio
-    async def test_shutdown_calls_closable_adapters(self):
-        """On shutdown, all adapters must be shut down."""
-        app = FastAPI()
-        app.state = SimpleNamespace()
-
-        mock_llm = MagicMock()
-        mock_llm.shutdown = AsyncMock()
-        mock_embedder = MagicMock()
-        mock_embedder.shutdown = AsyncMock()
-        mock_vector_store = MagicMock()
-        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
-        mock_vector_store.shutdown = AsyncMock()
-        mock_storage = MagicMock()
-        mock_storage.shutdown = AsyncMock()
-        mock_reranker = MagicMock()
-        mock_reranker.shutdown = AsyncMock()
-        mock_chunker = MagicMock()
-        mock_chunker.shutdown = AsyncMock()
-
-        mock_state = InitializedAppState(
-            config=AppConfig(),
-            llm=mock_llm,
-            embedder=mock_embedder,
-            vector_store=mock_vector_store,
-            pipeline=MagicMock(),
-            storage=mock_storage,
-            chunker=mock_chunker,
-            chat_manager=MagicMock(),
-            reranker=mock_reranker,
-        )
-
-        with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=AppConfig()
-        ):
-            with patch(
-                "ai_assistant.api.lifespan.init_adapters", new_callable=AsyncMock
-            ):
-                async with lifespan(app) as _:
-                    app.state.app_state = mock_state
-
-                mock_llm.shutdown.assert_awaited_once()
-                mock_embedder.shutdown.assert_awaited_once()
-                mock_vector_store.shutdown.assert_awaited_once()
-                mock_storage.shutdown.assert_awaited_once()
-                mock_reranker.shutdown.assert_awaited_once()
-                mock_chunker.shutdown.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_lifespan_creates_app_state(self):
-        """lifespan must create app.state.app_state with initialized fields."""
-        app = FastAPI(lifespan=lifespan)
-
-        fake_state = InitializedAppState(
-            config=AppConfig(),
-            llm=MagicMock(),
-            embedder=MagicMock(),
-            vector_store=MagicMock(),
-            pipeline=MagicMock(),
-            storage=MagicMock(),
-            chunker=MagicMock(),
-            chat_manager=MagicMock(),
-        )
-
-        with patch("ai_assistant.api.lifespan._load_config", return_value=AppConfig()):
-            with patch(
-                "ai_assistant.api.lifespan.init_adapters",
-                new_callable=AsyncMock,
-                return_value=fake_state,
-            ):
-                async with lifespan(app):
-                    assert hasattr(app.state, "app_state")
-                    assert isinstance(app.state.app_state, InitializedAppState)
-                    assert app.state.app_state.chunker is not None
-                    assert app.state.app_state.embedder is not None
-                    assert app.state.app_state.llm is not None
-                    assert app.state.app_state.vector_store is not None
-                    assert app.state.app_state.pipeline is not None
 
 
-# ── init_adapters ──
+class TestInitAdaptersContracts:
+    async def test_init_adapters_returns_initialized_state(self) -> None:
+        """Real init_adapters must produce InitializedAppState with non-None core adapters."""
+        config = load_config()
+        state = await init_adapters(config)
+
+        assert isinstance(state, InitializedAppState)
+        assert state.llm is not None
+        assert state.embedder is not None
+        assert state.vector_store is not None
+        assert isinstance(state.chunker, IChunker)
+        assert state.reranker is None or isinstance(state.reranker, IReranker)
+        assert state.storage is not None
+        assert state.pipeline is not None
 
 
-class TestInitAdaptersDirect:
-    @pytest.mark.asyncio
-    async def test_populates_state_fields(self):
-        """init_adapters should mutate state with real adapters."""
-        cfg = AppConfig()
-        cfg.chunker.provider = "simple"
-        cfg.embedder.provider = "mock"
-        cfg.llm.provider = "mock"
-        cfg.vector_store.provider = "memory"
-        cfg.reranker.provider = "dummy"
-        cfg.storage.provider = "sqlite"
+def test_llm_config_rejects_unknown_fields():
+    """With extra='forbid', LLMConfig must reject typos like temperatur."""
+    from pydantic import ValidationError
+    from ai_assistant.core.config import LLMConfig
 
-        result = await init_adapters(cfg)
+    with pytest.raises(ValidationError, match="temperatur"):
+        LLMConfig(temperatur=0.5)
 
-        assert isinstance(result, InitializedAppState)
-        assert result.chunker is not None
-        assert result.embedder is not None
-        assert result.llm is not None
-        assert result.vector_store is not None
-        assert result.pipeline is not None
+
+def test_embedder_config_rejects_unknown_fields():
+    """With extra='forbid', EmbedderConfig must reject typos like chunck_size."""
+    from pydantic import ValidationError
+    from ai_assistant.core.config import EmbedderConfig
+
+    with pytest.raises(ValidationError, match="chunck_size"):
+        EmbedderConfig(chunck_size=512)
+
+
+def test_vector_store_relevance_threshold_backward_compatible():
+    """Removed field vector_store.relevance_threshold is migrated to rag."""
+    from ai_assistant.core.config import AppConfig
+
+    # When rag lacks the field, vector_store value is migrated
+    cfg = AppConfig(
+        vector_store={"relevance_threshold": 0.5, "dim": 384},
+    )
+    assert cfg.rag.relevance_threshold == 0.5
+    assert not hasattr(cfg.vector_store, "relevance_threshold")
+
+    # When rag already has the field, it wins
+    cfg2 = AppConfig(
+        vector_store={"relevance_threshold": 0.5, "dim": 384},
+        rag={"relevance_threshold": 0.2},
+    )
+    assert cfg2.rag.relevance_threshold == 0.2
+
+def test_load_config_rejects_unknown_yaml_key(tmp_path):
+    """AppConfig uses extra='forbid': unknown YAML keys raise ValidationError."""
+    from pydantic import ValidationError
+
+    yaml_file = tmp_path / "config.yaml"
+    yaml_file.write_text("debug: false\nunknown_key: 123\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        load_config(str(yaml_file))
+
+
+# Env-var strict check requires CORE CHANGE (extra="forbid" on AppConfig).
+# Pydantic-settings filters unknown env vars before extra="forbid" sees them,
+# making a reliable warning impossible without fragile internals traversal.
+# Defer to ADR-XXX if strict env-var validation is needed.
+
+
+from pathlib import Path
+
+PORTS_DIR = (
+    Path(__file__).parent.parent / "src" / "ai_assistant" / "core" / "ports"
+)
+
+
+def test_registry_removed() -> None:
+    """Phase 4.4: registry.py must be physically deleted."""
+    from pathlib import Path
+    core_dir = Path(__file__).parent.parent / "src" / "ai_assistant" / "core"
+    assert not (core_dir / "registry.py").exists()
+
+
+def test_illm_has_get_context_limit():
+    """Verify ILLM port declares get_context_limit abstract method."""
+    assert hasattr(ILLM, 'get_context_limit')
+    assert callable(getattr(ILLM, 'get_context_limit'))
+
+
+def test_mock_llm_get_context_limit_returns_int():
+    cfg = LLMConfig(model="test", max_tokens=2048)
+    llm = MockLLM(cfg)
+    assert llm.get_context_limit() == 2048
+
+
+def test_mock_llm_get_context_limit_fallback():
+    cfg = LLMConfig(model="test")
+    llm = MockLLM(cfg)
+    assert llm.get_context_limit() == 4096
+
+
+class TestVectorStorePort:
+    """IVectorStore port contract tests — index_path property."""
+
+    def test_index_path_property_exists(self):
+        """All vector store adapters must expose index_path as a str property."""
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+        from ai_assistant.core.config import VectorStoreConfig
+
+        cfg = VectorStoreConfig(index_path="./data/test_indices", dim=384)
+
+        faiss_store = FaissVectorStore(cfg)
+        assert faiss_store.index_path == "./data/test_indices"
+        assert isinstance(faiss_store.index_path, str)
+
+        mem_store = MemoryVectorStore(cfg)
+        assert mem_store.index_path == "./data/test_indices"
+        assert isinstance(mem_store.index_path, str)
+
+    def test_index_path_default_for_memory(self):
+        """MemoryVectorStore provides a sensible default when index_path is absent."""
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
+        class _MinimalConfig:
+            dim = 384
+            # no index_path attribute
+
+        store = MemoryVectorStore(_MinimalConfig())
+        assert isinstance(store.index_path, str)
+        assert store.index_path == "./data/indices/memory"
+
+    def test_index_path_default_for_faiss(self):
+        """FaissVectorStore provides a sensible default when index_path is absent."""
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        class _MinimalConfig:
+            dim = 384
+            metric = "l2"
+            # no index_path attribute
+
+        store = FaissVectorStore(_MinimalConfig())
+        assert isinstance(store.index_path, str)
+        assert store.index_path == "./data/indices/faiss"

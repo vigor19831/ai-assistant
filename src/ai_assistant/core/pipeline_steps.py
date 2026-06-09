@@ -20,19 +20,20 @@ from ai_assistant.core.domain.errors import (
     VECTOR_STORE_NOT_PROVIDED,
     AdapterError,
 )
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
-from ai_assistant.core.utils import count_tokens, get_context_limit
+from ai_assistant.core.utils import count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
+    from ai_assistant.core.ports.llm import Message
 
 __all__: list[str] = [
     "build_context",
@@ -74,10 +75,6 @@ def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
     return count_tokens(text, model)
 
 
-def _get_llm_context_limit(llm: Any) -> int | None:
-    return get_context_limit(llm)
-
-
 # --- retry helpers for network calls ----------------------------------------
 
 
@@ -96,7 +93,7 @@ async def _call_search(
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_llm(llm: Any, messages: list[Any]) -> AssistantMessage:
+async def _call_llm(llm: Any, messages: list[Message]) -> AssistantMessage:
     """Call LLM with retry."""
     return await llm.complete(messages)
 
@@ -176,10 +173,8 @@ async def retrieve(data: PipelineData) -> PipelineData:
 async def rerank(data: PipelineData) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
-    If reranker is not configured (None), acts as transparent pass-through.
-
     Metadata contract:
-        IN:  reranker (IReranker) — optional; if None, step is no-op.
+        IN:  reranker (IReranker) — required, never None (NullReranker if disabled).
              top_k (int) — optional, default 5.
              relevance_threshold (float) — optional, default 0.3.
         OUT: rerank_filtered_out (bool) — set True if all chunks filtered.
@@ -196,15 +191,8 @@ async def rerank(data: PipelineData) -> PipelineData:
         return replace(data)
 
     reranker = data.metadata.get("reranker")
-
-    if reranker is None:
-        # Clean stale rerank metadata from previous pipeline runs
-        new_metadata = {
-            k: v
-            for k, v in data.metadata.items()
-            if k not in ("rerank_scores", "rerank_filtered_out")
-        }
-        return replace(data, metadata=new_metadata)
+    # reranker is guaranteed non-None by api/deps (NullReranker fallback)
+    # No branching on None — keeps pipeline pure.
 
     try:
         _raw_query = data.query.text if data.query is not None else None
@@ -337,10 +325,9 @@ async def generate(data: PipelineData) -> PipelineData:
     except Exception:
         prompt = _build_fallback_prompt(data.chunks, query_text)
 
-    max_ctx = _get_llm_context_limit(llm)
+    max_ctx = llm.get_context_limit()
     if max_ctx is None or max_ctx <= 0:
-        cfg_size = getattr(getattr(llm, "config", None), "server_context_size", None)
-        max_ctx = cfg_size if type(cfg_size) is int else 4096
+        max_ctx = 4096
 
     prompt_tokens = _estimate_tokens(prompt)
     margin = max(TOKEN_MARGIN_MIN, int(max_ctx * TOKEN_MARGIN_PCT))
@@ -365,7 +352,7 @@ async def generate(data: PipelineData) -> PipelineData:
                 )
             )
 
-    messages: list[Any] = [UserMessage(text=prompt)]
+    messages: list[Message] = [UserMessage(text=prompt)]
     response: AssistantMessage | None = None
 
     try:
@@ -420,11 +407,10 @@ async def generate(data: PipelineData) -> PipelineData:
                 except Exception as e:
                     content = f"Error: {e}"
                 messages.append(
-                    {
-                        "role": "tool",
-                        "content": str(content),
-                        "tool_call_id": call.get("id", ""),
-                    }
+                    ToolMessage(
+                        content=str(content),
+                        tool_call_id=call.get("id", ""),
+                    )
                 )
             # Next LLM call (with tool results)
             try:

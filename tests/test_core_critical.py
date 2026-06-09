@@ -8,8 +8,10 @@ from types import MappingProxyType
 from unittest import mock
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
+from ai_assistant.core.config import LLMConfig
+from ai_assistant.adapters.llm_mock import MockLLM
 
 
 class TestPipelineDataFunctional:
@@ -257,6 +259,32 @@ class TestToolResultFrozen:
         assert result.is_error is True
 
 
+class TestToolMessageFrozen:
+    """Tests for frozen ToolMessage — must be constructed fully, never mutated."""
+
+    def test_frozen_instance_error_on_content_mutation(self) -> None:
+        msg = ToolMessage(content="ok", tool_call_id="c1")
+        with pytest.raises(FrozenInstanceError):
+            msg.content = "new"  # type: ignore[misc]
+
+    def test_frozen_instance_error_on_tool_call_id_mutation(self) -> None:
+        msg = ToolMessage(content="ok", tool_call_id="c1")
+        with pytest.raises(FrozenInstanceError):
+            msg.tool_call_id = "c2"  # type: ignore[misc]
+
+    def test_tool_message_role_defaults_to_tool(self) -> None:
+        from ai_assistant.core.domain.messages import MessageRole
+
+        msg = ToolMessage(content="ok", tool_call_id="c1")
+        assert msg.role == MessageRole.TOOL
+
+    def test_tool_message_constructed_with_all_fields(self) -> None:
+        msg = ToolMessage(content="data", tool_call_id="c1", metadata={"k": "v"})
+        assert msg.content == "data"
+        assert msg.tool_call_id == "c1"
+        assert msg.metadata == {"k": "v"}
+
+
 def test_config_rejects_mismatched_dimensions():
     from ai_assistant.core.config import AppConfig
 
@@ -320,3 +348,14 @@ class TestPromptVersion:
 
         with pytest.raises(ValueError, match="prompt version is required"):
             get_prompt("rag_strict", query="test", context="ctx")
+
+
+def test_get_context_limit_prefers_server_context_size():
+    """Port method prefers server_context_size > max_tokens."""
+    cfg = LLMConfig(
+        model="test",
+        server_context_size=8192,
+        max_tokens=4096,
+    )
+    llm = MockLLM(cfg)
+    assert llm.get_context_limit() == 8192

@@ -4,7 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from ai_assistant.api.deps import InitializedAppState, init_adapters
-from ai_assistant.core.config import load_config
+from ai_assistant.core.config import load_config, LLMConfig
+from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.core.ports import (
     IChatStorage,
     IChunker,
@@ -178,7 +179,7 @@ class TestInitAdaptersContracts:
         assert state.embedder is not None
         assert state.vector_store is not None
         assert isinstance(state.chunker, IChunker)
-        assert state.reranker is None or isinstance(state.reranker, IReranker)
+        assert isinstance(state.reranker, IReranker)
         assert state.storage is not None
         assert state.pipeline is not None
 
@@ -247,3 +248,84 @@ def test_registry_removed() -> None:
     from pathlib import Path
     core_dir = Path(__file__).parent.parent / "src" / "ai_assistant" / "core"
     assert not (core_dir / "registry.py").exists()
+
+
+def test_illm_has_get_context_limit():
+    """Verify ILLM port declares get_context_limit abstract method."""
+    assert hasattr(ILLM, 'get_context_limit')
+    assert callable(getattr(ILLM, 'get_context_limit'))
+
+
+def test_mock_llm_get_context_limit_returns_int():
+    cfg = LLMConfig(model="test", max_tokens=2048)
+    llm = MockLLM(cfg)
+    assert llm.get_context_limit() == 2048
+
+
+def test_mock_llm_get_context_limit_fallback():
+    cfg = LLMConfig(model="test")
+    llm = MockLLM(cfg)
+    assert llm.get_context_limit() == 4096
+
+
+class TestVectorStorePort:
+    """IVectorStore port contract tests — index_path property."""
+
+    def test_index_path_property_exists(self):
+        """All vector store adapters must expose index_path as a str property."""
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+        from ai_assistant.core.config import VectorStoreConfig
+
+        cfg = VectorStoreConfig(index_path="./data/test_indices", dim=384)
+
+        faiss_store = FaissVectorStore(cfg)
+        assert faiss_store.index_path == "./data/test_indices"
+        assert isinstance(faiss_store.index_path, str)
+
+        mem_store = MemoryVectorStore(cfg)
+        assert mem_store.index_path == "./data/test_indices"
+        assert isinstance(mem_store.index_path, str)
+
+    def test_index_path_default_for_memory(self):
+        """MemoryVectorStore provides a sensible default when index_path is absent."""
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
+        class _MinimalConfig:
+            dim = 384
+            # no index_path attribute
+
+        store = MemoryVectorStore(_MinimalConfig())
+        assert isinstance(store.index_path, str)
+        assert store.index_path == "./data/indices/memory"
+
+    def test_index_path_default_for_faiss(self):
+        """FaissVectorStore provides a sensible default when index_path is absent."""
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        class _MinimalConfig:
+            dim = 384
+            metric = "l2"
+            # no index_path attribute
+
+        store = FaissVectorStore(_MinimalConfig())
+        assert isinstance(store.index_path, str)
+        assert store.index_path == "./data/indices/faiss"
+
+
+def test_message_type_alias_excludes_dict():
+    """Message alias must be UserMessage | AssistantMessage | ToolMessage, no dict fallback."""
+    from typing import get_args, get_origin
+
+    from ai_assistant.core.ports.llm import Message
+    from ai_assistant.core.domain.messages import (
+        AssistantMessage,
+        ToolMessage,
+        UserMessage,
+    )
+
+    args = get_args(Message)
+    assert UserMessage in args
+    assert AssistantMessage in args
+    assert ToolMessage in args
+    assert not any(get_origin(arg) is dict for arg in args)

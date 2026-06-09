@@ -21,7 +21,6 @@ __all__ = [
     "async_count_tokens",
     "async_get_tokenizer",
     "count_tokens",
-    "get_context_limit",
     "get_tokenizer",
     "resolve_api_key",
 ]
@@ -128,18 +127,6 @@ def count_tokens(
         if _cjk_ratio(text) > 0.3:
             return len(text)
         return len(text) // 4
-
-
-def get_context_limit(llm: Any) -> int | None:
-    """Extract context window size from LLM adapter config."""
-    cfg = getattr(llm, "config", None)
-    if cfg is None:
-        return None
-    for attr in ("context_size", "server_context_size", "max_tokens"):
-        limit = getattr(cfg, attr, None)
-        if isinstance(limit, (int, float)) and limit > 0:
-            return int(limit)
-    return None
 
 
 async def async_count_tokens(

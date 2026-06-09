@@ -224,7 +224,7 @@ class AppConfig(BaseSettings):
     @classmethod
     def _load_rag_steps(cls, v: Any) -> Any:
         if isinstance(v, dict) and "steps" in v and isinstance(v["steps"], str):  # noqa: UP037
-            return {**v, "steps": v["steps"].split(",")}
+            return {**v, "steps": [s.strip() for s in v["steps"].split(",")]}
         return v
 
     @model_validator(mode="before")

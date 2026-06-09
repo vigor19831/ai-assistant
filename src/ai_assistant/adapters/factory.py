@@ -93,6 +93,8 @@ def create_adapter(port: str, name: str, config: Any) -> Any:
             from ai_assistant.adapters.reranker_api import APIReranker
 
             return APIReranker(config)
-        raise ValueError(f"No reranker adapter registered for '{name}'")
+        if name == "null":
+            from ai_assistant.adapters.reranker_null import NullReranker
 
-    raise ValueError(f"Unknown port: {port}")
+            return NullReranker(config)
+        raise ValueError(f"No reranker adapter registered for '{name}'")

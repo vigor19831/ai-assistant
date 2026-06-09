@@ -65,7 +65,7 @@ class InitializedAppState:
     storage: IChatStorage
     chunker: IChunker
     chat_manager: ChatManager
-    reranker: IReranker | None = None
+    reranker: IReranker
     limiter: object | None = None
 
 
@@ -113,18 +113,13 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         cfg.vector_store,
     )
 
-    if cfg.reranker is not None and cfg.reranker.provider is not None:
-        try:
-            state.reranker = create_adapter(
-                "reranker",
-                cfg.reranker.provider,
-                cfg.reranker,
-            )
-        except ValueError:
-            _logger.exception(
-                "Reranker '%s' not available",
-                cfg.reranker.provider,
-            )
+    reranker_provider = (
+        getattr(cfg.reranker, "provider", None) if cfg.reranker else None
+    )
+    if reranker_provider:
+        state.reranker = create_adapter("reranker", reranker_provider, cfg.reranker)
+    else:
+        state.reranker = create_adapter("reranker", "null", None)
 
     try:
         state.storage = create_adapter("storage", cfg.storage.provider, cfg.storage)

@@ -42,6 +42,12 @@ if _FAISS_AVAILABLE:
             self.metric: str = config.metric
             self._namespaces: dict[str, _NamespaceData] = {}
             self._lock = asyncio.Lock()
+            self._index_path = getattr(config, "index_path", "./data/indices/faiss")
+
+        @property
+        def index_path(self) -> str:
+            """Return the configured index path."""
+            return self._index_path
 
         def _create_index(self) -> faiss.Index:
             if self.metric == "ip":
@@ -191,12 +197,8 @@ if _FAISS_AVAILABLE:
                 p = Path(path) / namespace
                 p.mkdir(parents=True, exist_ok=True)
                 tmp_index = p / "index.faiss.tmp"
-                await asyncio.to_thread(
-                    faiss.write_index, ns.index, str(tmp_index)
-                )
-                await asyncio.to_thread(
-                    tmp_index.replace, p / "index.faiss"
-                )
+                await asyncio.to_thread(faiss.write_index, ns.index, str(tmp_index))
+                await asyncio.to_thread(tmp_index.replace, p / "index.faiss")
 
                 meta = {
                     "version": "1.0",

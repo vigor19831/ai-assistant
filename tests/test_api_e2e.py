@@ -442,9 +442,12 @@ class TestChatPromptVersion:
     def test_chat_manager_uses_config_prompt_version(self, mock_state):
         """ChatManager must store and use the version passed from AppConfig."""
         from ai_assistant.features.chat.manager import ChatManager
+        from ai_assistant.adapters.reranker_null import NullReranker
 
+        reranker = NullReranker(None)
         mgr = ChatManager(
             llm=mock_state.llm,
+            reranker=reranker,
             prompt_version=mock_state.config.rag.prompt_version,
         )
         assert mgr.prompt_version == mock_state.config.rag.prompt_version
@@ -452,6 +455,7 @@ class TestChatPromptVersion:
         # Verify override works
         mgr_v2 = ChatManager(
             llm=mock_state.llm,
+            reranker=reranker,
             prompt_version="v2",
         )
         assert mgr_v2.prompt_version == "v2"

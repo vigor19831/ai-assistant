@@ -224,9 +224,10 @@ class TestInitAdapters:
                 )
 
     @pytest.mark.asyncio
-    async def test_reranker_none_when_not_configured(self, minimal_config):
-        """When reranker provider is missing, reranker should be None."""
-        minimal_config.reranker.provider = "nonexistent"
+    async def test_reranker_null_when_not_configured(self, minimal_config):
+        """When reranker provider is missing, NullReranker is used."""
+        from ai_assistant.adapters.reranker_null import NullReranker
+        minimal_config.reranker.provider = None
 
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
@@ -237,10 +238,10 @@ class TestInitAdapters:
         def fake_create_adapter(port: str, name: str, config: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
-            if port == "reranker" and name == "nonexistent":
-                raise ValueError("No such reranker")
             if port == "storage" and name == "sqlite":
                 return mock_storage
+            if port == "reranker" and name == "null":
+                return NullReranker(None)
             return MagicMock()
 
         with patch(
@@ -248,7 +249,7 @@ class TestInitAdapters:
         ):
             result = await init_adapters(minimal_config)
 
-        assert result.reranker is None
+        assert isinstance(result.reranker, NullReranker)
 
     @pytest.mark.asyncio
     async def test_storage_raises_when_not_in_registry(self, minimal_config):
@@ -371,6 +372,7 @@ class TestGetState:
             storage=MagicMock(),
             chunker=MagicMock(),
             chat_manager=MagicMock(),
+            reranker=MagicMock(),
         )
         app.state.app_state = mock_state
 

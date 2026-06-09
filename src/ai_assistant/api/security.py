@@ -57,8 +57,14 @@ async def check_request_size(request: Request) -> None:
     cl = request.headers.get("content-length")
     # Default max body size — can be overridden by caller with AppState
     max_sz = SECURITY_MAX_BODY
-    if cl and int(cl) > int(max_sz):
-        raise HTTPException(status_code=413, detail="Payload too large")
+    if cl:
+        try:
+            if int(cl) > int(max_sz):
+                raise HTTPException(status_code=413, detail="Payload too large")
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Invalid Content-Length"
+            ) from None
 
 
 _bearer_dependency = Depends(bearer_scheme)

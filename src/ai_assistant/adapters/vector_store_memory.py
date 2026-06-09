@@ -30,6 +30,12 @@ class MemoryVectorStore(IVectorStore):
         self._max_chunks: int = getattr(config, "max_chunks", 10000)
         self._namespaces: dict[str, _NamespaceData] = {}
         self._lock = asyncio.Lock()
+        self._index_path = getattr(config, "index_path", "./data/indices/memory")
+
+    @property
+    def index_path(self) -> str:
+        """Return the configured index path (for persistence compatibility)."""
+        return self._index_path
 
     def _get_ns(self, name: str) -> _NamespaceData:
         if name not in self._namespaces:
@@ -147,8 +153,7 @@ class MemoryVectorStore(IVectorStore):
         stored_dim = data.get("dim")
         if stored_dim is not None and stored_dim != self.dim:
             raise VersionMismatchError(
-                f"Reindex required: stored dim {stored_dim} "
-                f"!= config dim {self.dim}"
+                f"Reindex required: stored dim {stored_dim} != config dim {self.dim}"
             )
 
         async with self._lock:

@@ -17,6 +17,7 @@ from ai_assistant.api.lifespan import _load_config
 from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.domain.errors import VersionMismatchError
+from ai_assistant.adapters.reranker_null import NullReranker
 
 # ── Graceful degradation (all adapters None) ──
 
@@ -25,14 +26,14 @@ class TestGracefulDegradation:
     def test_chat_manager_no_embedder_no_store(self):
         from ai_assistant.features.chat.manager import ChatManager
 
-        _ = ChatManager(llm=MagicMock(), embedder=None, vector_store=None)
+        _ = ChatManager(llm=MagicMock(), embedder=None, vector_store=None, reranker=NullReranker(None))
         # Should not crash on init
 
     @pytest.mark.asyncio
     async def test_chat_manager_rag_without_embedder(self):
         from ai_assistant.features.chat.manager import ChatManager
 
-        mgr = ChatManager(llm=MagicMock(), embedder=None, vector_store=MagicMock())
+        mgr = ChatManager(llm=MagicMock(), embedder=None, vector_store=MagicMock(), reranker=NullReranker(None))
         prompt, query, chunks = await mgr._retrieve_context("[p] test")
         assert len(chunks) == 0
         assert prompt == "[p] test"
@@ -41,7 +42,7 @@ class TestGracefulDegradation:
     async def test_chat_manager_rag_without_vector_store(self):
         from ai_assistant.features.chat.manager import ChatManager
 
-        mgr = ChatManager(llm=MagicMock(), embedder=MagicMock(), vector_store=None)
+        mgr = ChatManager(llm=MagicMock(), embedder=MagicMock(), vector_store=None, reranker=NullReranker(None))
         prompt, query, chunks = await mgr._retrieve_context("[p] test")
         assert len(chunks) == 0
 
@@ -301,6 +302,7 @@ class TestLLMUnavailable:
 
         mock_llm = AsyncMock()
         mock_llm.complete = AsyncMock(side_effect=AdapterError("LLM unreachable"))
+        mock_llm.get_context_limit = MagicMock(return_value=4096)
 
         data = PipelineData(
             query=UserMessage(text="q"),
@@ -378,3 +380,35 @@ class TestLLMUnavailable:
 
         assert exc_info.value.status_code == 503
         assert "unavailable" in exc_info.value.detail.lower()
+
+
+class TestVectorStoreIndexPathResilience:
+    """Vector store index_path must be resilient to missing config attributes."""
+
+    def test_memory_store_index_path_without_config_attribute(self):
+        """MemoryVectorStore must not crash when config lacks index_path."""
+        class _BareConfig:
+            dim = 384
+            max_chunks = 10
+
+        store = MemoryVectorStore(_BareConfig())
+        assert isinstance(store.index_path, str)
+        assert len(store.index_path) > 0
+
+    def test_faiss_store_index_path_without_config_attribute(self):
+        """FaissVectorStore must not crash when config lacks index_path."""
+        class _BareConfig:
+            dim = 384
+            metric = "l2"
+
+        store = FaissVectorStore(_BareConfig())
+        assert isinstance(store.index_path, str)
+        assert len(store.index_path) > 0
+
+    def test_faiss_store_index_path_from_config(self):
+        """FaissVectorStore must expose config.index_path via port property."""
+        from ai_assistant.core.config import VectorStoreConfig
+
+        cfg = VectorStoreConfig(index_path="./data/faiss_test", dim=384)
+        store = FaissVectorStore(cfg)
+        assert store.index_path == "./data/faiss_test"

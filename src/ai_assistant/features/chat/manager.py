@@ -22,7 +22,7 @@ from ai_assistant.core.domain.messages import (
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.prompts import get_prompt
-from ai_assistant.core.utils import count_tokens, get_context_limit
+from ai_assistant.core.utils import count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -67,6 +67,7 @@ class ChatManager:
     def __init__(
         self,
         llm: ILLM,
+        reranker: IReranker,
         storage: IChatStorage | None = None,
         history_limit: int = 10,
         max_history_messages: int = 10_000,
@@ -74,13 +75,13 @@ class ChatManager:
         tokenizer_model: str = "gpt-4o",
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
-        reranker: IReranker | None = None,
         pipeline: RAGPipeline | None = None,
         namespaces: dict[str, Any] | None = None,
         prompt_version: str = "v1",
         top_k: int = 5,
     ) -> None:
         self.llm = llm
+        self.reranker = reranker
         self.storage = storage
         self.history_limit = history_limit
         self.max_history_messages = max_history_messages
@@ -88,7 +89,6 @@ class ChatManager:
         self.tokenizer_model = tokenizer_model
         self.embedder = embedder
         self.vector_store = vector_store
-        self.reranker = reranker
         self.pipeline = pipeline
         self.namespaces = namespaces or {}
         self.prompt_version = prompt_version
@@ -106,7 +106,7 @@ class ChatManager:
 
         Keeps the most recent messages that fit within the token budget.
         """
-        budget = self.max_context_tokens or get_context_limit(self.llm)
+        budget = self.max_context_tokens or self.llm.get_context_limit()
         if not budget:
             return (
                 history[-self.history_limit :]
@@ -116,7 +116,9 @@ class ChatManager:
 
         user_tokens = self._count_tokens(user_msg.text or "")
         system_message = self.llm.system_message
-        system_tokens = self._count_tokens(str(system_message) if system_message else "")
+        system_tokens = self._count_tokens(
+            str(system_message) if system_message else ""
+        )
         overhead = 50
         reserved = user_tokens + system_tokens + overhead
 
