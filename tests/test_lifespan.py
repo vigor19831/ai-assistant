@@ -179,9 +179,42 @@ class TestInitAdaptersContracts:
         assert state.embedder is not None
         assert state.vector_store is not None
         assert isinstance(state.chunker, IChunker)
-        assert state.reranker is None or isinstance(state.reranker, IReranker)
+        assert isinstance(state.reranker, IReranker)
         assert state.storage is not None
         assert state.pipeline is not None
+
+
+def test_ireranker_is_closable():
+    """IReranker must inherit IClosable so lifespan can call shutdown()."""
+    from ai_assistant.core.ports.closable import IClosable
+
+    assert issubclass(IReranker, IClosable)
+    assert callable(getattr(IReranker, "shutdown", None))
+
+
+class TestLifespanRerankerShutdown:
+    """Verify lifespan shutdown does not AttributeError on reranker."""
+
+    async def test_async_cleanup_calls_reranker_shutdown(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from ai_assistant.api.lifespan import _async_cleanup
+        from ai_assistant.core.config import AppConfig
+
+        app = MagicMock()
+        app.state.app_state = MagicMock()
+        app.state.app_state.vector_store = None
+        app.state.app_state.llm = AsyncMock()
+        app.state.app_state.embedder = AsyncMock()
+        app.state.app_state.storage = AsyncMock()
+        app.state.app_state.reranker = AsyncMock()
+        app.state.app_state.chunker = AsyncMock()
+
+        config = AppConfig()
+
+        await _async_cleanup(app, config)
+
+        app.state.app_state.reranker.shutdown.assert_awaited_once()
 
 
 def test_llm_config_rejects_unknown_fields():

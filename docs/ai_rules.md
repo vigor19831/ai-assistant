@@ -31,6 +31,7 @@ Never:
 - Lazy initialization (`dict[str, Callable]` AppState)
 - `print()`, `pprint()`, `logging.basicConfig()` -- use `get_logger(name)` only
 - Orphaned code -- remove callee if last caller removed
+- Add a dependency without immediately updating `pyproject.toml` / `requirements.txt`
 
 Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, LRU eviction in `MemoryVectorStore` until RAM pressure measured, prompt registry / semver until 5+ versions in active use.
 
@@ -59,6 +60,8 @@ If core changes:
 3. Update `docs/error_taxonomy.md`
 4. Run `python scripts/check_all.py`
 
+New functionality requires new tests. Existing tests may only be updated during refactoring or contract changes.
+
 ## 5. PipelineData Immutability
 
 Use: `data.with_chunks()`, `.with_context()`, `.with_response()`, `.add_error()`
@@ -75,7 +78,9 @@ data.errors += ["err"]
 
 ## 6. Adapter Discipline
 
-Implement ports exactly. No duck typing. Register with `@register("port", "name")`. Mock adapters live in `adapters/`, never in test files. Catch library-specific exceptions and wrap into core domain exceptions (`AdapterError`, `ConfigurationError`, `VersionMismatchError`). Business logic sees only core exceptions.
+Implement ports exactly. No duck typing. Register with `@register("port", "name")`. Mock adapters live in `adapters/`, never in test files.
+
+Catch library-specific exceptions and wrap into core domain exceptions (`AdapterError`, `ConfigurationError`, `VersionMismatchError`). Always log the original traceback via `logger.exception` before wrapping. Business logic sees only core exceptions.
 
 ## 7. Resilience
 
@@ -92,12 +97,27 @@ Response format:
 2. Changes -- file path + full content or FIND/REPLACE
 3. Verification -- pytest commands, test update needed?
 
+**FIND/REPLACE format:** Always include 2-3 lines of unchanged context before and after. Use strict markers:
+```python
+# ... existing code ...
+<<<<<<< FIND
+def old_function():
+    pass
+====================
+def new_function():
+    # new logic
+    pass
+>>>>>>> REPLACE
+# ... existing code ...
+```
+If the change exceeds 15 lines, output the full file content or split into multiple small blocks.
+
 File review checklist (output findings only, skip if clean):
 - LANGUAGE: No Cyrillic in code/comments/docstrings (domain constants exempt)
 - EMOJI: No U+1F600+ in `.py` files
 - DUPLICATES: No copy-paste artifacts, orphaned code, commented dead code
 - MAGIC: No bare literals used >1 place without named constant
-- TYPES: No `Any` where concrete type visible
+- TYPES: No `Any` where concrete type is visible. Enforced by `mypy --strict` (or equivalent) in `scripts/check_all.py`
 - LAYERS: Imports comply with Section 3
 - IMMUTABILITY: No PipelineData mutation
 - PORTS: No `hasattr`, `isinstance` on port objects

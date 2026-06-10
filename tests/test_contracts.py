@@ -329,3 +329,11 @@ def test_message_type_alias_excludes_dict():
     assert AssistantMessage in args
     assert ToolMessage in args
     assert not any(get_origin(arg) is dict for arg in args)
+
+
+def test_ireranker_is_closable():
+    """IReranker must inherit IClosable so lifespan can call shutdown()."""
+    from ai_assistant.core.ports.closable import IClosable
+
+    assert issubclass(IReranker, IClosable)
+    assert callable(getattr(IReranker, "shutdown", None))

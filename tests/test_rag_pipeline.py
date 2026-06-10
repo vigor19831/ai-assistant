@@ -110,6 +110,23 @@ class TestEmbedQuery:
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
 
+    @pytest.mark.asyncio
+    async def test_embed_query_empty_embedding_response(self):
+        """Empty embedding list from embedder should not raise IndexError."""
+        class EmptyEmbedder:
+            def __init__(self):
+                self.dimension = 384
+
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                return []  # empty response
+
+        embedder = EmptyEmbedder()
+        data = PipelineData(query=UserMessage(text="hello"))
+        data = replace(data, metadata={**data.metadata, "embedder": embedder})
+        result = await embed_query(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        assert "query_embedding" not in result.metadata
+
 
 class TestRetrieve:
     @pytest.mark.asyncio
@@ -754,6 +771,26 @@ class TestHydeQuery:
         )
         result = await hyde_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_hyde_query_empty_embedding_response(self):
+        """Empty embedding list from embedder should not raise IndexError."""
+        class EmptyEmbedder:
+            def __init__(self):
+                self.dimension = 384
+
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                return []  # empty response
+
+        embedder = EmptyEmbedder()
+        llm = FakeLLM("Paris is the capital of France.")
+        data = PipelineData(
+            query=UserMessage(text="What is the capital of France?"),
+            metadata={"embedder": embedder, "llm": llm},
+        )
+        result = await hyde_query(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        assert "query_embedding" not in result.metadata
 
 
 class TestNamespacePrefixes:

@@ -318,7 +318,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
             f"## {title}",
             f"> Auto-extracted from: `{rel}`",
             "```markdown",
-            content[:3000],
+            content[:25000],
             "```",
             "",
             "---",

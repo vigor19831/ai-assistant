@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
+from ai_assistant.core.ports.closable import IClosable
+
 __all__ = ["IReranker", "RerankResult"]
 
 
@@ -20,7 +22,7 @@ class RerankResult:
     score: float  # 0.0 to 1.0, higher = more relevant
 
 
-class IReranker(ABC):
+class IReranker(IClosable, ABC):
     """Re-rank retrieved chunks by relevance to query.
 
     Used after vector store retrieval to filter out false positives

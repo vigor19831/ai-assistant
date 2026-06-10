@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-09 20:37 UTC
+> Auto-generated from source code. Updated: 2026-06-10 07:50 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -19,7 +19,7 @@
 | `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 88 |
 | `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 100 |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 169 |
-| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 71 |
+| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 70 |
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 256 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 155 |
@@ -33,7 +33,7 @@
 | `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 169 |
 | `api.deps` | `RuntimeError` | State not initialized | High | 188 |
 | `api.deps` | `ValueError` | Unknown step: {...} | High | 92 |
-| `api.security` | `HTTPException` | Unknown error | High | 61 |
+| `api.security` | `HTTPException` | Unknown error | High | 63 |
 | `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 250 |
 | `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 277 |
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 29 |
@@ -48,20 +48,20 @@
 | `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
 | `tests.test_malformed_sse` | `ValueError` | Error with "quotes" and 
  newlines | High | 99 |
-| `tests.test_rag_pipeline` | `RuntimeError` | down | High | 293 |
-| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 359 |
-| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 390 |
-| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 632 |
-| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 608 |
-| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 663 |
+| `tests.test_rag_pipeline` | `RuntimeError` | down | High | 310 |
+| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 376 |
+| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 407 |
+| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 649 |
+| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 625 |
+| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 680 |
 | `tests.test_resilience` | `RuntimeError` | shutdown boom | High | 272 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
 | `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 168 |
 | `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 226 |
 | `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 250 |
-| `adapters.reranker_api` | `KeyError/TypeError` | raise AdapterError(f"Unexpected rerank response shape: {exc} | Medium | 70 |
-| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 78 |
+| `adapters.reranker_api` | `KeyError/TypeError` | raise AdapterError(f"Unexpected rerank response shape: {exc} | Medium | 74 |
+| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 82 |
 | `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 23 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss: Any = None  # type: ignore[assignment, no-redef] | Medium | 17 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss'... | Medium | 354 |
@@ -73,20 +73,21 @@
 | `api.lifespan` | `OSError` | logger.warning("Failed to write PID file: %s", exc) | Medium | 73 |
 | `api.lifespan` | `OSError` | logger.warning("Failed to remove PID file: %s", exc) | Medium | 88 |
 | `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out: %s/%s", index_path, ns | Medium | 114 |
+| `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
 | `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 276 |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 60 |
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 33 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 37 |
 | `core.logger` | `OSError` | logger.error("Failed to create log file %s: %s", path, exc) | Medium | 67 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 360 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception( | Medium | 418 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 126 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 167 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 232 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 297 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 325 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 365 |
-| `core.pipeline_steps` | `Exception` | content = f"Error: {e}" | Medium | 407 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 366 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception( | Medium | 424 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 132 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 173 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 238 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 303 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 331 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 371 |
+| `core.pipeline_steps` | `Exception` | content = f"Error: {e}" | Medium | 413 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 64 |

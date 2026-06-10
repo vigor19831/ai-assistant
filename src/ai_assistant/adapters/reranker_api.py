@@ -35,6 +35,10 @@ class APIReranker(IReranker):
         self._timeout: float = getattr(config, "timeout", 30.0)
         self._threshold: float = getattr(config, "threshold", 0.3)
 
+    async def shutdown(self) -> None:
+        """No-op shutdown — client is created per-call."""
+        pass
+
     @with_retry(max_retries=2, delay=1.0, jitter=True, max_delay=15.0)
     async def rerank(
         self,

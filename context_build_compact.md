@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-09 20:37:49 UTC | **Mode:** `compact`
-> **Metrics:** 116 files | 98 Python | 14,613 LOC
-> **Full:** 46 | **Signatures:** 21 | **Listed:** 42
+> **Generated:** 2026-06-10 07:50:58 UTC | **Mode:** `compact`
+> **Metrics:** 177 files | 98 Python | 14,696 LOC
+> **Full:** 47 | **Signatures:** 21 | **Listed:** 102
 
 ---
 
@@ -129,6 +129,7 @@ Never:
 - Lazy initialization (`dict[str, Callable]` AppState)
 - `print()`, `pprint()`, `logging.basicConfig()` -- use `get_logger(name)` only
 - Orphaned code -- remove callee if last caller removed
+- Add a dependency without immediately updating `pyproject.toml` / `requirements.txt`
 
 Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, LRU eviction in `MemoryVectorStore` until RAM pressure measured, prompt registry / semver until 5+ versions in active use.
 
@@ -157,6 +158,8 @@ If core changes:
 3. Update `docs/error_taxonomy.md`
 4. Run `python scripts/check_all.py`
 
+New functionality requires new tests. Existing tests may only be updated during refactoring or contract changes.
+
 ## 5. PipelineData Immutability
 
 Use: `data.with_chunks()`, `.with_context()`, `.with_response()`, `.add_error()`
@@ -171,7 +174,74 @@ data.errors.append("err")
 data.errors += ["err"]
 ```
 
-## 6. Adapter Discip
+## 6. Adapter Discipline
+
+Implement ports exactly. No duck typing. Register with `@register("port", "name")`. Mock adapters live in `adapters/`, never in test files.
+
+Catch library-specific exceptions and wrap into core domain exceptions (`AdapterError`, `ConfigurationError`, `VersionMismatchError`). Always log the original traceback via `logger.exception` before wrapping. Business logic sees only core exceptions.
+
+## 7. Resilience
+
+All external network calls require hard timeout. All external calls use retry with exponential backoff (`core/retry.py`). Operations must be idempotent.
+
+## 8. Graceful Shutdown
+
+On SIGINT/SIGTERM: stop accepting requests, finish active tasks, close DB connections and persist indices, call `IClosable.shutdown()`, stop metrics logger last.
+
+## 9. Output Protocol
+
+Response format:
+1. What and Why -- 1-2 sentences
+2. Changes -- file path + full content or FIND/REPLACE
+3. Verification -- pytest commands, test update needed?
+
+**FIND/REPLACE format:** Always include 2-3 lines of unchanged context before and after. Use strict markers:
+```python
+# ... existing code ...
+<<<<<<< FIND
+def old_function():
+    pass
+====================
+def new_function():
+    # new logic
+    pass
+>>>>>>> REPLACE
+# ... existing code ...
+```
+If the change exceeds 15 lines, output the full file content or split into multiple small blocks.
+
+File review checklist (output findings only, skip if clean):
+- LANGUAGE: No Cyrillic in code/comments/docstrings (domain constants exempt)
+- EMOJI: No U+1F600+ in `.py` files
+- DUPLICATES: No copy-paste artifacts, orphaned code, commented dead code
+- MAGIC: No bare literals used >1 place without named constant
+- TYPES: No `Any` where concrete type is visible. Enforced by `mypy --strict` (or equivalent) in `scripts/check_all.py`
+- LAYERS: Imports comply with Section 3
+- IMMUTABILITY: No PipelineData mutation
+- PORTS: No `hasattr`, `isinstance` on port objects
+- DOCS: Docstrings in English, triple quotes, describe intent
+- LOGGING: `get_logger(name)` used
+- SECRETS: No hardcoded keys/tokens
+- STYLE: Line length <=88, double quotes, f-strings
+
+## 10. Decision Hierarchy
+
+Feature conflicts with Absolute Constraint:
+
+1. Can it live entirely in `adapters/` or `features/`? -> Do it there. No core change.
+2. Needs `core/` change but keeps all tests green? -> Allowed. Update `error_taxonomy.md`.
+3. Requires breaking port contract or adding `**kwargs`? -> Output `CORE CHANGE REQUIRED`, propose port extension or `PipelineData.metadata`, wait for confirmation.
+4. Known drift in `docs/drift.md` makes hack tempting? -> Reference drift, propose fixing it. If user says "use drift for now", document new instance immediately.
+5. Never silently bypass a port contract. If `llm.config` is needed but `ILLM` does not expose it, do not use `getattr(llm, "config", None)`. Either add to `ILLM`, or add a getter, or keep logic inside the adapter.
+
+## 11. Solo Maintenance
+
+- Explicit over implicit. No magic discovery, reflection, dynamic imports.
+- Every architectural change explainable in one sentence to a non-technical person.
+- >3 files changed -> split into smaller steps or discuss first.
+- `docs/` is source of truth. Code must match docs. If conflict, update docs first.
+- When proposing core change, explain: what breaks, what improves, alternatives.
+
 ```
 
 ---
@@ -180,7 +250,7 @@ data.errors += ["err"]
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-09 20:37 UTC
+> Auto-generated from source code. Updated: 2026-06-10 07:50 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -200,7 +270,7 @@ data.errors += ["err"]
 | `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 88 |
 | `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 100 |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 169 |
-| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 71 |
+| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 70 |
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 256 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 155 |
@@ -213,7 +283,103 @@ data.errors += ["err"]
 | `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 167 |
 | `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 169 |
 | `api.deps` | `RuntimeError` | State not initialized | High | 188 |
-| `api.deps
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 92 |
+| `api.security` | `HTTPException` | Unknown error | High | 63 |
+| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 250 |
+| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 277 |
+| `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 29 |
+| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 42 |
+| `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
+| `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
+| `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
+| `features.chat.handlers` | `HTTPException` | Unknown error | High | 36 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 279 |
+| `features.rag.handlers` | `HTTPException` | Unknown error | High | 249 |
+| `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 265 |
+| `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
+| `tests.test_malformed_sse` | `ValueError` | Error with "quotes" and 
+ newlines | High | 99 |
+| `tests.test_rag_pipeline` | `RuntimeError` | down | High | 310 |
+| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 376 |
+| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 407 |
+| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 649 |
+| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 625 |
+| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 680 |
+| `tests.test_resilience` | `RuntimeError` | shutdown boom | High | 272 |
+| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
+| `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 168 |
+| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 226 |
+| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 250 |
+| `adapters.reranker_api` | `KeyError/TypeError` | raise AdapterError(f"Unexpected rerank response shape: {exc} | Medium | 74 |
+| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 82 |
+| `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 23 |
+| `adapters.vector_store_faiss` | `ImportError` | faiss: Any = None  # type: ignore[assignment, no-redef] | Medium | 17 |
+| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss'... | Medium | 354 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 126 |
+| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 96 |
+| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 66 |
+| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 117 |
+| `api.lifespan` | `Exception` | logger.exception("Adapter '%s' shutdown failed", name) | Medium | 135 |
+| `api.lifespan` | `OSError` | logger.warning("Failed to write PID file: %s", exc) | Medium | 73 |
+| `api.lifespan` | `OSError` | logger.warning("Failed to remove PID file: %s", exc) | Medium | 88 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out: %s/%s", index_path, ns | Medium | 114 |
+| `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
+| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 276 |
+| `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 60 |
+| `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 33 |
+| `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 37 |
+| `core.logger` | `OSError` | logger.error("Failed to create log file %s: %s", path, exc) | Medium | 67 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 366 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception( | Medium | 424 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 132 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 173 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 238 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 303 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 331 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 371 |
+| `core.pipeline_steps` | `Exception` | content = f"Error: {e}" | Medium | 413 |
+| `core.retry` | `Exception` | last_exception = e | Medium | 53 |
+| `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
+| `core.retry` | `last_exception` | Raised last_exception | Medium | 64 |
+| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 123 |
+| `core.utils` | `Exception` | pass | Medium | 79 |
+| `core.utils` | `Exception` | if _cjk_ratio(text) > 0.3: | Medium | 126 |
+| `core.utils` | `ImportError` | tiktoken = None  # type: ignore[assignment] | Medium | 12 |
+| `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
+| `core.utils` | `KeyError` | try: | Medium | 76 |
+| `core.utils` | `OSError` | return None | Medium | 63 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 65 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 99 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 70 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 109 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed", extra={"trace_id": | Medium | 188 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 206 |
+| `features.chat.handlers` | `HTTPException` | raise | Medium | 68 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 270 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 216 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 233 |
+| `features.chat.manager` | `Exception` | logger.error( | Medium | 272 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 312 |
+| `features.chat.manager` | `NotImplementedError` | stream_chat tool calls are not handled | Medium | 326 |
+| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 58 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 137 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 198 |
+| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 227 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 258 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 296 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 342 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
+| `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
+| `tests.test_api_e2e` | `OSError` | return False | Medium | 519 |
+| `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 96 |
+| `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 218 |
+| `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 249 |
+| `tests.test_scripts_and_platform` | `ImportError` | Cannot load {...} | Medium | 28 |
+| `tests.test_smoke_pyproject` | `AssertionError` | {...} not found in dependencies | Medium | 65 |
+
+> **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.
+
 ```
 
 ---
@@ -272,6 +438,71 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
     launcher.py
     open_terminal.bat
     pyproject.toml
+.hypothesis/
+    .gitignore
+    constants/
+        00d08ecc206d19a2
+        0585d7640825984e
+        062da15881e1bbb7
+        09a41c9330c54cbb
+        0a9a37d490bd2ac6
+        0e1b7747ffb570b8
+        176e90709ffa84f7
+        1b59a22bfae375a7
+        2662f70833eb6408
+        2688d4818152a3f0
+        282b46720b0ddba7
+        2a8974ef0c253e79
+        2b435b261dfccfee
+        2e0038433715aceb
+        300be2b7c00adf58
+        322332130093caec
+        42c8d01dab10446b
+        4bf5a448f35f8728
+        4d88e9cd295ba4ef
+        541fc1ef81e2b11b
+        547983fd2998eac5
+        567fa9acd526ce98
+        5a77869d21ccf7f0
+        5d66fcc73a312cf6
+        5fc7d4bcf0afee3f
+        615e23ae8ae8791c
+        68badcc12bc11d16
+        68e2d4459133caa9
+        68f3440fc8ca5bc7
+        6da8554b62c95f25
+        72ba1bf5d8575399
+        741d481446237029
+        759bc06ff6015ad0
+        7aa6bbe0ad659d13
+        87a7bbad2f5939b7
+        8bfcfc15e19711e1
+        8cb43f130c8f3a11
+        8cfdcaffaa4b0f87
+        96f4f4bb8a38cc52
+        998d41ea1cd58455
+        9bfda43d3142e126
+        9de8f462b119ca6c
+        a0f8740ab7f36456
+        a8fb8e08977b0f0f
+        a9be3382e044cca6
+        ad9e26883aa2bf95
+        b1ed91e5d16f251d
+        bb0442e72e6ec747
+        bb1fe1dc12b93764
+        bd3fbe66aa331706
+        c4fc542fc2c4a028
+        cd30ec032838cc80
+        cdd098fb9d7cc65a
+        de1cc2969519f477
+        e902c4e5c34386c2
+        eff07b744e4ce459
+        f9bdda99a335f491
+        fc0f735ee28793ba
+    unicode_data/
+        15.1.0/
+            charmap.json.gz
+            codec-utf-8.json.gz
 docs/
     ai_rules.md
     drift.md
@@ -552,6 +783,7 @@ tests/
   - → `ai_assistant.core.ports.closable: IClosable`
 - `src/ai_assistant/core/ports/reranker.py`
   - → `ai_assistant.core.domain.documents: Chunk`
+  - → `ai_assistant.core.ports.closable: IClosable`
 - `src/ai_assistant/core/ports/storage.py`
   - → `ai_assistant.core.ports.initializable: IInitializable`
 - `src/ai_assistant/core/ports/vector_store.py`
@@ -666,6 +898,7 @@ tests/
   - → `ai_assistant.core.config: VectorStoreConfig`
   - → `ai_assistant.core.config: load_config, LLMConfig`
   - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
+  - → `ai_assistant.core.ports.closable: IClosable`
   - → `ai_assistant.core.ports.llm: Message`
   - → `ai_assistant.core.ports: IChatStorage, IChunker, IClosable, IEmbedder, ILLM, IReranker, IVectorStore`
   - → `ai_assistant.features.chat.manager: ChatManager`
@@ -697,6 +930,7 @@ tests/
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
   - → `ai_assistant.api.deps: InitializedAppState, init_adapters`
+  - → `ai_assistant.api.lifespan: _async_cleanup`
   - → `ai_assistant.api: deps`
   - → `ai_assistant.api: lifespan`
   - → `ai_assistant.core.config: AppConfig`
@@ -704,6 +938,7 @@ tests/
   - → `ai_assistant.core.config: LLMConfig`
   - → `ai_assistant.core.config: VectorStoreConfig`
   - → `ai_assistant.core.config: load_config, LLMConfig`
+  - → `ai_assistant.core.ports.closable: IClosable`
   - → `ai_assistant.core.ports: IChatStorage, IChunker, IClosable, IEmbedder, ILLM, IReranker, IVectorStore`
   - → `ai_assistant.features.chat.manager: ChatManager`
   - → `ai_assistant.features.chat.schemas: ChatRequest, ChatResponse, OAIChatCompletionRequest`
@@ -785,6 +1020,7 @@ tests/
 
 ### Full Content
 - `.gitignore`
+- `.hypothesis/.gitignore`
 - `README.md`
 - `config.yaml`
 - `pyproject.toml`
@@ -856,6 +1092,66 @@ tests/
 
 ### Listed Only (no content)
 - `.gitattributes`
+- `.hypothesis/constants/00d08ecc206d19a2`
+- `.hypothesis/constants/0585d7640825984e`
+- `.hypothesis/constants/062da15881e1bbb7`
+- `.hypothesis/constants/09a41c9330c54cbb`
+- `.hypothesis/constants/0a9a37d490bd2ac6`
+- `.hypothesis/constants/0e1b7747ffb570b8`
+- `.hypothesis/constants/176e90709ffa84f7`
+- `.hypothesis/constants/1b59a22bfae375a7`
+- `.hypothesis/constants/2662f70833eb6408`
+- `.hypothesis/constants/2688d4818152a3f0`
+- `.hypothesis/constants/282b46720b0ddba7`
+- `.hypothesis/constants/2a8974ef0c253e79`
+- `.hypothesis/constants/2b435b261dfccfee`
+- `.hypothesis/constants/2e0038433715aceb`
+- `.hypothesis/constants/300be2b7c00adf58`
+- `.hypothesis/constants/322332130093caec`
+- `.hypothesis/constants/42c8d01dab10446b`
+- `.hypothesis/constants/4bf5a448f35f8728`
+- `.hypothesis/constants/4d88e9cd295ba4ef`
+- `.hypothesis/constants/541fc1ef81e2b11b`
+- `.hypothesis/constants/547983fd2998eac5`
+- `.hypothesis/constants/567fa9acd526ce98`
+- `.hypothesis/constants/5a77869d21ccf7f0`
+- `.hypothesis/constants/5d66fcc73a312cf6`
+- `.hypothesis/constants/5fc7d4bcf0afee3f`
+- `.hypothesis/constants/615e23ae8ae8791c`
+- `.hypothesis/constants/68badcc12bc11d16`
+- `.hypothesis/constants/68e2d4459133caa9`
+- `.hypothesis/constants/68f3440fc8ca5bc7`
+- `.hypothesis/constants/6da8554b62c95f25`
+- `.hypothesis/constants/72ba1bf5d8575399`
+- `.hypothesis/constants/741d481446237029`
+- `.hypothesis/constants/759bc06ff6015ad0`
+- `.hypothesis/constants/7aa6bbe0ad659d13`
+- `.hypothesis/constants/87a7bbad2f5939b7`
+- `.hypothesis/constants/8bfcfc15e19711e1`
+- `.hypothesis/constants/8cb43f130c8f3a11`
+- `.hypothesis/constants/8cfdcaffaa4b0f87`
+- `.hypothesis/constants/96f4f4bb8a38cc52`
+- `.hypothesis/constants/998d41ea1cd58455`
+- `.hypothesis/constants/9bfda43d3142e126`
+- `.hypothesis/constants/9de8f462b119ca6c`
+- `.hypothesis/constants/a0f8740ab7f36456`
+- `.hypothesis/constants/a8fb8e08977b0f0f`
+- `.hypothesis/constants/a9be3382e044cca6`
+- `.hypothesis/constants/ad9e26883aa2bf95`
+- `.hypothesis/constants/b1ed91e5d16f251d`
+- `.hypothesis/constants/bb0442e72e6ec747`
+- `.hypothesis/constants/bb1fe1dc12b93764`
+- `.hypothesis/constants/bd3fbe66aa331706`
+- `.hypothesis/constants/c4fc542fc2c4a028`
+- `.hypothesis/constants/cd30ec032838cc80`
+- `.hypothesis/constants/cdd098fb9d7cc65a`
+- `.hypothesis/constants/de1cc2969519f477`
+- `.hypothesis/constants/e902c4e5c34386c2`
+- `.hypothesis/constants/eff07b744e4ce459`
+- `.hypothesis/constants/f9bdda99a335f491`
+- `.hypothesis/constants/fc0f735ee28793ba`
+- `.hypothesis/unicode_data/15.1.0/charmap.json.gz`
+- `.hypothesis/unicode_data/15.1.0/codec-utf-8.json.gz`
 - `open_terminal.bat`
 - `scripts/audit_project.py`
 - `scripts/check_all.py`
@@ -969,6 +1265,20 @@ tests/.pytest_cache/
 docs/context_build_*.md
 tests/tests_run_*.log
 MagicMock/
+
+```
+
+### `.hypothesis/.gitignore`
+```text
+# This .gitignore file was automatically created by Hypothesis. Hypothesis gitignores
+# .hypothesis by default, because we generally recommend that .hypothesis not be checked
+# into version control.
+#
+# If you *would* like to check .hypothesis into version control, you should delete this
+# file. Hypothesis will not re-create this .gitignore unless .hypothesis is deleted (and
+# if it does, that's a bug - please report it!)
+
+*
 
 ```
 
@@ -1858,8 +2168,14 @@ async def check_request_size(request: Request) -> None:
     cl = request.headers.get("content-length")
     # Default max body size — can be overridden by caller with AppState
     max_sz = SECURITY_MAX_BODY
-    if cl and int(cl) > int(max_sz):
-        raise HTTPException(status_code=413, detail="Payload too large")
+    if cl:
+        try:
+            if int(cl) > int(max_sz):
+                raise HTTPException(status_code=413, detail="Payload too large")
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Invalid Content-Length"
+            ) from None
 
 
 _bearer_dependency = Depends(bearer_scheme)
@@ -2169,7 +2485,7 @@ class AppConfig(BaseSettings):
     @classmethod
     def _load_rag_steps(cls, v: Any) -> Any:
         if isinstance(v, dict) and "steps" in v and isinstance(v["steps"], str):  # noqa: UP037
-            return {**v, "steps": v["steps"].split(",")}
+            return {**v, "steps": [s.strip() for s in v["steps"].split(",")]}
         return v
 
     @model_validator(mode="before")
@@ -2949,6 +3265,12 @@ async def embed_query(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_TEXT_MISSING)
     try:
         embeddings = await _call_embed(embedder, data.query.text)
+        if not embeddings:
+            _logger.warning(
+                "embed_query: empty embedding response",
+                extra={"trace_id": data.trace_id},
+            )
+            return data.add_error(INTERNAL_SERVER_ERROR)
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
         _logger.info("embed_query done", extra={"trace_id": data.trace_id})
         return replace(data, metadata=new_metadata)
@@ -3311,6 +3633,12 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     # Embed hypothetical answer
     try:
         embeddings = await _call_embed(embedder, hyde_text)
+        if not embeddings:
+            _logger.warning(
+                "hyde_query: empty embedding response",
+                extra={"trace_id": data.trace_id},
+            )
+            return data.add_error(INTERNAL_SERVER_ERROR)
     except Exception:
         _logger.exception(
             "hyde_query: embedding failed", extra={"trace_id": data.trace_id}
@@ -3524,6 +3852,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
+from ai_assistant.core.ports.closable import IClosable
+
 __all__ = ["IReranker", "RerankResult"]
 
 
@@ -3535,7 +3865,7 @@ class RerankResult:
     score: float  # 0.0 to 1.0, higher = more relevant
 
 
-class IReranker(ABC):
+class IReranker(IClosable, ABC):
     """Re-rank retrieved chunks by relevance to query.
 
     Used after vector store retrieval to filter out false positives
@@ -4634,7 +4964,7 @@ async def index_documents(
     if ns_cfg is not None and ns_cfg.chunk_size != state.config.chunker.chunk_size:
         base_cfg = state.config.chunker
         ns_chunker_cfg = base_cfg.model_copy(update={"chunk_size": ns_cfg.chunk_size})
-        chunker = create_adapter("chunker", ns_chunker_cfg)
+        chunker = create_adapter("chunker", base_cfg.provider, ns_chunker_cfg)
 
     manager = IndexingManager(
         chunker=chunker,

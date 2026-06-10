@@ -27,3 +27,7 @@ class NullReranker(IReranker):
     ) -> list[RerankResult]:
         """Return all chunks with score 1.0, preserving original order."""
         return [RerankResult(chunk=c, score=1.0) for c in chunks]
+
+    async def shutdown(self) -> None:
+        """No-op shutdown — no external resources."""
+        pass

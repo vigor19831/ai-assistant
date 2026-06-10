@@ -120,6 +120,12 @@ async def embed_query(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_TEXT_MISSING)
     try:
         embeddings = await _call_embed(embedder, data.query.text)
+        if not embeddings:
+            _logger.warning(
+                "embed_query: empty embedding response",
+                extra={"trace_id": data.trace_id},
+            )
+            return data.add_error(INTERNAL_SERVER_ERROR)
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
         _logger.info("embed_query done", extra={"trace_id": data.trace_id})
         return replace(data, metadata=new_metadata)
@@ -482,6 +488,12 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     # Embed hypothetical answer
     try:
         embeddings = await _call_embed(embedder, hyde_text)
+        if not embeddings:
+            _logger.warning(
+                "hyde_query: empty embedding response",
+                extra={"trace_id": data.trace_id},
+            )
+            return data.add_error(INTERNAL_SERVER_ERROR)
     except Exception:
         _logger.exception(
             "hyde_query: embedding failed", extra={"trace_id": data.trace_id}
