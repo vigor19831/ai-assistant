@@ -47,6 +47,7 @@ with _project_path():
     from ai_assistant.adapters.chunker_simple import SimpleChunker
     from ai_assistant.adapters.embedder_mock import MockEmbedder
     from ai_assistant.adapters.llm_mock import MockLLM
+    from ai_assistant.adapters.reranker_null import NullReranker
     from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
     from ai_assistant.api.deps import InitializedAppState, init_adapters
     from ai_assistant.api.security import get_expected_api_key, set_api_key
@@ -236,7 +237,7 @@ def _check_http() -> str:
         pipeline=mock_pipeline,
         storage=mock_storage,
         chat_manager=mock_chat,
-        reranker=None,
+        reranker=NullReranker(None),
         limiter=None,
     )
 
@@ -252,6 +253,8 @@ def _check_http() -> str:
 
     with TestClient(app) as client:
         r_models = client.get("/v1/models")
+        print(f"STATUS: {r_models.status_code}")
+        print(f"BODY: {r_models.text[:1000]}")
         assert r_models.status_code == 200, f"models: {r_models.status_code}"
 
         r_chat = client.post(
@@ -435,6 +438,12 @@ def _check_lifespan() -> str:
             llm = mock_llm
             embedder = None
             vector_store = mock_vs
+            storage = AsyncMock()
+            storage.shutdown = AsyncMock()
+            chunker = AsyncMock()
+            chunker.shutdown = AsyncMock()
+            reranker = AsyncMock()
+            reranker.shutdown = AsyncMock()
 
         app = FastAPI()
 

@@ -130,3 +130,7 @@ class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
                 (key, payload, payload),
             )
             await conn.commit()
+
+    async def shutdown(self) -> None:
+        """No-op shutdown — SQLite connections are per-operation."""
+        pass

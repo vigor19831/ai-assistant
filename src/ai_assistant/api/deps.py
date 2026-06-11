@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable  # ← добавить Callable сюда
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires runtime
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.core.config import AppConfig, RAGStep
@@ -13,10 +16,6 @@ from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.features.chat.manager import ChatManager
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from starlette.requests import Request
-
     from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports import (
         ILLM,

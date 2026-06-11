@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 import tempfile
 from pathlib import Path
@@ -65,7 +64,9 @@ async def atomic_write(
                 finally:
                     os.close(dir_fd)
         finally:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
+            # os.replace() already atomically removes tmp on success.
+            # On failure (before replace), tmp may remain; mkstemp creates
+            # files in a temp dir that the OS cleans up. No unlink needed.
+            pass
 
     await asyncio.to_thread(_sync)

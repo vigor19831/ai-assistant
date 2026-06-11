@@ -30,7 +30,7 @@ from ai_assistant.api.security import (
 @pytest.fixture(autouse=True)
 def _reset_state(monkeypatch):
     """Reset global security state before every test."""
-    monkeypatch.delenv("AI_API_KEY", raising=False)
+    monkeypatch.delenv("AI_SECURITY_API_KEY", raising=False)
     set_api_key(None)
     yield
     set_api_key(None)
@@ -53,8 +53,8 @@ def mock_request():
 
 
 def test_get_expected_api_key_env_var_priority(monkeypatch):
-    """Env var AI_API_KEY always wins over runtime override and config."""
-    monkeypatch.setenv("AI_API_KEY", "env-secret")
+    """Env var AI_SECURITY_API_KEY always wins over runtime override and config."""
+    monkeypatch.setenv("AI_SECURITY_API_KEY", "env-secret")
     set_api_key("override-secret")
     assert get_expected_api_key() == "env-secret"
 
@@ -71,8 +71,8 @@ def test_get_expected_api_key_none_when_empty():
 
 
 def test_get_expected_api_key_empty_env_returns_none(monkeypatch):
-    """Empty string in AI_API_KEY must be treated as absent; override ignored."""
-    monkeypatch.setenv("AI_API_KEY", "")
+    """Empty string in AI_SECURITY_API_KEY must be treated as absent; override ignored."""
+    monkeypatch.setenv("AI_SECURITY_API_KEY", "")
     set_api_key("override-secret")
     assert get_expected_api_key() is None
 

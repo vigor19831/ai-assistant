@@ -170,7 +170,6 @@ class SecurityConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AI_SECURITY_", extra="forbid")
     api_key: str | None = None
-    rate_limit: str = "100/minute"
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
 
@@ -242,6 +241,19 @@ class AppConfig(BaseSettings):
             # Strip the removed field so VectorStoreConfig(extra="forbid") doesn't choke
             vs = {k: val for k, val in vs.items() if k != "relevance_threshold"}
             v = {**v, "vector_store": vs}
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_security_rate_limit(cls, v: Any) -> Any:
+        """Backward-compatible loader: strip removed security.rate_limit field."""
+        if not isinstance(v, dict):
+            return v
+        sec = v.get("security")
+        if isinstance(sec, dict) and "rate_limit" in sec:
+            # rate_limit was removed — strip it so SecurityConfig(extra="forbid") doesn't choke
+            sec = {k: val for k, val in sec.items() if k != "rate_limit"}
+            v = {**v, "security": sec}
         return v
 
     @model_validator(mode="after")

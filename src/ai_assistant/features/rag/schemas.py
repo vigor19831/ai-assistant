@@ -15,6 +15,7 @@ __all__ = [
     "NamespaceListResponse",
     "QueryRequest",
     "QueryResponse",
+    "ReindexRequest",
     "SaveChatRequest",
 ]
 
@@ -103,4 +104,15 @@ class SaveChatRequest(BaseModel):
         default="chat.md",
         pattern=r"^[^./\\][^/\\]*$",
         description="Filename without path traversal",
+    )
+
+
+class ReindexRequest(BaseModel):
+    """Request to reindex documents from folders."""
+
+    folder: str | None = Field(
+        default=None, description="Specific folder to index, or None for all."
+    )
+    clear: bool = Field(
+        default=False, description="If True, clear existing chunks before indexing."
     )

@@ -103,7 +103,7 @@ Response format:
 <<<<<<< FIND
 def old_function():
     pass
-====================
+=========
 def new_function():
     # new logic
     pass
@@ -143,3 +143,19 @@ Feature conflicts with Absolute Constraint:
 - >3 files changed -> split into smaller steps or discuss first.
 - `docs/` is source of truth. Code must match docs. If conflict, update docs first.
 - When proposing core change, explain: what breaks, what improves, alternatives.
+
+## FastAPI DI and Ruff type-checking rules
+
+With `from __future__ import annotations`, all annotations are strings
+at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
+
+- **TC002** (third-party): `Request`, `Response` must stay in runtime imports
+  for FastAPI DI and middleware. Use `# noqa: TC002` on specific lines.
+  `runtime-evaluated-decorators` does not cover all cases (e.g. methods
+  in BaseHTTPMiddleware, functions used via Annotated[...]).
+- **TC003** (stdlib): disabled globally. `Callable`, `Awaitable` are
+  needed for module-level type annotations. Stdlib imports are cheap;
+  per-file `noqa` does not scale.
+
+Do NOT use `request: Any` — breaks FastAPI DI with 422.
+Do NOT move `Request` under `TYPE_CHECKING` — same result.

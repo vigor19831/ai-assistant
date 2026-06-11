@@ -346,6 +346,20 @@ class TestGenerate:
         assert result.trace_id == "gen-123"
 
     @pytest.mark.asyncio
+    async def test_generate_missing_prompt_metadata(self):
+        """generate() must not raise KeyError if prompt_version/prompt_name are missing."""
+        llm = FakeLLM("answer")
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={"llm": llm},  # Missing prompt_version and prompt_name
+        )
+        result = await generate(data)
+        assert result.response is not None
+        assert result.response.text == "answer"
+        assert not result.errors
+
+    @pytest.mark.asyncio
     async def test_generate_no_llm(self):
         data = PipelineData(
             query=UserMessage(text="q"),
@@ -918,15 +932,17 @@ class TestPromptCache:
         assert _render.cache_info().hits >= 1
 
 
-class TestToolLoopGuard:
+class TestToolLoopRemoved:
+    """Tool-calling loop removed from generate() — IToolRegistry not implemented (FUTURE.md)."""
+
     @pytest.mark.asyncio
-    async def test_tool_loop_exceeds_max_iterations(self):
-        """Malformed tool_calls should stop after max_tool_iterations."""
+    async def test_generate_single_call_no_tool_loop(self):
+        """generate() must make exactly one LLM call, ignoring tool_registry in metadata."""
         class FakeToolRegistry:
             async def dispatch(self, call):
                 return ToolResult(call_id=call.call_id, output="42")
 
-        class InfiniteToolLLM:
+        class ToolReturningLLM:
             def __init__(self):
                 self._calls = 0
 
@@ -938,14 +954,14 @@ class TestToolLoopGuard:
             ) -> AssistantMessage:
                 self._calls += 1
                 return AssistantMessage(
-                    text="",
+                    text="final answer",
                     tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
                 )
 
             def get_context_limit(self) -> int | None:
                 return 4096
 
-        llm = InfiniteToolLLM()
+        llm = ToolReturningLLM()
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
@@ -958,204 +974,13 @@ class TestToolLoopGuard:
             },
         )
         result = await generate(data)
-        assert llm._calls == 3  # 1 initial + 2 follow-ups before limit
+        assert llm._calls == 1  # ← single call, no loop
         assert result.response is not None
-        assert result.response.text == "Tool limit reached"
-        assert any("tool loop exceeded max iterations" in e for e in result.errors)
+        assert result.response.text == "final answer"
 
     @pytest.mark.asyncio
-    async def test_tool_loop_default_limit(self):
-        """Default max_tool_iterations (5) should be respected."""
-        class FakeToolRegistry:
-            async def dispatch(self, call):
-                return ToolResult(call_id=call.call_id, output="42")
-
-        class InfiniteToolLLM:
-            def __init__(self):
-                self._calls = 0
-
-            async def complete(
-                self,
-                messages: list[Any],
-                max_tokens: int | None = None,
-                temperature: float | None = None,
-            ) -> AssistantMessage:
-                self._calls += 1
-                return AssistantMessage(
-                    text="",
-                    tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
-                )
-
-            def get_context_limit(self) -> int | None:
-                return 4096
-
-        llm = InfiniteToolLLM()
-        data = PipelineData(
-            query=UserMessage(text="question"),
-            chunks=[Chunk(id="c1", text="context")],
-            metadata={
-                "prompt_version": "v1",
-                "prompt_name": "rag_default",
-                "llm": llm,
-                "tool_registry": FakeToolRegistry(),
-            },
-        )
-        result = await generate(data)
-        assert llm._calls == 6  # 1 initial + 5 follow-ups before limit
-        assert result.response is not None
-        assert result.response.text == "Tool limit reached"
-        assert any("tool loop exceeded max iterations" in e for e in result.errors)
-
-
-class TestGenerateTruncation:
-    @pytest.mark.asyncio
-    async def test_generate_truncates_chunks_when_prompt_too_long(self):
-        """Chunks are dropped from the end until prompt fits context limit."""
-        data = PipelineData(
-            query=UserMessage(text="question"),
-            chunks=[
-                Chunk(id="c1", text="chunk one"),
-                Chunk(id="c2", text="chunk two"),
-                Chunk(id="c3", text="chunk three"),
-            ],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
-        )
-        llm = FakeLLM("answer")
-        data = replace(data, metadata={**data.metadata, "llm": llm})
-
-        with patch(
-            "ai_assistant.core.pipeline_steps._estimate_tokens",
-            side_effect=[5000, 5000, 4000, 3000, 3000],
-        ):
-            result = await generate(data)
-
-        assert result.response is not None
-        assert result.response.text == "answer"
-        assert len(result.chunks) == 1
-        assert result.chunks[0].id == "c1"
-
-    @pytest.mark.asyncio
-    async def test_generate_truncation_fails_when_still_too_long(self):
-        """If prompt exceeds limit even with empty context, return error."""
-        data = PipelineData(
-            query=UserMessage(text="question"),
-            chunks=[Chunk(id="c1", text="chunk one")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
-        )
-        llm = FakeLLM("answer")
-        data = replace(data, metadata={**data.metadata, "llm": llm})
-
-        with patch(
-            "ai_assistant.core.pipeline_steps._estimate_tokens",
-            return_value=5000,
-        ):
-            result = await generate(data)
-
-        assert result.response is not None
-        assert "too large" in (result.response.text or "").lower()
-        assert any("prompt too long" in e for e in result.errors)
-        assert len(result.chunks) == 0
-
-    @pytest.mark.asyncio
-    async def test_generate_uses_config_server_context_size(self):
-        """Fallback to llm.config.server_context_size when get_context_limit is None."""
-        class FakeLLMWithConfig:
-            def __init__(
-                self,
-                response: str = "",
-                server_context_size: int | None = None,
-            ):
-                self._response = response
-                self._server_context_size = server_context_size
-
-            async def complete(
-                self,
-                messages: list[Any],
-                max_tokens: int | None = None,
-                temperature: float | None = None,
-            ) -> AssistantMessage:
-                return AssistantMessage(text=self._response)
-
-            def get_context_limit(self) -> int | None:
-                return self._server_context_size
-
-        data = PipelineData(
-            query=UserMessage(text="question"),
-            chunks=[Chunk(id="c1", text="context")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
-        )
-        llm = FakeLLMWithConfig("answer", server_context_size=2048)
-        data = replace(data, metadata={**data.metadata, "llm": llm})
-
-        with patch(
-            "ai_assistant.core.pipeline_steps._estimate_tokens",
-            return_value=100,
-        ):
-            result = await generate(data)
-
-        assert result.response is not None
-        assert result.response.text == "answer"
-
-    @pytest.mark.asyncio
-    async def test_generate_uses_default_4096_fallback(self):
-        """Fallback to 4096 when get_context_limit and config are unavailable."""
-        class FakeLLMNoConfig:
-            def __init__(self, response: str = ""):
-                self._response = response
-
-            async def complete(
-                self,
-                messages: list[Any],
-                max_tokens: int | None = None,
-                temperature: float | None = None,
-            ) -> AssistantMessage:
-                return AssistantMessage(text=self._response)
-
-            def get_context_limit(self) -> int | None:
-                return None
-
-        data = PipelineData(
-            query=UserMessage(text="question"),
-            chunks=[Chunk(id="c1", text="context")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
-        )
-        llm = FakeLLMNoConfig("answer")
-        data = replace(data, metadata={**data.metadata, "llm": llm})
-
-        with patch(
-            "ai_assistant.core.pipeline_steps._estimate_tokens",
-            return_value=100,
-        ):
-            result = await generate(data)
-
-        assert result.response is not None
-        assert result.response.text == "answer"
-
-
-@pytest.mark.asyncio
-async def test_generate_uses_llm_get_context_limit():
-    """generate() step calls llm.get_context_limit() instead of getattr."""
-    from ai_assistant.core.config import LLMConfig
-    from ai_assistant.adapters.llm_mock import MockLLM
-
-    cfg = LLMConfig(model="test", max_tokens=512)
-    llm = MockLLM(cfg)
-    data = PipelineData(
-        query=UserMessage(text="test"),
-        metadata={
-            "llm": llm,
-            "prompt_version": "v1",
-            "prompt_name": "rag_strict",
-        },
-    )
-    result = await generate(data)
-    assert result.response is not None
-
-
-class TestToolMessageInGenerate:
-    @pytest.mark.asyncio
-    async def test_generate_uses_tool_message_in_loop(self):
-        """Tool results in generate() must be passed as ToolMessage, not dict."""
+    async def test_generate_ignores_tool_registry(self):
+        """Tool registry in metadata must not trigger any tool dispatch."""
         captured_calls: list[list[Any]] = []
 
         class CapturingLLM:
@@ -1170,11 +995,6 @@ class TestToolMessageInGenerate:
             ) -> AssistantMessage:
                 self._calls += 1
                 captured_calls.append(list(messages))
-                if self._calls == 1:
-                    return AssistantMessage(
-                        text="",
-                        tool_calls=[{"id": "call_1", "function": {"name": "calc", "arguments": "{}"}}],
-                    )
                 return AssistantMessage(text="done")
 
             def get_context_limit(self) -> int | None:
@@ -1197,13 +1017,8 @@ class TestToolMessageInGenerate:
         )
         result = await generate(data)
 
-        # Second call should include a ToolMessage
-        assert len(captured_calls) >= 2
-        second_call_messages = captured_calls[1]
-        tool_msgs = [m for m in second_call_messages if isinstance(m, ToolMessage)]
-        assert len(tool_msgs) == 1
-        assert tool_msgs[0].content == "42"
-        assert tool_msgs[0].tool_call_id == "call_1"
-        assert tool_msgs[0].role == "tool"
+        # Exactly one LLM call, no tool messages appended
+        assert len(captured_calls) == 1
+        assert all(not isinstance(m, ToolMessage) for m in captured_calls[0])
         assert result.response is not None
         assert result.response.text == "done"

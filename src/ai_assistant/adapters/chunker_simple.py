@@ -57,3 +57,7 @@ class SimpleChunker(IChunker):
             )
             for idx, ct in enumerate(chunk_texts)
         ]
+
+    async def shutdown(self) -> None:
+        """No-op shutdown — no external resources."""
+        pass

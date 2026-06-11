@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
+from contextlib import suppress
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -41,11 +43,61 @@ def _raise_llm_unavailable(exc: AdapterError) -> None:
 
 _logger = get_logger("chat.handlers")
 
-
 router = APIRouter(tags=["chat"])
 router_oai = APIRouter(tags=["chat-oai"])
 
-# --- Legacy endpoints (under /api/v1 via wrapper) ---
+# --- Heartbeat helper -------------------------------------------------------
+
+SSE_HEARTBEAT_INTERVAL: float = 15.0  # seconds
+
+
+async def _stream_with_heartbeat(
+    stream: AsyncIterator[str],
+    interval: float = SSE_HEARTBEAT_INTERVAL,
+) -> AsyncIterator[str]:
+    """Wrap async iterator with SSE heartbeat comments to prevent proxy timeout."""
+    queue: asyncio.Queue[str | None | Exception] = asyncio.Queue()
+
+    async def _producer() -> None:
+        try:
+            async for chunk in stream:
+                await queue.put(chunk)
+            await queue.put(None)  # EOF sentinel
+        except Exception as exc:
+            await queue.put(exc)
+
+    task = asyncio.create_task(_producer())
+    last_activity = asyncio.get_event_loop().time()
+
+    try:
+        while True:
+            elapsed = asyncio.get_event_loop().time() - last_activity
+            timeout = max(0.1, interval - elapsed)
+
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                last_activity = asyncio.get_event_loop().time()
+                continue
+
+            if item is None:
+                yield "data: [DONE]\n\n"
+                return
+
+            if isinstance(item, Exception):
+                raise item
+
+            yield f"data: {item}\n\n"
+            last_activity = asyncio.get_event_loop().time()
+
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+# --- Legacy endpoints (under /api/v1 via wrapper) ---------------------------
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -87,19 +139,28 @@ async def chat_stream(
     trace_id = uuid.uuid4().hex
     _logger.info("Chat stream handler start: trace_id=%s", trace_id)
 
-    async def event_generator() -> AsyncIterator[str]:
+    async def _llm_stream() -> AsyncIterator[str]:
         try:
             async for chunk in state.chat_manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
                 metadata={**req.metadata, "trace_id": trace_id},
             ):
-                yield f"data: {chunk}\n\n"
-            yield "data: [DONE]\n\n"
+                yield chunk
         except AdapterError as exc:
             _logger.warning(
                 "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
             )
+            raise
+        except Exception:
+            _logger.exception("Stream failed", extra={"trace_id": trace_id})
+            raise
+
+    async def event_generator() -> AsyncIterator[str]:
+        try:
+            async for item in _stream_with_heartbeat(_llm_stream()):
+                yield item
+        except AdapterError:
             payload = json.dumps(
                 {
                     "error": "LLM service temporarily unavailable. Please try again later."
@@ -107,18 +168,13 @@ async def chat_stream(
             )
             yield f"data: {payload}\n\n"
         except Exception:
-            _logger.exception("Stream failed", extra={"trace_id": trace_id})
             payload = json.dumps({"error": "Internal server error"})
             yield f"data: {payload}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-# --- OpenAI-compatible endpoints (stay at root /v1/*) ---
-
-
-# Cache model list per config object (config is immutable at runtime)
-_model_list_cache: dict[int, OAIModelList] = {}
+# --- OpenAI-compatible endpoints (stay at root /v1/*) ---------------------
 
 
 @router_oai.get("/v1/models", response_model=OAIModelList)
@@ -126,15 +182,10 @@ async def list_models(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIModelList:
     cfg = state.config.llm
-    cache_key = id(cfg)
-    if cache_key not in _model_list_cache:
-        models = cfg.available_models if cfg.available_models else []
-        if not models:
-            models = [cfg.model]
-        _model_list_cache[cache_key] = OAIModelList(
-            data=[OAIModel(id=m) for m in models]
-        )
-    return _model_list_cache[cache_key]
+    models = cfg.available_models if cfg.available_models else []
+    if not models:
+        models = [cfg.model]
+    return OAIModelList(data=[OAIModel(id=m) for m in models])
 
 
 @router_oai.post("/v1/chat/completions", response_model=None)
@@ -142,12 +193,17 @@ async def openai_chat_completions(
     req: OAIChatCompletionRequest,
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
-
     last_user_msg = ""
     for m in reversed(req.messages):
         if m.role == "user" and m.content is not None:
             last_user_msg = m.content
             break
+
+    if not last_user_msg.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="At least one user message with non-empty content is required.",
+        )
 
     conv_id = str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -156,7 +212,7 @@ async def openai_chat_completions(
 
     if req.stream:
 
-        async def event_generator() -> AsyncIterator[str]:
+        async def _llm_stream() -> AsyncIterator[str]:
             try:
                 async for chunk in state.chat_manager.stream_chat(
                     message=last_user_msg,
@@ -173,12 +229,23 @@ async def openai_chat_completions(
                             )
                         ],
                     )
-                    yield f"data: {delta.model_dump_json()}\n\n"
-                yield "data: [DONE]\n\n"
+                    yield delta.model_dump_json()
             except AdapterError as exc:
                 _logger.warning(
                     "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
                 )
+                raise
+            except Exception:
+                _logger.exception(
+                    "OpenAI stream failed", extra={"trace_id": trace_id}
+                )
+                raise
+
+        async def event_generator() -> AsyncIterator[str]:
+            try:
+                async for item in _stream_with_heartbeat(_llm_stream()):
+                    yield item
+            except AdapterError:
                 payload = json.dumps(
                     {
                         "error": "LLM service temporarily unavailable. Please try again later."
@@ -186,7 +253,6 @@ async def openai_chat_completions(
                 )
                 yield f"data: {payload}\n\n"
             except Exception:
-                _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 payload = json.dumps({"error": "Internal server error"})
                 yield f"data: {payload}\n\n"
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import sys
 import threading
 from pathlib import Path
@@ -61,7 +62,12 @@ def setup_logging(
             path = Path(log_file)
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                fh = logging.FileHandler(path, encoding="utf-8")
+                fh = logging.handlers.RotatingFileHandler(
+                    path,
+                    maxBytes=10 * 1024 * 1024,
+                    backupCount=2,
+                    encoding="utf-8",
+                )
                 fh.setFormatter(formatter)
                 logger.addHandler(fh)
             except OSError as exc:

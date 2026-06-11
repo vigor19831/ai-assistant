@@ -146,28 +146,32 @@ def _find_llama_server_exe() -> Path | None:
 def _prepare_subprocess_kwargs(port: int | None = None, detached: bool = False) -> dict[str, Any]:
     """Return cross-platform kwargs to hide console and isolate process group.
 
-    stdout/stderr go to log files — llama-server.exe is a console app
-    and dies on Windows if both console is hidden AND pipes are DEVNULL.
+    Each server writes to its own log file. Old logs are rotated on startup.
     """
     project_root = Path(__file__).parent.parent
-    log_dir = project_root / "data"          # ← было "logs", стало "data"
+    log_dir = project_root / "data"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Open log files for append (one per port, or generic if no port)
     suffix = f"_{port}" if port else ""
-    out_log = open(log_dir / f"llama_server{suffix}_out.log", "a", encoding="utf-8")
-    err_log = open(log_dir / f"llama_server{suffix}_err.log", "a", encoding="utf-8")
-    ...
+    log_path = log_dir / f"server{suffix}.log"
+
+    # Simple rotation: if file > 10MB, rename to .old
+    if log_path.exists() and log_path.stat().st_size > 10 * 1024 * 1024:
+        old = log_path.with_suffix(".log.old")
+        if old.exists():
+            old.unlink()
+        log_path.rename(old)
+
+    log_file = log_path.open("a", encoding="utf-8")
 
     kwargs: dict[str, Any] = {
-        "stdout": out_log,
-        "stderr": err_log,
+        "stdout": log_file,
+        "stderr": subprocess.STDOUT,
         "stdin": subprocess.DEVNULL,
-        "close_fds": True,  # ← не наследовать дескрипторы лаунчера
+        "close_fds": True,
     }
     if os.name == "nt":
         if detached:
-            # Полное отцепление от консоли: сервер НЕ умрёт при закрытии лаунчера
             kwargs["creationflags"] = (
                 subprocess.CREATE_NEW_PROCESS_GROUP
                 | subprocess.CREATE_NO_WINDOW
@@ -175,7 +179,7 @@ def _prepare_subprocess_kwargs(port: int | None = None, detached: bool = False) 
         else:
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
+            startupinfo.wShowWindow = 0
             kwargs["startupinfo"] = startupinfo
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -303,8 +307,8 @@ def _start_uvicorn_background(host: str, port: int, project_root: Path, detached
     kwargs["env"] = env
 
     proc = subprocess.Popen(cmd, **kwargs)
-    server_pid_file = project_root / "data" / "server.pid"
-    server_pid_file.write_text(str(proc.pid), encoding="utf-8")
+    uvicorn_pid_file = project_root / "data" / "uvicorn.pid"
+    uvicorn_pid_file.write_text(str(proc.pid), encoding="utf-8")
     return proc.pid
 
 
@@ -320,8 +324,9 @@ def main() -> int:
     project_root = Path(__file__).parent.parent.resolve()
     (project_root / "data").mkdir(parents=True, exist_ok=True)
 
-    # Очищаем старые PID-файлы перед стартом
+    # Clean up old PID files before start
     (project_root / "data" / "server.pid").unlink(missing_ok=True)
+    (project_root / "data" / "uvicorn.pid").unlink(missing_ok=True)
     (project_root / "data" / "llama-server.pid").unlink(missing_ok=True)
 
     config = get_config()
@@ -330,7 +335,7 @@ def main() -> int:
 
     print(f"[start] host={host}, port={port}", flush=True)
 
-    # Только в foreground режиме регистрируем cleanup при выходе
+    # Register cleanup on exit only in foreground mode
     if args.foreground:
         import atexit
         atexit.register(_cleanup_servers)
@@ -366,9 +371,22 @@ def main() -> int:
     print(f"[start] Starting uvicorn on {host}:{port}...", flush=True)
     pid = _start_uvicorn_background(host, port, project_root, detached=not args.foreground)
 
-    time.sleep(1.0)
-    if not is_port_in_use(port):
-        print(f"[start] WARNING: Uvicorn did not bind quickly", flush=True)
+    # Wait for uvicorn to actually respond to HTTP
+    uvicorn_ready = False
+    for _ in range(30):  # 30 × 0.5s = 15s max
+        time.sleep(0.5)
+        try:
+            resp = httpx.get(f"http://{host}:{port}/health", timeout=2.0)
+            if resp.status_code == 200:
+                uvicorn_ready = True
+                break
+        except Exception:
+            pass
+
+    if not uvicorn_ready:
+        print(f"[start] ERROR: Uvicorn failed to start on {host}:{port}", flush=True)
+        _cleanup_servers()
+        return 1
 
     print(f"[start] Uvicorn PID: {pid}", flush=True)
     print(f"[start] Server ready at http://{host}:{port}", flush=True)

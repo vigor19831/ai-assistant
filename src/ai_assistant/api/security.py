@@ -39,7 +39,7 @@ def get_expected_api_key() -> str | None:
     Callers that have AppState should prefer state.config.security.api_key.
     This function exists for code paths without AppState access.
     """
-    env_key = os.getenv("AI_API_KEY")
+    env_key = os.getenv("AI_SECURITY_API_KEY")
     if env_key is not None:
         return env_key or None
     with _lock:

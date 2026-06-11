@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-10 07:50:58 UTC | **Mode:** `compact`
-> **Metrics:** 177 files | 98 Python | 14,696 LOC
-> **Full:** 47 | **Signatures:** 21 | **Listed:** 102
+> **Generated:** 2026-06-11 08:34:33 UTC | **Mode:** `compact`
+> **Metrics:** 119 files | 98 Python | 14,650 LOC
+> **Full:** 46 | **Signatures:** 21 | **Listed:** 45
 
 ---
 
@@ -201,7 +201,7 @@ Response format:
 <<<<<<< FIND
 def old_function():
     pass
-====================
+=========
 def new_function():
     # new logic
     pass
@@ -242,6 +242,22 @@ Feature conflicts with Absolute Constraint:
 - `docs/` is source of truth. Code must match docs. If conflict, update docs first.
 - When proposing core change, explain: what breaks, what improves, alternatives.
 
+## FastAPI DI and Ruff type-checking rules
+
+With `from __future__ import annotations`, all annotations are strings
+at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
+
+- **TC002** (third-party): `Request`, `Response` must stay in runtime imports
+  for FastAPI DI and middleware. Use `# noqa: TC002` on specific lines.
+  `runtime-evaluated-decorators` does not cover all cases (e.g. methods
+  in BaseHTTPMiddleware, functions used via Annotated[...]).
+- **TC003** (stdlib): disabled globally. `Callable`, `Awaitable` are
+  needed for module-level type annotations. Stdlib imports are cheap;
+  per-file `noqa` does not scale.
+
+Do NOT use `request: Any` — breaks FastAPI DI with 422.
+Do NOT move `Request` under `TYPE_CHECKING` — same result.
+
 ```
 
 ---
@@ -250,7 +266,7 @@ Feature conflicts with Absolute Constraint:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-10 07:50 UTC
+> Auto-generated from source code. Updated: 2026-06-11 08:34 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -269,76 +285,76 @@ Feature conflicts with Absolute Constraint:
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 84 |
 | `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 88 |
 | `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 100 |
-| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 169 |
+| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 182 |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 70 |
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 256 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 155 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 157 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 159 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 161 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 163 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 165 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 167 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 169 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 188 |
-| `api.deps` | `ValueError` | Unknown step: {...} | High | 92 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 156 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 158 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 160 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 162 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 164 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 166 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 168 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 187 |
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 91 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
-| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 250 |
-| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 277 |
-| `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 29 |
-| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 42 |
+| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 262 |
+| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 289 |
+| `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
+| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 43 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
-| `features.chat.handlers` | `HTTPException` | Unknown error | High | 36 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 279 |
-| `features.rag.handlers` | `HTTPException` | Unknown error | High | 249 |
+| `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 280 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 360 |
+| `features.rag.handlers` | `HTTPException` | Unknown error | High | 250 |
 | `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 265 |
 | `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
 | `tests.test_malformed_sse` | `ValueError` | Error with "quotes" and 
  newlines | High | 99 |
 | `tests.test_rag_pipeline` | `RuntimeError` | down | High | 310 |
-| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 376 |
-| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 407 |
-| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 649 |
-| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 625 |
-| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 680 |
+| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 390 |
+| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 421 |
+| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 663 |
+| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 639 |
+| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 694 |
 | `tests.test_resilience` | `RuntimeError` | shutdown boom | High | 272 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
-| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 168 |
-| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 226 |
-| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 250 |
+| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 119 |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 181 |
+| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 243 |
+| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 261 |
+| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 110 |
+| `adapters.llm_openai_compatible` | `TypeError` | pass | Medium | 149 |
 | `adapters.reranker_api` | `KeyError/TypeError` | raise AdapterError(f"Unexpected rerank response shape: {exc} | Medium | 74 |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 82 |
 | `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 23 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss: Any = None  # type: ignore[assignment, no-redef] | Medium | 17 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss'... | Medium | 354 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 126 |
-| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 96 |
-| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 66 |
-| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 117 |
-| `api.lifespan` | `Exception` | logger.exception("Adapter '%s' shutdown failed", name) | Medium | 135 |
-| `api.lifespan` | `OSError` | logger.warning("Failed to write PID file: %s", exc) | Medium | 73 |
-| `api.lifespan` | `OSError` | logger.warning("Failed to remove PID file: %s", exc) | Medium | 88 |
-| `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out: %s/%s", index_path, ns | Medium | 114 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 125 |
+| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 78 |
+| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 65 |
+| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 99 |
+| `api.lifespan` | `Exception` | logger.exception("Adapter '%s' shutdown failed", name) | Medium | 117 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out: %s/%s", index_path, ns | Medium | 96 |
 | `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
-| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 276 |
-| `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 60 |
-| `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 33 |
-| `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 37 |
-| `core.logger` | `OSError` | logger.error("Failed to create log file %s: %s", path, exc) | Medium | 67 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 366 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception( | Medium | 424 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 132 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 173 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 238 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 303 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 331 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 371 |
-| `core.pipeline_steps` | `Exception` | content = f"Error: {e}" | Medium | 413 |
+| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 288 |
+| `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 59 |
+| `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
+| `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
+| `core.logger` | `OSError` | logger.error("Failed to create log file %s: %s", path, exc) | Medium | 73 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 364 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 129 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 170 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 236 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 301 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 329 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 369 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 64 |
@@ -349,29 +365,33 @@ Feature conflicts with Absolute Constraint:
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
 | `core.utils` | `KeyError` | try: | Medium | 76 |
 | `core.utils` | `OSError` | return None | Medium | 63 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 65 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 99 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 70 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 109 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed", extra={"trace_id": | Medium | 188 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 206 |
-| `features.chat.handlers` | `HTTPException` | raise | Medium | 68 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 270 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 216 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 233 |
-| `features.chat.manager` | `Exception` | logger.error( | Medium | 272 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 117 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 150 |
+| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 163 |
+| `features.chat.handlers` | `Exception` | await queue.put(exc) | Medium | 66 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 122 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 155 |
+| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 170 |
+| `features.chat.handlers` | `Exception` | _logger.exception( | Medium | 238 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 272 |
+| `features.chat.handlers` | `HTTPException` | raise | Medium | 120 |
+| `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
+| `features.chat.handlers` | `item` | Raised item | Medium | 89 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 271 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 217 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 234 |
+| `features.chat.manager` | `Exception` | logger.error( | Medium | 273 |
 | `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 312 |
-| `features.chat.manager` | `NotImplementedError` | stream_chat tool calls are not handled | Medium | 326 |
-| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 58 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 137 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 198 |
-| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 227 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 258 |
-| `features.rag.handlers` | `Exception` | return { | Medium | 296 |
+| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 59 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 138 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 199 |
+| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 228 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 259 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 297 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 342 |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
 | `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
-| `tests.test_api_e2e` | `OSError` | return False | Medium | 519 |
+| `tests.test_api_e2e` | `OSError` | return False | Medium | 538 |
 | `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 96 |
 | `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 218 |
 | `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 249 |
@@ -394,6 +414,7 @@ Feature conflicts with Absolute Constraint:
 | 1 | Fixed 2026-06-09: get_context_limit() added to ILLM port. All adapters updated.
 | 2 | Fixed 2026-06-09: NullReranker introduced. `rerank()` no longer branches on `None`. `InitializedAppState.reranker` is `IReranker` (non-optional). |
 | 3 | Fixed 2026-06-09: getattr(config, "vector_store") removed. Pydantic validation guarantees field presence. |
+| 4 | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py`, `adapters/reranker_api.py`, `adapters/storage_sqlite.py`, `adapters/vector_store_faiss.py`, `adapters/vector_store_memory.py` | Pydantic guarantees field presence via `default=` in BaseSettings/BaseModel. `getattr(config, "field", default)` masks typing issues and creates drift between port contract and adapter implementation. | Historical: added defensively before Pydantic validation was strict. | Replace all `getattr(config, "x", default)` with direct `config.x` access. Update `AppConfig` defaults if any field is optional. | Low |
 
 Rule: Do not add new drift if old pattern can be fixed properly.
 
@@ -422,6 +443,13 @@ Rule: Do not add new drift if old pattern can be fixed properly.
 | A2A protocol | research | Spec is unstable | adapters/a2a_client.py |
 | Obsidian/Notion RAG | research | Needs parsers + auth | adapters/source_*.py |
 | Quantization routing | research | Needs complexity estimator | adapters/router_quantized.py |
+| **GraphRAG** | research | Needs graph DB, entity extraction logic | adapters/graph_store_*.py, core/ports/graph.py (CORE CHANGE) |
+| **Computer Use** | research | OS permissions, safety sandbox for actions | adapters/computer_use_*.py, core/ports/tools.py |
+| **LLM-as-a-Judge** | planned | Needs secondary local model, eval datasets | features/eval/judge.py, adapters/llm_judge_*.py |
+| **Continuous Local Learning** | research | Needs LoRA training loop, VRAM management | scripts/fine_tune.py, adapters/llm_lora_*.py |
+| **PII Redaction & Encryption** | planned | Needs local NER model, crypto library | adapters/pii_redactor.py, core/io_utils.py (AES) |
+| **OpenTelemetry Tracing** | planned | Needs opentelemetry-api/sdk dependencies | core/tracing.py, api/middleware.py |
+| **Desktop UX / Wake-word** | research | Needs native bindings, audio stream access | adapters/wake_word_*.py, desktop/ (new top-level dir) |
 
 Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do it.
 
@@ -435,74 +463,12 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
     .gitignore
     README.md
     config.yaml
+    diagnose.bat
+    diagnose.ps1
     launcher.py
-    open_terminal.bat
+    open_cmd.bat
+    open_powershell.bat
     pyproject.toml
-.hypothesis/
-    .gitignore
-    constants/
-        00d08ecc206d19a2
-        0585d7640825984e
-        062da15881e1bbb7
-        09a41c9330c54cbb
-        0a9a37d490bd2ac6
-        0e1b7747ffb570b8
-        176e90709ffa84f7
-        1b59a22bfae375a7
-        2662f70833eb6408
-        2688d4818152a3f0
-        282b46720b0ddba7
-        2a8974ef0c253e79
-        2b435b261dfccfee
-        2e0038433715aceb
-        300be2b7c00adf58
-        322332130093caec
-        42c8d01dab10446b
-        4bf5a448f35f8728
-        4d88e9cd295ba4ef
-        541fc1ef81e2b11b
-        547983fd2998eac5
-        567fa9acd526ce98
-        5a77869d21ccf7f0
-        5d66fcc73a312cf6
-        5fc7d4bcf0afee3f
-        615e23ae8ae8791c
-        68badcc12bc11d16
-        68e2d4459133caa9
-        68f3440fc8ca5bc7
-        6da8554b62c95f25
-        72ba1bf5d8575399
-        741d481446237029
-        759bc06ff6015ad0
-        7aa6bbe0ad659d13
-        87a7bbad2f5939b7
-        8bfcfc15e19711e1
-        8cb43f130c8f3a11
-        8cfdcaffaa4b0f87
-        96f4f4bb8a38cc52
-        998d41ea1cd58455
-        9bfda43d3142e126
-        9de8f462b119ca6c
-        a0f8740ab7f36456
-        a8fb8e08977b0f0f
-        a9be3382e044cca6
-        ad9e26883aa2bf95
-        b1ed91e5d16f251d
-        bb0442e72e6ec747
-        bb1fe1dc12b93764
-        bd3fbe66aa331706
-        c4fc542fc2c4a028
-        cd30ec032838cc80
-        cdd098fb9d7cc65a
-        de1cc2969519f477
-        e902c4e5c34386c2
-        eff07b744e4ce459
-        f9bdda99a335f491
-        fc0f735ee28793ba
-    unicode_data/
-        15.1.0/
-            charmap.json.gz
-            codec-utf-8.json.gz
 docs/
     ai_rules.md
     drift.md
@@ -660,6 +626,7 @@ tests/
   - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.adapters.llm_mock: MockLLM`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
   - → `ai_assistant.api.deps: InitializedAppState, init_adapters`
   - → `ai_assistant.api.lifespan: lifespan`
@@ -705,7 +672,7 @@ tests/
   - → `ai_assistant.core.ports.llm: ILLM, Message`
 - `src/ai_assistant/adapters/llm_openai_compatible.py`
   - → `ai_assistant.core.domain.errors: AdapterError`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
+  - → `ai_assistant.core.domain.messages: AssistantMessage`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.closable: IClosable`
   - → `ai_assistant.core.ports.llm: ILLM, Message`
@@ -748,7 +715,7 @@ tests/
 - `src/ai_assistant/api/lifespan.py`
   - → `ai_assistant.api.deps: init_adapters`
   - → `ai_assistant.api.security: get_expected_api_key, set_api_key`
-  - → `ai_assistant.api.static: _mount_static`
+  - → `ai_assistant.api.static: mount_static`
   - → `ai_assistant.core.config: AppConfig, load_config`
   - → `ai_assistant.core.logger: get_logger, setup_logging`
 - `src/ai_assistant/api/middleware.py`
@@ -765,12 +732,11 @@ tests/
 - `src/ai_assistant/core/pipeline_steps.py`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED, AdapterError`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.metrics: increment_counter`
   - → `ai_assistant.core.ports.llm: Message`
-  - → `ai_assistant.core.ports.tools: ToolCall`
   - → `ai_assistant.core.prompts: get_prompt`
   - → `ai_assistant.core.retry: with_retry`
   - → `ai_assistant.core.utils: count_tokens`
@@ -804,6 +770,7 @@ tests/
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
+  - → `ai_assistant.core.ports.llm: Message`
   - → `ai_assistant.core.ports: ILLM, IChatStorage, IEmbedder, IReranker, IVectorStore`
   - → `ai_assistant.core.prompts: get_prompt`
   - → `ai_assistant.core.utils: count_tokens`
@@ -814,7 +781,7 @@ tests/
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.features.rag.indexing: index_folder`
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
-  - → `ai_assistant.features.rag.schemas: DeleteRequest, DeleteResponse, HealthResponse, IndexRequest, IndexResponse, NamespaceListResponse, QueryRequest, QueryResponse, SaveChatRequest`
+  - → `ai_assistant.features.rag.schemas: DeleteRequest, DeleteResponse, HealthResponse, IndexRequest, IndexResponse, NamespaceListResponse, QueryRequest, QueryResponse, ReindexRequest, SaveChatRequest`
 - `src/ai_assistant/features/rag/indexing.py`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.features.rag.manager: IndexingManager`
@@ -956,11 +923,9 @@ tests/
   - → `ai_assistant.core.domain.pipeline: PipelineData`
 - `tests/test_rag_pipeline.py`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
-  - → `ai_assistant.adapters.llm_mock: MockLLM`
   - → `ai_assistant.adapters.reranker_null: NullReranker`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.core.config: LLMConfig`
   - → `ai_assistant.core.constants: RAG_NS_MAP`
   - → `ai_assistant.core.constants: RAG_NS_MAP, RAG_PREFIX_RE`
   - → `ai_assistant.core.constants: RAG_PREFIX_RE`
@@ -1003,7 +968,7 @@ tests/
   - → `ai_assistant.api.security: SECURITY_MAX_BODY, check_request_size, get_expected_api_key, require_api_key, set_api_key`
 - `tests/test_smoke_pyproject.py`
   - → `ai_assistant`
-  - → `ai_assistant.api.static: _mount_static`
+  - → `ai_assistant.api.static: mount_static`
   - → `ai_assistant.api: deps`
   - → `ai_assistant.api: lifespan`
 - `tests/test_stress.py`
@@ -1020,7 +985,6 @@ tests/
 
 ### Full Content
 - `.gitignore`
-- `.hypothesis/.gitignore`
 - `README.md`
 - `config.yaml`
 - `pyproject.toml`
@@ -1092,67 +1056,10 @@ tests/
 
 ### Listed Only (no content)
 - `.gitattributes`
-- `.hypothesis/constants/00d08ecc206d19a2`
-- `.hypothesis/constants/0585d7640825984e`
-- `.hypothesis/constants/062da15881e1bbb7`
-- `.hypothesis/constants/09a41c9330c54cbb`
-- `.hypothesis/constants/0a9a37d490bd2ac6`
-- `.hypothesis/constants/0e1b7747ffb570b8`
-- `.hypothesis/constants/176e90709ffa84f7`
-- `.hypothesis/constants/1b59a22bfae375a7`
-- `.hypothesis/constants/2662f70833eb6408`
-- `.hypothesis/constants/2688d4818152a3f0`
-- `.hypothesis/constants/282b46720b0ddba7`
-- `.hypothesis/constants/2a8974ef0c253e79`
-- `.hypothesis/constants/2b435b261dfccfee`
-- `.hypothesis/constants/2e0038433715aceb`
-- `.hypothesis/constants/300be2b7c00adf58`
-- `.hypothesis/constants/322332130093caec`
-- `.hypothesis/constants/42c8d01dab10446b`
-- `.hypothesis/constants/4bf5a448f35f8728`
-- `.hypothesis/constants/4d88e9cd295ba4ef`
-- `.hypothesis/constants/541fc1ef81e2b11b`
-- `.hypothesis/constants/547983fd2998eac5`
-- `.hypothesis/constants/567fa9acd526ce98`
-- `.hypothesis/constants/5a77869d21ccf7f0`
-- `.hypothesis/constants/5d66fcc73a312cf6`
-- `.hypothesis/constants/5fc7d4bcf0afee3f`
-- `.hypothesis/constants/615e23ae8ae8791c`
-- `.hypothesis/constants/68badcc12bc11d16`
-- `.hypothesis/constants/68e2d4459133caa9`
-- `.hypothesis/constants/68f3440fc8ca5bc7`
-- `.hypothesis/constants/6da8554b62c95f25`
-- `.hypothesis/constants/72ba1bf5d8575399`
-- `.hypothesis/constants/741d481446237029`
-- `.hypothesis/constants/759bc06ff6015ad0`
-- `.hypothesis/constants/7aa6bbe0ad659d13`
-- `.hypothesis/constants/87a7bbad2f5939b7`
-- `.hypothesis/constants/8bfcfc15e19711e1`
-- `.hypothesis/constants/8cb43f130c8f3a11`
-- `.hypothesis/constants/8cfdcaffaa4b0f87`
-- `.hypothesis/constants/96f4f4bb8a38cc52`
-- `.hypothesis/constants/998d41ea1cd58455`
-- `.hypothesis/constants/9bfda43d3142e126`
-- `.hypothesis/constants/9de8f462b119ca6c`
-- `.hypothesis/constants/a0f8740ab7f36456`
-- `.hypothesis/constants/a8fb8e08977b0f0f`
-- `.hypothesis/constants/a9be3382e044cca6`
-- `.hypothesis/constants/ad9e26883aa2bf95`
-- `.hypothesis/constants/b1ed91e5d16f251d`
-- `.hypothesis/constants/bb0442e72e6ec747`
-- `.hypothesis/constants/bb1fe1dc12b93764`
-- `.hypothesis/constants/bd3fbe66aa331706`
-- `.hypothesis/constants/c4fc542fc2c4a028`
-- `.hypothesis/constants/cd30ec032838cc80`
-- `.hypothesis/constants/cdd098fb9d7cc65a`
-- `.hypothesis/constants/de1cc2969519f477`
-- `.hypothesis/constants/e902c4e5c34386c2`
-- `.hypothesis/constants/eff07b744e4ce459`
-- `.hypothesis/constants/f9bdda99a335f491`
-- `.hypothesis/constants/fc0f735ee28793ba`
-- `.hypothesis/unicode_data/15.1.0/charmap.json.gz`
-- `.hypothesis/unicode_data/15.1.0/codec-utf-8.json.gz`
-- `open_terminal.bat`
+- `diagnose.bat`
+- `diagnose.ps1`
+- `open_cmd.bat`
+- `open_powershell.bat`
 - `scripts/audit_project.py`
 - `scripts/check_all.py`
 - `scripts/check_llm.py`
@@ -1268,20 +1175,6 @@ MagicMock/
 
 ```
 
-### `.hypothesis/.gitignore`
-```text
-# This .gitignore file was automatically created by Hypothesis. Hypothesis gitignores
-# .hypothesis by default, because we generally recommend that .hypothesis not be checked
-# into version control.
-#
-# If you *would* like to check .hypothesis into version control, you should delete this
-# file. Hypothesis will not re-create this .gitignore unless .hypothesis is deleted (and
-# if it does, that's a bug - please report it!)
-
-*
-
-```
-
 ### `README.md`
 ```text
 # AI Assistant
@@ -1376,7 +1269,7 @@ All rights reserved. For personal use only.
 
 # ── Приложение ──
 app_name: ai-assistant
-debug: false
+debug: true
 host: 0.0.0.0
 port: 8000
 config_version: "1.5.0"
@@ -1503,7 +1396,6 @@ namespaces:
 # ── Безопасность ──
 security:
   api_key: sk-local-api-key
-  rate_limit: "100/minute"
   max_body_size: 10485760
   allowed_hosts: ["localhost", "127.0.0.1"]
 
@@ -1567,7 +1459,7 @@ extend-exclude = ["scripts/", "tests/", "vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH"]
-ignore = ["E501"]
+ignore = ["E501", "TC003"]  # TC003: stdlib typing-only imports are cheap, not worth the noise with FastAPI DI
 
 [tool.mypy]
 python_version = "3.13"
@@ -1674,8 +1566,11 @@ async def update_api_key(
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable  # ← добавить Callable сюда
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires runtime
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.core.config import AppConfig, RAGStep
@@ -1685,10 +1580,6 @@ from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.features.chat.manager import ChatManager
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from starlette.requests import Request
-
     from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports import (
         ILLM,
@@ -1871,7 +1762,6 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai_assistant.api.deps import init_adapters
@@ -1901,9 +1791,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     config = _load_config()
     app.state.config = config
 
-    from ai_assistant.api.static import _mount_static
+    from ai_assistant.api.static import mount_static
 
-    _mount_static(app, config)
+    mount_static(app, config)
 
     log_file = config.log_file
     if log_file is None:
@@ -1932,27 +1822,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("Index load failed on startup")
 
-    pid_file = Path("data/server.pid")
-    try:
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(pid_file.write_text, str(os.getpid()), encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Failed to write PID file: %s", exc)
-
     try:
         yield
     finally:
         await _async_cleanup(app, config)
-        _cleanup(app, config, pid_file)
-
-
-def _cleanup(app: FastAPI, config: AppConfig, pid_file: Path) -> None:
-    """Synchronous cleanup actions."""
-    if pid_file.exists():
-        try:
-            pid_file.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("Failed to remove PID file: %s", exc)
 
 
 async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
@@ -2010,16 +1883,15 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable, Callable
 
+from fastapi import Response  # noqa: TC002  # BaseHTTPMiddleware dispatch uses runtime
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import (
+    Request,  # noqa: TC002  # BaseHTTPMiddleware dispatch uses runtime
+)
 
 from ai_assistant.core.metrics import increment_counter, observe_histogram
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from fastapi import Request, Response
 
 __all__ = ["MetricsMiddleware"]
 
@@ -2150,7 +2022,7 @@ def get_expected_api_key() -> str | None:
     Callers that have AppState should prefer state.config.security.api_key.
     This function exists for code paths without AppState access.
     """
-    env_key = os.getenv("AI_API_KEY")
+    env_key = os.getenv("AI_SECURITY_API_KEY")
     if env_key is not None:
         return env_key or None
     with _lock:
@@ -2208,10 +2080,10 @@ from fastapi.staticfiles import StaticFiles
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-__all__ = ["_mount_static"]
+__all__ = ["mount_static"]
 
 
-def _mount_static(app: FastAPI, config: Any) -> None:
+def mount_static(app: FastAPI, config: Any) -> None:
     """Mount /ui once, only if directory exists."""
     if getattr(app.state, "static_mounted", False):
         return
@@ -2431,7 +2303,6 @@ class SecurityConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AI_SECURITY_", extra="forbid")
     api_key: str | None = None
-    rate_limit: str = "100/minute"
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
 
@@ -2503,6 +2374,19 @@ class AppConfig(BaseSettings):
             # Strip the removed field so VectorStoreConfig(extra="forbid") doesn't choke
             vs = {k: val for k, val in vs.items() if k != "relevance_threshold"}
             v = {**v, "vector_store": vs}
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_security_rate_limit(cls, v: Any) -> Any:
+        """Backward-compatible loader: strip removed security.rate_limit field."""
+        if not isinstance(v, dict):
+            return v
+        sec = v.get("security")
+        if isinstance(sec, dict) and "rate_limit" in sec:
+            # rate_limit was removed — strip it so SecurityConfig(extra="forbid") doesn't choke
+            sec = {k: val for k, val in sec.items() if k != "rate_limit"}
+            v = {**v, "security": sec}
         return v
 
     @model_validator(mode="after")
@@ -2807,7 +2691,6 @@ class PipelineData:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import os
 import tempfile
 from pathlib import Path
@@ -2869,8 +2752,10 @@ async def atomic_write(
                 finally:
                     os.close(dir_fd)
         finally:
-            with contextlib.suppress(OSError):
-                os.unlink(tmp)
+            # os.replace() already atomically removes tmp on success.
+            # On failure (before replace), tmp may remain; mkstemp creates
+            # files in a temp dir that the OS cleans up. No unlink needed.
+            pass
 
     await asyncio.to_thread(_sync)
 
@@ -2883,6 +2768,7 @@ async def atomic_write(
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import sys
 import threading
 from pathlib import Path
@@ -2941,7 +2827,12 @@ def setup_logging(
             path = Path(log_file)
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                fh = logging.FileHandler(path, encoding="utf-8")
+                fh = logging.handlers.RotatingFileHandler(
+                    path,
+                    maxBytes=10 * 1024 * 1024,
+                    backupCount=2,
+                    encoding="utf-8",
+                )
                 fh.setFormatter(formatter)
                 logger.addHandler(fh)
             except OSError as exc:
@@ -3144,14 +3035,12 @@ class RAGPipeline:
 ### `src/ai_assistant/core/pipeline_steps.py`
 ```python
 """RAG pipeline steps with namespace and rerank support.
-
 All steps return new PipelineData instances via dataclasses.replace().
 No in-place mutation.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -3165,16 +3054,15 @@ from ai_assistant.core.domain.errors import (
     VECTOR_STORE_NOT_PROVIDED,
     AdapterError,
 )
-from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
-from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import count_tokens
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
@@ -3238,7 +3126,7 @@ async def _call_search(
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_llm(llm: Any, messages: list[Message]) -> AssistantMessage:
+async def _call_llm(llm: Any, messages: Sequence[Message]) -> AssistantMessage:
     """Call LLM with retry."""
     return await llm.complete(messages)
 
@@ -3342,12 +3230,13 @@ async def rerank(data: PipelineData) -> PipelineData:
         return replace(data)
 
     reranker = data.metadata.get("reranker")
+    assert reranker is not None  # ← FIX: api/deps гарантирует NullReranker fallback
     # reranker is guaranteed non-None by api/deps (NullReranker fallback)
     # No branching on None — keeps pipeline pure.
 
     try:
         _raw_query = data.query.text if data.query is not None else None
-        query = _raw_query if _raw_query is not None else ""
+        query = _raw_query if _raw_query is not None else " "
         top_k = data.metadata.get("top_k", 5)
         threshold = data.metadata.get("relevance_threshold", 0.3)
 
@@ -3462,9 +3351,9 @@ async def generate(data: PipelineData) -> PipelineData:
         _logger.warning("generate: no query", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_MISSING)
 
-    query_text = data.query.text or ""
-    prompt_version = data.metadata["prompt_version"]
-    prompt_name = data.metadata["prompt_name"]
+    query_text = data.query.text or "  "
+    prompt_version = data.metadata.get("prompt_version", "v1")
+    prompt_name = data.metadata.get("prompt_name", "rag_strict")
 
     try:
         prompt = get_prompt(
@@ -3491,14 +3380,14 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt_tokens = _estimate_tokens(prompt)
         if prompt_tokens > limit:
             error_msg = (
-                f"generate: prompt too long ({prompt_tokens} tokens) "
-                f"exceeds limit ({limit})"
+                f"generate: prompt too long ({prompt_tokens} tokens)  "
+                f"exceeds limit ({limit}) "
             )
             return data.add_error(error_msg).with_response(
                 AssistantMessage(
                     text=(
-                        "Sorry, the retrieved context is too large "
-                        "to process. Please narrow your query."
+                        "Sorry, the retrieved context is too large  "
+                        "to process. Please narrow your query. "
                     )
                 )
             )
@@ -3519,77 +3408,12 @@ async def generate(data: PipelineData) -> PipelineData:
         )
         return data.add_error(INTERNAL_SERVER_ERROR).with_response(
             AssistantMessage(
-                text="Sorry, I encountered an error generating the response."
+                text="Sorry, I encountered an error generating the response. "
             )
         )
 
-    max_iterations = data.metadata.get("max_tool_iterations", 5)
-    iteration = 0
-
-    # Tool calling loop – each LLM call is also retried via _call_llm
-    while response and response.tool_calls:
-        if iteration >= max_iterations:
-            error_msg = (
-                f"generate: tool loop exceeded max iterations ({max_iterations})"
-            )
-            return data.add_error(error_msg).with_response(
-                AssistantMessage(text="Tool limit reached")
-            )
-        iteration += 1
-        messages.append(response)
-        tool_registry = data.metadata.get("tool_registry")
-        if tool_registry:
-            for call in response.tool_calls:
-                try:
-                    func = call.get("function", {})
-                    tool_name = func.get("name", "")
-                    arguments = json.loads(func.get("arguments", "{}"))
-                    tc = ToolCall(
-                        tool_name=tool_name,
-                        arguments=arguments,
-                        call_id=call.get("id", ""),
-                    )
-                    result = await tool_registry.dispatch(tc)
-                    content = (
-                        result.output
-                        if not result.is_error
-                        else f"Error: {result.error}"
-                    )
-                except Exception as e:
-                    content = f"Error: {e}"
-                messages.append(
-                    ToolMessage(
-                        content=str(content),
-                        tool_call_id=call.get("id", ""),
-                    )
-                )
-            # Next LLM call (with tool results)
-            try:
-                response = await _call_llm(llm, messages)
-            except AdapterError:
-                # Intentional bypass — same reasoning as the main LLM call.
-                _logger.exception(
-                    "LLM unavailable during tool follow-up",
-                    extra={"trace_id": data.trace_id},
-                )
-                raise
-            except Exception:
-                _logger.exception(
-                    "tool follow-up call failed after retries",
-                    extra={"trace_id": data.trace_id},
-                )
-                response = AssistantMessage(text="Sorry, a tool call failed.")
-                break
-        else:
-            break
-
-    final_response = (
-        response
-        if response
-        else AssistantMessage(text="Sorry, tool call loop exhausted.")
-    )
     _logger.info("generate done", extra={"trace_id": data.trace_id})
-    return data.with_response(final_response)
+    return data.with_response(response)
 
 
 @step("hyde_query")
@@ -3626,7 +3450,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         )
         return data.add_error(INTERNAL_SERVER_ERROR)
 
-    hyde_text = hyde_resp.text or ""
+    hyde_text = hyde_resp.text or " "
     if not hyde_text:
         return data.add_error("hyde_query: empty hypothetical answer")
 
@@ -4535,9 +4359,11 @@ async def async_get_tokenizer(
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
+from contextlib import suppress
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -4574,11 +4400,61 @@ def _raise_llm_unavailable(exc: AdapterError) -> None:
 
 _logger = get_logger("chat.handlers")
 
-
 router = APIRouter(tags=["chat"])
 router_oai = APIRouter(tags=["chat-oai"])
 
-# --- Legacy endpoints (under /api/v1 via wrapper) ---
+# --- Heartbeat helper -------------------------------------------------------
+
+SSE_HEARTBEAT_INTERVAL: float = 15.0  # seconds
+
+
+async def _stream_with_heartbeat(
+    stream: AsyncIterator[str],
+    interval: float = SSE_HEARTBEAT_INTERVAL,
+) -> AsyncIterator[str]:
+    """Wrap async iterator with SSE heartbeat comments to prevent proxy timeout."""
+    queue: asyncio.Queue[str | None | Exception] = asyncio.Queue()
+
+    async def _producer() -> None:
+        try:
+            async for chunk in stream:
+                await queue.put(chunk)
+            await queue.put(None)  # EOF sentinel
+        except Exception as exc:
+            await queue.put(exc)
+
+    task = asyncio.create_task(_producer())
+    last_activity = asyncio.get_event_loop().time()
+
+    try:
+        while True:
+            elapsed = asyncio.get_event_loop().time() - last_activity
+            timeout = max(0.1, interval - elapsed)
+
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=timeout)
+            except asyncio.TimeoutError:
+                yield ": ping\n\n"
+                last_activity = asyncio.get_event_loop().time()
+                continue
+
+            if item is None:
+                yield "data: [DONE]\n\n"
+                return
+
+            if isinstance(item, Exception):
+                raise item
+
+            yield f"data: {item}\n\n"
+            last_activity = asyncio.get_event_loop().time()
+
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+# --- Legacy endpoints (under /api/v1 via wrapper) ---------------------------
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -4620,19 +4496,28 @@ async def chat_stream(
     trace_id = uuid.uuid4().hex
     _logger.info("Chat stream handler start: trace_id=%s", trace_id)
 
-    async def event_generator() -> AsyncIterator[str]:
+    async def _llm_stream() -> AsyncIterator[str]:
         try:
             async for chunk in state.chat_manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
                 metadata={**req.metadata, "trace_id": trace_id},
             ):
-                yield f"data: {chunk}\n\n"
-            yield "data: [DONE]\n\n"
+                yield chunk
         except AdapterError as exc:
             _logger.warning(
                 "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
             )
+            raise
+        except Exception:
+            _logger.exception("Stream failed", extra={"trace_id": trace_id})
+            raise
+
+    async def event_generator() -> AsyncIterator[str]:
+        try:
+            async for item in _stream_with_heartbeat(_llm_stream()):
+                yield item
+        except AdapterError:
             payload = json.dumps(
                 {
                     "error": "LLM service temporarily unavailable. Please try again later."
@@ -4640,18 +4525,13 @@ async def chat_stream(
             )
             yield f"data: {payload}\n\n"
         except Exception:
-            _logger.exception("Stream failed", extra={"trace_id": trace_id})
             payload = json.dumps({"error": "Internal server error"})
             yield f"data: {payload}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-# --- OpenAI-compatible endpoints (stay at root /v1/*) ---
-
-
-# Cache model list per config object (config is immutable at runtime)
-_model_list_cache: dict[int, OAIModelList] = {}
+# --- OpenAI-compatible endpoints (stay at root /v1/*) ---------------------
 
 
 @router_oai.get("/v1/models", response_model=OAIModelList)
@@ -4659,15 +4539,10 @@ async def list_models(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIModelList:
     cfg = state.config.llm
-    cache_key = id(cfg)
-    if cache_key not in _model_list_cache:
-        models = cfg.available_models if cfg.available_models else []
-        if not models:
-            models = [cfg.model]
-        _model_list_cache[cache_key] = OAIModelList(
-            data=[OAIModel(id=m) for m in models]
-        )
-    return _model_list_cache[cache_key]
+    models = cfg.available_models if cfg.available_models else []
+    if not models:
+        models = [cfg.model]
+    return OAIModelList(data=[OAIModel(id=m) for m in models])
 
 
 @router_oai.post("/v1/chat/completions", response_model=None)
@@ -4675,12 +4550,17 @@ async def openai_chat_completions(
     req: OAIChatCompletionRequest,
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
-
     last_user_msg = ""
     for m in reversed(req.messages):
         if m.role == "user" and m.content is not None:
             last_user_msg = m.content
             break
+
+    if not last_user_msg.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="At least one user message with non-empty content is required.",
+        )
 
     conv_id = str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -4689,7 +4569,7 @@ async def openai_chat_completions(
 
     if req.stream:
 
-        async def event_generator() -> AsyncIterator[str]:
+        async def _llm_stream() -> AsyncIterator[str]:
             try:
                 async for chunk in state.chat_manager.stream_chat(
                     message=last_user_msg,
@@ -4706,12 +4586,23 @@ async def openai_chat_completions(
                             )
                         ],
                     )
-                    yield f"data: {delta.model_dump_json()}\n\n"
-                yield "data: [DONE]\n\n"
+                    yield delta.model_dump_json()
             except AdapterError as exc:
                 _logger.warning(
                     "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
                 )
+                raise
+            except Exception:
+                _logger.exception(
+                    "OpenAI stream failed", extra={"trace_id": trace_id}
+                )
+                raise
+
+        async def event_generator() -> AsyncIterator[str]:
+            try:
+                async for item in _stream_with_heartbeat(_llm_stream()):
+                    yield item
+            except AdapterError:
                 payload = json.dumps(
                     {
                         "error": "LLM service temporarily unavailable. Please try again later."
@@ -4719,7 +4610,6 @@ async def openai_chat_completions(
                 )
                 yield f"data: {payload}\n\n"
             except Exception:
-                _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 payload = json.dumps({"error": "Internal server error"})
                 yield f"data: {payload}\n\n"
 
@@ -4894,6 +4784,7 @@ from ai_assistant.features.rag.schemas import (
     NamespaceListResponse,
     QueryRequest,
     QueryResponse,
+    ReindexRequest,
     SaveChatRequest,
 )
 
@@ -5176,13 +5067,12 @@ async def save_chat(
 
 @router.post("/reindex", response_model=None)
 async def reindex_documents(
-    req: dict[str, Any],
+    req: ReindexRequest,
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> dict[str, Any]:
     """Reindex documents from folders. Returns immediately, runs in background."""
-    folder = req.get("folder")
-    clear = req.get("clear", False)
-
+    folder = req.folder
+    clear = req.clear
     task_id = str(uuid.uuid4())
 
     async def _run() -> dict[str, Any]:
@@ -5257,6 +5147,7 @@ __all__ = [
     "NamespaceListResponse",
     "QueryRequest",
     "QueryResponse",
+    "ReindexRequest",
     "SaveChatRequest",
 ]
 
@@ -5345,6 +5236,17 @@ class SaveChatRequest(BaseModel):
         default="chat.md",
         pattern=r"^[^./\\][^/\\]*$",
         description="Filename without path traversal",
+    )
+
+
+class ReindexRequest(BaseModel):
+    """Request to reindex documents from folders."""
+
+    folder: str | None = Field(
+        default=None, description="Specific folder to index, or None for all."
+    )
+    clear: bool = Field(
+        default=False, description="If True, clear existing chunks before indexing."
     )
 
 ```
@@ -5474,7 +5376,7 @@ import json
 from typing import TYPE_CHECKING, Any
 import httpx
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         IReranker,
         IVectorStore,
     )
+    from ai_assistant.core.ports.llm import Message
 
 __all__ = ["ChatManager"]
 
@@ -195,14 +196,14 @@ class ChatManager:
         prompt_for_llm: str,
         conversation_id: str,
         metadata: dict[str, Any] | None = None,
-    ) -> list[UserMessage | AssistantMessage | dict[str, Any]]:
+    ) -> list[Message]:
         """Build message list with history, system prompt, and token trimming.
 
         Loads conversation history from storage, trims it to fit the token
         budget, and prepends historical messages before the current user message.
         """
         user_msg = UserMessage(text=prompt_for_llm, metadata=metadata or {})
-        messages: list[UserMessage | AssistantMessage | dict[str, Any]] = [user_msg]
+        messages: list[Message] = [user_msg]
 
         if self.storage:
             try:
@@ -288,7 +289,6 @@ class ChatManager:
         response = AssistantMessage(
             text=self._append_rag_sources(response.text or "", rag_chunks),
             metadata=response.metadata,
-            tool_calls=response.tool_calls,
         )
 
         if self.storage:
@@ -320,7 +320,70 @@ class ChatManager:
         conversation_id: str,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """Stream chat response."""
-        if False:
-            yield
-        raise NotImplementedError("stream_chat tool calls are not handled")
+        """Stream chat response token by token."""
+        meta = metadata or {}
+        trace_id = meta.get("trace_id")
+        logger.info(
+            "Stream request: conv=%s, msg_len=%d, trace_id=%s",
+            conversation_id,
+            len(message),
+            trace_id or "none",
+        )
+
+        # Graceful degradation: RAG requested but infrastructure unavailable
+        if _PREFIX_RE.match(message) and not self.pipeline:
+            yield "Document search (RAG) temporarily unavailable."
+            return
+
+        prompt_for_llm, original_query, rag_chunks = await self._retrieve_context(
+            message, trace_id=trace_id
+        )
+
+        messages = await self._build_messages(
+            prompt_for_llm, conversation_id, metadata=meta
+        )
+
+        full_response = ""
+        try:
+            async for chunk in self.llm.stream(messages):
+                full_response += chunk
+                yield chunk
+        except AdapterError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Stream failed: conv=%s, trace_id=%s, error=%s",
+                conversation_id,
+                trace_id or "none",
+                exc,
+            )
+            raise AdapterError(f"LLM stream failed: {exc}") from exc
+
+        logger.info(
+            "Stream response: conv=%s, trace_id=%s, resp_len=%d",
+            conversation_id,
+            trace_id or "none",
+            len(full_response),
+        )
+
+        # Save to history after streaming completes
+        if self.storage:
+            try:
+                await self.storage.save_message(
+                    conversation_id,
+                    {
+                        "role": "user",
+                        "content": original_query,
+                        "metadata": meta,
+                    },
+                )
+                await self.storage.save_message(
+                    conversation_id,
+                    {
+                        "role": "assistant",
+                        "content": self._append_rag_sources(full_response, rag_chunks),
+                        "metadata": {},
+                    },
+                )
+            except Exception as exc:
+                logger.warning("History save failed: %s", exc)

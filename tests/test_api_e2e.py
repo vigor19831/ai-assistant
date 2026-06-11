@@ -143,7 +143,6 @@ class TestChatOffline:
 
 class TestOpenAICompatibleOffline:
     """OpenAI-compatible endpoints for Page Assist."""
-
     def test_list_models(self, client):
         resp = client.get("/v1/models")
         assert resp.status_code == 200
@@ -152,22 +151,31 @@ class TestOpenAICompatibleOffline:
         assert len(data["data"]) > 0
         assert all("id" in m for m in data["data"])
 
-    def test_chat_completions_non_stream(self, client):
+    def test_chat_completions_empty_user_message(self, client):
         resp = client.post(
             "/v1/chat/completions",
             json={
                 "model": "local",
-                "messages": [{"role": "user", "content": "Hello"}],
+                "messages": [{"role": "system", "content": "test"}],
                 "stream": False,
             },
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["object"] == "chat.completion"
-        assert data["choices"][0]["message"]["role"] == "assistant"
-        assert data["choices"][0]["finish_reason"] == "stop"
+        assert resp.status_code == 400
+        assert "non-empty content" in resp.json()["detail"]
 
-    def test_chat_completions_stream(self, client):
+    def test_chat_completions_whitespace_user_message(self, client):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "local",
+                "messages": [{"role": "user", "content": "   "}],
+                "stream": False,
+            },
+        )
+        assert resp.status_code == 400
+        assert "non-empty content" in resp.json()["detail"]
+
+    def test_chat_completions_non_stream(self, client):
         resp = client.post(
             "/v1/chat/completions",
             json={
@@ -347,6 +355,17 @@ class TestRAGOffline:
         )
         assert resp.status_code == 200
         assert resp.json()["namespace"] == "personal"
+
+    def test_reindex_request_validation(self, client):
+        """Reindex endpoint should validate input types."""
+        resp = client.post(
+            "/api/v1/rag/reindex",
+            json={"folder": 123, "clear": False},
+        )
+        assert resp.status_code == 422
+        errors = resp.json()["detail"]
+        assert isinstance(errors, list)
+        assert any(e.get("loc") == ["body", "folder"] for e in errors)
 
     def test_reindex_returns_started_immediately(self, client, tmp_path, monkeypatch):
         """POST /api/v1/rag/reindex returns task_id immediately without blocking."""

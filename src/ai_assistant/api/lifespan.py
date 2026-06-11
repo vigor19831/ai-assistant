@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ai_assistant.api.deps import init_adapters
@@ -35,9 +34,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     config = _load_config()
     app.state.config = config
 
-    from ai_assistant.api.static import _mount_static
+    from ai_assistant.api.static import mount_static
 
-    _mount_static(app, config)
+    mount_static(app, config)
 
     log_file = config.log_file
     if log_file is None:
@@ -66,27 +65,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.exception("Index load failed on startup")
 
-    pid_file = Path("data/server.pid")
-    try:
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(pid_file.write_text, str(os.getpid()), encoding="utf-8")
-    except OSError as exc:
-        logger.warning("Failed to write PID file: %s", exc)
-
     try:
         yield
     finally:
         await _async_cleanup(app, config)
-        _cleanup(app, config, pid_file)
-
-
-def _cleanup(app: FastAPI, config: AppConfig, pid_file: Path) -> None:
-    """Synchronous cleanup actions."""
-    if pid_file.exists():
-        try:
-            pid_file.unlink(missing_ok=True)
-        except OSError as exc:
-            logger.warning("Failed to remove PID file: %s", exc)
 
 
 async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:

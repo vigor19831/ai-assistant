@@ -1,12 +1,10 @@
 """RAG pipeline steps with namespace and rerank support.
-
 All steps return new PipelineData instances via dataclasses.replace().
 No in-place mutation.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -20,16 +18,15 @@ from ai_assistant.core.domain.errors import (
     VECTOR_STORE_NOT_PROVIDED,
     AdapterError,
 )
-from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
-from ai_assistant.core.ports.tools import ToolCall
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import count_tokens
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
@@ -93,7 +90,7 @@ async def _call_search(
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_llm(llm: Any, messages: list[Message]) -> AssistantMessage:
+async def _call_llm(llm: Any, messages: Sequence[Message]) -> AssistantMessage:
     """Call LLM with retry."""
     return await llm.complete(messages)
 
@@ -197,12 +194,13 @@ async def rerank(data: PipelineData) -> PipelineData:
         return replace(data)
 
     reranker = data.metadata.get("reranker")
+    assert reranker is not None  # ← FIX: api/deps гарантирует NullReranker fallback
     # reranker is guaranteed non-None by api/deps (NullReranker fallback)
     # No branching on None — keeps pipeline pure.
 
     try:
         _raw_query = data.query.text if data.query is not None else None
-        query = _raw_query if _raw_query is not None else ""
+        query = _raw_query if _raw_query is not None else " "
         top_k = data.metadata.get("top_k", 5)
         threshold = data.metadata.get("relevance_threshold", 0.3)
 
@@ -317,9 +315,9 @@ async def generate(data: PipelineData) -> PipelineData:
         _logger.warning("generate: no query", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_MISSING)
 
-    query_text = data.query.text or ""
-    prompt_version = data.metadata["prompt_version"]
-    prompt_name = data.metadata["prompt_name"]
+    query_text = data.query.text or "  "
+    prompt_version = data.metadata.get("prompt_version", "v1")
+    prompt_name = data.metadata.get("prompt_name", "rag_strict")
 
     try:
         prompt = get_prompt(
@@ -346,14 +344,14 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt_tokens = _estimate_tokens(prompt)
         if prompt_tokens > limit:
             error_msg = (
-                f"generate: prompt too long ({prompt_tokens} tokens) "
-                f"exceeds limit ({limit})"
+                f"generate: prompt too long ({prompt_tokens} tokens)  "
+                f"exceeds limit ({limit}) "
             )
             return data.add_error(error_msg).with_response(
                 AssistantMessage(
                     text=(
-                        "Sorry, the retrieved context is too large "
-                        "to process. Please narrow your query."
+                        "Sorry, the retrieved context is too large  "
+                        "to process. Please narrow your query. "
                     )
                 )
             )
@@ -374,77 +372,12 @@ async def generate(data: PipelineData) -> PipelineData:
         )
         return data.add_error(INTERNAL_SERVER_ERROR).with_response(
             AssistantMessage(
-                text="Sorry, I encountered an error generating the response."
+                text="Sorry, I encountered an error generating the response. "
             )
         )
 
-    max_iterations = data.metadata.get("max_tool_iterations", 5)
-    iteration = 0
-
-    # Tool calling loop – each LLM call is also retried via _call_llm
-    while response and response.tool_calls:
-        if iteration >= max_iterations:
-            error_msg = (
-                f"generate: tool loop exceeded max iterations ({max_iterations})"
-            )
-            return data.add_error(error_msg).with_response(
-                AssistantMessage(text="Tool limit reached")
-            )
-        iteration += 1
-        messages.append(response)
-        tool_registry = data.metadata.get("tool_registry")
-        if tool_registry:
-            for call in response.tool_calls:
-                try:
-                    func = call.get("function", {})
-                    tool_name = func.get("name", "")
-                    arguments = json.loads(func.get("arguments", "{}"))
-                    tc = ToolCall(
-                        tool_name=tool_name,
-                        arguments=arguments,
-                        call_id=call.get("id", ""),
-                    )
-                    result = await tool_registry.dispatch(tc)
-                    content = (
-                        result.output
-                        if not result.is_error
-                        else f"Error: {result.error}"
-                    )
-                except Exception as e:
-                    content = f"Error: {e}"
-                messages.append(
-                    ToolMessage(
-                        content=str(content),
-                        tool_call_id=call.get("id", ""),
-                    )
-                )
-            # Next LLM call (with tool results)
-            try:
-                response = await _call_llm(llm, messages)
-            except AdapterError:
-                # Intentional bypass — same reasoning as the main LLM call.
-                _logger.exception(
-                    "LLM unavailable during tool follow-up",
-                    extra={"trace_id": data.trace_id},
-                )
-                raise
-            except Exception:
-                _logger.exception(
-                    "tool follow-up call failed after retries",
-                    extra={"trace_id": data.trace_id},
-                )
-                response = AssistantMessage(text="Sorry, a tool call failed.")
-                break
-        else:
-            break
-
-    final_response = (
-        response
-        if response
-        else AssistantMessage(text="Sorry, tool call loop exhausted.")
-    )
     _logger.info("generate done", extra={"trace_id": data.trace_id})
-    return data.with_response(final_response)
+    return data.with_response(response)
 
 
 @step("hyde_query")
@@ -481,7 +414,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         )
         return data.add_error(INTERNAL_SERVER_ERROR)
 
-    hyde_text = hyde_resp.text or ""
+    hyde_text = hyde_resp.text or " "
     if not hyde_text:
         return data.add_error("hyde_query: empty hypothetical answer")
 

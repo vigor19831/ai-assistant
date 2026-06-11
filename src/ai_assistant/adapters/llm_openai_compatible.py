@@ -11,11 +11,7 @@ if TYPE_CHECKING:
 import httpx
 
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import (
-    AssistantMessage,
-    ToolMessage,
-    UserMessage,
-)
+from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -54,8 +50,9 @@ class OpenAICompatibleLLM(ILLM, IClosable):
     def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for m in messages:
-            if isinstance(m, UserMessage):
-                content = m.text or ""
+            role = getattr(m, "role", None)
+            if role == "user":
+                content = getattr(m, "text", "") or ""
                 image = getattr(m, "image", None)
                 if image is not None:
                     parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
@@ -81,20 +78,21 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                     out.append({"role": "user", "content": parts})
                 else:
                     out.append({"role": "user", "content": content})
-            elif isinstance(m, AssistantMessage):
+            elif role == "assistant":
                 msg: dict[str, Any] = {
                     "role": "assistant",
-                    "content": m.text or "",
+                    "content": getattr(m, "text", "") or "",
                 }
-                if m.tool_calls:
-                    msg["tool_calls"] = m.tool_calls
+                tool_calls = getattr(m, "tool_calls", None)
+                if tool_calls:
+                    msg["tool_calls"] = tool_calls
                 out.append(msg)
-            elif isinstance(m, ToolMessage):
+            elif role == "tool":
                 out.append(
                     {
                         "role": "tool",
-                        "content": m.content,
-                        "tool_call_id": m.tool_call_id,
+                        "content": getattr(m, "content", ""),
+                        "tool_call_id": getattr(m, "tool_call_id", ""),
                     }
                 )
             else:
@@ -105,20 +103,22 @@ class OpenAICompatibleLLM(ILLM, IClosable):
     @staticmethod
     def _parse_tool_calls(raw: Any) -> list[dict[str, Any]]:
         """Validate and normalize tool_calls from OpenAI API response."""
-        if not isinstance(raw, list):
+        if raw is None:
+            return []
+        try:
+            parsed_raw = list(raw)
+        except TypeError:
             return []
         parsed: list[dict[str, Any]] = []
-        for tc in raw:
-            if not isinstance(tc, dict):
+        for tc in parsed_raw:
+            try:
+                tid = tc.get("id")
+                ttype = tc.get("type")
+                func = tc.get("function", {})
+                name = func.get("name")
+            except AttributeError:
                 _logger.warning("Skipping non-dict tool_call: %s", tc)
                 continue
-            tid = tc.get("id")
-            ttype = tc.get("type")
-            func = tc.get("function", {})
-            if not isinstance(func, dict):
-                _logger.warning("Skipping tool_call without function dict: %s", tc)
-                continue
-            name = func.get("name")
             if ttype == "function":
                 if not tid or not name:
                     _logger.warning("Skipping incomplete function tool_call: %s", tc)
@@ -136,6 +136,19 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             else:
                 _logger.warning("Unknown tool_call type %r; skipping: %s", ttype, tc)
         return parsed
+
+    def get_context_limit(self) -> int | None:
+        """Return context limit from config."""
+        cfg = self.config
+        for attr in ("context_size", "server_context_size", "max_tokens"):
+            limit = getattr(cfg, attr, None)
+            try:
+                # Duck typing: check numeric via comparison
+                if limit is not None and limit > 0:
+                    return int(limit)
+            except TypeError:
+                pass
+        return None
 
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
     async def _complete_impl(
@@ -191,7 +204,11 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AsyncIterator[str]:
-        """Actual streaming implementation."""
+        """Actual streaming implementation.
+
+        Tool calls in streaming mode are ignored — IToolRegistry is not
+        implemented (FUTURE.md: blocked). Only text content is yielded.
+        """
         url = f"{self.api_base}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -240,25 +257,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                             )
                             return
                         yield content
-                    tcd = delta.get("tool_calls")
-                    if tcd:
-                        _logger.warning(
-                            "Tool calls in streaming mode are not supported by current "
-                            "ILLM contract; received %d delta(s). Ignoring.",
-                            len(tcd),
-                        )
+                    # tool_calls in delta are ignored — see docstring
                 except (KeyError, IndexError, TypeError) as exc:
                     _logger.warning("Malformed SSE: %s (%s)", obj, exc)
                     continue
-
-    def get_context_limit(self) -> int | None:
-        """Return context limit from config."""
-        cfg = self.config
-        for attr in ("context_size", "server_context_size", "max_tokens"):
-            limit = getattr(cfg, attr, None)
-            if isinstance(limit, (int, float)) and limit > 0:
-                return int(limit)
-        return None
 
     async def stream(
         self,

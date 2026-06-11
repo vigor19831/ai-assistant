@@ -29,12 +29,8 @@ class MockLLM(ILLM):
             last = "..."
         else:
             msg = messages[-1]
-            candidate = getattr(msg, "text", None)
-            if candidate is None:
-                get = getattr(msg, "get", None)
-                if get is not None:
-                    candidate = get("text")
-            last = candidate if candidate is not None else "..."
+            # Duck typing: ToolMessage has .content, UserMessage/AssistantMessage have .text
+            last = getattr(msg, "content", None) or getattr(msg, "text", None) or "..."
         return AssistantMessage(text=f"[MOCK LLM] Echo: {last}")
 
     async def stream(

@@ -78,3 +78,5 @@ def create_app(
         return get_metrics_json()
 
     return app
+
+app = create_app()

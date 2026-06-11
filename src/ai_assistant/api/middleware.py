@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable, Callable
 
+from fastapi import Response  # noqa: TC002  # BaseHTTPMiddleware dispatch uses runtime
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import (
+    Request,  # noqa: TC002  # BaseHTTPMiddleware dispatch uses runtime
+)
 
 from ai_assistant.core.metrics import increment_counter, observe_histogram
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from fastapi import Request, Response
 
 __all__ = ["MetricsMiddleware"]
 

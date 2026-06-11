@@ -25,6 +25,7 @@ embedder:
 
 llm:
   provider: mock
+  model: mock-model
   api_base: http://127.0.0.1:9990
   max_tokens: 128
   temperature: 0.7

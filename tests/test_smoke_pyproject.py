@@ -123,10 +123,10 @@ def test_lifespan_does_not_import_main():
 
 
 def test_mount_static_in_api_layer():
-    """_mount_static must live in api.static, not in entry point."""
-    from ai_assistant.api.static import _mount_static
+    """mount_static must live in api.static, not in entry point."""
+    from ai_assistant.api.static import mount_static
 
-    assert callable(_mount_static)
+    assert callable(mount_static)
 
 
 def test_key_modules_import_without_cycles():

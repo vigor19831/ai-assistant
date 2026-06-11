@@ -10,10 +10,10 @@ from fastapi.staticfiles import StaticFiles
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-__all__ = ["_mount_static"]
+__all__ = ["mount_static"]
 
 
-def _mount_static(app: FastAPI, config: Any) -> None:
+def mount_static(app: FastAPI, config: Any) -> None:
     """Mount /ui once, only if directory exists."""
     if getattr(app.state, "static_mounted", False):
         return

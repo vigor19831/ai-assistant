@@ -24,6 +24,7 @@ from ai_assistant.features.rag.schemas import (
     NamespaceListResponse,
     QueryRequest,
     QueryResponse,
+    ReindexRequest,
     SaveChatRequest,
 )
 
@@ -306,13 +307,12 @@ async def save_chat(
 
 @router.post("/reindex", response_model=None)
 async def reindex_documents(
-    req: dict[str, Any],
+    req: ReindexRequest,
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> dict[str, Any]:
     """Reindex documents from folders. Returns immediately, runs in background."""
-    folder = req.get("folder")
-    clear = req.get("clear", False)
-
+    folder = req.folder
+    clear = req.clear
     task_id = str(uuid.uuid4())
 
     async def _run() -> dict[str, Any]:

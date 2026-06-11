@@ -420,13 +420,13 @@ def menu():
 
     print("\nВыберите режим:")
     for i, opt in enumerate(options, 1):
-        marker = ">" if i == 1 else " "
+        marker = ">" if i == 2 else " "
         print(f"  {marker} [{i}] {opt}")
 
     while True:
-        raw = input("\nВыбор [1-3], Enter = 1: ").strip()
+        raw = input("\nВыбор [1-3], Enter = 2: ").strip()
         if raw == "":
-            return "rules"
+            return "compact"
         if raw.isdigit() and 1 <= int(raw) <= 3:
             return ["rules", "compact", "full"][int(raw) - 1]
         print("Неверный ввод")

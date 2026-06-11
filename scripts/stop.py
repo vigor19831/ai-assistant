@@ -179,7 +179,8 @@ def main() -> int:
     data_dir = project_root / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    server_pid_file = data_dir / "server.pid"
+    uvicorn_pid_file = data_dir / "uvicorn.pid"
+    legacy_pid_file = data_dir / "server.pid"
     llama_pid_file = data_dir / "llama-server.pid"
     port = _get_config_port(project_root)
     api_ports = _get_api_ports(project_root)
@@ -189,18 +190,23 @@ def main() -> int:
     # ── 1. Main uvicorn server ──
     uvicorn_stopped = False
     pid: int | None = None
+    used_pid_file: Path | None = None
 
-    if server_pid_file.exists():
-        try:
-            pid = int(server_pid_file.read_text(encoding="utf-8").strip())
-        except ValueError:
-            print("  Invalid server PID file, removing.")
-            server_pid_file.unlink()
+    # Prefer new uvicorn.pid, fallback to legacy server.pid
+    for pid_file in (uvicorn_pid_file, legacy_pid_file):
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text(encoding="utf-8").strip())
+                used_pid_file = pid_file
+                break
+            except ValueError:
+                print(f"  Invalid PID file {pid_file.name}, removing.")
+                pid_file.unlink()
 
     if pid is not None and is_running(pid):
         uvicorn_stopped = _kill_graceful(pid, "uvicorn")
     elif pid is not None:
-        print(f"  PID {pid} from server.pid already dead.")
+        print(f"  PID {pid} from {used_pid_file.name} already dead.")
 
     # Fallback: find by port
     if not uvicorn_stopped:
