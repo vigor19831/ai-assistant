@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-12 06:36:12 UTC | **Mode:** `compact`
-> **Metrics:** 116 files | 99 Python | 14,471 LOC
-> **Full:** 46 | **Signatures:** 21 | **Listed:** 42
+> **Generated:** 2026-06-12 19:27:50 UTC | **Mode:** `compact`
+> **Metrics:** 105 files | 88 Python | 15,259 LOC
+> **Full:** 46 | **Signatures:** 21 | **Listed:** 31
 
 ---
 
@@ -35,12 +35,12 @@ pip install -e ".[faiss]"
 # llm.api_base: http://127.0.0.1:8080/v1
 # llm.model: имя-модели-на-сервере
 
-# 4. Запуск (из корня проекта, .venv активируется автоматически)
-python start.py              # запуск LLM + embedder + uvicorn
-python stop.py               # остановка всех серверов
+# 4. Запуск (из корня проекта, .venv активируется автоматически или будут подсказки по установке)
+Кликаем дважды на run.py
+
 
 # Или вручную:
-python scripts/start.py
+python scripts/run.py
 python main.py
 uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
 
@@ -52,7 +52,7 @@ uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
 ## RAG — поиск по документам
 
 ```bash
-# Индексация документов
+# Индексация документов (ПЕРЕСМОТРЕТЬ РАСПОЛОЖЕНИЕ ФАЙЛА)
 python scripts/index_documents.py
 ```
 
@@ -89,7 +89,8 @@ python scripts/index_documents.py
 
 ---
 
-All rights reserved. For personal use onl
+All rights reserved. For personal use only.
+
 ```
 
 ---
@@ -267,7 +268,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-12 06:36 UTC
+> Auto-generated from source code. Updated: 2026-06-12 19:27 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -286,6 +287,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 84 |
 | `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 88 |
 | `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 100 |
+| `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 103 |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 182 |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 70 |
@@ -313,17 +315,15 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 281 |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 361 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 250 |
-| `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 265 |
-| `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
-| `tests.test_malformed_sse` | `ValueError` | Error with "quotes" and 
- newlines | High | 99 |
-| `tests.test_rag_pipeline` | `RuntimeError` | down | High | 310 |
-| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 390 |
-| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 421 |
-| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 663 |
-| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 639 |
-| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 694 |
-| `tests.test_resilience` | `RuntimeError` | shutdown boom | High | 272 |
+| `tests.test_api` | `HTTPException` | Unknown error | High | 1401 |
+| `tests.test_api` | `RuntimeError` | boom | High | 1466 |
+| `tests.test_api` | `ValueError` | No storage adapter registered | High | 653 |
+| `tests.test_e2e` | `ValueError` | Error with "quotes" and 
+ newlines | High | 179 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 552 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 582 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 604 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 559 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
 | `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 119 |
@@ -391,14 +391,10 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `features.rag.handlers` | `Exception` | return { | Medium | 297 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 342 |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
-| `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
-| `tests.test_api_e2e` | `OSError` | return False | Medium | 538 |
-| `tests.test_chat_manager_direct` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 37 |
-| `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 96 |
-| `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 218 |
-| `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 249 |
-| `tests.test_scripts_and_platform` | `ImportError` | Cannot load {...} | Medium | 28 |
-| `tests.test_smoke_pyproject` | `AssertionError` | {...} not found in dependencies | Medium | 65 |
+| `tests.test_api` | `Exception` | errors.append(e) | Medium | 356 |
+| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 676 |
+| `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
+| `tests.test_smoke` | `Exception` | return req, None, None | Medium | 466 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.
 
@@ -477,13 +473,10 @@ docs/
     todo_done.md
 scripts/
     audit_project.py
-    check_all.py
     check_llm.py
-    check_mutations.py
     check_mypy.py
     check_rag.py
     check_ruff.py
-    check_smoke.py
     clean_cache.py
     context_build.py
     download_tokenizers.py
@@ -492,7 +485,6 @@ scripts/
     kill.py
     launcher.py
     open_shell.py
-    pre_commit_check.py
     run_all_tests.py
     structure.py
 src/
@@ -570,27 +562,20 @@ src/
                 manager.py
                 schemas.py
 tests/
-    __init__.py
-    config.test.yaml
     conftest.py
-    test_adapters_integration.py
-    test_api_deps.py
-    test_api_e2e.py
-    test_chat_manager_direct.py
+    pytest.ini
+    test_adapters.py
+    test_api.py
+    test_chat.py
     test_config.py
     test_contracts.py
-    test_core_critical.py
-    test_fuzz.py
-    test_lifespan.py
-    test_malformed_sse.py
-    test_pipeline_frozen_compat.py
-    test_rag_pipeline.py
-    test_resilience.py
-    test_router_compile.py
-    test_scripts_and_platform.py
-    test_security.py
-    test_smoke_pyproject.py
-    test_stress.py
+    test_domain.py
+    test_e2e.py
+    test_integration.py
+    test_pipeline.py
+    test_prompts.py
+    test_rag.py
+    test_smoke.py
     test_tokenizer.py
 ```
 
@@ -598,18 +583,6 @@ tests/
 
 ## 🔗 Dependencies
 
-- `scripts/check_all.py`
-  - → `ai_assistant.adapters.factory: create_adapter`
-  - → `ai_assistant.core.config: load_config, AppConfig, RAGStep, EmbedderConfig, VectorStoreConfig`
-  - → `ai_assistant.core.constants: RAG_NS_MAP, RAG_PREFIX_RE`
-  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
-  - → `ai_assistant.core.domain.messages: UserMessage, AssistantMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY, embed_query, retrieve, build_context, generate, rerank`
-  - → `ai_assistant.core.ports.reranker: RerankResult`
-  - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.features.rag.manager: RAGManager, IndexingManager`
-  - → `ai_assistant.main: create_app`
 - `scripts/check_llm.py`
   - → `ai_assistant.core.config: load_config`
 - `scripts/check_rag.py`
@@ -619,28 +592,6 @@ tests/
   - → `ai_assistant.core.domain.messages: UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.pipeline_steps: build_context, embed_query, retrieve`
-- `scripts/check_smoke.py`
-  - → `ai_assistant`
-  - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
-  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
-  - → `ai_assistant.adapters.factory: create_adapter`
-  - → `ai_assistant.adapters.llm_mock: MockLLM`
-  - → `ai_assistant.adapters.reranker_null: NullReranker`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.api.deps: InitializedAppState, init_adapters`
-  - → `ai_assistant.api.lifespan: lifespan`
-  - → `ai_assistant.api.security: get_expected_api_key, set_api_key`
-  - → `ai_assistant.api.security: require_api_key`
-  - → `ai_assistant.core.config: AppConfig, ChunkerConfig, EmbedderConfig, LLMConfig, RAGConfig, SecurityConfig, StorageConfig, VectorStoreConfig, load_config`
-  - → `ai_assistant.core.constants: RAG_NS_MAP`
-  - → `ai_assistant.core.domain.documents: Chunk, Document`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline_steps: embed_query, retrieve, build_context`
-  - → `ai_assistant.core.ports.tools: ITool, ToolSpec`
-  - → `ai_assistant.core.ports.tools: ToolResult`
-  - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.main: create_app`
 - `scripts/index_documents.py`
   - → `ai_assistant.api.deps: init_adapters`
   - → `ai_assistant.core.config: load_config`
@@ -798,15 +749,80 @@ tests/
   - → `ai_assistant.api.router: assemble_routers`
   - → `ai_assistant.core.metrics: get_metrics, get_metrics_json`
 - `tests/conftest.py`
-  - → `ai_assistant.api.deps: AppState`
-  - → `ai_assistant.api.deps: get_state`
-  - → `ai_assistant.core.config: load_config`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.ports.reranker: RerankResult`
   - → `ai_assistant.core: prompts`
+- `tests/test_adapters.py`
+  - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
+  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
+  - → `ai_assistant.adapters.factory: create_adapter`
+  - → `ai_assistant.adapters.llm_mock: MockLLM`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
+  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
+  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
+  - → `ai_assistant.core.domain.errors: VersionMismatchError`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.ports.reranker: RerankResult`
+- `tests/test_api.py`
+  - → `ai_assistant`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.api.admin: _UpdateApiKeyRequest, _UpdateApiKeyResponse, update_api_key`
+  - → `ai_assistant.api.deps: AppState, InitializedAppState, _STEP_MAP, _build_step_funcs, get_state, init_adapters`
+  - → `ai_assistant.api.lifespan: _async_cleanup, _load_config, lifespan`
+  - → `ai_assistant.api.middleware: MetricsMiddleware`
+  - → `ai_assistant.api.router: _OAI_TAG, _ROUTERS, assemble_routers`
+  - → `ai_assistant.api.security: SECURITY_MAX_BODY, bearer_scheme, check_request_size, get_expected_api_key, require_api_key, set_api_key`
+  - → `ai_assistant.api: admin`
+  - → `ai_assistant.core.config: AppConfig, RAGStep, load_config`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.pipeline: RAGPipeline`
+  - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY`
+  - → `ai_assistant.core: metrics`
+- `tests/test_chat.py`
+  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
+  - → `ai_assistant.core.config: NamespaceConfig`
+  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.pipeline: RAGPipeline`
+  - → `ai_assistant.core.pipeline_steps: build_context, embed_query, retrieve`
   - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.main: create_app`
-- `tests/test_adapters_integration.py`
+- `tests/test_config.py`
+  - → `ai_assistant.core.config: AppConfig, ChatConfig, ChunkerConfig, CORSConfig, LLMConfig, NamespaceConfig, RAGConfig, RAGStep, SecurityConfig, UIConfig, VectorStoreConfig, load_config`
+- `tests/test_contracts.py`
+  - → `ai_assistant.api: deps`
+  - → `ai_assistant.api: lifespan`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.ports.chunker: IChunker`
+  - → `ai_assistant.core.ports.closable: IClosable`
+  - → `ai_assistant.core.ports.embedder: IEmbedder`
+  - → `ai_assistant.core.ports.llm: ILLM`
+  - → `ai_assistant.core.ports.llm: Message`
+  - → `ai_assistant.core.ports.reranker: IReranker`
+  - → `ai_assistant.core.ports.storage: IChatStorage`
+  - → `ai_assistant.core.ports.vector_store: IVectorStore`
+  - → `ai_assistant.core.ports: IChatStorage, IChunker, IClosable, IEmbedder, ILLM, IReranker, IVectorStore`
+- `tests/test_domain.py`
+  - → `ai_assistant.core.constants: FROZEN_NO_INFO_PHRASES`
+  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, MessageRole, ToolMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.ports.tools: ToolResult`
+  - → `ai_assistant.core: prompts`
+- `tests/test_e2e.py`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.core.config: NamespaceConfig`
+  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.features.chat.manager: ChatManager`
+  - → `ai_assistant.features.rag: handlers`
+  - → `ai_assistant.features.rag: indexing`
+- `tests/test_integration.py`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
   - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
   - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
@@ -817,166 +833,50 @@ tests/
   - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.core.config: EmbedderConfig, LLMConfig`
+  - → `ai_assistant.api.deps: InitializedAppState, init_adapters`
+  - → `ai_assistant.core.config: AppConfig, EmbedderConfig, LLMConfig`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
-  - → `ai_assistant.core.domain.errors: VersionMismatchError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
-- `tests/test_api_deps.py`
-  - → `ai_assistant.adapters.reranker_null: NullReranker`
-  - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
-  - → `ai_assistant.api.deps: AppState, InitializedAppState, _STEP_MAP, get_state, init_adapters`
-  - → `ai_assistant.core.config: AppConfig, RAGStep`
+  - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
-  - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY`
-  - → `ai_assistant.core.ports.storage: IChatStorage`
-- `tests/test_api_e2e.py`
-  - → `ai_assistant`
-  - → `ai_assistant.adapters.reranker_null: NullReranker`
-  - → `ai_assistant.core.config: AppConfig, NamespaceConfig`
+  - → `ai_assistant.core.pipeline_steps: build_context, embed_query, generate, hyde_query, rerank, retrieve`
+- `tests/test_pipeline.py`
+  - → `ai_assistant.core.domain.documents: Chunk`
+  - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.pipeline_steps: build_context, embed_query, generate, hyde_query, rerank, retrieve`
+  - → `ai_assistant.core.ports.reranker: RerankResult`
+  - → `ai_assistant.core.retry: with_retry`
+- `tests/test_prompts.py`
+  - → `ai_assistant.core.prompts: _env_cache, _make_hashable, _render, get_prompt`
+  - → `ai_assistant.core.prompts: _kwargs_to_tuple`
+- `tests/test_rag.py`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
+  - → `ai_assistant.core.domain.messages: UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.pipeline: RAGPipeline`
+  - → `ai_assistant.core.pipeline_steps: rerank`
   - → `ai_assistant.features.chat.manager: ChatManager`
+  - → `ai_assistant.features.rag.indexing: index_folder`
+  - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
   - → `ai_assistant.features.rag: handlers`
   - → `ai_assistant.features.rag: indexing`
-  - → `ai_assistant.main: create_app`
-- `tests/test_chat_manager_direct.py`
-  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
-  - → `ai_assistant.adapters.reranker_null: NullReranker`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.core.config: NamespaceConfig`
-  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline: RAGPipeline`
-  - → `ai_assistant.core.pipeline_steps: build_context, embed_query, retrieve`
-  - → `ai_assistant.features.chat.manager: ChatManager`
-- `tests/test_config.py`
-  - → `ai_assistant.core.config: AppConfig`
-- `tests/test_contracts.py`
-  - → `ai_assistant.adapters.llm_mock: MockLLM`
-  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.api.deps: InitializedAppState, init_adapters`
-  - → `ai_assistant.api: deps`
-  - → `ai_assistant.api: lifespan`
-  - → `ai_assistant.core.config: AppConfig`
-  - → `ai_assistant.core.config: EmbedderConfig`
-  - → `ai_assistant.core.config: LLMConfig`
-  - → `ai_assistant.core.config: VectorStoreConfig`
-  - → `ai_assistant.core.config: load_config, LLMConfig`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
-  - → `ai_assistant.core.ports.closable: IClosable`
-  - → `ai_assistant.core.ports.llm: Message`
-  - → `ai_assistant.core.ports: IChatStorage, IChunker, IClosable, IEmbedder, ILLM, IReranker, IVectorStore`
-  - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.features.chat.schemas: ChatRequest, ChatResponse, OAIChatCompletionRequest`
-  - → `ai_assistant.features.rag.manager: RAGManager`
-  - → `ai_assistant.features.rag.schemas: IndexRequest, QueryRequest, QueryResponse`
-- `tests/test_core_critical.py`
-  - → `ai_assistant.adapters.llm_mock: MockLLM`
-  - → `ai_assistant.core.config: AppConfig`
-  - → `ai_assistant.core.config: ChatConfig`
-  - → `ai_assistant.core.config: ChunkerConfig`
-  - → `ai_assistant.core.config: LLMConfig`
-  - → `ai_assistant.core.config: VectorStoreConfig`
-  - → `ai_assistant.core.constants: FROZEN_NO_INFO_PHRASES`
-  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
-  - → `ai_assistant.core.domain.messages: MessageRole`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.ports.tools: ToolResult`
-  - → `ai_assistant.core.prompts: get_prompt`
-  - → `ai_assistant.core: prompts`
-- `tests/test_fuzz.py`
-  - → `ai_assistant.core.domain.documents: Chunk`
-  - → `ai_assistant.core.domain.messages: UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline_steps: build_context`
-- `tests/test_lifespan.py`
-  - → `ai_assistant.adapters.llm_mock: MockLLM`
-  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.api.deps: InitializedAppState, init_adapters`
-  - → `ai_assistant.api.lifespan: _async_cleanup`
-  - → `ai_assistant.api: deps`
-  - → `ai_assistant.api: lifespan`
-  - → `ai_assistant.core.config: AppConfig`
-  - → `ai_assistant.core.config: EmbedderConfig`
-  - → `ai_assistant.core.config: LLMConfig`
-  - → `ai_assistant.core.config: VectorStoreConfig`
-  - → `ai_assistant.core.config: load_config, LLMConfig`
-  - → `ai_assistant.core.ports.closable: IClosable`
-  - → `ai_assistant.core.ports: IChatStorage, IChunker, IClosable, IEmbedder, ILLM, IReranker, IVectorStore`
-  - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.features.chat.schemas: ChatRequest, ChatResponse, OAIChatCompletionRequest`
-  - → `ai_assistant.features.rag.manager: RAGManager`
-  - → `ai_assistant.features.rag.schemas: IndexRequest, QueryRequest, QueryResponse`
-- `tests/test_malformed_sse.py`
-  - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
-  - → `ai_assistant.api.deps: get_state`
-  - → `ai_assistant.core.config: LLMConfig`
-  - → `ai_assistant.core.domain.messages: UserMessage`
-  - → `ai_assistant.main: create_app`
-- `tests/test_pipeline_frozen_compat.py`
-  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-- `tests/test_rag_pipeline.py`
-  - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
-  - → `ai_assistant.adapters.reranker_null: NullReranker`
-  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.core.constants: RAG_NS_MAP`
-  - → `ai_assistant.core.constants: RAG_NS_MAP, RAG_PREFIX_RE`
-  - → `ai_assistant.core.constants: RAG_PREFIX_RE`
-  - → `ai_assistant.core.domain.documents: Chunk, Document`
-  - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED`
-  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY, build_context, embed_query, generate, hyde_query, rerank, retrieve, step`
-  - → `ai_assistant.core.ports.reranker: RerankResult`
-  - → `ai_assistant.core.ports.tools: ToolResult`
-  - → `ai_assistant.core.prompts: _render, get_prompt`
-- `tests/test_resilience.py`
-  - → `ai_assistant.adapters.reranker_null: NullReranker`
-  - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
-  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.api.lifespan: _async_cleanup`
-  - → `ai_assistant.api.lifespan: _load_config`
-  - → `ai_assistant.core.config: AppConfig, load_config`
-  - → `ai_assistant.core.config: VectorStoreConfig`
-  - → `ai_assistant.core.domain.documents: Chunk`
-  - → `ai_assistant.core.domain.errors: AdapterError`
-  - → `ai_assistant.core.domain.errors: VersionMismatchError`
-  - → `ai_assistant.core.domain.messages: UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline: RAGPipeline`
-  - → `ai_assistant.core.pipeline_steps: embed_query`
-  - → `ai_assistant.core.pipeline_steps: generate`
-  - → `ai_assistant.core.ports.closable: IClosable`
-  - → `ai_assistant.features.chat.handlers: chat`
-  - → `ai_assistant.features.chat.handlers: openai_chat_completions`
-  - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.features.chat.schemas: ChatRequest`
-  - → `ai_assistant.features.chat.schemas: OAIChatCompletionRequest, OAIChatMessage`
-- `tests/test_router_compile.py`
-  - → `ai_assistant.api.router: assemble_routers`
-- `tests/test_security.py`
-  - → `ai_assistant.api.admin: update_api_key, _UpdateApiKeyRequest`
-  - → `ai_assistant.api.deps: AppState`
-  - → `ai_assistant.api.security: SECURITY_MAX_BODY, check_request_size, get_expected_api_key, require_api_key, set_api_key`
-- `tests/test_smoke_pyproject.py`
+- `tests/test_smoke.py`
   - → `ai_assistant`
+  - → `ai_assistant.adapters.factory: __all__`
+  - → `ai_assistant.api.router: _ROUTERS, assemble_routers`
+  - → `ai_assistant.api.security: get_expected_api_key`
   - → `ai_assistant.api.static: mount_static`
   - → `ai_assistant.api: deps`
   - → `ai_assistant.api: lifespan`
-- `tests/test_stress.py`
-  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.api.deps: get_state`
-  - → `ai_assistant.core.domain.documents: Chunk`
-  - → `ai_assistant.main: create_app`
+  - → `ai_assistant.core.config: load_config, AppConfig`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.ports.tools: ITool, ToolSpec, ToolResult`
 - `tests/test_tokenizer.py`
-  - → `ai_assistant.core.utils: _resolve_tokenizer_dir, count_tokens, get_tokenizer`
+  - → `ai_assistant.core.utils: _resolve_tokenizer_dir, async_count_tokens, async_get_tokenizer, count_tokens, get_tokenizer`
 
 ---
 
@@ -1056,13 +956,10 @@ tests/
 ### Listed Only (no content)
 - `.gitattributes`
 - `scripts/audit_project.py`
-- `scripts/check_all.py`
 - `scripts/check_llm.py`
-- `scripts/check_mutations.py`
 - `scripts/check_mypy.py`
 - `scripts/check_rag.py`
 - `scripts/check_ruff.py`
-- `scripts/check_smoke.py`
 - `scripts/clean_cache.py`
 - `scripts/context_build.py`
 - `scripts/download_tokenizers.py`
@@ -1071,30 +968,22 @@ tests/
 - `scripts/kill.py`
 - `scripts/launcher.py`
 - `scripts/open_shell.py`
-- `scripts/pre_commit_check.py`
 - `scripts/run_all_tests.py`
 - `scripts/structure.py`
-- `tests/__init__.py`
-- `tests/config.test.yaml`
 - `tests/conftest.py`
-- `tests/test_adapters_integration.py`
-- `tests/test_api_deps.py`
-- `tests/test_api_e2e.py`
-- `tests/test_chat_manager_direct.py`
+- `tests/pytest.ini`
+- `tests/test_adapters.py`
+- `tests/test_api.py`
+- `tests/test_chat.py`
 - `tests/test_config.py`
 - `tests/test_contracts.py`
-- `tests/test_core_critical.py`
-- `tests/test_fuzz.py`
-- `tests/test_lifespan.py`
-- `tests/test_malformed_sse.py`
-- `tests/test_pipeline_frozen_compat.py`
-- `tests/test_rag_pipeline.py`
-- `tests/test_resilience.py`
-- `tests/test_router_compile.py`
-- `tests/test_scripts_and_platform.py`
-- `tests/test_security.py`
-- `tests/test_smoke_pyproject.py`
-- `tests/test_stress.py`
+- `tests/test_domain.py`
+- `tests/test_e2e.py`
+- `tests/test_integration.py`
+- `tests/test_pipeline.py`
+- `tests/test_prompts.py`
+- `tests/test_rag.py`
+- `tests/test_smoke.py`
 - `tests/test_tokenizer.py`
 
 ---
@@ -1165,6 +1054,7 @@ src/**/*.egg-info/
 scripts/*.pid
 scripts/*.log
 tests/.pytest_cache/
+tests/tests_run_*.log
 docs/context_build_*.md
 tests/tests_run_*.log
 MagicMock/
@@ -1201,12 +1091,12 @@ pip install -e ".[faiss]"
 # llm.api_base: http://127.0.0.1:8080/v1
 # llm.model: имя-модели-на-сервере
 
-# 4. Запуск (из корня проекта, .venv активируется автоматически)
-python start.py              # запуск LLM + embedder + uvicorn
-python stop.py               # остановка всех серверов
+# 4. Запуск (из корня проекта, .venv активируется автоматически или будут подсказки по установке)
+Кликаем дважды на run.py
+
 
 # Или вручную:
-python scripts/start.py
+python scripts/run.py
 python main.py
 uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
 
@@ -1218,7 +1108,7 @@ uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
 ## RAG — поиск по документам
 
 ```bash
-# Индексация документов
+# Индексация документов (ПЕРЕСМОТРЕТЬ РАСПОЛОЖЕНИЕ ФАЙЛА)
 python scripts/index_documents.py
 ```
 
@@ -2504,40 +2394,39 @@ __all__ = [
 
 ### `src/ai_assistant/core/domain/documents.py`
 ```python
-"""Document and chunk models."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
-__all__ = ["Chunk", "ChunkMetadata", "Document"]
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ChunkMetadata:
+    """Immutable metadata for a chunk."""
+
     source: str
     index: int
     total_chunks: int
-    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    custom: dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Chunk:
+    """Immutable text chunk with optional embedding and metadata."""
+
     id: str
     text: str
     embedding: list[float] | None = None
     metadata: ChunkMetadata | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Document:
+    """Immutable source document."""
+
     id: str
-    content: str
+    text: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    chunks: list[Chunk] = field(default_factory=list)
 
 ```
 
@@ -2586,55 +2475,43 @@ INTERNAL_SERVER_ERROR = "Internal server error"
 
 ### `src/ai_assistant/core/domain/messages.py`
 ```python
-"""Message domain models."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import Any
 
-__all__ = [
-    "AssistantMessage",
-    "MessageRole",
-    "TextPayload",
-    "ToolMessage",
-    "UserMessage",
-]
 
-
-class MessageRole(StrEnum):
-    USER = "user"
-    ASSISTANT = "assistant"
-    SYSTEM = "system"
-    TOOL = "tool"
-
-
-@dataclass(frozen=True)
-class TextPayload:
-    content: str
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class UserMessage:
-    role: MessageRole = field(default=MessageRole.USER, init=False)
+    """User message."""
+
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssistantMessage:
-    role: MessageRole = field(default=MessageRole.ASSISTANT, init=False)
-    text: str | None = None
+    """Assistant message."""
+
+    text: str
+    metadata: dict[str, Any] = field(default_factory=dict)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolMessage:
+    """Tool result message."""
+
+    text: str
+    call_id: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class ToolMessage:
-    role: MessageRole = field(default=MessageRole.TOOL, init=False)
-    content: str
-    tool_call_id: str
+@dataclass(frozen=True, slots=True)
+class SystemMessage:
+    """System message."""
+
+    text: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
 ```

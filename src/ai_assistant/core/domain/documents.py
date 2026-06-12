@@ -1,34 +1,33 @@
-"""Document and chunk models."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Any
 
-__all__ = ["Chunk", "ChunkMetadata", "Document"]
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ChunkMetadata:
+    """Immutable metadata for a chunk."""
+
     source: str
     index: int
     total_chunks: int
-    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    custom: dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Chunk:
+    """Immutable text chunk with optional embedding and metadata."""
+
     id: str
     text: str
     embedding: list[float] | None = None
     metadata: ChunkMetadata | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Document:
+    """Immutable source document."""
+
     id: str
-    content: str
+    text: str
     metadata: dict[str, Any] = field(default_factory=dict)
-    chunks: list[Chunk] = field(default_factory=list)

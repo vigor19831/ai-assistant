@@ -26,12 +26,12 @@ pip install -e ".[faiss]"
 # llm.api_base: http://127.0.0.1:8080/v1
 # llm.model: имя-модели-на-сервере
 
-# 4. Запуск (из корня проекта, .venv активируется автоматически)
-python start.py              # запуск LLM + embedder + uvicorn
-python stop.py               # остановка всех серверов
+# 4. Запуск (из корня проекта, .venv активируется автоматически или будут подсказки по установке)
+Кликаем дважды на run.py
+
 
 # Или вручную:
-python scripts/start.py
+python scripts/run.py
 python main.py
 uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
 
@@ -43,7 +43,7 @@ uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
 ## RAG — поиск по документам
 
 ```bash
-# Индексация документов
+# Индексация документов (ПЕРЕСМОТРЕТЬ РАСПОЛОЖЕНИЕ ФАЙЛА)
 python scripts/index_documents.py
 ```
 

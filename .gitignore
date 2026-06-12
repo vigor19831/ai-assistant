@@ -60,6 +60,7 @@ src/**/*.egg-info/
 scripts/*.pid
 scripts/*.log
 tests/.pytest_cache/
+tests/tests_run_*.log
 docs/context_build_*.md
 tests/tests_run_*.log
 MagicMock/

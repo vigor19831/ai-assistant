@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-12 06:36 UTC
+> Auto-generated from source code. Updated: 2026-06-12 19:27 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -18,6 +18,7 @@
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 84 |
 | `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 88 |
 | `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 100 |
+| `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 103 |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 182 |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 70 |
@@ -45,17 +46,15 @@
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 281 |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 361 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 250 |
-| `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 265 |
-| `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
-| `tests.test_malformed_sse` | `ValueError` | Error with "quotes" and 
- newlines | High | 99 |
-| `tests.test_rag_pipeline` | `RuntimeError` | down | High | 310 |
-| `tests.test_rag_pipeline` | `RuntimeError` | fail | High | 390 |
-| `tests.test_rag_pipeline` | `RuntimeError` | network down | High | 421 |
-| `tests.test_rag_pipeline` | `RuntimeError` | connection lost | High | 663 |
-| `tests.test_rag_pipeline` | `ValueError` | bad config | High | 639 |
-| `tests.test_rag_pipeline` | `ValueError` | bad index | High | 694 |
-| `tests.test_resilience` | `RuntimeError` | shutdown boom | High | 272 |
+| `tests.test_api` | `HTTPException` | Unknown error | High | 1401 |
+| `tests.test_api` | `RuntimeError` | boom | High | 1466 |
+| `tests.test_api` | `ValueError` | No storage adapter registered | High | 653 |
+| `tests.test_e2e` | `ValueError` | Error with "quotes" and 
+ newlines | High | 179 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 552 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 582 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 604 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 559 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
 | `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 119 |
@@ -123,13 +122,9 @@
 | `features.rag.handlers` | `Exception` | return { | Medium | 297 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 342 |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
-| `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
-| `tests.test_api_e2e` | `OSError` | return False | Medium | 538 |
-| `tests.test_chat_manager_direct` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 37 |
-| `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 96 |
-| `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 218 |
-| `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 249 |
-| `tests.test_scripts_and_platform` | `ImportError` | Cannot load {...} | Medium | 28 |
-| `tests.test_smoke_pyproject` | `AssertionError` | {...} not found in dependencies | Medium | 65 |
+| `tests.test_api` | `Exception` | errors.append(e) | Medium | 356 |
+| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 676 |
+| `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
+| `tests.test_smoke` | `Exception` | return req, None, None | Medium | 466 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.

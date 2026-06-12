@@ -1,25 +1,19 @@
-"""Domain models — pure, no external dependencies."""
+"""Domain models — messages, documents, pipeline data, errors."""
 
 from .documents import Chunk, ChunkMetadata, Document
 from .errors import AdapterError, ConfigurationError, VersionMismatchError
-from .messages import (
-    AssistantMessage,
-    TextPayload,
-    ToolMessage,
-    UserMessage,
-)
+from .messages import AssistantMessage, ToolMessage, UserMessage
 from .pipeline import PipelineData
 
 __all__ = [
-    "UserMessage",
+    "AdapterError",
     "AssistantMessage",
-    "TextPayload",
-    "ToolMessage",
-    "Document",
     "Chunk",
     "ChunkMetadata",
-    "PipelineData",
     "ConfigurationError",
-    "AdapterError",
+    "Document",
+    "PipelineData",
+    "ToolMessage",
+    "UserMessage",
     "VersionMismatchError",
 ]

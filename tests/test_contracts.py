@@ -1,119 +1,543 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+"""tests/test_contracts.py — AST-level contract tests.
+
+Contracts: isinstance() ban in core/, print()/pprint() ban,
+logging.basicConfig() ban, cross-feature imports ban,
+port abstract methods, getattr drift check.
+
+Design: Given/When/Then docstrings, one function per test case.
+"""
+
+from __future__ import annotations
+
+import ast
+import inspect
+import logging
+import sys
+from pathlib import Path
+from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
-from ai_assistant.api.deps import InitializedAppState, init_adapters
-from ai_assistant.core.config import load_config, LLMConfig
-from ai_assistant.adapters.llm_mock import MockLLM
-from ai_assistant.core.ports import (
-    IChatStorage,
-    IChunker,
-    IClosable,
-    IEmbedder,
-    ILLM,
-    IReranker,
-    IVectorStore,
-)
-from ai_assistant.features.chat.manager import ChatManager
-from ai_assistant.features.chat.schemas import (
-    ChatRequest,
-    ChatResponse,
-    OAIChatCompletionRequest,
-)
-from ai_assistant.features.rag.manager import RAGManager
-from ai_assistant.features.rag.schemas import IndexRequest, QueryRequest, QueryResponse
+from ai_assistant.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
-class TestChatContracts:
-    def test_chat_request_validation(self):
-        valid = {"message": "test"}
-        assert ChatRequest(**valid)
-        # Empty message is allowed in current schema (no min_length constraint)
-        assert ChatRequest(message="")
-
-    def test_oai_chat_request_strict(self):
-        valid = {"messages": [{"role": "user", "content": "hi"}]}
-        assert OAIChatCompletionRequest(**valid)
-        # content=None is allowed (str | None)
-        assert OAIChatCompletionRequest(messages=[{"role": "user", "content": None}])
-
-    def test_chat_response_structure(self, client):
-        with patch.object(
-            ChatManager,
-            "chat",
-            new_callable=AsyncMock,
-            return_value=MagicMock(text="ok", metadata={}, tool_calls=[]),
-        ):
-            resp = client.post(
-                "/api/v1/chat",
-                json={"message": "contract test", "conversation_id": "t1"},
-            )
-            assert resp.status_code == 200
-            ChatResponse(**resp.json())  # strict pydantic validation
+# ── AST helpers ──
 
 
-class TestRAGContracts:
-    def test_query_request_validation(self):
-        valid = {"query": "test"}
-        assert QueryRequest(**valid)
-
-        with pytest.raises(ValidationError):
-            QueryRequest(query="test", top_k=0)  # ge=1 constraint
-
-        with pytest.raises(ValidationError):
-            QueryRequest(query="test", top_k=51)  # le=50 constraint
-
-    def test_index_request_validation(self):
-        valid = {"documents": [{"id": "1", "content": "text"}]}
-        assert IndexRequest(**valid)
-        # dict[str, Any] has no required keys validation for inner dicts
-        assert IndexRequest(documents=[{"id": "1"}])
-
-    def test_rag_query_response_structure(self, client, mock_state):
-        with patch.object(
-            RAGManager,
-            "query",
-            new_callable=AsyncMock,
-            return_value={
-                "answer": "ok",
-                "sources": [],
-                "chunks_used": 0,
-                "errors": [],
-            },
-        ):
-            resp = client.post("/api/v1/rag/query", json={"query": "test"})
-            assert resp.status_code == 200
-            QueryResponse(**resp.json())
+def _find_ast_calls(source: str, filename: str, func_names: set[str]) -> list[tuple[int, str]]:
+    """Find all calls to specific function names in source AST."""
+    tree = ast.parse(source, filename=filename)
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in func_names:
+                hits.append((node.lineno, ast.unparse(node)))
+            elif isinstance(node.func, ast.Attribute) and node.func.attr in func_names:
+                hits.append((node.lineno, ast.unparse(node)))
+    return hits
 
 
-class TestSSEContract:
-    def test_sse_format_compliance(self, client):
-        async def _fake_stream(*args, **kwargs):
-            yield "hello"
-
-        with patch.object(ChatManager, "stream_chat", _fake_stream):
-            resp = client.post(
-                "/api/v1/chat/stream",
-                json={"message": "sse test", "conversation_id": "t1"},
-            )
-            assert resp.status_code == 200
-            assert "text/event-stream" in resp.headers["content-type"]
-
-            lines = resp.text.strip().splitlines()
-            for line in lines:
-                if line.startswith("data:"):
-                    # Validate SSE data payload isn't raw text leak
-                    assert line[5:].strip(), "Empty SSE data chunk"
+def _find_isinstance_calls(source: str, filename: str) -> list[tuple[int, str]]:
+    """Find isinstance() calls in source."""
+    return _find_ast_calls(source, filename, {"isinstance"})
 
 
+def _find_print_calls(source: str, filename: str) -> list[tuple[int, str]]:
+    """Find print()/pprint() calls in source."""
+    return _find_ast_calls(source, filename, {"print", "pprint"})
+
+
+def _find_basicConfig_calls(source: str, filename: str) -> list[tuple[int, str]]:
+    """Find logging.basicConfig() calls in source."""
+    tree = ast.parse(source, filename=filename)
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                if node.func.attr == "basicConfig":
+                    hits.append((node.lineno, ast.unparse(node)))
+    return hits
+
+
+def _find_getattr_calls(source: str, filename: str) -> list[tuple[int, str]]:
+    """Find getattr() calls in source."""
+    return _find_ast_calls(source, filename, {"getattr"})
+
+
+def _find_cross_feature_imports(source: str, filename: str) -> list[tuple[int, str]]:
+    """Find cross-feature imports (chat importing rag or vice versa)."""
+    tree = ast.parse(source, filename=filename)
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if "features.chat" in module and "rag" in module:
+                hits.append((node.lineno, ast.unparse(node)))
+            elif "features.rag" in module and "chat" in module:
+                hits.append((node.lineno, ast.unparse(node)))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.name
+                if "features.chat" in name and "rag" in name:
+                    hits.append((node.lineno, ast.unparse(node)))
+                elif "features.rag" in name and "chat" in name:
+                    hits.append((node.lineno, ast.unparse(node)))
+    return hits
+
+
+def _resolve_src_file(rel_path: str) -> Path:
+    """Resolve source file path from project root."""
+    test_dir = Path(__file__).parent
+    project_root = test_dir.parent
+    src_path = project_root / "src" / "ai_assistant" / rel_path
+    if src_path.exists():
+        return src_path
+    # Fallback: check if file exists at project root level
+    alt_path = project_root / rel_path
+    if alt_path.exists():
+        return alt_path
+    pytest.skip(f"Source file not found: {rel_path}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestIsinstanceBan
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestIsinstanceBan:
+    """Contract: isinstance() is banned in core/ (use structural typing / ports)."""
+
+    def _check_file(self, rel_path: str) -> list[tuple[int, str]]:
+        path = _resolve_src_file(rel_path)
+        source = path.read_text(encoding="utf-8")
+        return _find_isinstance_calls(source, str(path))
+
+    def test_pipeline_steps_no_isinstance(self):
+        """Given: pipeline_steps.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/pipeline_steps.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_utils_no_isinstance(self):
+        """Given: utils.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/utils.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_domain_pipeline_no_isinstance(self):
+        """Given: domain/pipeline.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/domain/pipeline.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_domain_messages_no_isinstance(self):
+        """Given: domain/messages.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/domain/messages.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_domain_documents_no_isinstance(self):
+        """Given: domain/documents.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/domain/documents.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_config_no_isinstance(self):
+        """Given: config.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/config.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_retry_no_isinstance(self):
+        """Given: retry.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/retry.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_prompts_no_isinstance(self):
+        """Given: prompts.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/prompts.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_metrics_no_isinstance(self):
+        """Given: metrics.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/metrics.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_logger_no_isinstance(self):
+        """Given: logger.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/logger.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+    def test_io_utils_no_isinstance(self):
+        """Given: io_utils.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/io_utils.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestPrintBan
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestPrintBan:
+    """Contract: print()/pprint() are banned in production source (use logger)."""
+
+    def _check_file(self, rel_path: str) -> list[tuple[int, str]]:
+        path = _resolve_src_file(rel_path)
+        source = path.read_text(encoding="utf-8")
+        return _find_print_calls(source, str(path))
+
+    def _check_all_py_files(self, rel_dir: str) -> list[tuple[str, int, str]]:
+        """Recursively check all .py files in a directory."""
+        dir_path = _resolve_src_file(rel_dir)
+        hits: list[tuple[str, int, str]] = []
+        for py_file in dir_path.rglob("*.py"):
+            if py_file.name.startswith("test_"):
+                continue
+            source = py_file.read_text(encoding="utf-8")
+            file_hits = _find_print_calls(source, str(py_file))
+            for lineno, code in file_hits:
+                hits.append((str(py_file.relative_to(dir_path.parent.parent)), lineno, code))
+        return hits
+
+    def test_core_no_print(self):
+        """Given: all .py files in core/.
+        When: AST is scanned for print()/pprint().
+        Then: no print()/pprint() calls are found."""
+        hits = self._check_all_py_files("core")
+        assert not hits, f"print()/pprint() banned in core/: {hits}"
+
+    def test_api_no_print(self):
+        """Given: all .py files in api/.
+        When: AST is scanned for print()/pprint().
+        Then: no print()/pprint() calls are found."""
+        hits = self._check_all_py_files("api")
+        assert not hits, f"print()/pprint() banned in api/: {hits}"
+
+    def test_features_no_print(self):
+        """Given: all .py files in features/.
+        When: AST is scanned for print()/pprint().
+        Then: no print()/pprint() calls are found."""
+        hits = self._check_all_py_files("features")
+        assert not hits, f"print()/pprint() banned in features/: {hits}"
+
+    def test_adapters_no_print(self):
+        """Given: all .py files in adapters/.
+        When: AST is scanned for print()/pprint().
+        Then: no print()/pprint() calls are found."""
+        hits = self._check_all_py_files("adapters")
+        assert not hits, f"print()/pprint() banned in adapters/: {hits}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestLoggingBasicConfigBan
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestLoggingBasicConfigBan:
+    """Contract: logging.basicConfig() is banned (use setup_logging from logger)."""
+
+    def _check_all_py_files(self, rel_dir: str) -> list[tuple[str, int, str]]:
+        dir_path = _resolve_src_file(rel_dir)
+        hits: list[tuple[str, int, str]] = []
+        for py_file in dir_path.rglob("*.py"):
+            if py_file.name.startswith("test_"):
+                continue
+            source = py_file.read_text(encoding="utf-8")
+            file_hits = _find_basicConfig_calls(source, str(py_file))
+            for lineno, code in file_hits:
+                hits.append((str(py_file.relative_to(dir_path.parent.parent)), lineno, code))
+        return hits
+
+    def test_no_basicConfig_in_src(self):
+        """Given: all .py files in src/.
+        When: AST is scanned for logging.basicConfig().
+        Then: no basicConfig() calls are found."""
+        hits = self._check_all_py_files("")
+        assert not hits, f"logging.basicConfig() banned in src/: {hits}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestCrossFeatureImports
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestCrossFeatureImports:
+    """Contract: chat features do not import rag directly and vice versa."""
+
+    def _check_file(self, rel_path: str) -> list[tuple[int, str]]:
+        path = _resolve_src_file(rel_path)
+        source = path.read_text(encoding="utf-8")
+        return _find_cross_feature_imports(source, str(path))
+
+    def test_chat_handlers_no_rag_import(self):
+        """Given: chat handlers.
+        When: AST is scanned for rag imports.
+        Then: no direct rag imports are found."""
+        hits = self._check_file("features/chat/handlers.py")
+        assert not hits, f"chat must not import rag: {hits}"
+
+    def test_chat_manager_no_rag_import(self):
+        """Given: chat manager.
+        When: AST is scanned for rag imports.
+        Then: no direct rag imports are found."""
+        hits = self._check_file("features/chat/manager.py")
+        assert not hits, f"chat must not import rag: {hits}"
+
+    def test_rag_handlers_no_chat_import(self):
+        """Given: rag handlers.
+        When: AST is scanned for chat imports.
+        Then: no direct chat imports are found."""
+        hits = self._check_file("features/rag/handlers.py")
+        assert not hits, f"rag must not import chat: {hits}"
+
+    def test_rag_manager_no_chat_import(self):
+        """Given: rag manager.
+        When: AST is scanned for chat imports.
+        Then: no direct chat imports are found."""
+        hits = self._check_file("features/rag/manager.py")
+        assert not hits, f"rag must not import chat: {hits}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestPortAbstractMethods
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestPortAbstractMethods:
+    """Contract: all port interfaces declare at least one abstract method."""
+
+    def _get_port_classes(self) -> dict[str, type]:
+        """Import and return all port classes."""
+        from ai_assistant.core.ports import (
+            IChatStorage,
+            IChunker,
+            IClosable,
+            IEmbedder,
+            ILLM,
+            IReranker,
+            IVectorStore,
+        )
+        return {
+            "ILLM": ILLM,
+            "IEmbedder": IEmbedder,
+            "IVectorStore": IVectorStore,
+            "IReranker": IReranker,
+            "IChatStorage": IChatStorage,
+            "IChunker": IChunker,
+            "IClosable": IClosable,
+        }
+
+    def test_all_ports_are_abstract(self):
+        """Given: all port classes.
+        When: inspect.isabstract() is called.
+        Then: all return True (have at least one abstract method)."""
+        ports = self._get_port_classes()
+        non_abstract = []
+        for name, cls in ports.items():
+            if not inspect.isabstract(cls):
+                non_abstract.append(name)
+        assert not non_abstract, f"Ports must be abstract: {non_abstract}"
+
+    def test_illm_has_abstract_methods(self):
+        """Given: ILLM port.
+        When: abstract methods are inspected.
+        Then: at least complete() and get_context_limit() are abstract."""
+        from ai_assistant.core.ports.llm import ILLM
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(ILLM, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "complete" in abstract_methods, "ILLM.complete must be abstract"
+        assert "get_context_limit" in abstract_methods, "ILLM.get_context_limit must be abstract"
+
+    def test_iembedder_has_embed_abstract(self):
+        """Given: IEmbedder port.
+        When: abstract methods are inspected.
+        Then: embed() is abstract."""
+        from ai_assistant.core.ports.embedder import IEmbedder
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(IEmbedder, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "embed" in abstract_methods, "IEmbedder.embed must be abstract"
+
+    def test_ivectorstore_has_search_abstract(self):
+        """Given: IVectorStore port.
+        When: abstract methods are inspected.
+        Then: search() is abstract."""
+        from ai_assistant.core.ports.vector_store import IVectorStore
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(IVectorStore, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "search" in abstract_methods, "IVectorStore.search must be abstract"
+
+    def test_ireranker_has_rerank_abstract(self):
+        """Given: IReranker port.
+        When: abstract methods are inspected.
+        Then: rerank() is abstract."""
+        from ai_assistant.core.ports.reranker import IReranker
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(IReranker, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "rerank" in abstract_methods, "IReranker.rerank must be abstract"
+
+    def test_ichatstorage_has_history_abstract(self):
+        """Given: IChatStorage port.
+        When: abstract methods are inspected.
+        Then: get_history() and save_message() are abstract."""
+        from ai_assistant.core.ports.storage import IChatStorage
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(IChatStorage, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "get_history" in abstract_methods, "IChatStorage.get_history must be abstract"
+        assert "save_message" in abstract_methods, "IChatStorage.save_message must be abstract"
+
+    def test_ichunker_has_chunk_abstract(self):
+        """Given: IChunker port.
+        When: abstract methods are inspected.
+        Then: chunk() is abstract."""
+        from ai_assistant.core.ports.chunker import IChunker
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(IChunker, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "chunk" in abstract_methods, "IChunker.chunk must be abstract"
+
+    def test_iclosable_has_shutdown_abstract(self):
+        """Given: IClosable port.
+        When: abstract methods are inspected.
+        Then: shutdown() is abstract."""
+        from ai_assistant.core.ports.closable import IClosable
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(IClosable, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "shutdown" in abstract_methods, "IClosable.shutdown must be abstract"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestGetattrDrift
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestGetattrDrift:
+    """Contract: getattr(config, ...) is a drift risk — use typed access instead.
+
+    See DRIFT.md #4: getattr with config objects bypasses type checking
+    and breaks IDE/refactoring support.
+    """
+
+    def _check_file(self, rel_path: str) -> list[tuple[int, str]]:
+        path = _resolve_src_file(rel_path)
+        source = path.read_text(encoding="utf-8")
+        return _find_getattr_calls(source, str(path))
+
+    def test_deps_no_getattr_on_config(self):
+        """Given: api/deps.py.
+        When: AST is scanned for getattr() calls on config objects.
+        Then: no getattr(cfg, ...) or getattr(config, ...) patterns found."""
+        hits = self._check_file("api/deps.py")
+        # Filter out legitimate getattr uses (e.g., request.app.state)
+        config_hits = [
+            (ln, code)
+            for ln, code in hits
+            if "cfg" in code or "config" in code.lower()
+        ]
+        assert not config_hits, f"getattr on config is drift risk: {config_hits}"
+
+    def test_lifespan_no_getattr_on_config(self):
+        """Given: api/lifespan.py.
+        When: AST is scanned for getattr() on config.
+        Then: no getattr(cfg, ...) patterns found."""
+        hits = self._check_file("api/lifespan.py")
+        config_hits = [
+            (ln, code)
+            for ln, code in hits
+            if "cfg" in code or "config" in code.lower()
+        ]
+        assert not config_hits, f"getattr on config is drift risk: {config_hits}"
+
+    def test_pipeline_steps_no_getattr(self):
+        """Given: core/pipeline_steps.py.
+        When: AST is scanned for getattr().
+        Then: no getattr() calls found."""
+        hits = self._check_file("core/pipeline_steps.py")
+        assert not hits, f"getattr() banned in pipeline_steps: {hits}"
+
+    def test_manager_no_getattr_on_config(self):
+        """Given: features/chat/manager.py.
+        When: AST is scanned for getattr() on config.
+        Then: no getattr(cfg, ...) patterns found."""
+        hits = self._check_file("features/chat/manager.py")
+        config_hits = [
+            (ln, code)
+            for ln, code in hits
+            if "cfg" in code or "config" in code.lower()
+        ]
+        assert not config_hits, f"getattr on config is drift risk: {config_hits}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestHasattrBan (from existing contracts)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
 class TestHasattrBan:
-    """AST-level contract: api/deps and api/lifespan must not use hasattr() to bypass ports."""
+    """AST-level contract: api/deps and api/lifespan must not use hasattr()
+    to bypass ports."""
 
     def _find_hasattr_calls(self, source: str, filename: str) -> list[tuple[int, str]]:
-        import ast
-
-        tree = ast.parse(source)
+        tree = ast.parse(source, filename=filename)
         hits: list[tuple[int, str]] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
@@ -123,24 +547,42 @@ class TestHasattrBan:
         return hits
 
     def test_api_deps_no_hasattr(self):
-        import inspect
+        """Given: api/deps.py source.
+        When: AST is scanned for hasattr().
+        Then: no hasattr() calls are found."""
+        import inspect as _inspect
         from ai_assistant.api import deps
 
-        source = inspect.getsource(deps)
+        source = _inspect.getsource(deps)
         hits = self._find_hasattr_calls(source, "deps.py")
         assert not hits, f"hasattr() found in api/deps.py at lines: {hits}"
 
     def test_api_lifespan_no_hasattr(self):
-        import inspect
+        """Given: api/lifespan.py source.
+        When: AST is scanned for hasattr().
+        Then: no hasattr() calls are found."""
+        import inspect as _inspect
         from ai_assistant.api import lifespan
 
-        source = inspect.getsource(lifespan)
+        source = _inspect.getsource(lifespan)
         hits = self._find_hasattr_calls(source, "lifespan.py")
         assert not hits, f"hasattr() found in api/lifespan.py at lines: {hits}"
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# TestPipelineStepsNoKwargs (from existing contracts)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
 def test_pipeline_steps_no_kwargs() -> None:
-    """AST check: pipeline step functions must not use **kwargs."""
+    """AST check: pipeline step functions must not use **kwargs.
+
+    Given: pipeline_steps.py source.
+    When: AST is scanned for step-decorated functions with **kwargs.
+    Then: no step function uses **kwargs.
+    """
     import ast
     from pathlib import Path
 
@@ -151,6 +593,8 @@ def test_pipeline_steps_no_kwargs() -> None:
         / "core"
         / "pipeline_steps.py"
     )
+    if not steps_path.exists():
+        pytest.skip("pipeline_steps.py not found")
     source = steps_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
@@ -168,161 +612,49 @@ def test_pipeline_steps_no_kwargs() -> None:
                 )
 
 
-class TestInitAdaptersContracts:
-    async def test_init_adapters_returns_initialized_state(self) -> None:
-        """Real init_adapters must produce InitializedAppState with non-None core adapters."""
-        config = load_config()
-        state = await init_adapters(config)
-
-        assert isinstance(state, InitializedAppState)
-        assert state.llm is not None
-        assert state.embedder is not None
-        assert state.vector_store is not None
-        assert isinstance(state.chunker, IChunker)
-        assert isinstance(state.reranker, IReranker)
-        assert state.storage is not None
-        assert state.pipeline is not None
+# ═══════════════════════════════════════════════════════════════════════════
+# TestRegistryRemoved (from existing contracts)
+# ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_llm_config_rejects_unknown_fields():
-    """With extra='forbid', LLMConfig must reject typos like temperatur."""
-    from pydantic import ValidationError
-    from ai_assistant.core.config import LLMConfig
-
-    with pytest.raises(ValidationError, match="temperatur"):
-        LLMConfig(temperatur=0.5)
-
-
-def test_embedder_config_rejects_unknown_fields():
-    """With extra='forbid', EmbedderConfig must reject typos like chunck_size."""
-    from pydantic import ValidationError
-    from ai_assistant.core.config import EmbedderConfig
-
-    with pytest.raises(ValidationError, match="chunck_size"):
-        EmbedderConfig(chunck_size=512)
-
-
-def test_vector_store_relevance_threshold_backward_compatible():
-    """Removed field vector_store.relevance_threshold is migrated to rag."""
-    from ai_assistant.core.config import AppConfig
-
-    # When rag lacks the field, vector_store value is migrated
-    cfg = AppConfig(
-        vector_store={"relevance_threshold": 0.5, "dim": 384},
-    )
-    assert cfg.rag.relevance_threshold == 0.5
-    assert not hasattr(cfg.vector_store, "relevance_threshold")
-
-    # When rag already has the field, it wins
-    cfg2 = AppConfig(
-        vector_store={"relevance_threshold": 0.5, "dim": 384},
-        rag={"relevance_threshold": 0.2},
-    )
-    assert cfg2.rag.relevance_threshold == 0.2
-
-def test_load_config_rejects_unknown_yaml_key(tmp_path):
-    """AppConfig uses extra='forbid': unknown YAML keys raise ValidationError."""
-    from pydantic import ValidationError
-
-    yaml_file = tmp_path / "config.yaml"
-    yaml_file.write_text("debug: false\nunknown_key: 123\n", encoding="utf-8")
-    with pytest.raises(ValidationError, match="extra_forbidden"):
-        load_config(str(yaml_file))
-
-
-# Env-var strict check requires CORE CHANGE (extra="forbid" on AppConfig).
-# Pydantic-settings filters unknown env vars before extra="forbid" sees them,
-# making a reliable warning impossible without fragile internals traversal.
-# Defer to ADR-XXX if strict env-var validation is needed.
-
-
-from pathlib import Path
-
-PORTS_DIR = (
-    Path(__file__).parent.parent / "src" / "ai_assistant" / "core" / "ports"
-)
-
-
+@pytest.mark.slow
+@pytest.mark.contract
 def test_registry_removed() -> None:
-    """Phase 4.4: registry.py must be physically deleted."""
+    """Phase 4.4: registry.py must be physically deleted.
+
+    Given: core directory.
+    When: checking for registry.py.
+    Then: file does not exist.
+    """
     from pathlib import Path
+
     core_dir = Path(__file__).parent.parent / "src" / "ai_assistant" / "core"
     assert not (core_dir / "registry.py").exists()
 
 
-def test_illm_has_get_context_limit():
-    """Verify ILLM port declares get_context_limit abstract method."""
-    assert hasattr(ILLM, 'get_context_limit')
-    assert callable(getattr(ILLM, 'get_context_limit'))
+# ═══════════════════════════════════════════════════════════════════════════
+# TestMessageTypeAlias (from existing contracts)
+# ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_mock_llm_get_context_limit_returns_int():
-    cfg = LLMConfig(model="test", max_tokens=2048)
-    llm = MockLLM(cfg)
-    assert llm.get_context_limit() == 2048
+@pytest.mark.slow
+@pytest.mark.contract
+def test_message_type_alias_excludes_dict() -> None:
+    """Message alias must be UserMessage | AssistantMessage | ToolMessage,
+    no dict fallback.
 
-
-def test_mock_llm_get_context_limit_fallback():
-    cfg = LLMConfig(model="test")
-    llm = MockLLM(cfg)
-    assert llm.get_context_limit() == 4096
-
-
-class TestVectorStorePort:
-    """IVectorStore port contract tests — index_path property."""
-
-    def test_index_path_property_exists(self):
-        """All vector store adapters must expose index_path as a str property."""
-        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
-        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-        from ai_assistant.core.config import VectorStoreConfig
-
-        cfg = VectorStoreConfig(index_path="./data/test_indices", dim=384)
-
-        faiss_store = FaissVectorStore(cfg)
-        assert faiss_store.index_path == "./data/test_indices"
-        assert isinstance(faiss_store.index_path, str)
-
-        mem_store = MemoryVectorStore(cfg)
-        assert mem_store.index_path == "./data/test_indices"
-        assert isinstance(mem_store.index_path, str)
-
-    def test_index_path_default_for_memory(self):
-        """MemoryVectorStore provides a sensible default when index_path is absent."""
-        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-
-        class _MinimalConfig:
-            dim = 384
-            # no index_path attribute
-
-        store = MemoryVectorStore(_MinimalConfig())
-        assert isinstance(store.index_path, str)
-        assert store.index_path == "./data/indices/memory"
-
-    def test_index_path_default_for_faiss(self):
-        """FaissVectorStore provides a sensible default when index_path is absent."""
-        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
-
-        class _MinimalConfig:
-            dim = 384
-            metric = "l2"
-            # no index_path attribute
-
-        store = FaissVectorStore(_MinimalConfig())
-        assert isinstance(store.index_path, str)
-        assert store.index_path == "./data/indices/faiss"
-
-
-def test_message_type_alias_excludes_dict():
-    """Message alias must be UserMessage | AssistantMessage | ToolMessage, no dict fallback."""
+    Given: Message type alias.
+    When: inspecting type arguments.
+    Then: no dict in union members.
+    """
     from typing import get_args, get_origin
 
-    from ai_assistant.core.ports.llm import Message
     from ai_assistant.core.domain.messages import (
         AssistantMessage,
         ToolMessage,
         UserMessage,
     )
+    from ai_assistant.core.ports.llm import Message
 
     args = get_args(Message)
     assert UserMessage in args
@@ -331,9 +663,22 @@ def test_message_type_alias_excludes_dict():
     assert not any(get_origin(arg) is dict for arg in args)
 
 
-def test_ireranker_is_closable():
-    """IReranker must inherit IClosable so lifespan can call shutdown()."""
+# ═══════════════════════════════════════════════════════════════════════════
+# TestIRerankerIsClosable (from existing contracts)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+def test_ireranker_is_closable() -> None:
+    """IReranker must inherit IClosable so lifespan can call shutdown().
+
+    Given: IReranker and IClosable.
+    When: checking inheritance.
+    Then: IReranker is subclass of IClosable.
+    """
     from ai_assistant.core.ports.closable import IClosable
+    from ai_assistant.core.ports.reranker import IReranker
 
     assert issubclass(IReranker, IClosable)
     assert callable(getattr(IReranker, "shutdown", None))

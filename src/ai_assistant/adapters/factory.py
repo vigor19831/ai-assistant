@@ -98,3 +98,6 @@ def create_adapter(port: str, name: str, config: Any) -> Any:
 
             return NullReranker(config)
         raise ValueError(f"No reranker adapter registered for '{name}'")
+
+    # Fallback for unknown port
+    raise ValueError(f"Unknown adapter port '{port}'")

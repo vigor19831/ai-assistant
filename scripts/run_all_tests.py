@@ -11,9 +11,15 @@ ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = ROOT / "tests"
 
 MODES = {
-    "1": ([], "default — normal run"),
-    "2": (["-m", "online"], "e2e — include online tests"),
-    "3": (["--cov=src/ai_assistant", "--cov-report=term-missing"], "coverage — with coverage report"),
+    "1": ([], "default — skip online, run all others"),
+    "2": (["-m", "not e2e"], "fast — skip slow e2e tests"),
+    "3": (["-m", "e2e"], "e2e — only end-to-end tests"),
+    "4": (["-m", "smoke"], "smoke — infrastructure checks"),
+    "5": (["-m", "contract"], "contract — AST architecture checks"),
+    "6": (["-m", "regression"], "regression — known bug checks"),
+    "7": (["-m", "integration"], "integration — adapter integration"),
+    "8": (["-m", "not slow"], "ci — skip all slow tests"),
+    "9": (["--cov=src/ai_assistant", "--cov-report=term-missing"], "coverage — all with coverage"),
 }
 
 
@@ -37,11 +43,18 @@ def main() -> int:
 
     flags, _ = MODES.get(ans, MODES["1"])
 
-    cmd = [sys.executable, "-m", "pytest", str(TESTS_DIR), "-v", "--tb=long",
-           "--color=yes", "--showlocals"] + flags
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        str(TESTS_DIR),
+        "-v",
+        "--tb=short",
+        "--color=yes",
+    ] + flags
 
     log_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = ROOT / f"tests_run_{log_ts}.log"
+    log_path = ROOT / "tests" / f"tests_run_{log_ts}.log"
 
     print(f"\n>>> Running: {' '.join(cmd)}")
     print(f">>> Log: {log_path}\n")
@@ -50,13 +63,25 @@ def main() -> int:
         log_fp.write(f"=== Test run {log_ts} ===\n")
         log_fp.write(f"Command: {' '.join(cmd)}\n\n")
 
-        res = subprocess.run(cmd, cwd=ROOT, stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT, text=True)
+        res = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
         log_fp.write(res.stdout)
         log_fp.write(f"\n\nExit code: {res.returncode}\n")
 
     lines = res.stdout.strip().splitlines()
-    summary = next((l for l in reversed(lines) if l.startswith("=") or "passed" in l or "failed" in l), "")
+    summary = next(
+        (
+            l
+            for l in reversed(lines)
+            if l.startswith("=") or "passed" in l or "failed" in l
+        ),
+        "",
+    )
     clean_summary = _strip_ansi(summary).strip("=").strip()
 
     print("=" * 50)

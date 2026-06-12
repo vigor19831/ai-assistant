@@ -113,3 +113,4 @@
 
 [х] Удалить Rate Limiting из конфига | Поле rate_limit в конфиге сейчас игнорируется; нужно либо добавить реальную реализацию (например, slowapi) для защиты API от DoS, либо удалить из конфига, чтобы не вводить в заблуждение. | src/ai_assistant/core/config.py, src/ai_assistant/api/security.py, src/ai_assistant/main.py | tests/test_security.py, tests/test_api_e2e.py
 [х] Добавлен Heartbeat в features/chat/handlers.py, что решит проблему "медленного соединения" которое часто встречается на локальных LLM
+[х] изменены тесты, рефакторинг полный, удаление ненужных скриптов, дублирующих тесты.

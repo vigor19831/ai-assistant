@@ -16,7 +16,7 @@
 **Что это:** Таблица всех исключений в проекте (raise, except, :raises:).
 
 ### `TODO.md` — Список задач
-**Что это:** Единый список задач по фазам (P0, P1, P2).
+**Что это:** Единый список задач
 
 ### `TODO_DONE.md` — Выполненные задачи
 Завершённые пункты из `TODO.md`. Хранит историю крупных фич и рефакторингов. Мелкие багфиксы не дублируются — просто удаляются из `TODO.md`.
@@ -78,43 +78,24 @@ python scripts/context_build.py
 
 ---
 
-## Тесты
-
-`tests/test_adapters_integration.py` — Параметризованные тесты всех адаптеров: chunker, embedder (mock + OpenAI), LLM (mock + OpenAI), vector store (FAISS + Memory), reranker, storage.
-
-`tests/test_api_deps.py` — Зависимости API: `AppState`, `init_adapters`, `get_state`, сборка pipeline-шагов.
-
-`tests/test_api_e2e.py` — End-to-end тесты HTTP API: health, chat, stream, RAG, OpenAI-compatible endpoints.
-
-`tests/test_chat_manager_direct.py` — Прямое тестирование `ChatManager`: RAG-префиксы, история, тримминг токенов, streaming.
-
-`tests/test_contracts.py` — Контрактные тесты портов: проверка сигнатур `ILLM`, `IEmbedder`, `IVectorStore` и т.д.
-
-`tests/test_core_critical.py` — Критические тесты ядра: `PipelineData` immutable, `RAGPipeline` sequential execution, retry logic.
-
-`tests/test_fuzz.py` — Фаззинг-тесты: случайные входные данные для pipeline, chunker, tokenizer через `hypothesis`.
-
-`tests/test_lifespan.py` — Жизненный цикл приложения: startup/shutdown, загрузка/сохранение индексов, graceful cleanup.
-
-`tests/test_malformed_sse.py` — Обработка malformed SSE-ответов от LLM: неполные JSON, пропущенные поля, некорректные `data:` строки.
-
-`tests/test_pipeline_frozen_compat.py` — Совместимость frozen `PipelineData`: все шаги возвращают новые инстансы, нет мутаций.
-
-`tests/test_rag_pipeline.py` — Интеграция RAG pipeline: embed → retrieve → rerank → build_context → generate с mock-адаптерами.
-
-`tests/test_resilience.py` — Отказоустойчивость: retry decorator, circuit breaker (если есть), обработка timeout'ов.
-
-`tests/test_router_compile.py` — Компиляция роутеров: корректная сборка `assemble_routers`, префиксы, теги, зависимости.
-
-`tests/test_scripts_and_platform.py` — Платформенные тесты скриптов: корректность путей, Windows/Unix совместимость, кодировки.
-
-`tests/test_security.py` — Безопасность: API key validation, rate limiting, request size limits, path traversal в `save-chat`.
-
-`tests/test_smoke_pyproject.py` — Smoke-тест `pyproject.toml`: валидность TOML, зависимости, версии, конфигурация инструментов.
-
-`tests/test_stress.py` — Нагрузочные тесты: множественные параллельные запросы, большие payload'ы, утечки памяти.
-
-`tests/test_tokenizer.py` — Тесты токенизации: `tiktoken` vs `tokenizers`, подсчёт CJK-символов, fallback на `len//4`.
+tests/
+├── conftest.py              # Глобальные фикстуры, маркеры, кэш-очистка
+├── pytest.ini               # Конфигурация pytest
+├── test_adapters.py         # Модульные тесты адаптеров
+├── test_api.py              # API unit tests (security, deps, router, lifespan, middleware, admin)
+├── test_chat.py             # ChatManager tests (prefixes, retrieval, history trimming, streaming)
+├── test_config.py           # Config validation, migration, backward compatibility
+├── test_contracts.py        # AST-проверки контрактов ← НОВЫЙ
+├── test_domain.py           # Domain layer tests (PipelineData frozen, messages, chunks)
+├── test_e2e.py              # End-to-end API tests (health, chat, SSE, OpenAI-compat, RAG, admin)
+├── test_integration.py      # Integration tests (real adapters, pipelines, init_adapters)
+├── test_lifespan.py         # Lifespan contract tests (reranker shutdown, config validation)
+├── test_pipeline.py         # Pipeline steps tests (embed_query, retrieve, build_context, rerank, generate, hyde, retry)
+├── test_prompts.py          # Prompt loader tests (versioning, Jinja2 cache, hashable kwargs)
+├── test_rag.py              # RAG feature tests (manager, indexing, reranker regression)
+├── test_smoke.py            # Smoke tests (imports, cycles, AST, tooling) ← НОВЫЙ
+├── test_smoke_pyproject.py  # Smoke tests pyproject.toml (ruff, mypy, versions, compileall)
+├── test_tokenizer.py        # Tokenizer tests (resolution, counting, CJK fallback)
 
 ---
 
