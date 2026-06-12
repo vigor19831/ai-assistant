@@ -11,7 +11,7 @@
 
 ## Быстрый старт
 
-```bash
+```
 # 1. Установка
 pip install -e ".[faiss]"
 
@@ -26,9 +26,11 @@ pip install -e ".[faiss]"
 # llm.api_base: http://127.0.0.1:8080/v1
 # llm.model: имя-модели-на-сервере
 
-# 4. Запуск
-python launcher.py        # интерактивный лаунчер
-# Или напрямую:
+# 4. Запуск (из корня проекта, .venv активируется автоматически)
+python start.py              # запуск LLM + embedder + uvicorn
+python stop.py               # остановка всех серверов
+
+# Или вручную:
 python scripts/start.py
 python main.py
 uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000

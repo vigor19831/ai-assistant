@@ -67,6 +67,12 @@ llm:
   stop_sequences: []
   timeout: 300.0
   server_context_size: 4096
+  # === GPU / Performance ===
+  n_gpu_layers: 99        # -1 = все слои на GPU, 0 = только CPU
+  n_batch: 512            # размер батча
+  n_ubatch: 64            # микро-батч
+  mmap: true              # memory-mapped файлы
+  mlock: false            # блокировка страниц в RAM
 
 # ── Vector Store ──
 vector_store:

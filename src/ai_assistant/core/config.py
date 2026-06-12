@@ -99,7 +99,7 @@ class LLMConfig(BaseSettings):
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     server_context_size: int | None = None
     # === llama.cpp / local backend runtime ===
-    n_gpu_layers: int = 0
+    n_gpu_layers: int = 99
     n_batch: int = 512
     n_ubatch: int = 64
     mmap: bool = True

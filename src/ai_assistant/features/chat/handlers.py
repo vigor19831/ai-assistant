@@ -76,7 +76,7 @@ async def _stream_with_heartbeat(
 
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": ping\n\n"
                 last_activity = asyncio.get_event_loop().time()
                 continue
@@ -85,6 +85,7 @@ async def _stream_with_heartbeat(
                 yield "data: [DONE]\n\n"
                 return
 
+            # noqa: no-isinstance-in-production  # queue sentinel: str | None | Exception
             if isinstance(item, Exception):
                 raise item
 
@@ -236,9 +237,7 @@ async def openai_chat_completions(
                 )
                 raise
             except Exception:
-                _logger.exception(
-                    "OpenAI stream failed", extra={"trace_id": trace_id}
-                )
+                _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 raise
 
         async def event_generator() -> AsyncIterator[str]:

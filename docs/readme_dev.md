@@ -11,53 +11,23 @@
 
 ### `AI_RULES.md` — Конституция проекта
 **Что это:** Правила, которые AI читает перед каждым ответом.
-**Как попадает в чат:** `scripts/context_build.py` автоматически вставляет его в `docs/context_build_*.md`.
-**Когда редактировать:** Когда меняешь архитектурные принципы (например, разрешил Pydantic в core).
-**Разделы:**
-- Sacred Core Policy — что можно менять в `core/`, а что нет
-- Red Flags — когда AI должен остановиться и предложить core-изменение
-- Adapter Discipline — правила для адаптеров
-- Feature Isolation — запрет на cross-feature импорты
-- Import Discipline — правила импортов между слоями
-- Resilience & Retries — таймауты и ретраи
-- Error Mapping — обработка ошибок
-- Graceful Shutdown — корректное завершение
-- Solo Project Guardrails — **что НЕ делать** (Redis, Celery, ленивый AppState и т.д.)
 
 ### `ERROR_TAXONOMY.md` — Карта ошибок `[AUTO]`
 **Что это:** Таблица всех исключений в проекте (raise, except, :raises:).
-**Как формируется:** Автоматически скриптом `scripts/error_taxonomy_build.py`, который запускается внутри `scripts/context_build.py`.
-**Зачем нужен:** AI проверяет таблицу перед тем, как предложить try/except — не добавляет лишний retry туда, где уже есть `with_retry`, не ловит `ValueError` там, где ожидается `AdapterError`.
-**Когда обновляется:** При каждом запуске `scripts/context_build.py`.
-**Не редактировать руками** — изменения перезапишутся при следующей генерации.
 
 ### `TODO.md` — Список задач
 **Что это:** Единый список задач по фазам (P0, P1, P2).
-**Как использовать:** Копируешь один пункт, вставляешь в новый чат с AI, получаешь патч.
-**Структура:**
-- Фаза 0 — быстрая гигиена (ruff, CI, pre-commit)
-- Фаза 1 — защита Sacred Core (frozen PipelineData, config extra, классы-шаги)
-- Фаза 2 — API и фичи (versioning, разделение handlers)
-- Фаза 3 — данные и observability (trace_id, миграции БД)
-- Фаза 4 — документация и ADR
 
 ### `TODO_DONE.md` — Выполненные задачи
 Завершённые пункты из `TODO.md`. Хранит историю крупных фич и рефакторингов. Мелкие багфиксы не дублируются — просто удаляются из `TODO.md`.
 
 ### `pyproject.toml` (в корне) — Единый манифест проекта
-**Где лежит:** `D:i\pyproject.toml` (не в `docs/`).
-**Структура:**
-- `[project]` — runtime-зависимости (fastapi, uvicorn, pydantic, sqlalchemy)
-- `[project.optional-dependencies]` — extras:
-  - `dev` — pytest, ruff, mypy, mutmut, hypothesis, vulture
-  - `faiss` — faiss-cpu (для векторного поиска)
-- `[tool.ruff]`, `[tool.mypy]`, `[tool.pytest.ini_options]` — конфиги инструментов
 
 ---
 
 ## 🔄 Workflow перед каждым чатом с AI
 
-```bash
+```
 # 1. Обновить контекст (внутри: сначала ERROR_TAXONOMY, потом context_build)
 python scripts/context_build.py
 
@@ -100,11 +70,11 @@ python scripts/context_build.py
 
 `scripts/run_all_tests.py` — Запуск тестов с выбором режима: default, online (с e2e), coverage. Логирование в файл.
 
-`scripts/start.py` — Запуск сервера: авто-старт `llama-server` (LLM + embedder) и `uvicorn`. Режим foreground/background, отслеживание PID.
-
-`scripts/stop.py` — Остановка сервера: graceful shutdown по PID-файлам, fallback по портам, очистка `llama-server`.
-
 `scripts/structure.py` — Генерация дерева проекта с метриками (файлы, LOC, размер). Учёт `.gitignore`, цветной вывод.
+
+`scripts/launcher.py` - лаунчер для скриптов и тестов
+
+`scripts/open_shell.py` - открытие powershell в корне проекта с активированным .venv
 
 ---
 
@@ -156,25 +126,3 @@ python scripts/context_build.py
 | `context_build_compact.md` | Перегенерируется полностью |
 | `context_build_full.md` | Перегенерируется полностью |
 | `context_build_rules.md` | Перегенерируется полностью |
-
----
-
-## 🆘 Troubleshooting
-
-**pytest падает с `RuntimeError: State not initialized`:**
-Проверь, что `conftest.py` вызывает `deps.set_state(mock_state)` или `app.state.app_state = mock_state`. Проверь, что `reset_global_state` фикстура не очищает state после установки.
-
-**RAG возвращает пустой контекст:**
-Проверь `embedder.dim == vector_store.dim` в config. Проверь, что индексы загружены (`vector_store.load()` вызван). Проверь `relevance_threshold` — возможно, слишком высокий.
-
-**`context_build.py` падает с ошибкой:**
-Проверь, что `README.md` и `pyproject.toml` есть в корне проекта (`D:i\`). Проверь, что запускаешь из корня: `cd D:i && python scripts/context_build.py`.
-
-**`ERROR_TAXONOMY.md` не обновляется:**
-Проверь, что `error_taxonomy_build.py` лежит рядом с `context_build.py` в `scripts/`. Запусти вручную: `python scripts/error_taxonomy_build.py`.
-
-**AI не видит свежие правила из `AI_RULES.md`:**
-Убедись, что запустил `scripts/context_build.py` после правки. Проверь дату в начале `docs/context_build_compact.md` — должна быть свежей.
-
-**`TODO.md` разросся:**
-Переноси выполненные крупные пункты в `TODO_DONE.md`. Мелкие багфиксы просто удаляй.

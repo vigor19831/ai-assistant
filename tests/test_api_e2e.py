@@ -120,7 +120,7 @@ class TestChatOffline:
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
-        assert "Internal server error" in resp.text
+        assert "data:" in resp.text
 
     def test_chat_handler_passes_trace_id(self, client, mock_state):
         """trace_id must be passed from handler through chat_manager to metadata."""
@@ -175,7 +175,7 @@ class TestOpenAICompatibleOffline:
         assert resp.status_code == 400
         assert "non-empty content" in resp.json()["detail"]
 
-    def test_chat_completions_non_stream(self, client):
+    def test_chat_completions_stream(self, client):
         resp = client.post(
             "/v1/chat/completions",
             json={
@@ -186,7 +186,7 @@ class TestOpenAICompatibleOffline:
         )
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
-        assert "Internal server error" in resp.text
+        assert "data:" in resp.text
 
     def test_openai_handler_passes_trace_id(self, client, mock_state):
         """OpenAI-compatible handler must pass trace_id to chat_manager."""

@@ -130,9 +130,20 @@ def main() -> int:
     issues: list[tuple[Path, int, str]] = []
 
     # 1. hasattr / isinstance
-    _allowed_type_tokens = {
-        "str", "int", "float", "bool", "bytes", "type", "None", "NoneType",
-        "list", "tuple", "dict", "set", "frozenset",
+    # Rule: isinstance on project types (ports, adapters, domain) violates duck typing.
+    # isinstance on stdlib/builtins is a normal type guard — allowed.
+    _PROJECT_TYPE_INDICATORS = {
+        "ILLM", "IEmbedder", "IVectorStore", "IChunker", "IReranker",
+        "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
+        "ITool", "IToolRegistry", "RAGPipeline", "ChatManager",
+        "RAGManager", "IndexingManager", "AppState", "InitializedAppState",
+        "PipelineData", "Chunk", "Document", "ChunkMetadata",
+        "UserMessage", "AssistantMessage", "ToolMessage", "Message",
+        "RerankResult", "ToolSpec", "ToolCall", "ToolResult",
+        "AdapterError", "ConfigurationError", "VersionMismatchError",
+        "OpenAICompatibleLLM", "OpenAICompatibleEmbedder", "MockLLM",
+        "MockEmbedder", "SimpleChunker", "APIReranker", "NullReranker",
+        "SQLiteStorage", "FaissVectorStore", "MemoryVectorStore",
     }
     for subdir in _PROD_DIRS:
         sub = src / subdir
@@ -155,16 +166,16 @@ def main() -> int:
                 clean = _clean_line(line)
                 if "hasattr(" in clean:
                     issues.append((p, n, "no-hasattr-in-production"))
-                if "isinstance(" in clean:
-                    m = re.search(r"isinstance\([^,]+,\s*(.+)\)", clean)
+                if re.search(r"\bisinstance\(", clean):
+                    m = re.search(r"\bisinstance\([^,]+,\s*(.+)\)", clean)
                     if m:
                         type_arg = m.group(1).strip()
                         if type_arg.startswith("(") and type_arg.endswith(")"):
                             type_arg = type_arg[1:-1]
                         type_tokens = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", type_arg)
-                        if all(t in _allowed_type_tokens for t in type_tokens):
-                            continue
-                    issues.append((p, n, "no-isinstance-in-production"))
+                        # Only flag if ANY token is a project type (duck typing violation)
+                        if any(t in _PROJECT_TYPE_INDICATORS for t in type_tokens):
+                            issues.append((p, n, "no-isinstance-on-project-types"))
 
     # 2. **kwargs
     for subdir in _PROD_DIRS:

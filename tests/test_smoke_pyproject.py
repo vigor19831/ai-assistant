@@ -77,6 +77,7 @@ def test_all_python_files_compile():
 
     base = Path(__file__).parent.parent
     files_to_check = [
+        "run.py",
         "src/ai_assistant/adapters/__init__.py",
         "src/ai_assistant/api/deps.py",
         "src/ai_assistant/api/lifespan.py",

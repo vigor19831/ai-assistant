@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-11 08:34 UTC
+> Auto-generated from source code. Updated: 2026-06-12 06:36 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -42,8 +42,8 @@
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 280 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 360 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 281 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 361 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 250 |
 | `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 265 |
 | `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
@@ -98,23 +98,23 @@
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
 | `core.utils` | `KeyError` | try: | Medium | 76 |
 | `core.utils` | `OSError` | return None | Medium | 63 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 117 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 150 |
-| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 163 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 118 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 151 |
+| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 164 |
 | `features.chat.handlers` | `Exception` | await queue.put(exc) | Medium | 66 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 122 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 155 |
-| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 170 |
-| `features.chat.handlers` | `Exception` | _logger.exception( | Medium | 238 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 272 |
-| `features.chat.handlers` | `HTTPException` | raise | Medium | 120 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 123 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 156 |
+| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 171 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed", extra={"trace_id": | Medium | 239 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 271 |
+| `features.chat.handlers` | `HTTPException` | raise | Medium | 121 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
-| `features.chat.handlers` | `item` | Raised item | Medium | 89 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 271 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 217 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 234 |
-| `features.chat.manager` | `Exception` | logger.error( | Medium | 273 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 312 |
+| `features.chat.handlers` | `item` | Raised item | Medium | 90 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 272 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 218 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 235 |
+| `features.chat.manager` | `Exception` | logger.error( | Medium | 274 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 313 |
 | `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 59 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 138 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 199 |
@@ -125,6 +125,7 @@
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
 | `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
 | `tests.test_api_e2e` | `OSError` | return False | Medium | 538 |
+| `tests.test_chat_manager_direct` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 37 |
 | `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 96 |
 | `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 218 |
 | `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 249 |

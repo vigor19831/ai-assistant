@@ -21,6 +21,29 @@ from ai_assistant.core.pipeline_steps import build_context, embed_query, retriev
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.adapters.reranker_null import NullReranker
 
+
+class _AsyncIter:
+    """Helper to create an async iterator from a list for mocking."""
+
+    def __init__(self, items: list[str]) -> None:
+        self._items = items
+
+    def __aiter__(self):
+        self._index = 0
+        return self
+
+    async def __anext__(self):
+        if self._index >= len(self._items):
+            raise StopAsyncIteration
+        item = self._items[self._index]
+        self._index += 1
+        return item
+
+
+def async_iter(items: list[str]):
+    """Return an async-iterable object for mocking LLM.stream()."""
+    return _AsyncIter(items)
+
 # ── _retrieve_context tests (formerly _maybe_rag) ──
 
 
@@ -505,11 +528,13 @@ class TestRAGGracefulDegradation:
         manager_no_rag.llm.complete.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_stream_chat_not_implemented(self, manager_no_rag):
-        """stream_chat must raise NotImplementedError until tool calls are supported."""
-        with pytest.raises(NotImplementedError, match="tool calls are not handled"):
-            async for _ in manager_no_rag.stream_chat("[p] capital", "conv-1"):
-                pass
+    async def test_stream_chat_without_rag(self, manager_no_rag):
+        """stream_chat without RAG prefix should call LLM stream."""
+        manager_no_rag.llm.stream = MagicMock(return_value=async_iter(["Hello", "!"]))
+        chunks = []
+        async for chunk in manager_no_rag.stream_chat("Hello", "conv-1"):
+            chunks.append(chunk)
+        assert chunks == ["Hello", "!"]
 
 
 # ── chat / stream_chat preparation identical tests ──
@@ -548,8 +573,10 @@ class TestChatStreamPreparationIdentical:
             mock_build.assert_awaited_once_with("Hello", "conv-1", metadata={})
 
     @pytest.mark.asyncio
-    async def test_stream_chat_not_implemented(self, manager):
-        """stream_chat must raise NotImplementedError until tool calls are supported."""
-        with pytest.raises(NotImplementedError, match="tool calls are not handled"):
-            async for _ in manager.stream_chat("Hello", "conv-1"):
-                pass
+    async def test_stream_chat_calls_llm_stream(self, manager):
+        """stream_chat must call LLM stream and yield chunks."""
+        manager.llm.stream = MagicMock(return_value=async_iter(["Hi", " there"]))
+        chunks = []
+        async for chunk in manager.stream_chat("Hello", "conv-1"):
+            chunks.append(chunk)
+        assert chunks == ["Hi", " there"]

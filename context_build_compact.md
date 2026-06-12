@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-11 08:34:33 UTC | **Mode:** `compact`
-> **Metrics:** 119 files | 98 Python | 14,650 LOC
-> **Full:** 46 | **Signatures:** 21 | **Listed:** 45
+> **Generated:** 2026-06-12 06:36:12 UTC | **Mode:** `compact`
+> **Metrics:** 116 files | 99 Python | 14,471 LOC
+> **Full:** 46 | **Signatures:** 21 | **Listed:** 42
 
 ---
 
@@ -20,7 +20,7 @@
 
 ## Быстрый старт
 
-```bash
+```
 # 1. Установка
 pip install -e ".[faiss]"
 
@@ -35,9 +35,11 @@ pip install -e ".[faiss]"
 # llm.api_base: http://127.0.0.1:8080/v1
 # llm.model: имя-модели-на-сервере
 
-# 4. Запуск
-python launcher.py        # интерактивный лаунчер
-# Или напрямую:
+# 4. Запуск (из корня проекта, .venv активируется автоматически)
+python start.py              # запуск LLM + embedder + uvicorn
+python stop.py               # остановка всех серверов
+
+# Или вручную:
 python scripts/start.py
 python main.py
 uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
@@ -87,8 +89,7 @@ python scripts/index_documents.py
 
 ---
 
-All rights reserved. For personal use only.
-
+All rights reserved. For personal use onl
 ```
 
 ---
@@ -266,7 +267,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-11 08:34 UTC
+> Auto-generated from source code. Updated: 2026-06-12 06:36 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -309,8 +310,8 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 280 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 360 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 281 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 361 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 250 |
 | `tests.test_api_deps` | `ValueError` | No storage adapter registered for 'sqlite' | High | 265 |
 | `tests.test_api_deps` | `ValueError` | Broken config | High | 305 |
@@ -365,23 +366,23 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
 | `core.utils` | `KeyError` | try: | Medium | 76 |
 | `core.utils` | `OSError` | return None | Medium | 63 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 117 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 150 |
-| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 163 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 118 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 151 |
+| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 164 |
 | `features.chat.handlers` | `Exception` | await queue.put(exc) | Medium | 66 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 122 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 155 |
-| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 170 |
-| `features.chat.handlers` | `Exception` | _logger.exception( | Medium | 238 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 272 |
-| `features.chat.handlers` | `HTTPException` | raise | Medium | 120 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 123 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 156 |
+| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 171 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed", extra={"trace_id": | Medium | 239 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 271 |
+| `features.chat.handlers` | `HTTPException` | raise | Medium | 121 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
-| `features.chat.handlers` | `item` | Raised item | Medium | 89 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 271 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 217 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 234 |
-| `features.chat.manager` | `Exception` | logger.error( | Medium | 273 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 312 |
+| `features.chat.handlers` | `item` | Raised item | Medium | 90 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 272 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 218 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 235 |
+| `features.chat.manager` | `Exception` | logger.error( | Medium | 274 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 313 |
 | `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 59 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 138 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 199 |
@@ -392,6 +393,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
 | `tests.test_api_deps` | `ImportError` | sqlite3 not available | Medium | 285 |
 | `tests.test_api_e2e` | `OSError` | return False | Medium | 538 |
+| `tests.test_chat_manager_direct` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 37 |
 | `tests.test_resilience` | `Exception` | pass  # Acceptable | Medium | 96 |
 | `tests.test_resilience` | `Exception` | pass  # Also acceptable if it raises | Medium | 218 |
 | `tests.test_resilience` | `OperationalError/PermissionError` | pass  # Expected | Medium | 249 |
@@ -463,12 +465,8 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
     .gitignore
     README.md
     config.yaml
-    diagnose.bat
-    diagnose.ps1
-    launcher.py
-    open_cmd.bat
-    open_powershell.bat
     pyproject.toml
+    run.py
 docs/
     ai_rules.md
     drift.md
@@ -491,10 +489,11 @@ scripts/
     download_tokenizers.py
     error_taxonomy_build.py
     index_documents.py
+    kill.py
+    launcher.py
+    open_shell.py
     pre_commit_check.py
     run_all_tests.py
-    start.py
-    stop.py
     structure.py
 src/
     ai_assistant/
@@ -1032,7 +1031,7 @@ tests/
 - `src/ai_assistant/features/rag/schemas.py`
 
 ### Signatures Only
-- `launcher.py`
+- `run.py`
 - `src/ai_assistant/__init__.py`
 - `src/ai_assistant/adapters/__init__.py`
 - `src/ai_assistant/adapters/chunker_simple.py`
@@ -1056,10 +1055,6 @@ tests/
 
 ### Listed Only (no content)
 - `.gitattributes`
-- `diagnose.bat`
-- `diagnose.ps1`
-- `open_cmd.bat`
-- `open_powershell.bat`
 - `scripts/audit_project.py`
 - `scripts/check_all.py`
 - `scripts/check_llm.py`
@@ -1073,10 +1068,11 @@ tests/
 - `scripts/download_tokenizers.py`
 - `scripts/error_taxonomy_build.py`
 - `scripts/index_documents.py`
+- `scripts/kill.py`
+- `scripts/launcher.py`
+- `scripts/open_shell.py`
 - `scripts/pre_commit_check.py`
 - `scripts/run_all_tests.py`
-- `scripts/start.py`
-- `scripts/stop.py`
 - `scripts/structure.py`
 - `tests/__init__.py`
 - `tests/config.test.yaml`
@@ -1190,7 +1186,7 @@ MagicMock/
 
 ## Быстрый старт
 
-```bash
+```
 # 1. Установка
 pip install -e ".[faiss]"
 
@@ -1205,9 +1201,11 @@ pip install -e ".[faiss]"
 # llm.api_base: http://127.0.0.1:8080/v1
 # llm.model: имя-модели-на-сервере
 
-# 4. Запуск
-python launcher.py        # интерактивный лаунчер
-# Или напрямую:
+# 4. Запуск (из корня проекта, .venv активируется автоматически)
+python start.py              # запуск LLM + embedder + uvicorn
+python stop.py               # остановка всех серверов
+
+# Или вручную:
 python scripts/start.py
 python main.py
 uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
@@ -1332,6 +1330,12 @@ llm:
   stop_sequences: []
   timeout: 300.0
   server_context_size: 4096
+  # === GPU / Performance ===
+  n_gpu_layers: 99        # -1 = все слои на GPU, 0 = только CPU
+  n_batch: 512            # размер батча
+  n_ubatch: 64            # микро-батч
+  mmap: true              # memory-mapped файлы
+  mlock: false            # блокировка страниц в RAM
 
 # ── Vector Store ──
 vector_store:
@@ -2232,7 +2236,7 @@ class LLMConfig(BaseSettings):
     frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
     server_context_size: int | None = None
     # === llama.cpp / local backend runtime ===
-    n_gpu_layers: int = 0
+    n_gpu_layers: int = 99
     n_batch: int = 512
     n_ubatch: int = 64
     mmap: bool = True
@@ -4433,7 +4437,7 @@ async def _stream_with_heartbeat(
 
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": ping\n\n"
                 last_activity = asyncio.get_event_loop().time()
                 continue
@@ -4442,6 +4446,7 @@ async def _stream_with_heartbeat(
                 yield "data: [DONE]\n\n"
                 return
 
+            # noqa: no-isinstance-in-production  # queue sentinel: str | None | Exception
             if isinstance(item, Exception):
                 raise item
 
@@ -4593,9 +4598,7 @@ async def openai_chat_completions(
                 )
                 raise
             except Exception:
-                _logger.exception(
-                    "OpenAI stream failed", extra={"trace_id": trace_id}
-                )
+                _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 raise
 
         async def event_generator() -> AsyncIterator[str]:
@@ -5253,27 +5256,54 @@ class ReindexRequest(BaseModel):
 
 ## 🧩 API Signatures
 
-### `launcher.py`
+### `run.py`
 ```python
-# API: launcher.py
+# API: run.py
 
-import argparse
+from __future__ import annotations
 import contextlib
 import os
+import shutil
+import signal
+import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
-def get_python(root: Path):
+def _ensure_venv():
+    """Return path to venv python. If venv missing — print instructions and exit."""
 
-def collect(root: Path, subdir: str):
+def _check_venv():
+    """Alias for _ensure_venv (backward compatibility)."""
 
-def sort_scripts(files: list[Path]):
+def _reexec_if_needed():
+    """If running from system python, restart self via venv python."""
 
-def print_menu(scripts, tests, last):
+import yaml
+def _run(cmd: list[str], log: Path | None=None, **kwargs):
 
-def run(python, target, root, extra):
+def port_free(port: int):
 
-def find_target(num, scripts, tests):
+def wait_port(port: int, timeout: float=30.0):
+
+def _find_exe(name: str):
+
+def _find_model(name: str):
+
+def _load_config():
+
+def _wait_for_stop():
+    """Block until user presses Enter or Ctrl+C."""
+
+def start():
+
+def stop():
+
+def kill_main():
+    """Emergency kill switch — kills all project processes and frees ports."""
+
+def _pause_on_error():
+    """Pause before exit on Windows when launched by double-click."""
 
 def main():
 

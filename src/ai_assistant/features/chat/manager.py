@@ -176,6 +176,7 @@ class ChatManager:
             "relevance_threshold": relevance_threshold,
             "embedder": self.embedder,
             "vector_store": self.vector_store,
+            "reranker": self.reranker,
         }
 
         data = await self.pipeline.run(data, metadata=metadata)

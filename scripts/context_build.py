@@ -54,6 +54,8 @@ SKIP_FILES = [
     "*.mp3", "*.wav", "*.lock", ".DS_Store", "Thumbs.db",
     "*.log", "*.pid",
     "*context_build_*.md",
+    # Runtime scripts — not part of project code
+    "start.py", "stop.py", "s_launcher.py",
 ]
 
 
