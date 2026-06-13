@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""audit_project.py — Raw dead code list for AI review.
+"""audit_project.py — Domain-aware dead code audit.
+
+Understands framework registration patterns:
+  @router.post("/path")  ->  function is used by FastAPI
+  @step("name")          ->  function is used by pipeline registry
+  @register("port", "name") ->  adapter is used by factory
 
 Usage:
     python scripts/audit_project.py          # interactive mode selection
@@ -44,6 +49,37 @@ SKIP_METHODS = {
     "__floor__", "__ceil__", "__copy__", "__deepcopy__", "__reduce__", "__reduce_ex__",
     "__getstate__", "__setstate__", "__post_init__",
 }
+
+# ── Domain-aware registration patterns ───────────────────────────────────────
+# These decorators mark functions/classes as "used by framework".
+# The script extracts registered names and treats them as referenced.
+REGISTRATION_DECORATORS: dict[str, tuple[str, ...]] = {
+    # FastAPI router registration
+    "router": ("get", "post", "put", "delete", "patch", "head", "options", "websocket"),
+    "APIRouter": ("get", "post", "put", "delete", "patch", "head", "options", "websocket"),
+    # Pipeline step registration
+    "step": ("step",),
+    # Adapter factory registration
+    "register": ("register",),
+    # App-level decorators (if used)
+    "app": ("get", "post", "put", "delete", "patch"),
+    "FastAPI": ("get", "post", "put", "delete", "patch"),
+}
+
+# Router variable name patterns (prefix-based to avoid hardcoding)
+ROUTER_VARIABLE_PREFIXES = ("router", "admin_router", "api_router")
+
+# ABC base classes that define port contracts — their methods are required
+ABC_BASES = {"ABC", "IChunker", "IEmbedder", "ILLM", "IReranker", "IVectorStore",
+             "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
+             "ITool", "IToolRegistry"}
+
+# Framework base classes whose methods are callbacks (not called by user code)
+FRAMEWORK_BASES = {"BaseHTTPMiddleware", "BaseMiddleware", "Middleware"}
+
+# Framework callback methods that are never called by user code directly.
+# Only skipped when the class inherits from FRAMEWORK_BASES.
+FRAMEWORK_CALLBACKS = frozenset({"dispatch", "lifespan"})
 
 
 # ── Coverage ──────────────────────────────────────────────────────────────────
@@ -127,7 +163,10 @@ def _check(label: str, items: list) -> list:
 
 # ── File / AST helpers ──────────────────────────────────────────────────────
 def collect_py(root: Path) -> list[Path]:
-    return [f for f in root.rglob("*.py") if not any(p in SKIP_DIRS for p in f.parts)]
+    return [
+        f for f in root.rglob("*.py")
+        if f.name not in SKIP_FILES and not any(p in SKIP_DIRS for p in f.parts)
+    ]
 
 
 def parse_file(p: Path) -> ast.AST | None:
@@ -209,6 +248,72 @@ class ReferenceCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+class RegistrationCollector(ast.NodeVisitor):
+    """Extract names of functions/classes registered via framework decorators.
+
+    Examples:
+        @router.post("/chat")  ->  registers 'chat' function
+        @router_oai.get("/v1/models") -> registers 'list_models' function
+        @step("embed_query")   ->  registers 'embed_query' function
+        @register("llm", "mock") -> registers 'MockLLM' class
+    """
+
+    def __init__(self):
+        self.registered_names: set[str] = set()
+        self.registered_modules: set[str] = set()
+
+    def _get_decorator_name(self, node: ast.expr) -> str:
+        """Get decorator name like 'router.post' or 'step'."""
+        if isinstance(node, ast.Name):
+            return node.id
+        elif isinstance(node, ast.Attribute):
+            base = self._get_decorator_name(node.value)
+            return f"{base}.{node.attr}" if base else node.attr
+        elif isinstance(node, ast.Call):
+            return self._get_decorator_name(node.func)
+        return ""
+
+    def _is_router_variable(self, name: str) -> bool:
+        """Check if name matches router variable patterns (prefix-based)."""
+        return any(name == prefix or name.startswith(prefix + "_") for prefix in ROUTER_VARIABLE_PREFIXES)
+
+    def _is_registration_decorator(self, name: str) -> bool:
+        """Check if decorator name matches known registration patterns."""
+        parts = name.split(".")
+        if len(parts) == 2:
+            base, method = parts
+            # Check known decorator classes
+            if base in REGISTRATION_DECORATORS:
+                return method in REGISTRATION_DECORATORS[base]
+            # Check router variable names (router_oai.get, etc.)
+            if self._is_router_variable(base):
+                return method in ("get", "post", "put", "delete", "patch", "head", "options", "websocket")
+        if len(parts) == 1:
+            return parts[0] in REGISTRATION_DECORATORS
+        return False
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._check_decorators(node, node.name)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._check_decorators(node, node.name)
+        self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._check_decorators(node, node.name)
+        self.generic_visit(node)
+
+    def _check_decorators(self, node: ast.AST, name: str) -> None:
+        if not hasattr(node, "decorator_list"):
+            return
+        for dec in node.decorator_list:
+            dec_name = self._get_decorator_name(dec)
+            if self._is_registration_decorator(dec_name):
+                self.registered_names.add(name)
+                self.registered_modules.add("")
+
+
 class DefinitionCollector(ast.NodeVisitor):
     def __init__(self, file_path: Path):
         self.file_path = file_path
@@ -217,6 +322,7 @@ class DefinitionCollector(ast.NodeVisitor):
         self.classes: dict[str, tuple[int, list[str]]] = {}
         self.exports: set[str] = set()
         self._class_stack: list[str] = []
+        self.has_registration_decorator: bool = False
 
     def _get_name(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name):
@@ -228,7 +334,19 @@ class DefinitionCollector(ast.NodeVisitor):
     def _get_bases(self, node: ast.ClassDef) -> list[str]:
         return [self._get_name(b) for b in node.bases]
 
+    def _check_registration_decorator(self, node: ast.AST) -> None:
+        """Check if any decorator is a registration decorator."""
+        if not hasattr(node, "decorator_list"):
+            return
+        rc = RegistrationCollector()
+        for dec in node.decorator_list:
+            dec_name = rc._get_decorator_name(dec)
+            if rc._is_registration_decorator(dec_name):
+                self.has_registration_decorator = True
+                break
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._check_registration_decorator(node)
         if self._class_stack:
             pass
         elif not node.name.startswith("_") and node.name != "main":
@@ -236,6 +354,7 @@ class DefinitionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._check_registration_decorator(node)
         if self._class_stack:
             pass
         elif not node.name.startswith("_") and node.name != "main":
@@ -243,6 +362,7 @@ class DefinitionCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._check_registration_decorator(node)
         self.classes[node.name] = (node.lineno, self._get_bases(node))
         if not node.name.startswith("_"):
             self.defs[node.name] = ("class", node.lineno)
@@ -303,6 +423,9 @@ def build_registry(all_files: list[Path]) -> dict[str, dict]:
         rc = ReferenceCollector()
         rc.visit(tree)
 
+        regc = RegistrationCollector()
+        regc.visit(tree)
+
         dc = DefinitionCollector(f)
         dc.visit(tree)
 
@@ -320,11 +443,13 @@ def build_registry(all_files: list[Path]) -> dict[str, dict]:
             "file": f,
             "tree": tree,
             "imports": ic.imports,
-            "refs": rc.refs | exports,
+            "refs": rc.refs | exports | regc.registered_names,
+            "registered_names": regc.registered_names,
             "defs": dc.defs,
             "methods": dc.methods,
             "classes": dc.classes,
             "exports": exports,
+            "has_registration_decorator": dc.has_registration_decorator,
         }
     return registry
 
@@ -341,6 +466,12 @@ def find_orphaned_files(registry: dict) -> list[tuple[Path, str]]:
         if f.name in SKIP_FILES:
             continue
         if f.name in ENTRY_POINT_FILES:
+            continue
+        # File is not orphaned if it has registration decorators (exports via framework)
+        if info["has_registration_decorator"]:
+            continue
+        # File is not orphaned if it exports symbols in __all__
+        if info["exports"]:
             continue
         found = any(
             imp == mod or imp.startswith(f"{mod}.") or imp == f.stem
@@ -362,6 +493,9 @@ def find_unused_symbols(registry: dict) -> list[tuple[Path, str, str, int]]:
         for name, (kind, line) in info["defs"].items():
             if name in SKIP_NAMES:
                 continue
+            # Registered names are considered used
+            if name in info["registered_names"]:
+                continue
             if name in global_refs:
                 continue
             if name in info["exports"]:
@@ -370,12 +504,35 @@ def find_unused_symbols(registry: dict) -> list[tuple[Path, str, str, int]]:
     return unused
 
 
+def _is_framework_class(bases: list[str]) -> bool:
+    """Check if class inherits from a framework base (has framework callbacks)."""
+    return any(base in FRAMEWORK_BASES for base in bases)
+
+
+def _is_abc_class(bases: list[str]) -> bool:
+    """Check if class inherits from an ABC port (has contract-required methods)."""
+    return any(base in ABC_BASES for base in bases)
+
+
 def find_unused_methods(registry: dict) -> list[tuple[Path, str, str, int]]:
     unused = []
     for mod, info in registry.items():
         f = info["file"]
         for cls_name, methods in info["methods"].items():
+            bases = info["classes"].get(cls_name, (0, []))[1]
+
+            # Skip ABC port classes — methods are contract-required
+            if _is_abc_class(bases):
+                continue
+
+            # Skip framework classes — framework callbacks are not user-called
+            is_framework = _is_framework_class(bases)
+
             for method, line in methods.items():
+                # Framework callbacks (dispatch, lifespan) are not unused
+                if is_framework and method in FRAMEWORK_CALLBACKS:
+                    continue
+
                 found = method in info["refs"]
                 if not found:
                     for other_mod, other_info in registry.items():
@@ -477,7 +634,6 @@ def check_cycles(registry: dict) -> list[str]:
     seen_cycles: set[tuple[str, ...]] = set()
 
     def _normalize(cycle_nodes: list[str]) -> tuple[str, ...]:
-        """Canonical rotation: smallest lexicographic tuple."""
         if not cycle_nodes:
             return tuple()
         nodes = cycle_nodes[:-1] if cycle_nodes[0] == cycle_nodes[-1] else list(cycle_nodes)
@@ -525,7 +681,9 @@ def report(orphaned, unused, dead_methods, dead_consts, duplicates, stale, cycle
     total = len(orphaned) + len(unused) + len(dead_methods) + len(dead_consts) + len(duplicates) + len(stale) + len(cycles) + len(empty)
 
     print()
-    print(f"  DEAD CODE REVIEW  |  {mode}")
+    print(f"  DEAD CODE AUDIT  |  {mode}")
+    print("  " + "-" * 40)
+    print("  This script DETECTS potential issues. Manual review required.")
     print("  " + "-" * 40)
 
     sections = [
@@ -565,17 +723,19 @@ def report(orphaned, unused, dead_methods, dead_consts, duplicates, stale, cycle
 
     print()
     if total == 0:
-        print("  [OK] Project looks clean.")
+        print("  [OK] No suspicious code detected.")
+        print("  Note: This is static analysis. Runtime usage may differ.")
         return 0
 
-    print(f"  [!] {total} item(s) to review.")
+    print(f"  [!] {total} item(s) detected for manual review.")
+    print("  Action: Review each item. Remove if truly unused, or document why kept.")
     return 1
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
-    parser = argparse.ArgumentParser(description="Raw dead code list for AI review")
+    parser = argparse.ArgumentParser(description="Domain-aware dead code audit")
     parser.add_argument("--ast", action="store_true", help="AST-only (ignore coverage)")
     parser.add_argument("--coverage-file", type=Path, default=COVERAGE_FILE, help="Path to .coverage")
     parser.add_argument("--auto", action="store_true", help="Skip interactive, use defaults")

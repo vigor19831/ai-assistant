@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-12 19:27 UTC
+> Auto-generated from source code. Updated: 2026-06-13 19:32 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -8,32 +8,32 @@
 | `adapters.chunker_simple` | `ValueError` | chunk_size must be > 0, got {...} | High | 22 |
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap must be >= 0, got {...} | High | 24 |
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High | 26 |
-| `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High | 26 |
-| `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High | 30 |
-| `adapters.factory` | `ValueError` | No LLM adapter registered for '{...}' | High | 38 |
-| `adapters.factory` | `ValueError` | No embedder adapter registered for '{...}' | High | 52 |
-| `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High | 64 |
-| `adapters.factory` | `ValueError` | No vector_store adapter registered for '{...}' | High | 68 |
-| `adapters.factory` | `ValueError` | No chunker adapter registered for '{...}' | High | 76 |
-| `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 84 |
-| `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 88 |
-| `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 100 |
-| `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 103 |
-| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 182 |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High | 27 |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High | 31 |
+| `adapters.factory` | `ValueError` | No LLM adapter registered for '{...}' | High | 48 |
+| `adapters.factory` | `ValueError` | No embedder adapter registered for '{...}' | High | 62 |
+| `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High | 74 |
+| `adapters.factory` | `ValueError` | No vector_store adapter registered for '{...}' | High | 78 |
+| `adapters.factory` | `ValueError` | No chunker adapter registered for '{...}' | High | 86 |
+| `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 94 |
+| `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 98 |
+| `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 110 |
+| `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 113 |
+| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 177 |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
-| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 70 |
-| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 256 |
-| `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 155 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 71 |
+| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 257 |
+| `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 156 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 156 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 158 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 160 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 162 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 164 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 166 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 168 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 187 |
-| `api.deps` | `ValueError` | Unknown step: {...} | High | 91 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 231 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 233 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 235 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 237 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 239 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 241 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 243 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 262 |
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 99 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
 | `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 262 |
 | `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 289 |
@@ -50,30 +50,30 @@
 | `tests.test_api` | `RuntimeError` | boom | High | 1466 |
 | `tests.test_api` | `ValueError` | No storage adapter registered | High | 653 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
- newlines | High | 179 |
+ newlines | High | 212 |
 | `tests.test_pipeline` | `RuntimeError` | transient | High | 552 |
 | `tests.test_pipeline` | `RuntimeError` | fail | High | 582 |
 | `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 604 |
 | `tests.test_pipeline` | `ValueError` | permanent | High | 559 |
-| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 25 |
-| `adapters.factory` | `ImportError` | raise ValueError( | Medium | 63 |
-| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 119 |
-| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 181 |
-| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 243 |
-| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 261 |
-| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 110 |
-| `adapters.llm_openai_compatible` | `TypeError` | pass | Medium | 149 |
+| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 26 |
+| `adapters.factory` | `ImportError` | raise ValueError( | Medium | 73 |
+| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 116 |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 176 |
+| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 238 |
+| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 256 |
+| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 107 |
 | `adapters.reranker_api` | `KeyError/TypeError` | raise AdapterError(f"Unexpected rerank response shape: {exc} | Medium | 74 |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 82 |
-| `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 23 |
+| `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss: Any = None  # type: ignore[assignment, no-redef] | Medium | 17 |
-| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss'... | Medium | 354 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 125 |
+| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss'... | Medium | 355 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 200 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 78 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 65 |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 99 |
-| `api.lifespan` | `Exception` | logger.exception("Adapter '%s' shutdown failed", name) | Medium | 117 |
+| `api.lifespan` | `Exception` | logger.exception("Adapter '%s' shutdown failed", name) | Medium | 119 |
 | `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out: %s/%s", index_path, ns | Medium | 96 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Adapter '%s' shutdown timed out", name) | Medium | 117 |
 | `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
 | `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 288 |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 59 |
@@ -121,10 +121,10 @@
 | `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 259 |
 | `features.rag.handlers` | `Exception` | return { | Medium | 297 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 342 |
-| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 146 |
-| `tests.test_api` | `Exception` | errors.append(e) | Medium | 356 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 150 |
+| `tests.test_api` | `Exception` | errors.append(e) | Medium | 350 |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 676 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
-| `tests.test_smoke` | `Exception` | return req, None, None | Medium | 466 |
+| `tests.test_smoke` | `Exception` | return req, None, None | Medium | 480 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.

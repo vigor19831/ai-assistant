@@ -1,12 +1,13 @@
-"""Reranker port — post-retrieval relevance scoring."""
+"""core/ports/reranker.py"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ai_assistant.core.domain.configs import RerankerConfigData
     from ai_assistant.core.domain.documents import Chunk
 
 from ai_assistant.core.ports.closable import IClosable
@@ -29,7 +30,7 @@ class IReranker(IClosable, ABC):
     and improve context quality for generation.
     """
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: RerankerConfigData) -> None:
         self.config = config
 
     @abstractmethod

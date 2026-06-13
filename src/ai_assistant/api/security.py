@@ -76,7 +76,7 @@ async def require_api_key(
     expected = get_expected_api_key()
     if not expected:
         raise HTTPException(status_code=401, detail="API key not configured")
-    if not credentials:
+    if not credentials or not hasattr(credentials, "credentials"):
         raise HTTPException(status_code=401, detail="Missing API key")
     if credentials.credentials != expected:
         raise HTTPException(status_code=401, detail="Invalid API key")

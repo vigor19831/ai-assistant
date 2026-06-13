@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable  # ← добавить Callable сюда
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -10,6 +10,14 @@ from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires run
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.core.config import AppConfig, RAGStep
+from ai_assistant.core.domain.configs import (
+    ChunkerConfigData,
+    EmbedderConfigData,
+    LLMConfigData,
+    RerankerConfigData,
+    StorageConfigData,
+    VectorStoreConfigData,
+)
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import STEP_REGISTRY
@@ -94,6 +102,71 @@ def _build_step_funcs(
 
 
 # ---------------------------------------------------------------------------
+# Config conversion — Pydantic -> dataclass for port contracts
+# ---------------------------------------------------------------------------
+
+def _chunker_data(cfg: AppConfig) -> ChunkerConfigData:
+    c = cfg.chunker
+    return ChunkerConfigData(
+        chunk_size=c.chunk_size,
+        chunk_overlap=c.chunk_overlap,
+    )
+
+
+def _embedder_data(cfg: AppConfig) -> EmbedderConfigData:
+    c = cfg.embedder
+    return EmbedderConfigData(
+        model=c.model,
+        api_base=c.api_base,
+        api_key=c.api_key,
+        dim=c.dim,
+        timeout=c.timeout,
+    )
+
+
+def _llm_data(cfg: AppConfig) -> LLMConfigData:
+    c = cfg.llm
+    return LLMConfigData(
+        model=c.model,
+        api_base=c.api_base,
+        api_key=c.api_key,
+        max_tokens=c.max_tokens,
+        temperature=c.temperature,
+        timeout=c.timeout,
+        server_context_size=c.server_context_size,
+    )
+
+
+def _vector_store_data(cfg: AppConfig) -> VectorStoreConfigData:
+    c = cfg.vector_store
+    return VectorStoreConfigData(
+        dim=c.dim,
+        index_path=c.index_path,
+        metric=c.metric,
+        max_chunks=c.max_chunks,
+        max_document_size=c.max_document_size,
+    )
+
+
+def _storage_data(cfg: AppConfig) -> StorageConfigData:
+    c = cfg.storage
+    return StorageConfigData(db_path=c.db_path)
+
+
+def _reranker_data(cfg: AppConfig) -> RerankerConfigData | None:
+    if cfg.reranker is None or cfg.reranker.provider is None:
+        return None
+    c = cfg.reranker
+    return RerankerConfigData(
+        model=c.model,
+        api_base=c.api_base,
+        api_key=c.api_key,
+        timeout=c.timeout,
+        threshold=c.threshold,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Adapter initialization
 # ---------------------------------------------------------------------------
 
@@ -103,25 +176,27 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     state = AppState(config=config)
     cfg = config
 
-    state.chunker = create_adapter("chunker", cfg.chunker.provider, cfg.chunker)
-    state.embedder = create_adapter("embedder", cfg.embedder.provider, cfg.embedder)
-    state.llm = create_adapter("llm", cfg.llm.provider, cfg.llm)
+    state.chunker = create_adapter("chunker", cfg.chunker.provider, _chunker_data(cfg))
+    state.embedder = create_adapter(
+        "embedder", cfg.embedder.provider, _embedder_data(cfg)
+    )
+    state.llm = create_adapter("llm", cfg.llm.provider, _llm_data(cfg))
     state.vector_store = create_adapter(
         "vector_store",
         cfg.vector_store.provider,
-        cfg.vector_store,
+        _vector_store_data(cfg),
     )
 
-    reranker_provider = (
-        getattr(cfg.reranker, "provider", None) if cfg.reranker else None
-    )
-    if reranker_provider:
-        state.reranker = create_adapter("reranker", reranker_provider, cfg.reranker)
+    reranker_cfg = _reranker_data(cfg)
+    if reranker_cfg is not None:
+        state.reranker = create_adapter("reranker", cfg.reranker.provider, reranker_cfg)
     else:
-        state.reranker = create_adapter("reranker", "null", None)
+        state.reranker = create_adapter("reranker", "null", RerankerConfigData())
 
     try:
-        state.storage = create_adapter("storage", cfg.storage.provider, cfg.storage)
+        state.storage = create_adapter(
+            "storage", cfg.storage.provider, _storage_data(cfg)
+        )
     except (ValueError, ImportError):
         _logger.exception(
             "Storage adapter '%s' not available",

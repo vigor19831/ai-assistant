@@ -330,33 +330,45 @@ class TestRerankerRegression:
         """Given: chat message with [p] prefix and working retrieval pipeline.
         When: ChatManager._retrieve_context is called.
         Then: metadata reaching the rerank step contains the reranker instance."""
+        from dataclasses import replace
         from ai_assistant.features.chat.manager import ChatManager
-
-        # Ensure retrieval yields chunks so the pipeline reaches rerank
-        mock_vector_store.search = AsyncMock(return_value=[
-            Chunk(
-                id="c1",
-                text="test chunk",
-                metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
-            )
-        ])
+        from ai_assistant.core.pipeline import RAGPipeline
+        from ai_assistant.core.domain.pipeline import PipelineData
 
         captured = {}
 
+        async def fake_embed_query(data: PipelineData) -> PipelineData:
+            """Fake embed_query step — stores embedding in metadata."""
+            new_metadata = {**data.metadata, "query_embedding": [0.1] * 384}
+            return replace(data, metadata=new_metadata)
+
+        async def fake_retrieve(data: PipelineData) -> PipelineData:
+            """Fake retrieve step — reads embedding, returns chunks."""
+            return data.with_chunks([
+                Chunk(
+                    id="c1",
+                    text="test chunk",
+                    embedding=[0.1] * 384,
+                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                )
+            ])
+
         async def capture_rerank(data: PipelineData) -> PipelineData:
+            """Capture reranker from metadata and return data unchanged."""
             captured["reranker"] = data.metadata.get("reranker")
-            # Return data unchanged — do not mutate
-            return replace(data)
+            return data
+
+        pipeline = RAGPipeline([fake_embed_query, fake_retrieve, capture_rerank])
 
         mgr = ChatManager(
             llm=mock_state.llm,
             embedder=mock_embedder,
             vector_store=mock_vector_store,
             reranker=mock_state.reranker,
+            pipeline=pipeline,
         )
 
-        with patch("ai_assistant.features.chat.manager.rerank", capture_rerank):
-            await mgr._retrieve_context("[p] test query")
+        await mgr._retrieve_context("[p] test query")
 
         assert captured.get("reranker") is mock_state.reranker
 

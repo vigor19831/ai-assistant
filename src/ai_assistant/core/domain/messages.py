@@ -28,11 +28,3 @@ class ToolMessage:
     text: str
     call_id: str
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class SystemMessage:
-    """System message."""
-
-    text: str
-    metadata: dict[str, Any] = field(default_factory=dict)

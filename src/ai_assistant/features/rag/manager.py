@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
@@ -44,13 +45,16 @@ class IndexingManager:
                 metadata=doc.get("metadata", {}),
             )
             chunks = await self.chunker.chunk(document)
-            for chunk in chunks:
-                chunk.metadata = ChunkMetadata(
-                    source=document.id,
-                    index=chunks.index(chunk),
-                    total_chunks=len(chunks),
+            for idx, chunk in enumerate(chunks):
+                chunk = replace(
+                    chunk,
+                    metadata=ChunkMetadata(
+                        source=document.id,
+                        index=idx,
+                        total_chunks=len(chunks),
+                    ),
                 )
-            all_chunks.extend(chunks)
+                all_chunks.append(chunk)
 
         if not all_chunks:
             return {
@@ -61,8 +65,8 @@ class IndexingManager:
 
         texts = [c.text for c in all_chunks]
         embeddings = await self.embedder.embed(texts)
-        for chunk, emb in zip(all_chunks, embeddings, strict=True):
-            chunk.embedding = emb
+        for i, emb in enumerate(embeddings):
+            all_chunks[i] = replace(all_chunks[i], embedding=emb)
 
         await self.vector_store.add(all_chunks, namespace=namespace)
         return {

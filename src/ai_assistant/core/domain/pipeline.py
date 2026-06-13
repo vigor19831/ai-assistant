@@ -38,7 +38,3 @@ class PipelineData:
     def add_error(self, msg: str) -> PipelineData:
         """Return a new PipelineData with an additional error message."""
         return replace(self, errors=(*self.errors, msg))
-
-    def with_metadata(self, metadata: dict[str, Any]) -> PipelineData:
-        """Return a new PipelineData with merged metadata (shallow copy)."""
-        return replace(self, metadata={**self.metadata, **metadata})

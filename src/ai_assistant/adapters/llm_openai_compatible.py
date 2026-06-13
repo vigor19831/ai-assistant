@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 import httpx
 
+from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.logger import get_logger
@@ -26,19 +27,15 @@ _logger = get_logger("llm.openai_compatible")
 class OpenAICompatibleLLM(ILLM, IClosable):
     """LLM using OpenAI-compatible REST API."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: LLMConfigData) -> None:
         super().__init__(config)
-        self.model: str = getattr(config, "model", "gpt-4o-mini")
-        self.api_base: str = getattr(config, "api_base", "https://api.openai.com/v1")
-        self.api_key: str = resolve_api_key(
-            getattr(config, "api_key", None), "OPENAI_API_KEY"
-        )
-        self.max_tokens: int = getattr(config, "max_tokens", 4096)
-        self.temperature: float = getattr(config, "temperature", 0.7)
-        self._timeout: float = getattr(config, "timeout", 300.0)
-        self._max_stream_tokens: int = getattr(
-            config, "max_stream_tokens", self.max_tokens * 2
-        )
+        self.model: str = config.model
+        self.api_base: str = config.api_base
+        self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
+        self.max_tokens: int = config.max_tokens
+        self.temperature: float = config.temperature
+        self._timeout: float = config.timeout
+        self._max_stream_tokens: int = config.max_tokens * 2
         self._client: httpx.AsyncClient | None = None
 
     async def shutdown(self) -> None:
@@ -140,14 +137,12 @@ class OpenAICompatibleLLM(ILLM, IClosable):
     def get_context_limit(self) -> int | None:
         """Return context limit from config."""
         cfg = self.config
-        for attr in ("context_size", "server_context_size", "max_tokens"):
-            limit = getattr(cfg, attr, None)
-            try:
-                # Duck typing: check numeric via comparison
-                if limit is not None and limit > 0:
-                    return int(limit)
-            except TypeError:
-                pass
+        limit = cfg.server_context_size
+        if limit is not None and limit > 0:
+            return limit
+        limit = cfg.max_tokens
+        if limit > 0:
+            return limit
         return None
 
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)

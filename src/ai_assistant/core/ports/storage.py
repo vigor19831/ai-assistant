@@ -1,19 +1,20 @@
-"""Storage ports."""
+"""core/ports/storage.py"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING
 
-from ai_assistant.core.ports.initializable import IInitializable
+if TYPE_CHECKING:
+    from ai_assistant.core.domain.configs import StorageConfigData
 
 __all__ = ["IChatStorage", "ISettingsStorage"]
 
 
-class IChatStorage(IInitializable, ABC):
+class IChatStorage(ABC):
     """Chat history persistence."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: StorageConfigData) -> None:
         self.config = config
 
     @abstractmethod
@@ -38,7 +39,7 @@ class IChatStorage(IInitializable, ABC):
 class ISettingsStorage(ABC):
     """Settings persistence."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: StorageConfigData) -> None:
         self.config = config
 
     @abstractmethod

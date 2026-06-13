@@ -1,10 +1,11 @@
-"""LLM port."""
+"""core/ports/llm.py"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
 from ai_assistant.core.ports.closable import IClosable
 
@@ -21,7 +22,7 @@ class ILLM(IClosable, ABC):
 
     system_message: str | None = None
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: LLMConfigData) -> None:
         self.config = config
 
     async def shutdown(self) -> None:

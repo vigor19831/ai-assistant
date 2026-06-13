@@ -54,7 +54,7 @@ def main() -> int:
     ] + flags
 
     log_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = ROOT / "tests" / f"tests_run_{log_ts}.log"
+    log_path = ROOT / f"tests_run_{log_ts}.log"
 
     print(f"\n>>> Running: {' '.join(cmd)}")
     print(f">>> Log: {log_path}\n")

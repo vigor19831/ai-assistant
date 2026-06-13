@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
+from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 
 __all__ = ["NullReranker"]
@@ -15,9 +16,9 @@ __all__ = ["NullReranker"]
 class NullReranker(IReranker):
     """No-op reranker that returns chunks unchanged."""
 
-    def __init__(self, config: Any = None) -> None:
-        # config may be None when created implicitly
-        super().__init__(config or object())
+    def __init__(self, config: RerankerConfigData | None = None) -> None:
+        # config may be None when created implicitly in old tests
+        super().__init__(config or RerankerConfigData())
 
     async def rerank(
         self,

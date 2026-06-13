@@ -4,6 +4,7 @@ from . import (
     config,
     domain,
     io_utils,
+    logger,
     pipeline,
     ports,
     prompts,
@@ -12,12 +13,13 @@ from . import (
 )
 
 __all__ = [
+    "config",
     "domain",
+    "io_utils",
+    "logger",
+    "pipeline",
     "ports",
     "prompts",
-    "config",
-    "pipeline",
     "retry",
-    "io_utils",
     "utils",
 ]

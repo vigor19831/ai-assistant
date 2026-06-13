@@ -194,7 +194,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         return replace(data)
 
     reranker = data.metadata.get("reranker")
-    assert reranker is not None  # ← FIX: api/deps гарантирует NullReranker fallback
+    assert reranker is not None  # ← FIX: api/deps guarantees NullReranker fallback
     # reranker is guaranteed non-None by api/deps (NullReranker fallback)
     # No branching on None — keeps pipeline pure.
 
@@ -414,7 +414,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         )
         return data.add_error(INTERNAL_SERVER_ERROR)
 
-    hyde_text = hyde_resp.text or " "
+    hyde_text = hyde_resp.text or ""
     if not hyde_text:
         return data.add_error("hyde_query: empty hypothetical answer")
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import random
-from typing import Any
 
+from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.ports.embedder import IEmbedder
 
 __all__ = ["MockEmbedder"]
@@ -13,7 +13,7 @@ __all__ = ["MockEmbedder"]
 class MockEmbedder(IEmbedder):
     """Deterministic fake embedder for testing."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: EmbedderConfigData) -> None:
         super().__init__(config)
         self._dim: int = config.dim
 

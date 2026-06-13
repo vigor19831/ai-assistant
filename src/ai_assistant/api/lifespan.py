@@ -112,7 +112,9 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     for adapter, name in adapters:
         if adapter is not None:
             try:
-                await adapter.shutdown()
+                await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
                 logger.info("Adapter '%s' shutdown complete", name)
+            except TimeoutError:
+                logger.warning("Adapter '%s' shutdown timed out", name)
             except Exception:
                 logger.exception("Adapter '%s' shutdown failed", name)

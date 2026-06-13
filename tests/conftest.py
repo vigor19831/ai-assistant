@@ -180,21 +180,19 @@ def mock_chunker():
 
 @pytest.fixture
 def mock_state():
-    """Return a mock InitializedAppState for API/E2E tests."""
+    """Return a mock InitializedAppState for API/E2E tests.
+
+    Uses a real AppConfig for schema fields and AsyncMock for adapters.
+    This avoids MagicMock(spec=AppConfig) which does not auto-create
+    Pydantic fields reliably.
+    """
     from ai_assistant.api.deps import InitializedAppState
     from ai_assistant.core.config import AppConfig
 
+    config = AppConfig()  # real config with all defaults
     state = MagicMock(spec=InitializedAppState)
-    state.config = MagicMock(spec=AppConfig)
-    state.config.llm = MagicMock()
-    state.config.llm.model = "test-model"
-    state.config.llm.provider = "test-provider"
-    state.config.embedder = MagicMock()
-    state.config.embedder.dim = 384
-    state.config.vector_store = MagicMock()
-    state.config.vector_store.dim = 384
-    state.config.rag = MagicMock()
-    state.config.rag.prompt_version = "v1"
+    state.config = config  # real AppConfig, not MagicMock(spec=AppConfig)
+    # Adapter fields — AsyncMock for test isolation
     state.llm = AsyncMock()
     state.embedder = AsyncMock()
     state.vector_store = AsyncMock()

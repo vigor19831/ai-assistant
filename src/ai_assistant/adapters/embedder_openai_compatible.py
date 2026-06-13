@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.retry import with_retry
@@ -39,15 +40,13 @@ def _extract_embeddings(
 class OpenAICompatibleEmbedder(IEmbedder):
     """Embedder using OpenAI-compatible REST API."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: EmbedderConfigData) -> None:
         super().__init__(config)
-        self.model: str = getattr(config, "model", "text-embedding-3-small")
-        self.api_base: str = getattr(config, "api_base", "https://api.openai.com/v1")
-        self.api_key: str = resolve_api_key(
-            getattr(config, "api_key", None), "OPENAI_API_KEY"
-        )
-        self._dim: int = getattr(config, "dim", 1536)
-        self._timeout: float = getattr(config, "timeout", 60.0)
+        self.model: str = config.model
+        self.api_base: str = config.api_base
+        self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
+        self._dim: int = config.dim
+        self._timeout: float = config.timeout
         self._client: httpx.AsyncClient | None = None
 
     async def shutdown(self) -> None:

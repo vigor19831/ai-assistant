@@ -1,11 +1,12 @@
-"""Chunker port."""
+"""core/ports/chunker.py"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ai_assistant.core.domain.configs import ChunkerConfigData
     from ai_assistant.core.domain.documents import Chunk, Document
 
 __all__ = ["IChunker"]
@@ -14,7 +15,7 @@ __all__ = ["IChunker"]
 class IChunker(ABC):
     """Split documents into chunks."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: ChunkerConfigData) -> None:
         self.config = config
 
     @abstractmethod

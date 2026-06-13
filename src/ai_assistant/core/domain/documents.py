@@ -11,7 +11,7 @@ class ChunkMetadata:
     source: str
     index: int
     total_chunks: int
-    extra: dict[str, Any] = field(default_factory=dict)
+    custom: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,5 +29,5 @@ class Document:
     """Immutable source document."""
 
     id: str
-    text: str
+    content: str
     metadata: dict[str, Any] = field(default_factory=dict)

@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
@@ -24,13 +25,13 @@ class MemoryVectorStore(IVectorStore):
     Enforces max_chunks per namespace to prevent OOM.
     """
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: VectorStoreConfigData) -> None:
         super().__init__(config)
         self.dim: int = config.dim
-        self._max_chunks: int = getattr(config, "max_chunks", 10000)
+        self._max_chunks: int = config.max_chunks
         self._namespaces: dict[str, _NamespaceData] = {}
         self._lock = asyncio.Lock()
-        self._index_path = getattr(config, "index_path", "./data/indices/memory")
+        self._index_path = config.index_path
 
     @property
     def index_path(self) -> str:

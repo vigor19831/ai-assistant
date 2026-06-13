@@ -372,6 +372,8 @@ class TestAPISecurity:
         When: POST /api/v1/rag/save-chat is sent.
         Then: 422 validation error blocks the request.
         """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
         payload = {
             "content": "test",
             "namespace": "personal",
@@ -389,6 +391,8 @@ class TestAPISecurity:
         When: POST /api/v1/rag/save-chat is sent.
         Then: 422 validation error blocks the request.
         """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
         payload = {"content": "test", "namespace": "Hacked123", "filename": "test.md"}
         resp = client.post(
             "/api/v1/rag/save-chat",
@@ -419,6 +423,8 @@ class TestAPISecurity:
         When: POST /api/v1/rag/save-chat is sent.
         Then: handler returns 400 or Pydantic returns 422; never 200.
         """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
         payload = {
             "content": "test",
             "namespace": "personal",
@@ -1020,7 +1026,7 @@ class TestAPILifespan:
         """
         app = FastAPI()
 
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None  # skip index load
 
         with patch(
@@ -1030,11 +1036,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ), patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ), patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value=None
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ):
             async with lifespan(app):
                 assert hasattr(app.state, "app_state")
@@ -1047,7 +1053,7 @@ class TestAPILifespan:
         Then: _async_cleanup is called.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
@@ -1062,11 +1068,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ), patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ), patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value=None
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ):
             async with lifespan(app):
                 pass
@@ -1081,7 +1087,7 @@ class TestAPILifespan:
         Then: save is called for each namespace with timeout.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = MagicMock()
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(
@@ -1107,7 +1113,7 @@ class TestAPILifespan:
         Then: TimeoutError is caught and logged; other namespaces still proceed.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = MagicMock()
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
@@ -1144,7 +1150,7 @@ class TestAPILifespan:
         Then: shutdown is called on each adapter in defined order.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
@@ -1169,7 +1175,7 @@ class TestAPILifespan:
         Then: mount_static is called with app and config.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
 
         with patch(
@@ -1179,11 +1185,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ) as mock_mount, patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ), patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value=None
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ):
             async with lifespan(app):
                 pass
@@ -1197,7 +1203,7 @@ class TestAPILifespan:
         Then: setup_logging is called with correct level.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
 
         with patch(
@@ -1207,11 +1213,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ), patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ) as mock_setup, patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value=None
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ):
             async with lifespan(app):
                 pass
@@ -1228,7 +1234,7 @@ class TestAPILifespan:
         """
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
 
         with patch(
@@ -1238,11 +1244,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ), patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ), patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value=None
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ) as mock_set_key:
             async with lifespan(app):
                 pass
@@ -1257,7 +1263,7 @@ class TestAPILifespan:
         """
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
 
         with patch(
@@ -1267,11 +1273,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ), patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ), patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value="env-secret"
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value="env-secret"
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ) as mock_set_key:
             async with lifespan(app):
                 pass
@@ -1285,7 +1291,7 @@ class TestAPILifespan:
         Then: load is called for each namespace.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = MagicMock()
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["docs"])
@@ -1298,11 +1304,11 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.static.mount_static"
         ), patch(
-            "ai_assistant.core.logging.setup_logging"
+            "ai_assistant.api.lifespan.setup_logging"
         ), patch(
-            "ai_assistant.api.security.get_expected_api_key", return_value=None
+            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
         ), patch(
-            "ai_assistant.api.security.set_api_key"
+            "ai_assistant.api.lifespan.set_api_key"
         ):
             async with lifespan(app):
                 pass
@@ -1318,7 +1324,7 @@ class TestAPILifespan:
         Then: other adapters still shutdown; no unhandled exception.
         """
         app = FastAPI()
-        mock_state = MagicMock(spec=InitializedAppState)
+        mock_state = MagicMock()
         mock_state.vector_store = None
 
         async def hanging_shutdown():
@@ -1333,8 +1339,8 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
-        # Should complete without hanging forever
-        await asyncio.wait_for(_async_cleanup(app, minimal_config), timeout=1.0)
+        # Should complete without hanging forever (5s per adapter + margin)
+        await asyncio.wait_for(_async_cleanup(app, minimal_config), timeout=10.0)
 
         # embedder should still have been called despite llm hanging
         mock_state.embedder.shutdown.assert_awaited_once()

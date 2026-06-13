@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
+
+from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.retry import with_retry
@@ -25,15 +27,13 @@ class APIReranker(IReranker):
     - Any OpenAI-compatible rerank endpoint
     """
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: RerankerConfigData) -> None:
         super().__init__(config)
-        self.api_base: str = getattr(config, "api_base", "https://api.cohere.com")
-        self.api_key: str = resolve_api_key(
-            getattr(config, "api_key", None), "RERANK_API_KEY"
-        )
-        self.model: str = getattr(config, "model", "rerank-multilingual-v3.0")
-        self._timeout: float = getattr(config, "timeout", 30.0)
-        self._threshold: float = getattr(config, "threshold", 0.3)
+        self.api_base: str = config.api_base
+        self.api_key: str = resolve_api_key(config.api_key, "RERANK_API_KEY")
+        self.model: str = config.model
+        self._timeout: float = config.timeout
+        self._threshold: float = config.threshold
 
     async def shutdown(self) -> None:
         """No-op shutdown — client is created per-call."""

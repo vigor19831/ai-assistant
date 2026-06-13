@@ -1,0 +1,57 @@
+app_name: test-assistant
+debug: true
+config_version: "1.5.0"
+host: 127.0.0.1
+port: 8000
+
+cors:
+  allow_origins: ["http://localhost"]
+
+chat:
+  history_limit: 5
+  max_context_tokens: 2048
+
+chunker:
+  provider: simple
+  chunk_size: 256
+  chunk_overlap: 25
+
+embedder:
+  provider: mock
+  model: mock-embedder
+  dim: 384
+  timeout: 30.0
+
+llm:
+  provider: mock
+  model: mock-model
+  max_tokens: 1024
+  temperature: 0.5
+  timeout: 60.0
+
+vector_store:
+  provider: memory
+  dim: 384
+  index_path: ./data/indices/test
+
+storage:
+  provider: sqlite
+  db_path: ./data/test.db
+
+reranker:
+  provider: null
+
+rag:
+  steps:
+    - embed_query
+    - retrieve
+    - build_context
+    - generate
+  prompt_version: v1
+  prompt_name: rag_strict
+  top_k: 3
+  default_namespace: default
+
+security:
+  api_key: test-smoke-key
+  max_body_size: 1048576

@@ -16,7 +16,6 @@ import pytest
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
-    MessageRole,
     ToolMessage,
     UserMessage,
 )
@@ -345,10 +344,9 @@ class TestUserMessage:
     def test_construction_with_text(self) -> None:
         """Given: text content.
         When: UserMessage is constructed.
-        Then: text and default role are set."""
+        Then: text is set."""
         msg = UserMessage(text="hello")
         assert msg.text == "hello"
-        assert msg.role == MessageRole.USER
 
     def test_construction_with_metadata(self) -> None:
         """Given: text and metadata.
@@ -364,14 +362,6 @@ class TestUserMessage:
         msg = UserMessage(text="hello")
         with pytest.raises(FrozenInstanceError):
             msg.text = "world"  # type: ignore[misc]
-
-    def test_frozen_rejects_role_mutation(self) -> None:
-        """Given: constructed UserMessage.
-        When: role is reassigned.
-        Then: FrozenInstanceError."""
-        msg = UserMessage(text="hello")
-        with pytest.raises(FrozenInstanceError):
-            msg.role = MessageRole.ASSISTANT  # type: ignore[misc]
 
     def test_slots_prevents_arbitrary_fields(self) -> None:
         """Given: UserMessage uses __slots__.
@@ -390,10 +380,9 @@ class TestAssistantMessage:
     def test_construction_with_text(self) -> None:
         """Given: text content.
         When: AssistantMessage is constructed.
-        Then: text and default role are set."""
+        Then: text is set."""
         msg = AssistantMessage(text="hi there")
         assert msg.text == "hi there"
-        assert msg.role == MessageRole.ASSISTANT
 
     def test_construction_with_tool_calls(self) -> None:
         """Given: text and tool_calls.
@@ -430,48 +419,47 @@ class TestAssistantMessage:
 class TestToolMessage:
     """Given: ToolMessage represents a tool execution result.
     When: constructed and inspected.
-    Then: fields are correct; role defaults to TOOL; instance is frozen."""
+    Then: fields are correct; instance is frozen."""
 
     def test_construction_with_content_and_call_id(self) -> None:
         """Given: content and tool_call_id.
         When: ToolMessage is constructed.
-        Then: both fields are set; role defaults to TOOL."""
-        msg = ToolMessage(content="ok", tool_call_id="c1")
-        assert msg.content == "ok"
-        assert msg.tool_call_id == "c1"
-        assert msg.role == MessageRole.TOOL
+        Then: both fields are set."""
+        msg = ToolMessage(text="ok", call_id="c1")
+        assert msg.text == "ok"
+        assert msg.call_id == "c1"
 
     def test_construction_with_metadata(self) -> None:
         """Given: content, tool_call_id, and metadata.
         When: ToolMessage is constructed.
         Then: metadata is preserved."""
-        msg = ToolMessage(content="data", tool_call_id="c1", metadata={"k": "v"})
-        assert msg.content == "data"
-        assert msg.tool_call_id == "c1"
+        msg = ToolMessage(text="data", call_id="c1", metadata={"k": "v"})
+        assert msg.text == "data"
+        assert msg.call_id == "c1"
         assert msg.metadata == {"k": "v"}
 
-    def test_frozen_rejects_content_mutation(self) -> None:
+    def test_frozen_rejects_text_mutation(self) -> None:
         """Given: constructed ToolMessage.
-        When: content is reassigned.
+        When: text is reassigned.
         Then: FrozenInstanceError."""
-        msg = ToolMessage(content="ok", tool_call_id="c1")
+        msg = ToolMessage(text="ok", call_id="c1")
         with pytest.raises(FrozenInstanceError):
-            msg.content = "new"  # type: ignore[misc]
+            msg.text = "new"  # type: ignore[misc]
 
     def test_frozen_rejects_tool_call_id_mutation(self) -> None:
         """Given: constructed ToolMessage.
         When: tool_call_id is reassigned.
         Then: FrozenInstanceError."""
-        msg = ToolMessage(content="ok", tool_call_id="c1")
+        msg = ToolMessage(text="ok", call_id="c1")
         with pytest.raises(FrozenInstanceError):
-            msg.tool_call_id = "c2"  # type: ignore[misc]
+            msg.call_id = "c2"  # type: ignore[misc]
 
     def test_slots_prevents_arbitrary_fields(self) -> None:
         """Given: ToolMessage uses __slots__.
         When: arbitrary attribute is added.
         Then: AttributeError."""
         assert hasattr(ToolMessage, "__slots__")
-        msg = ToolMessage(content="ok", tool_call_id="c1")
+        msg = ToolMessage(text="ok", call_id="c1")
         assert not hasattr(msg, "__dict__")
 
 

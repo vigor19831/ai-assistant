@@ -9,6 +9,7 @@ from typing import Any
 
 import aiosqlite
 
+from ai_assistant.core.domain.configs import StorageConfigData
 from ai_assistant.core.ports.initializable import IInitializable
 from ai_assistant.core.ports.storage import IChatStorage, ISettingsStorage
 
@@ -27,9 +28,9 @@ def _safe_json_loads(value: str | None, default: Any) -> Any:
 class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
     """Combined chat and settings storage."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: StorageConfigData) -> None:
         super().__init__(config)
-        self.db_path: str = getattr(config, "db_path", "./data/storage.db")
+        self.db_path: str = config.db_path
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
     async def init_db(self) -> None:

@@ -222,7 +222,7 @@ class AppConfig(BaseSettings):
     @field_validator("rag", mode="before")
     @classmethod
     def _load_rag_steps(cls, v: Any) -> Any:
-        if isinstance(v, dict) and "steps" in v and isinstance(v["steps"], str):  # noqa: UP037
+        if type(v) is dict and "steps" in v and type(v["steps"]) is str:  # noqa: UP037
             return {**v, "steps": [s.strip() for s in v["steps"].split(",")]}
         return v
 
@@ -230,12 +230,12 @@ class AppConfig(BaseSettings):
     @classmethod
     def _migrate_vector_store_relevance_threshold(cls, v: Any) -> Any:
         """Backward-compatible loader: migrate vector_store.relevance_threshold → rag."""
-        if not isinstance(v, dict):
+        if type(v) is not dict:
             return v
         vs = v.get("vector_store")
-        if isinstance(vs, dict) and "relevance_threshold" in vs:
+        if type(vs) is dict and "relevance_threshold" in vs:
             rag = v.get("rag", {})
-            if isinstance(rag, dict) and "relevance_threshold" not in rag:
+            if type(rag) is dict and "relevance_threshold" not in rag:
                 rag = {**rag, "relevance_threshold": vs["relevance_threshold"]}
                 v = {**v, "rag": rag}
             # Strip the removed field so VectorStoreConfig(extra="forbid") doesn't choke
@@ -247,10 +247,10 @@ class AppConfig(BaseSettings):
     @classmethod
     def _migrate_security_rate_limit(cls, v: Any) -> Any:
         """Backward-compatible loader: strip removed security.rate_limit field."""
-        if not isinstance(v, dict):
+        if type(v) is not dict:
             return v
         sec = v.get("security")
-        if isinstance(sec, dict) and "rate_limit" in sec:
+        if type(sec) is dict and "rate_limit" in sec:
             # rate_limit was removed — strip it so SecurityConfig(extra="forbid") doesn't choke
             sec = {k: val for k, val in sec.items() if k != "rate_limit"}
             v = {**v, "security": sec}

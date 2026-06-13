@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.ports.llm import ILLM, Message
 
@@ -16,7 +17,7 @@ __all__ = ["MockLLM"]
 class MockLLM(ILLM):
     """Deterministic echo LLM for testing."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: LLMConfigData) -> None:
         super().__init__(config)
 
     async def complete(
@@ -47,8 +48,10 @@ class MockLLM(ILLM):
     def get_context_limit(self) -> int | None:
         """Return context limit from config, or default 4096."""
         cfg = self.config
-        for attr in ("context_size", "server_context_size", "max_tokens"):
-            limit = getattr(cfg, attr, None)
-            if isinstance(limit, (int, float)) and limit > 0:
-                return int(limit)
+        limit = cfg.server_context_size
+        if limit is not None and limit > 0:
+            return limit
+        limit = cfg.max_tokens
+        if limit > 0:
+            return limit
         return 4096

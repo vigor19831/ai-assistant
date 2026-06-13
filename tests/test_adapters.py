@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from dataclasses import make_dataclass
 from pathlib import Path
 
 import pytest
@@ -20,6 +19,14 @@ from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+from ai_assistant.core.domain.configs import (
+    ChunkerConfigData,
+    EmbedderConfigData,
+    LLMConfigData,
+    RerankerConfigData,
+    StorageConfigData,
+    VectorStoreConfigData,
+)
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import VersionMismatchError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
@@ -43,7 +50,7 @@ class TestMockLLM:
         When: complete is called.
         Then: echo response with last message text is returned.
         """
-        llm = MockLLM(config={})
+        llm = MockLLM(config=LLMConfigData())
         result = await llm.complete([UserMessage(text="hello")])
         assert isinstance(result, AssistantMessage)
         assert result.text == "[MOCK LLM] Echo: hello"
@@ -54,7 +61,7 @@ class TestMockLLM:
         When: complete is called.
         Then: fallback echo with '...' is returned.
         """
-        llm = MockLLM(config={})
+        llm = MockLLM(config=LLMConfigData())
         result = await llm.complete([])
         assert result.text == "[MOCK LLM] Echo: ..."
 
@@ -64,7 +71,7 @@ class TestMockLLM:
         When: stream is called.
         Then: single chunk with server hint is yielded.
         """
-        llm = MockLLM(config={})
+        llm = MockLLM(config=LLMConfigData())
         chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
         assert len(chunks) == 1
         assert "Server is running" in chunks[0]
@@ -74,17 +81,24 @@ class TestMockLLM:
         When: get_context_limit is called.
         Then: default 4096 is returned.
         """
-        llm = MockLLM(config={})
+        llm = MockLLM(config=LLMConfigData())
         assert llm.get_context_limit() == 4096
 
     def test_get_context_limit_from_config(self):
-        """Given: config with context_size.
+        """Given: config with server_context_size.
         When: get_context_limit is called.
         Then: configured value is returned.
         """
-        config = make_dataclass("C", [("context_size", int, 2048)], frozen=True)()
-        llm = MockLLM(config=config)
+        llm = MockLLM(config=LLMConfigData(server_context_size=2048))
         assert llm.get_context_limit() == 2048
+
+    def test_get_context_limit_from_max_tokens(self):
+        """Given: config with max_tokens but no server_context_size.
+        When: get_context_limit is called.
+        Then: max_tokens value is returned.
+        """
+        llm = MockLLM(config=LLMConfigData(max_tokens=1024, server_context_size=None))
+        assert llm.get_context_limit() == 1024
 
     @pytest.mark.asyncio
     async def test_shutdown(self):
@@ -92,7 +106,7 @@ class TestMockLLM:
         When: shutdown is called.
         Then: no error is raised.
         """
-        llm = MockLLM(config={})
+        llm = MockLLM(config=LLMConfigData())
         await llm.shutdown()
 
 
@@ -111,8 +125,7 @@ class TestMockEmbedder:
         When: property is accessed.
         Then: correct dimension is returned.
         """
-        config = make_dataclass("C", [("dim", int, dim)], frozen=True)()
-        emb = MockEmbedder(config)
+        emb = MockEmbedder(EmbedderConfigData(dim=dim))
         assert emb.dimension == dim
 
     @pytest.mark.parametrize(
@@ -129,8 +142,7 @@ class TestMockEmbedder:
         When: embed is called.
         Then: correct count of embeddings is returned with proper dimension.
         """
-        config = make_dataclass("C", [("dim", int, 384)], frozen=True)()
-        emb = MockEmbedder(config)
+        emb = MockEmbedder(EmbedderConfigData(dim=384))
         result = await emb.embed(texts)
         assert len(result) == expected_count
         if expected_count > 0:
@@ -144,8 +156,7 @@ class TestMockEmbedder:
         When: embed is called.
         Then: empty list is returned.
         """
-        config = make_dataclass("C", [("dim", int, 384)], frozen=True)()
-        emb = MockEmbedder(config)
+        emb = MockEmbedder(EmbedderConfigData(dim=384))
         result = await emb.embed([])
         assert result == []
 
@@ -155,8 +166,7 @@ class TestMockEmbedder:
         When: shutdown is called.
         Then: no error is raised.
         """
-        config = make_dataclass("C", [("dim", int, 384)], frozen=True)()
-        emb = MockEmbedder(config)
+        emb = MockEmbedder(EmbedderConfigData(dim=384))
         await emb.shutdown()
 
 
@@ -175,8 +185,7 @@ class TestMemoryVectorStore:
         When: fixture is requested.
         Then: MemoryVectorStore instance is returned.
         """
-        config = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        return MemoryVectorStore(config)
+        return MemoryVectorStore(VectorStoreConfigData(dim=3))
 
     @pytest.mark.asyncio
     async def test_add_and_search(self, store):
@@ -220,10 +229,7 @@ class TestMemoryVectorStore:
         When: 3 chunks are added.
         Then: oldest chunk is evicted.
         """
-        config = make_dataclass(
-            "C", [("dim", int, 3), ("max_chunks", int, 2)], frozen=True
-        )()
-        store = MemoryVectorStore(config)
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3, max_chunks=2))
         chunks = [
             Chunk(id="c1", text="first", embedding=[1.0, 0.0, 0.0]),
             Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
@@ -241,15 +247,14 @@ class TestMemoryVectorStore:
         When: saved to disk and loaded into new store.
         Then: chunk is recoverable.
         """
-        config = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        store = MemoryVectorStore(config)
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3))
         await store.add(
             [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
         )
         path = str(tmp_path / "idx")
         await store.save(path, namespace="test")
 
-        store2 = MemoryVectorStore(config)
+        store2 = MemoryVectorStore(VectorStoreConfigData(dim=3))
         await store2.load(path, namespace="test")
         results = await store2.search([1.0, 0.0, 0.0], top_k=1, namespace="test")
         assert len(results) == 1
@@ -261,16 +266,14 @@ class TestMemoryVectorStore:
         When: loaded into store with dim=5.
         Then: VersionMismatchError is raised.
         """
-        config3 = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        store3 = MemoryVectorStore(config3)
+        store3 = MemoryVectorStore(VectorStoreConfigData(dim=3))
         await store3.add(
             [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
         )
         path = str(tmp_path / "idx")
         await store3.save(path, namespace="test")
 
-        config5 = make_dataclass("C", [("dim", int, 5)], frozen=True)()
-        store5 = MemoryVectorStore(config5)
+        store5 = MemoryVectorStore(VectorStoreConfigData(dim=5))
         with pytest.raises(VersionMismatchError, match="Reindex required"):
             await store5.load(path, namespace="test")
 
@@ -314,12 +317,9 @@ class TestMemoryVectorStore:
         When: store is created.
         Then: index_path property returns configured value.
         """
-        config = make_dataclass(
-            "C",
-            [("dim", int, 3), ("index_path", str, "./custom/indices/memory")],
-            frozen=True,
-        )()
-        store = MemoryVectorStore(config)
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path="./custom/indices/memory")
+        )
         assert store.index_path == "./custom/indices/memory"
 
     @pytest.mark.asyncio
@@ -358,8 +358,7 @@ class TestMemoryVectorStore:
         When: shutdown is called.
         Then: namespaces are cleared.
         """
-        config = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        store = MemoryVectorStore(config)
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3))
         await store.add(
             [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
         )
@@ -383,7 +382,7 @@ class TestNullReranker:
         When: rerank is called.
         Then: all chunks returned with score 1.0 in original order.
         """
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
         chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
         results = await reranker.rerank("q", chunks)
         assert len(results) == 2
@@ -398,7 +397,7 @@ class TestNullReranker:
         When: rerank is called.
         Then: empty list is returned.
         """
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
         results = await reranker.rerank("q", [])
         assert results == []
 
@@ -408,7 +407,7 @@ class TestNullReranker:
         When: rerank is called.
         Then: all chunks returned regardless of top_k.
         """
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
         chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
         results = await reranker.rerank("q", chunks, top_k=1)
         assert len(results) == 2
@@ -419,7 +418,7 @@ class TestNullReranker:
         When: shutdown is called.
         Then: no error is raised.
         """
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
         await reranker.shutdown()
 
 
@@ -438,8 +437,7 @@ class TestSQLiteStorage:
         When: fixture is requested.
         Then: SQLiteStorage instance is returned.
         """
-        config = make_dataclass("C", [("db_path", str, str(tmp_path / "test.db"))], frozen=True)()
-        return SQLiteStorage(config)
+        return SQLiteStorage(StorageConfigData(db_path=str(tmp_path / "test.db")))
 
     @pytest.mark.asyncio
     async def test_save_and_get_history(self, storage):
@@ -577,10 +575,7 @@ class TestSimpleChunker:
         When: chunk is called.
         Then: expected number of chunks with correct constraints.
         """
-        config = make_dataclass(
-            "C", [("chunk_size", int, size), ("chunk_overlap", int, overlap)], frozen=True
-        )()
-        chunker = SimpleChunker(config)
+        chunker = SimpleChunker(ChunkerConfigData(chunk_size=size, chunk_overlap=overlap))
         doc = Document(id="d1", content=text)
         chunks = await chunker.chunk(doc)
         assert len(chunks) == expected_count
@@ -594,10 +589,7 @@ class TestSimpleChunker:
         When: chunk is called.
         Then: empty list is returned.
         """
-        config = make_dataclass(
-            "C", [("chunk_size", int, 10), ("chunk_overlap", int, 2)], frozen=True
-        )()
-        chunker = SimpleChunker(config)
+        chunker = SimpleChunker(ChunkerConfigData(chunk_size=10, chunk_overlap=2))
         doc = Document(id="d1", content="")
         chunks = await chunker.chunk(doc)
         assert chunks == []
@@ -608,10 +600,7 @@ class TestSimpleChunker:
         When: chunk is called.
         Then: metadata is preserved in chunk metadata.
         """
-        config = make_dataclass(
-            "C", [("chunk_size", int, 10), ("chunk_overlap", int, 2)], frozen=True
-        )()
-        chunker = SimpleChunker(config)
+        chunker = SimpleChunker(ChunkerConfigData(chunk_size=10, chunk_overlap=2))
         doc = Document(id="d1", content="hello world", metadata={"tag": "test"})
         chunks = await chunker.chunk(doc)
         assert chunks[0].metadata.custom == {"tag": "test"}
@@ -622,11 +611,8 @@ class TestSimpleChunker:
         When: chunker is created.
         Then: ValueError is raised.
         """
-        config = make_dataclass(
-            "C", [("chunk_size", int, 10), ("chunk_overlap", int, 10)], frozen=True
-        )()
         with pytest.raises(ValueError):
-            SimpleChunker(config)
+            SimpleChunker(ChunkerConfigData(chunk_size=10, chunk_overlap=10))
 
     @pytest.mark.asyncio
     async def test_shutdown(self):
@@ -634,10 +620,7 @@ class TestSimpleChunker:
         When: shutdown is called.
         Then: no error is raised.
         """
-        config = make_dataclass(
-            "C", [("chunk_size", int, 10), ("chunk_overlap", int, 2)], frozen=True
-        )()
-        chunker = SimpleChunker(config)
+        chunker = SimpleChunker(ChunkerConfigData(chunk_size=10, chunk_overlap=2))
         await chunker.shutdown()
 
 
@@ -651,22 +634,21 @@ class TestFactory:
     """
 
     @pytest.mark.parametrize(
-        "port,name,expected_cls,extra_config",
+        "port,name,expected_cls,config",
         [
-            ("llm", "mock", MockLLM, {"dim": 3}),
-            ("embedder", "mock", MockEmbedder, {"dim": 3}),
-            ("vector_store", "memory", MemoryVectorStore, {"dim": 3}),
-            ("chunker", "simple", SimpleChunker, {"chunk_size": 10, "chunk_overlap": 2}),
-            ("storage", "sqlite", SQLiteStorage, {"db_path": ":memory:"}),
-            ("reranker", "null", NullReranker, {}),
+            ("llm", "mock", MockLLM, LLMConfigData()),
+            ("embedder", "mock", MockEmbedder, EmbedderConfigData()),
+            ("vector_store", "memory", MemoryVectorStore, VectorStoreConfigData()),
+            ("chunker", "simple", SimpleChunker, ChunkerConfigData(chunk_size=10, chunk_overlap=2)),
+            ("storage", "sqlite", SQLiteStorage, StorageConfigData(db_path=":memory:")),
+            ("reranker", "null", NullReranker, RerankerConfigData()),
         ],
     )
-    def test_create_adapter(self, port, name, expected_cls, extra_config):
+    def test_create_adapter(self, port, name, expected_cls, config):
         """Given: valid port and name.
         When: create_adapter is called.
         Then: correct adapter instance is returned.
         """
-        config = make_dataclass("C", list(extra_config.items()), frozen=True)()
         adapter = create_adapter(port, name, config)
         assert isinstance(adapter, expected_cls)
 
@@ -676,7 +658,7 @@ class TestFactory:
         Then: ValueError is raised.
         """
         with pytest.raises(ValueError, match="No LLM adapter registered"):
-            create_adapter("llm", "unknown", {})
+            create_adapter("llm", "unknown", LLMConfigData())
 
     def test_unknown_embedder_raises(self):
         """Given: unknown embedder name.
@@ -684,7 +666,7 @@ class TestFactory:
         Then: ValueError is raised.
         """
         with pytest.raises(ValueError, match="No embedder adapter registered"):
-            create_adapter("embedder", "unknown", {})
+            create_adapter("embedder", "unknown", EmbedderConfigData())
 
     def test_unknown_vector_store_raises(self):
         """Given: unknown vector_store name.
@@ -692,7 +674,7 @@ class TestFactory:
         Then: ValueError is raised.
         """
         with pytest.raises(ValueError, match="No vector_store adapter registered"):
-            create_adapter("vector_store", "unknown", {})
+            create_adapter("vector_store", "unknown", VectorStoreConfigData())
 
     def test_unknown_chunker_raises(self):
         """Given: unknown chunker name.
@@ -700,7 +682,7 @@ class TestFactory:
         Then: ValueError is raised.
         """
         with pytest.raises(ValueError, match="No chunker adapter registered"):
-            create_adapter("chunker", "unknown", {})
+            create_adapter("chunker", "unknown", ChunkerConfigData())
 
     def test_unknown_storage_raises(self):
         """Given: unknown storage name.
@@ -708,7 +690,7 @@ class TestFactory:
         Then: ValueError is raised.
         """
         with pytest.raises(ValueError, match="No storage adapter registered"):
-            create_adapter("storage", "unknown", {})
+            create_adapter("storage", "unknown", StorageConfigData())
 
     def test_unknown_reranker_raises(self):
         """Given: unknown reranker name.
@@ -716,11 +698,11 @@ class TestFactory:
         Then: ValueError is raised.
         """
         with pytest.raises(ValueError, match="No reranker adapter registered"):
-            create_adapter("reranker", "unknown", {})
+            create_adapter("reranker", "unknown", RerankerConfigData())
 
     def test_unknown_port_raises(self):
         """Given: unknown port name.
         When: create_adapter is called.
         Then: ValueError is raised."""
         with pytest.raises(ValueError, match="Unknown adapter port"):
-            create_adapter("unknown_port", "whatever", {})
+            create_adapter("unknown_port", "whatever", RerankerConfigData())

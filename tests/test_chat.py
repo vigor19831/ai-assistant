@@ -7,7 +7,6 @@ Design: Given/When/Then docstrings, one function per test case.
 from __future__ import annotations
 
 import logging
-from dataclasses import make_dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +15,7 @@ from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.config import NamespaceConfig
+from ai_assistant.core.domain.configs import EmbedderConfigData, RerankerConfigData, VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
@@ -59,10 +59,8 @@ def chat_manager_with_rag():
     """Given: ChatManager with full RAG pipeline configured.
     When: fixture is requested.
     Then: ChatManager with embedder, vector_store, pipeline, and namespaces is returned."""
-    embedder = MockEmbedder(type("C", (), {"dim": 3})())
-    store = MemoryVectorStore(
-        type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
-    )
+    embedder = MockEmbedder(EmbedderConfigData(dim=3))
+    store = MemoryVectorStore(VectorStoreConfigData(dim=3))
     pipeline = RAGPipeline([embed_query, retrieve, build_context])
     namespaces = {
         "personal": NamespaceConfig(
@@ -85,7 +83,7 @@ def chat_manager_with_rag():
         llm=mock_llm,
         embedder=embedder,
         vector_store=store,
-        reranker=NullReranker(None),
+        reranker=NullReranker(RerankerConfigData()),
         storage=None,
         pipeline=pipeline,
         namespaces=namespaces,
@@ -107,7 +105,7 @@ def manager_no_rag():
         llm=mock_llm,
         embedder=None,
         vector_store=None,
-        reranker=NullReranker(None),
+        reranker=NullReranker(RerankerConfigData()),
         storage=None,
     )
 
@@ -129,7 +127,7 @@ def manager_with_storage():
     mock_llm.system_message = None
     return ChatManager(
         llm=mock_llm,
-        reranker=NullReranker(None),
+        reranker=NullReranker(RerankerConfigData()),
         storage=mock_storage,
         history_limit=10,
         max_context_tokens=None,
@@ -146,7 +144,7 @@ def manager_with_tokenizer():
     mock_llm.system_message = "System prompt"
     return ChatManager(
         llm=mock_llm,
-        reranker=NullReranker(None),
+        reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=100,
         tokenizer_model="gpt-4o",
         history_limit=10,
@@ -164,7 +162,7 @@ def manager_no_tokenizer():
     mock_llm.system_message = None
     return ChatManager(
         llm=mock_llm,
-        reranker=NullReranker(None),
+        reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=None,
         history_limit=3,
         storage=None,
@@ -324,7 +322,7 @@ class TestChatManager:
             llm=mock_llm,
             embedder=None,
             vector_store=MagicMock(),
-            reranker=NullReranker(None),
+            reranker=NullReranker(RerankerConfigData()),
             storage=None,
         )
         prompt, query, chunks = await manager._retrieve_context("[p] query")
@@ -344,7 +342,7 @@ class TestChatManager:
             llm=mock_llm,
             embedder=MagicMock(),
             vector_store=None,
-            reranker=NullReranker(None),
+            reranker=NullReranker(RerankerConfigData()),
             storage=None,
         )
         prompt, query, chunks = await manager._retrieve_context("[p] query")
@@ -383,10 +381,8 @@ class TestChatManager:
         """Given: empty namespaces dict.
         When: _retrieve_context is called with prefix.
         Then: global defaults (rag_strict, 0.3) are used."""
-        embedder = MockEmbedder(type("C", (), {"dim": 3})())
-        store = MemoryVectorStore(
-            type("C", (), {"dim": 3, "relevance_threshold": 0.0})()
-        )
+        embedder = MockEmbedder(EmbedderConfigData(dim=3))
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3))
         pipeline = RAGPipeline([embed_query, retrieve, build_context])
         mock_llm = MagicMock()
         mock_llm.get_context_limit.return_value = 4096
@@ -395,7 +391,7 @@ class TestChatManager:
             llm=mock_llm,
             embedder=embedder,
             vector_store=store,
-            reranker=NullReranker(None),
+            reranker=NullReranker(RerankerConfigData()),
             storage=None,
             pipeline=pipeline,
             namespaces={},
@@ -418,50 +414,50 @@ class TestChatManager:
 
     @pytest.mark.asyncio
     async def test_retrieve_custom_prefix_c_triggers_rag(self, chat_manager_with_rag):
-        """Given: [c] prefix and chunk in custom namespace.
+        """Given: [c] prefix and chunk in code namespace.
         When: _retrieve_context is called.
-        Then: RAG is triggered for custom namespace with rag_custom prompt."""
+        Then: RAG is triggered for code namespace with rag_strict prompt."""
         chunk = Chunk(
             id="c1",
-            text="Custom configuration details.",
+            text="Code configuration details.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="custom")
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="code")
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
-            mock_get_prompt.return_value = "custom prompt"
+            mock_get_prompt.return_value = "code prompt"
             prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
                 "[c] configuration?"
             )
             mock_get_prompt.assert_called_once()
-            assert mock_get_prompt.call_args[0][0] == "rag_custom"
+            assert mock_get_prompt.call_args[0][0] == "rag_strict"
             assert len(chunks) > 0
 
     @pytest.mark.asyncio
     async def test_retrieve_business_prefix_b_triggers_rag(self, chat_manager_with_rag):
-        """Given: [b] prefix and chunk in business namespace.
+        """Given: [b] prefix and chunk in books namespace.
         When: _retrieve_context is called.
-        Then: RAG is triggered for business namespace with rag_business prompt."""
+        Then: RAG is triggered for books namespace with rag_strict prompt."""
         chunk = Chunk(
             id="c1",
-            text="Business report Q3.",
+            text="Books report Q3.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="business")
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="books")
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
-            mock_get_prompt.return_value = "business prompt"
+            mock_get_prompt.return_value = "books prompt"
             prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
                 "[b] Q3 report?"
             )
             mock_get_prompt.assert_called_once()
-            assert mock_get_prompt.call_args[0][0] == "rag_business"
+            assert mock_get_prompt.call_args[0][0] == "rag_strict"
             assert len(chunks) > 0
 
     # ── _build_messages ──
@@ -573,7 +569,9 @@ class TestChatManager:
             mock_build.return_value = [UserMessage(text="Hello")]
 
             await manager_no_rag.chat("Hello", "conv-1")
-            await manager_no_rag.stream_chat("Hello", "conv-1")
+            chunks = []
+            async for chunk in manager_no_rag.stream_chat("Hello", "conv-1"):
+                chunks.append(chunk)
 
             assert mock_retrieve.call_count == 2
             assert mock_build.call_count == 2
@@ -687,20 +685,18 @@ class TestChatManager:
         Then: correct namespace routing and prompt selection occurs."""
         chunk_c = Chunk(
             id="c1",
-            text="Custom settings.",
+            text="Code settings.",
             embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc_custom", index=0, total_chunks=1),
+            metadata=ChunkMetadata(source="doc_code", index=0, total_chunks=1),
         )
         chunk_b = Chunk(
             id="b1",
-            text="Business plan.",
+            text="Books plan.",
             embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc_business", index=0, total_chunks=1),
+            metadata=ChunkMetadata(source="doc_books", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk_c], namespace="custom")
-        await chat_manager_with_rag.vector_store.add(
-            [chunk_b], namespace="business"
-        )
+        await chat_manager_with_rag.vector_store.add([chunk_c], namespace="code")
+        await chat_manager_with_rag.vector_store.add([chunk_b], namespace="books")
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
@@ -711,13 +707,13 @@ class TestChatManager:
                 "[c] settings?"
             )
             assert len(chunks_c) > 0
-            assert chunks_c[0].metadata.source == "doc_custom"
+            assert chunks_c[0].metadata.source == "doc_code"
 
             prompt_b, query_b, chunks_b = await chat_manager_with_rag._retrieve_context(
                 "[b] plan?"
             )
             assert len(chunks_b) > 0
-            assert chunks_b[0].metadata.source == "doc_business"
+            assert chunks_b[0].metadata.source == "doc_books"
 
 
 # ── TestChatPrefixes ──
@@ -740,7 +736,7 @@ class TestChatPrefixes:
             llm=mock_llm,
             embedder=None,
             vector_store=None,
-            reranker=NullReranker(None),
+            reranker=NullReranker(RerankerConfigData()),
             storage=None,
             pipeline=MagicMock(),
             namespaces={},
@@ -1007,7 +1003,7 @@ class TestChatHistoryTrimming:
         mock_llm.system_message = None
         manager = ChatManager(
             llm=mock_llm,
-            reranker=NullReranker(None),
+            reranker=NullReranker(RerankerConfigData()),
             max_context_tokens=50,
             history_limit=2,
             storage=None,

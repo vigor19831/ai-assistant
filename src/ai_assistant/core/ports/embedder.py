@@ -1,10 +1,10 @@
-"""Embedder port."""
+"""core/ports/embedder.py"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
 
+from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.ports.closable import IClosable
 
 __all__ = ["IEmbedder"]
@@ -13,7 +13,7 @@ __all__ = ["IEmbedder"]
 class IEmbedder(IClosable, ABC):
     """Text embedding interface."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: EmbedderConfigData) -> None:
         self.config = config
 
     @property

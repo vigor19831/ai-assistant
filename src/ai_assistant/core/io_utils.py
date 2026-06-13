@@ -28,11 +28,11 @@ async def atomic_write(
         raise ValueError(f"mode must be 'w' or 'wb', got {mode!r}")
 
     binary = "b" in mode
-    if binary and not isinstance(content, bytes):
+    if binary and type(content) is not bytes:
         raise TypeError(
             f"Expected bytes for mode={mode!r}, got {type(content).__name__}"
         )
-    if not binary and not isinstance(content, str):
+    if not binary and type(content) is not str:
         raise TypeError(f"Expected str for mode={mode!r}, got {type(content).__name__}")
 
     def _sync() -> None:

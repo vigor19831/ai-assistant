@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
+from ai_assistant.core.domain.configs import ChunkerConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.ports.chunker import IChunker
 
@@ -14,7 +14,7 @@ __all__ = ["SimpleChunker"]
 class SimpleChunker(IChunker):
     """Split text into fixed-size chunks with overlap."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: ChunkerConfigData) -> None:
         super().__init__(config)
         self.chunk_size: int = config.chunk_size
         self.chunk_overlap: int = config.chunk_overlap

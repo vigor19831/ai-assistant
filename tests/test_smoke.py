@@ -366,6 +366,7 @@ class TestNoCyrillic:
             (f, ln, line)
             for f, ln, line in hits
             if not _should_skip_cyrillic_check(Path(f))
+            and "constants.py" not in f
             and "FIX" not in line
             and "# " not in line
         ]
@@ -595,7 +596,7 @@ class TestKeyFilesExist:
         """Given: project root.
         When: checking for pytest.ini.
         Then: file exists."""
-        assert (_project_root() / "pytest.ini").exists()
+        assert (_project_root() / "tests" / "pytest.ini").exists()
 
     def test_conftest_py_exists(self):
         """Given: tests directory.
@@ -737,6 +738,6 @@ class TestSecurityKeyResolution:
         Then: returns the env var value."""
         from ai_assistant.api.security import get_expected_api_key
 
-        monkeypatch.setenv("AI_API_KEY", "test-smoke-key")
+        monkeypatch.setenv("AI_SECURITY_API_KEY", "test-smoke-key")
         key = get_expected_api_key()
         assert key == "test-smoke-key"

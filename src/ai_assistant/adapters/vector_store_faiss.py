@@ -18,6 +18,7 @@ except ImportError:
     faiss: Any = None  # type: ignore[assignment, no-redef]
     _FAISS_AVAILABLE = False
 
+from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
@@ -36,13 +37,13 @@ if _FAISS_AVAILABLE:
             {path}/{namespace}/store.json
         """
 
-        def __init__(self, config: Any) -> None:
+        def __init__(self, config: VectorStoreConfigData) -> None:
             super().__init__(config)
             self.dim: int = config.dim
             self.metric: str = config.metric
             self._namespaces: dict[str, _NamespaceData] = {}
             self._lock = asyncio.Lock()
-            self._index_path = getattr(config, "index_path", "./data/indices/faiss")
+            self._index_path = config.index_path
 
         @property
         def index_path(self) -> str:
@@ -202,7 +203,7 @@ if _FAISS_AVAILABLE:
 
                 meta = {
                     "version": "1.0",
-                    "embedder_model": getattr(self.config, "embedder_model", "unknown"),
+                    "embedder_model": "unknown",
                     "embedder_dim": self.dim,
                     "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
                     "chunk_count": len(ns.chunks),
@@ -349,7 +350,7 @@ else:
         async def shutdown(self) -> None:
             pass
 
-        def __init__(self, config: Any) -> None:
+        def __init__(self, config: VectorStoreConfigData) -> None:
             super().__init__(config)
             raise ImportError(
                 "faiss-cpu is not installed but "

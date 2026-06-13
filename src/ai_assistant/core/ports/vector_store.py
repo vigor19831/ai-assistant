@@ -1,14 +1,15 @@
-"""Vector store port."""
+"""core/ports/vector_store.py"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
-
-from ai_assistant.core.ports.closable import IClosable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
     from ai_assistant.core.domain.documents import Chunk
+
+from ai_assistant.core.ports.closable import IClosable
 
 __all__ = ["IVectorStore"]
 
@@ -16,7 +17,7 @@ __all__ = ["IVectorStore"]
 class IVectorStore(IClosable, ABC):
     """Vector storage with FAISS-like semantics."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: VectorStoreConfigData) -> None:
         self.config = config
 
     @property

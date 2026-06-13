@@ -7,7 +7,6 @@ Then: end-to-end RAG flows complete without mutation.
 
 from __future__ import annotations
 
-from dataclasses import make_dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -28,6 +27,14 @@ from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.api.deps import InitializedAppState, init_adapters
 from ai_assistant.core.config import AppConfig, EmbedderConfig, LLMConfig
+from ai_assistant.core.domain.configs import (
+    ChunkerConfigData,
+    EmbedderConfigData,
+    LLMConfigData,
+    RerankerConfigData,
+    StorageConfigData,
+    VectorStoreConfigData,
+)
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
@@ -55,10 +62,7 @@ class TestIntegrationAdapters:
         """Given: a text document.
         When: SimpleChunker splits it.
         Then: chunks have correct metadata and boundaries."""
-        config = make_dataclass(
-            "C", [("chunk_size", int, 50), ("chunk_overlap", int, 10)], frozen=True
-        )()
-        chunker = SimpleChunker(config)
+        chunker = SimpleChunker(ChunkerConfigData(chunk_size=50, chunk_overlap=10))
         doc = Document(id="d1", content="Hello world. " * 20)
         chunks = await chunker.chunk(doc)
         assert len(chunks) > 1
@@ -70,8 +74,7 @@ class TestIntegrationAdapters:
         """Given: mock embedder config.
         When: embedding two texts.
         Then: deterministic vectors with correct dimension."""
-        config = make_dataclass("C", [("dim", int, 384)], frozen=True)()
-        embedder = MockEmbedder(config)
+        embedder = MockEmbedder(EmbedderConfigData(dim=384))
         result = await embedder.embed(["hello", "world"])
         assert len(result) == 2
         assert len(result[0]) == 384
@@ -105,7 +108,7 @@ class TestIntegrationAdapters:
         """Given: mock LLM config.
         When: completing a message list.
         Then: response echoes input."""
-        llm = MockLLM(config={})
+        llm = MockLLM(config=LLMConfigData())
         result = await llm.complete([UserMessage(text="integration")])
         assert isinstance(result, AssistantMessage)
         assert "integration" in result.text
@@ -138,10 +141,7 @@ class TestIntegrationAdapters:
         """Given: FAISS vector store with temp path.
         When: adding chunks and searching.
         Then: nearest neighbors returned."""
-        config = make_dataclass(
-            "C", [("dim", int, 3), ("metric", str, "l2")], frozen=True
-        )()
-        store = FaissVectorStore(config)
+        store = FaissVectorStore(VectorStoreConfigData(dim=3, metric="l2"))
         chunks = [
             Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
             Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
@@ -156,8 +156,7 @@ class TestIntegrationAdapters:
         """Given: memory vector store.
         When: adding chunks and searching.
         Then: exact match returned."""
-        config = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        store = MemoryVectorStore(config)
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3))
         chunks = [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])]
         await store.add(chunks, namespace="ns")
         results = await store.search([1.0, 0.0, 0.0], top_k=1, namespace="ns")
@@ -169,12 +168,13 @@ class TestIntegrationAdapters:
         """Given: API reranker config.
         When: HTTP endpoint returns scores.
         Then: chunks reordered by relevance."""
-        config = MagicMock()
-        config.api_base = "https://api.cohere.com"
-        config.api_key = "key"
-        config.model = "rerank-multilingual-v3.0"
-        config.timeout = 5.0
-        config.threshold = 0.3
+        config = RerankerConfigData(
+            api_base="https://api.cohere.com",
+            api_key="key",
+            model="rerank-multilingual-v3.0",
+            timeout=5.0,
+            threshold=0.3,
+        )
         reranker = APIReranker(config)
         chunks = [Chunk(id="c1", text="hello"), Chunk(id="c2", text="world")]
         with respx.mock:
@@ -196,7 +196,7 @@ class TestIntegrationAdapters:
         """Given: NullReranker.
         When: reranking any chunks.
         Then: all chunks pass with score 1.0."""
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
         chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
         results = await reranker.rerank("q", chunks)
         assert len(results) == 2
@@ -208,10 +208,7 @@ class TestIntegrationAdapters:
         """Given: SQLite storage with temp DB path.
         When: saving and retrieving messages.
         Then: history preserved across operations."""
-        config = make_dataclass(
-            "C", [("db_path", str, str(tmp_path / "integration.db"))], frozen=True
-        )()
-        storage = SQLiteStorage(config)
+        storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_path / "integration.db")))
         await storage.init_db()
         await storage.save_message(
             "conv-1", {"role": "user", "content": "hi", "metadata": {}}
@@ -232,15 +229,12 @@ class TestIntegrationChatRAG:
         When: pipeline runs embed_query → retrieve → rerank → build_context → generate.
         Then: response produced, original PipelineData not mutated."""
         # Arrange: real adapters
-        embedder_cfg = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        embedder = MockEmbedder(embedder_cfg)
+        embedder = MockEmbedder(EmbedderConfigData(dim=3))
+        vector_store = MemoryVectorStore(VectorStoreConfigData(dim=3))
 
-        store_cfg = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        vector_store = MemoryVectorStore(store_cfg)
-
-        llm = MockLLM(config={})
+        llm = MockLLM(LLMConfigData())
         llm.get_context_limit = lambda: 4096
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
 
         # Index documents
         chunks = [
@@ -298,15 +292,12 @@ class TestIntegrationFullRAG:
         When: pipeline runs hyde_query → retrieve → rerank → build_context → generate.
         Then: hypothetical embedding used, response produced, data immutable."""
         # Arrange
-        embedder_cfg = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        embedder = MockEmbedder(embedder_cfg)
+        embedder = MockEmbedder(EmbedderConfigData(dim=3))
+        vector_store = MemoryVectorStore(VectorStoreConfigData(dim=3))
 
-        store_cfg = make_dataclass("C", [("dim", int, 3)], frozen=True)()
-        vector_store = MemoryVectorStore(store_cfg)
-
-        llm = MockLLM(config={})
+        llm = MockLLM(LLMConfigData())
         llm.get_context_limit = lambda: 4096
-        reranker = NullReranker(None)
+        reranker = NullReranker(RerankerConfigData())
 
         # Index
         chunks = [
