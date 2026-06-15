@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
+import anyio
 import numpy as np
 
 from ai_assistant.adapters._registry import register
@@ -225,8 +225,8 @@ class FaissVectorStore(IVectorStore):
             ns = self._get_ns(namespace)
             if ns.index is None:
                 return
-            base = Path(path)
-            base.mkdir(parents=True, exist_ok=True)
+            base = anyio.Path(path)
+            await base.mkdir(parents=True, exist_ok=True)
             index_file = base / f"{namespace}.faiss"
             store_file = base / f"{namespace}.store.json"
 
@@ -239,7 +239,9 @@ class FaissVectorStore(IVectorStore):
                 "metric": self.config.metric,
                 "chunks": [_chunk_to_dict(c) for c in ns.chunks.values()],
             }
-            await atomic_write(store_file, json.dumps(store_data, ensure_ascii=False))
+            await atomic_write(
+                str(store_file), json.dumps(store_data, ensure_ascii=False)
+            )
 
     async def load(self, path: str, namespace: str = "default") -> None:
         """Load namespace index + metadata. Validate version.
@@ -249,15 +251,15 @@ class FaissVectorStore(IVectorStore):
                 indicating corrupted or incomplete index state.
             VersionMismatchError: If stored dim does not match config dim.
         """
-        base = Path(path)
+        base = anyio.Path(path)
         index_file = base / f"{namespace}.faiss"
         store_file = base / f"{namespace}.store.json"
 
         # GUARD: store.json must exist if we expect to load meaningful data.
         # Loading index.faiss without store.json leaves ns.chunks empty,
         # causing silent empty search results — a data corruption scenario.
-        if not store_file.exists():
-            if index_file.exists():
+        if not await store_file.exists():
+            if await index_file.exists():
                 _logger.error(
                     "FAISS load failed: store.json missing for namespace "
                     "(index.faiss exists but metadata is absent). "
@@ -276,7 +278,7 @@ class FaissVectorStore(IVectorStore):
             return
 
         # If we reach here, store_file exists. index_file should also exist.
-        if not index_file.exists():
+        if not await index_file.exists():
             _logger.error(
                 "FAISS load failed: index.faiss missing for namespace "
                 "(store.json exists but index is absent).",
@@ -296,9 +298,7 @@ class FaissVectorStore(IVectorStore):
 
             # Load metadata first to validate before touching the index
             try:
-                store_text = await asyncio.to_thread(
-                    store_file.read_text, encoding="utf-8"
-                )
+                store_text = await store_file.read_text(encoding="utf-8")
                 store_data = json.loads(store_text)
             except json.JSONDecodeError as exc:
                 _logger.error(
@@ -369,18 +369,18 @@ class FaissVectorStore(IVectorStore):
 
     async def list_namespaces(self, path: str) -> list[str]:
         """Return list of available namespace names from store.json files."""
-        base = Path(path)
-        if not base.exists():
+        base = anyio.Path(path)
+        if not await base.exists():
             return []
         namespaces: list[str] = []
-        for f in base.iterdir():
-            if f.is_file() and f.suffixes == [".store", ".json"]:
+        async for f in base.iterdir():
+            if await f.is_file() and f.suffixes == [".store", ".json"]:
                 namespaces.append(f.stem.split(".")[0])
-            elif f.is_file() and f.suffix == ".faiss":
+            elif await f.is_file() and f.suffix == ".faiss":
                 # Also detect orphaned index files (no store.json)
                 ns_name = f.stem
                 store_file = base / f"{ns_name}.store.json"
-                if store_file.exists():
+                if await store_file.exists():
                     namespaces.append(ns_name)
         return sorted(set(namespaces))
 

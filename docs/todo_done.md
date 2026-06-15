@@ -101,3 +101,4 @@
 [x] `query_parser.py`: единый `parse_rag_query()` в `core/` заменил дублирующийся парсинг `[p]`/`[w]` в `ChatManager`, `rag/handlers.py` и `check_rag.py`. Устранена размазанность, теперь namespace не теряется между слоями.
 [x] query_parser.py: единый parse_rag_query() в core/ устранил дублирование парсинга [p]/[w] между ChatManager, rag/handlers.py и check_rag.py. Namespace больше не теряется при правках чата. (2026-06-15)
 [x] adapters/logging + test_chat.py: 16 вызовов логирования в 4 адаптерах переведены на extra={}; тесты test_chat.py синхронизированы с 4-tuple сигнатурой _retrieve_context() — 27 тестов восстановлены. (2026-06-15)
+[x] Убраны `ResourceWarning: unclosed database`, закрытие SQLite-соединений теперь происходит через `closing()` из `contextlib` в трёх тестах `test_adapters.py`.

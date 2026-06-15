@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 from ai_assistant.core.constants import (
     FROZEN_NO_INFO_PHRASES,
 )
-from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
@@ -18,6 +17,7 @@ from ai_assistant.core.domain.messages import (
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.prompts import get_prompt
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.utils import count_tokens
 
 if TYPE_CHECKING:
@@ -254,9 +254,12 @@ class ChatManager:
                 text="Document search (RAG) temporarily unavailable."
             )
 
-        prompt_for_llm, original_query, namespace, rag_chunks = await self._retrieve_context(
-            message, trace_id=trace_id
-        )
+        (
+            prompt_for_llm,
+            original_query,
+            namespace,
+            rag_chunks,
+        ) = await self._retrieve_context(message, trace_id=trace_id)
 
         messages = await self._build_messages(
             prompt_for_llm, conversation_id, metadata=meta
@@ -345,9 +348,12 @@ class ChatManager:
             yield "Document search (RAG) temporarily unavailable."
             return
 
-        prompt_for_llm, original_query, namespace, rag_chunks = await self._retrieve_context(
-            message, trace_id=trace_id
-        )
+        (
+            prompt_for_llm,
+            original_query,
+            namespace,
+            rag_chunks,
+        ) = await self._retrieve_context(message, trace_id=trace_id)
 
         messages = await self._build_messages(
             prompt_for_llm, conversation_id, metadata=meta

@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-15 19:00:34 UTC | **Mode:** `compact`
-> **Metrics:** 109 files | 91 Python | 16,062 LOC
+> **Generated:** 2026-06-15 20:35:04 UTC | **Mode:** `compact`
+> **Metrics:** 109 files | 91 Python | 16,191 LOC
 > **Full:** 48 | **Signatures:** 22 | **Listed:** 32
 
 ---
@@ -266,7 +266,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-15 19:00 UTC
+> Auto-generated from source code. Updated: 2026-06-15 20:35 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -275,20 +275,20 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `adapters.chunker_simple` | `ValueError` | chunk_size must be > 0, got {...} | High | 24 |
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap must be >= 0, got {...} | High | 26 |
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High | 28 |
-| `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High | 32 |
-| `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High | 36 |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High | 35 |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High | 39 |
 | `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High | 54 |
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 63 |
 | `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 69 |
 | `adapters.factory` | `ValueError` | No {...} adapter registered for '{...}' | High | 73 |
-| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 153 |
-| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 81 |
-| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 132 |
-| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High | 179 |
-| `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High | 265 |
-| `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High | 281 |
-| `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High | 303 |
-| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 314 |
+| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 165 |
+| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 84 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 133 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High | 182 |
+| `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High | 272 |
+| `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High | 290 |
+| `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High | 311 |
+| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 324 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 158 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
 | `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 251 |
@@ -310,8 +310,8 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 280 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 374 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 283 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 380 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 211 |
 | `tests.test_api` | `HTTPException` | Unknown error | High | 1425 |
 | `tests.test_api` | `RuntimeError` | boom | High | 1490 |
@@ -324,26 +324,26 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 634 |
 | `tests.test_pipeline` | `ValueError` | permanent | High | 589 |
 | `tests.test_rag` | `HTTPException` | Unknown error | High | 178 |
-| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception("Unexpected embedder response shape") | Medium | 30 |
+| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 53 |
-| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 92 |
-| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 152 |
-| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 214 |
-| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 232 |
-| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 83 |
-| `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception("Unexpected rerank response shape") | Medium | 79 |
-| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 88 |
+| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium | 95 |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 164 |
+| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 229 |
+| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning( | Medium | 247 |
+| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 86 |
+| `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception( | Medium | 79 |
+| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 91 |
 | `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 89 |
-| `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 296 |
+| `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 303 |
 | `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 220 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 81 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 68 |
-| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 105 |
-| `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium | 125 |
-| `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out", extra={"path": index_ | Medium | 99 |
-| `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium | 123 |
+| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 110 |
+| `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium | 130 |
+| `api.lifespan` | `TimeoutError` | logger.warning( | Medium | 101 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium | 128 |
 | `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
 | `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 297 |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 59 |
@@ -378,11 +378,11 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 267 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 270 |
 | `features.chat.manager` | `Exception` | logger.warning( | Medium | 209 |
 | `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 226 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 269 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 318 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 272 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 321 |
 | `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 53 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 141 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 241 |
@@ -394,7 +394,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
-| `tests.test_smoke` | `Exception` | return req, None, None | Medium | 480 |
+| `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.
 
@@ -1935,10 +1935,15 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                         state.vector_store.save(index_path, namespace=ns),
                         timeout=10.0,
                     )
-                    logger.info("Index saved", extra={"path": index_path, "namespace": ns})
+                    logger.info(
+                        "Index saved", extra={"path": index_path, "namespace": ns}
+                    )
                     saved += 1
                 except TimeoutError:
-                    logger.warning("Index save timed out", extra={"path": index_path, "namespace": ns})
+                    logger.warning(
+                        "Index save timed out",
+                        extra={"path": index_path, "namespace": ns},
+                    )
             logger.info(
                 "Indices persisted",
                 extra={"saved": saved, "total": len(namespaces)},
@@ -5822,8 +5827,8 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
 from __future__ import annotations
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
+import anyio
 import numpy as np
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
@@ -5894,12 +5899,12 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
-from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.prompts import get_prompt
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.utils import count_tokens
 class ChatManager:
     """Universal chat router."""

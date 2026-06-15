@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -362,7 +363,7 @@ class TestSQLiteStorage:
     @pytest.mark.asyncio
     async def test_wal_mode(self, storage, tmp_path):
         await storage.init_db()
-        with sqlite3.connect(str(tmp_path / "test.db")) as conn:
+        with closing(sqlite3.connect(str(tmp_path / "test.db"))) as conn:
             mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
             assert mode.lower() == "wal"
 
@@ -376,7 +377,7 @@ class TestSQLiteStorage:
 
         results = []
         for _ in range(3):
-            with sqlite3.connect(str(tmp_path / "test.db")) as conn:
+            with closing(sqlite3.connect(str(tmp_path / "test.db"))) as conn:
                 cur = conn.execute(
                     "SELECT content FROM chat_messages WHERE conversation_id = ? ORDER BY id",
                     ("conv-1",),
@@ -390,7 +391,7 @@ class TestSQLiteStorage:
     @pytest.mark.asyncio
     async def test_db_tables_created(self, storage, tmp_path):
         await storage.init_db()
-        with sqlite3.connect(str(tmp_path / "test.db")) as conn:
+        with closing(sqlite3.connect(str(tmp_path / "test.db"))) as conn:
             tables = {
                 t[0]
                 for t in conn.execute(

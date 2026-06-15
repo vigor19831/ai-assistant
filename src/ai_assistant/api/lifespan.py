@@ -94,10 +94,15 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                         state.vector_store.save(index_path, namespace=ns),
                         timeout=10.0,
                     )
-                    logger.info("Index saved", extra={"path": index_path, "namespace": ns})
+                    logger.info(
+                        "Index saved", extra={"path": index_path, "namespace": ns}
+                    )
                     saved += 1
                 except TimeoutError:
-                    logger.warning("Index save timed out", extra={"path": index_path, "namespace": ns})
+                    logger.warning(
+                        "Index save timed out",
+                        extra={"path": index_path, "namespace": ns},
+                    )
             logger.info(
                 "Indices persisted",
                 extra={"saved": saved, "total": len(namespaces)},
