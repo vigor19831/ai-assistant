@@ -1,359 +1,389 @@
-"""FAISS vector store with namespace (collection) support."""
+"""FAISS vector store adapter with multi-namespace persistence.
+
+Saves per namespace:
+- {namespace}.faiss  : binary FAISS index
+- {namespace}.store.json : chunk metadata mapping
+
+Load guard: if store.json is missing but index.faiss exists,
+raise AdapterError to prevent silent empty-search corruption.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import datetime
 import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-try:
-    import faiss
-
-    _FAISS_AVAILABLE = True
-except ImportError:
-    faiss: Any = None  # type: ignore[assignment, no-redef]
-    _FAISS_AVAILABLE = False
-
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
+
+try:
+    import faiss
+except ImportError:
+    faiss = None  # type: ignore[assignment, no-redef]
 
 __all__ = ["FaissVectorStore"]
 
-if _FAISS_AVAILABLE:
+_logger = get_logger("adapters.vector_store_faiss")
 
-    class FaissVectorStore(IVectorStore):
-        """Thread-safe FAISS vector store with multi-namespace support.
 
-        Each namespace is an isolated index stored under:
-            {path}/{namespace}/index.faiss
-            {path}/{namespace}/index_meta.json
-            {path}/{namespace}/store.json
-        """
+class _NamespaceData:
+    """Per-namespace runtime state."""
 
-        def __init__(self, config: VectorStoreConfigData) -> None:
-            super().__init__(config)
-            self.dim: int = config.dim
-            self.metric: str = config.metric
-            self._namespaces: dict[str, _NamespaceData] = {}
-            self._lock = asyncio.Lock()
-            self._index_path = config.index_path
+    def __init__(self) -> None:
+        self.index: Any = None
+        self.chunks: dict[int, Chunk] = {}
+        self.next_id: int = 0
 
-        @property
-        def index_path(self) -> str:
-            """Return the configured index path."""
-            return self._index_path
 
-        def _create_index(self) -> faiss.Index:
-            if self.metric == "ip":
-                return faiss.IndexFlatIP(self.dim)
-            return faiss.IndexFlatL2(self.dim)
+def _chunk_to_dict(chunk: Chunk) -> dict[str, Any]:
+    """Serialize Chunk to dict (strict, no extra fields)."""
+    meta = chunk.metadata
+    return {
+        "id": chunk.id,
+        "text": chunk.text,
+        "embedding": chunk.embedding,
+        "metadata": {
+            "source": meta.source if meta else "",
+            "index": meta.index if meta else 0,
+            "total_chunks": meta.total_chunks if meta else 0,
+            "custom": meta.custom if meta else {},
+        },
+    }
 
-        def _get_ns(self, name: str) -> _NamespaceData:
-            if name not in self._namespaces:
-                self._namespaces[name] = _NamespaceData(
-                    index=None,
-                    chunks={},
-                    metadata={},
-                    id_map={},
-                    next_id=0,
-                )
-            return self._namespaces[name]
 
-        def _validate_dim(self, embedding: list[float], chunk_id: str = "") -> None:
-            if len(embedding) != self.dim:
-                raise AdapterError(
-                    f"Dimension mismatch in FAISS add: expected {self.dim}, "
-                    f"got {len(embedding)} (chunk_id={chunk_id!r}). "
-                    f"Check embedder config.dim vs vector_store config.dim."
-                )
+def _chunk_from_dict(data: dict[str, Any]) -> Chunk:
+    """Deserialize dict to Chunk (strict, matches domain model)."""
+    meta_raw = data.get("metadata", {})
+    meta = ChunkMetadata(
+        source=meta_raw.get("source", ""),
+        index=meta_raw.get("index", 0),
+        total_chunks=meta_raw.get("total_chunks", 0),
+        custom=meta_raw.get("custom", {}),
+    )
+    return Chunk(
+        id=data["id"],
+        text=data["text"],
+        embedding=data.get("embedding"),
+        metadata=meta,
+    )
 
-        async def shutdown(self) -> None:
-            """Release in-memory FAISS indices and chunk data."""
-            self._namespaces.clear()
 
-        async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
-            if not chunks:
-                return
-            async with self._lock:
-                ns = self._get_ns(namespace)
-                if ns.index is None:
-                    ns.index = self._create_index()
+@register("vector_store", "faiss")
+class FaissVectorStore(IVectorStore):
+    """FAISS-backed vector store with namespace support."""
 
-                embeddings: list[list[float]] = []
-                valid_chunks: list[Chunk] = []
-                for c in chunks:
-                    if c.embedding is None:
-                        continue
-                    self._validate_dim(c.embedding, c.id)
-                    embeddings.append(c.embedding)
-                    valid_chunks.append(c)
-
-                if not embeddings:
-                    return
-
-                vectors = np.array(embeddings, dtype=np.float32)
-                start_id = ns.next_id
-                await asyncio.to_thread(ns.index.add, vectors)
-
-                for i, chunk in enumerate(valid_chunks):
-                    faiss_id = start_id + i
-                    ns.chunks[faiss_id] = chunk
-                    ns.id_map[chunk.id] = faiss_id
-                    meta: dict[str, Any] = {}
-                    if chunk.metadata is not None:
-                        meta = chunk.metadata.custom.copy()
-                        meta["source"] = chunk.metadata.source
-                        meta["index"] = chunk.metadata.index
-                    ns.metadata[chunk.id] = meta
-
-                ns.next_id += len(valid_chunks)
-
-        async def search(
-            self,
-            query_embedding: list[float],
-            top_k: int = 5,
-            namespace: str = "default",
-        ) -> list[Chunk]:
-            self._validate_dim(query_embedding, "<query>")
-            async with self._lock:
-                if namespace not in self._namespaces:
-                    return []
-                ns = self._namespaces[namespace]
-                if ns.index is None or ns.index.ntotal == 0:
-                    return []
-                q = np.array([query_embedding], dtype=np.float32)
-                distances, indices = await asyncio.to_thread(ns.index.search, q, top_k)
-                results: list[Chunk] = []
-                for idx in indices[0]:
-                    if idx < 0:
-                        continue
-                    chunk = ns.chunks.get(int(idx))
-                    if chunk:
-                        results.append(chunk)
-                return results
-
-        async def delete(
-            self, chunk_ids: list[str], namespace: str = "default"
-        ) -> None:
-            async with self._lock:
-                ns = self._get_ns(namespace)
-                ids_to_remove = set(chunk_ids)
-                remaining: list[Chunk] = []
-                for _fid, chunk in ns.chunks.items():
-                    if chunk.id not in ids_to_remove and chunk.embedding:
-                        remaining.append(chunk)
-
-                ns.index = self._create_index()
-                ns.chunks.clear()
-                ns.id_map.clear()
-                ns.metadata = {
-                    k: v for k, v in ns.metadata.items() if k not in ids_to_remove
-                }
-                ns.next_id = 0
-
-                if not remaining:
-                    return
-
-                embeddings: list[list[float]] = []
-                valid_chunks: list[Chunk] = []
-                for c in remaining:
-                    if c.embedding is None:
-                        continue
-                    self._validate_dim(c.embedding, c.id)
-                    embeddings.append(c.embedding)
-                    valid_chunks.append(c)
-
-                if not embeddings:
-                    return
-
-                vectors = np.array(embeddings, dtype=np.float32)
-                start_id = ns.next_id
-                await asyncio.to_thread(ns.index.add, vectors)
-
-                for i, chunk in enumerate(valid_chunks):
-                    faiss_id = start_id + i
-                    ns.chunks[faiss_id] = chunk
-                    ns.id_map[chunk.id] = faiss_id
-                    meta: dict[str, Any] = {}
-                    if chunk.metadata is not None:
-                        meta = chunk.metadata.custom.copy()
-                        meta["source"] = chunk.metadata.source
-                        meta["index"] = chunk.metadata.index
-                    ns.metadata[chunk.id] = meta
-
-                ns.next_id += len(valid_chunks)
-
-        async def save(self, path: str, namespace: str = "default") -> None:
-            async with self._lock:
-                ns = self._get_ns(namespace)
-                if ns.index is None:
-                    return
-                p = Path(path) / namespace
-                p.mkdir(parents=True, exist_ok=True)
-                tmp_index = p / "index.faiss.tmp"
-                await asyncio.to_thread(faiss.write_index, ns.index, str(tmp_index))
-                await asyncio.to_thread(tmp_index.replace, p / "index.faiss")
-
-                meta = {
-                    "version": "1.0",
-                    "embedder_model": "unknown",
-                    "embedder_dim": self.dim,
-                    "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
-                    "chunk_count": len(ns.chunks),
-                    "metric": self.metric,
-                }
-                meta_json = await asyncio.to_thread(json.dumps, meta, indent=2)
-                await atomic_write(p / "index_meta.json", meta_json)
-
-                store = {
-                    "chunks": {
-                        str(k): {
-                            "id": c.id,
-                            "text": c.text,
-                            "embedding": c.embedding,
-                            "metadata": (
-                                {
-                                    "source": c.metadata.source,
-                                    "index": c.metadata.index,
-                                    "total_chunks": c.metadata.total_chunks,
-                                    "created_at": c.metadata.created_at,
-                                    "custom": c.metadata.custom,
-                                }
-                                if c.metadata
-                                else None
-                            ),
-                        }
-                        for k, c in ns.chunks.items()
-                    },
-                    "metadata": ns.metadata,
-                    "id_map": ns.id_map,
-                    "next_id": ns.next_id,
-                }
-                store_json = await asyncio.to_thread(json.dumps, store, indent=2)
-                await atomic_write(p / "store.json", store_json)
-
-        async def load(self, path: str, namespace: str = "default") -> None:
-            p = Path(path) / namespace
-            index_path = p / "index.faiss"
-            if not await asyncio.to_thread(index_path.exists):
-                return
-
-            index = await asyncio.to_thread(faiss.read_index, str(index_path))
-
-            meta_path = p / "index_meta.json"
-            meta = None
-            if await asyncio.to_thread(meta_path.exists):
-                meta_text = await asyncio.to_thread(meta_path.read_text)
-                meta = await asyncio.to_thread(json.loads, meta_text)
-                stored_dim = meta.get("embedder_dim")
-                if stored_dim is not None and stored_dim != self.dim:
-                    raise VersionMismatchError(
-                        f"Reindex required: stored dim {stored_dim} "
-                        f"!= config dim {self.dim}"
-                    )
-
-            store_path = p / "store.json"
-            store = None
-            if await asyncio.to_thread(store_path.exists):
-                store_text = await asyncio.to_thread(store_path.read_text)
-                store = await asyncio.to_thread(json.loads, store_text)
-
-            async with self._lock:
-                ns = self._get_ns(namespace)
-                ns.chunks.clear()
-                ns.metadata.clear()
-                ns.id_map.clear()
-                ns.index = index
-                if store:
-                    for k, v in store.get("chunks", {}).items():
-                        m = v.get("metadata")
-                        chunk_meta = (
-                            ChunkMetadata(
-                                source=m.get("source", ""),
-                                index=m.get("index", 0),
-                                total_chunks=m.get("total_chunks", 0),
-                                created_at=m.get("created_at", ""),
-                                custom=m.get("custom", {}),
-                            )
-                            if m
-                            else None
-                        )
-                        ns.chunks[int(k)] = Chunk(
-                            id=v["id"],
-                            text=v["text"],
-                            embedding=v.get("embedding"),
-                            metadata=chunk_meta,
-                        )
-                    ns.metadata = store.get("metadata", {})
-                    ns.id_map = {
-                        str(k): int(v) for k, v in store.get("id_map", {}).items()
-                    }
-                    ns.next_id = store.get("next_id", 0)
-
-        async def list_by_filter(
-            self,
-            filters: dict[str, Any],
-            namespace: str = "default",
-        ) -> list[tuple[str, dict[str, Any]]]:
-            async with self._lock:
-                if namespace not in self._namespaces:
-                    return []
-                ns = self._namespaces[namespace]
-                return [
-                    (chunk_id, meta)
-                    for chunk_id, meta in ns.metadata.items()
-                    if all(meta.get(k) == v for k, v in filters.items())
-                ]
-
-        async def list_namespaces(self, path: str) -> list[str]:
-            p = Path(path)
-            if not await asyncio.to_thread(p.exists):
-                return []
-            entries = await asyncio.to_thread(lambda: list(p.iterdir()))
-            result: list[str] = []
-            for d in entries:
-                is_dir = await asyncio.to_thread(d.is_dir)
-                has_index = await asyncio.to_thread((d / "index.faiss").exists)
-                if is_dir and has_index:
-                    result.append(d.name)
-            return result
-
-    class _NamespaceData:
-        """Internal per-namespace state container."""
-
-        def __init__(
-            self,
-            index: faiss.Index | None,
-            chunks: dict[int, Chunk],
-            metadata: dict[str, dict[str, Any]],
-            id_map: dict[str, int],
-            next_id: int,
-        ) -> None:
-            self.index = index
-            self.chunks = chunks
-            self.metadata = metadata
-            self.id_map = id_map
-            self.next_id = next_id
-
-else:
-
-    class FaissVectorStore(IVectorStore):  # type: ignore[no-redef]
-        """Explicitly unavailable — raises on any operation."""
-
-        async def shutdown(self) -> None:
-            pass
-
-        def __init__(self, config: VectorStoreConfigData) -> None:
-            super().__init__(config)
+    def __init__(self, config: VectorStoreConfigData) -> None:
+        super().__init__(config)
+        self._namespaces: dict[str, _NamespaceData] = {}
+        self._lock = asyncio.Lock()
+        if faiss is None:
             raise ImportError(
-                "faiss-cpu is not installed but "
-                "vector_store.provider='faiss'. "
-                "Install: pip install faiss-cpu"
+                "faiss-cpu is not installed but vector_store.provider='faiss'"
             )
+
+    @property
+    def index_path(self) -> str:
+        return self.config.index_path
+
+    def _get_ns(self, namespace: str) -> _NamespaceData:
+        if namespace not in self._namespaces:
+            self._namespaces[namespace] = _NamespaceData()
+        return self._namespaces[namespace]
+
+    def _make_index(self, dim: int) -> Any:
+        metric = self.config.metric.lower()
+        if metric == "ip":
+            return faiss.IndexFlatIP(dim)
+        if metric == "cosine":
+            # Normalize + inner product = cosine similarity
+            return faiss.IndexFlatIP(dim)
+        return faiss.IndexFlatL2(dim)
+
+    async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
+        """Add chunks with embeddings to a namespace."""
+        if not chunks:
+            return
+        async with self._lock:
+            ns = self._get_ns(namespace)
+            dim = self.config.dim
+
+            embeddings: list[list[float]] = []
+            valid_chunks: list[Chunk] = []
+            for chunk in chunks:
+                if chunk.embedding is None:
+                    continue
+                if len(chunk.embedding) != dim:
+                    _logger.exception(
+                        "Dimension mismatch in FAISS add",
+                        extra={
+                            "expected": dim,
+                            "got": len(chunk.embedding),
+                            "chunk_id": chunk.id,
+                        },
+                    )
+                    raise AdapterError(
+                        f"Dimension mismatch in FAISS add: expected {dim}, "
+                        f"got {len(chunk.embedding)} ({chunk.id})"
+                    )
+                embeddings.append(chunk.embedding)
+                valid_chunks.append(chunk)
+
+            if not embeddings:
+                return
+
+            vectors = np.array(embeddings, dtype=np.float32)
+            if self.config.metric.lower() == "cosine":
+                faiss.normalize_L2(vectors)
+
+            if ns.index is None:
+                ns.index = self._make_index(dim)
+
+            ns.index.add(vectors)  # type: ignore[union-attr]
+
+            for chunk in valid_chunks:
+                ns.chunks[ns.next_id] = chunk
+                ns.next_id += 1
+
+            # FIFO eviction if max_chunks exceeded
+            max_chunks = self.config.max_chunks
+            while len(ns.chunks) > max_chunks:
+                oldest = min(ns.chunks.keys())
+                del ns.chunks[oldest]
+
+    async def search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 5,
+        namespace: str = "default",
+    ) -> list[Chunk]:
+        """Search by embedding in a namespace."""
+        async with self._lock:
+            ns = self._get_ns(namespace)
+            if ns.index is None or ns.index.ntotal == 0:
+                return []
+            dim = self.config.dim
+            if len(query_embedding) != dim:
+                _logger.error(
+                    "Dimension mismatch in FAISS search",
+                    extra={
+                        "expected": dim,
+                        "got": len(query_embedding),
+                    },
+                )
+                raise AdapterError(
+                    f"Dimension mismatch in FAISS search: expected {dim}, "
+                    f"got {len(query_embedding)}"
+                )
+            q = np.array([query_embedding], dtype=np.float32)
+            if self.config.metric.lower() == "cosine":
+                faiss.normalize_L2(q)
+            distances, indices = ns.index.search(q, top_k)  # type: ignore[union-attr]
+            results: list[Chunk] = []
+            for idx in indices[0]:
+                if idx == -1:
+                    continue
+                chunk = ns.chunks.get(int(idx))
+                if chunk is not None:
+                    results.append(chunk)
+            return results
+
+    async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
+        """Delete chunks by ID from a namespace.
+
+        FAISS does not support true deletion without rebuilding the index.
+        We rebuild the index from remaining chunks.
+        """
+        async with self._lock:
+            ns = self._get_ns(namespace)
+            if ns.index is None:
+                return
+            ids_to_remove = set(chunk_ids)
+            remaining = [
+                chunk for chunk in ns.chunks.values() if chunk.id not in ids_to_remove
+            ]
+            ns.chunks.clear()
+            ns.next_id = 0
+            ns.index = None
+            # Release lock before calling add() to avoid deadlock
+            # add() will reacquire the lock
+
+        if remaining:
+            await self.add(remaining, namespace=namespace)
+
+    async def save(self, path: str, namespace: str = "default") -> None:
+        """Persist namespace index + metadata."""
+        async with self._lock:
+            ns = self._get_ns(namespace)
+            if ns.index is None:
+                return
+            base = Path(path)
+            base.mkdir(parents=True, exist_ok=True)
+            index_file = base / f"{namespace}.faiss"
+            store_file = base / f"{namespace}.store.json"
+
+            # Save FAISS index
+            await asyncio.to_thread(faiss.write_index, ns.index, str(index_file))
+
+            # Save metadata store
+            store_data = {
+                "dim": self.config.dim,
+                "metric": self.config.metric,
+                "chunks": [_chunk_to_dict(c) for c in ns.chunks.values()],
+            }
+            await atomic_write(store_file, json.dumps(store_data, ensure_ascii=False))
+
+    async def load(self, path: str, namespace: str = "default") -> None:
+        """Load namespace index + metadata. Validate version.
+
+        Raises:
+            AdapterError: If store.json is missing but index.faiss exists,
+                indicating corrupted or incomplete index state.
+            VersionMismatchError: If stored dim does not match config dim.
+        """
+        base = Path(path)
+        index_file = base / f"{namespace}.faiss"
+        store_file = base / f"{namespace}.store.json"
+
+        # GUARD: store.json must exist if we expect to load meaningful data.
+        # Loading index.faiss without store.json leaves ns.chunks empty,
+        # causing silent empty search results — a data corruption scenario.
+        if not store_file.exists():
+            if index_file.exists():
+                _logger.error(
+                    "FAISS load failed: store.json missing for namespace "
+                    "(index.faiss exists but metadata is absent). "
+                    "This indicates index corruption or incomplete migration.",
+                    extra={
+                        "namespace": namespace,
+                        "path": str(base),
+                    },
+                )
+                raise AdapterError(
+                    f"Index metadata missing for namespace '{namespace}': "
+                    f"{store_file.name} not found. "
+                    f"Please reindex to restore consistency."
+                )
+            # Neither file exists — nothing to load, clean state.
+            return
+
+        # If we reach here, store_file exists. index_file should also exist.
+        if not index_file.exists():
+            _logger.error(
+                "FAISS load failed: index.faiss missing for namespace "
+                "(store.json exists but index is absent).",
+                extra={
+                    "namespace": namespace,
+                    "path": str(base),
+                },
+            )
+            raise AdapterError(
+                f"Index file missing for namespace '{namespace}': "
+                f"{index_file.name} not found. "
+                f"Please reindex to restore consistency."
+            )
+
+        async with self._lock:
+            ns = self._get_ns(namespace)
+
+            # Load metadata first to validate before touching the index
+            try:
+                store_text = await asyncio.to_thread(
+                    store_file.read_text, encoding="utf-8"
+                )
+                store_data = json.loads(store_text)
+            except json.JSONDecodeError as exc:
+                _logger.error(
+                    "FAISS load failed: invalid JSON in store.json",
+                    extra={
+                        "namespace": namespace,
+                        "error": str(exc),
+                    },
+                )
+                raise AdapterError(
+                    f"Invalid store.json for namespace '{namespace}': {exc}"
+                ) from exc
+
+            stored_dim = store_data.get("dim")
+            if stored_dim is not None and stored_dim != self.config.dim:
+                _logger.error(
+                    "FAISS dimension mismatch: stored vs config",
+                    extra={
+                        "stored_dim": stored_dim,
+                        "config_dim": self.config.dim,
+                    },
+                )
+                raise VersionMismatchError(
+                    f"Reindex required: stored dim {stored_dim} != "
+                    f"config dim {self.config.dim}"
+                )
+
+            # Load FAISS index
+            ns.index = await asyncio.to_thread(faiss.read_index, str(index_file))
+
+            # Rebuild chunk mapping
+            ns.chunks.clear()
+            ns.next_id = 0
+            for chunk_data in store_data.get("chunks", []):
+                chunk = _chunk_from_dict(chunk_data)
+                ns.chunks[ns.next_id] = chunk
+                ns.next_id += 1
+
+            _logger.info(
+                "FAISS loaded namespace",
+                extra={
+                    "namespace": namespace,
+                    "chunks": len(ns.chunks),
+                    "path": str(base),
+                },
+            )
+
+    async def list_by_filter(
+        self,
+        filters: dict[str, Any],
+        namespace: str = "default",
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Return (chunk_id, metadata) matching ALL filters key-values."""
+        async with self._lock:
+            ns = self._get_ns(namespace)
+            results: list[tuple[str, dict[str, Any]]] = []
+            for chunk in ns.chunks.values():
+                meta = chunk.metadata
+                meta_dict = {
+                    "source": meta.source if meta else "",
+                    "index": meta.index if meta else 0,
+                    "total_chunks": meta.total_chunks if meta else 0,
+                    **(meta.custom if meta else {}),
+                }
+                if all(meta_dict.get(k) == v for k, v in filters.items()):
+                    results.append((chunk.id, meta_dict))
+            return results
+
+    async def list_namespaces(self, path: str) -> list[str]:
+        """Return list of available namespace names from store.json files."""
+        base = Path(path)
+        if not base.exists():
+            return []
+        namespaces: list[str] = []
+        for f in base.iterdir():
+            if f.is_file() and f.suffixes == [".store", ".json"]:
+                namespaces.append(f.stem.split(".")[0])
+            elif f.is_file() and f.suffix == ".faiss":
+                # Also detect orphaned index files (no store.json)
+                ns_name = f.stem
+                store_file = base / f"{ns_name}.store.json"
+                if store_file.exists():
+                    namespaces.append(ns_name)
+        return sorted(set(namespaces))
+
+    async def shutdown(self) -> None:
+        """No-op — FAISS index is in-memory, persistence is explicit via save()."""
+        pass

@@ -79,44 +79,64 @@ def mock_request():
 
 
 @pytest.fixture
-def minimal_config():
-    """Given: a config with only required providers is needed.
-    When: test requests minimal_config.
-    Then: a valid AppConfig with mock providers is returned.
+def make_minimal_config():
+    """Factory fixture — returns a fresh AppConfig for each call.
+
+    Prevents test-to-test pollution when a test mutates the config.
     """
-    return AppConfig(
-        llm={
-            "provider": "mock",
-            "max_tokens": 50,
-            "temperature": 0.7,
-            "timeout": 5.0,
-            "stop_sequences": [],
-        },
-        embedder={"provider": "mock", "dim": 384, "timeout": 5.0},
-        vector_store={
-            "provider": "memory",
-            "dim": 384,
-            "metric": "l2",
-            "index_path": "./data/indices/test",
-        },
-        chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
-        storage={"provider": "sqlite", "db_path": ":memory:"},
-        reranker={
-            "provider": "dummy",
-            "model": "test",
-            "api_base": "http://test",
-            "timeout": 5.0,
-            "threshold": 0.3,
-        },
-        rag={
-            "steps": ["embed_query", "retrieve", "build_context", "generate"],
-            "prompt_version": "v1",
-            "prompt_name": "rag_default",
-            "top_k": 3,
-            "default_namespace": "test",
-            "relevance_threshold": 0.3,
-        },
-    )
+    def _factory(**overrides):
+        cfg = AppConfig(
+            llm={
+                "provider": "mock",
+                "max_tokens": 50,
+                "temperature": 0.7,
+                "timeout": 5.0,
+                "stop_sequences": [],
+            },
+            embedder={"provider": "mock", "dim": 384, "timeout": 5.0},
+            vector_store={
+                "provider": "memory",
+                "dim": 384,
+                "metric": "l2",
+                "index_path": "./data/indices/test",
+            },
+            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+            storage={"provider": "sqlite", "db_path": ":memory:"},
+            reranker={
+                "provider": "dummy",
+                "model": "test",
+                "api_base": "http://test",
+                "timeout": 5.0,
+                "threshold": 0.3,
+            },
+            rag={
+                "steps": ["embed_query", "retrieve", "build_context", "generate"],
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "top_k": 3,
+                "default_namespace": "test",
+                "relevance_threshold": 0.3,
+            },
+        )
+        for key, val in overrides.items():
+            setattr(cfg, key, val)
+        return cfg
+
+    return _factory
+
+
+@pytest.fixture
+def minimal_config(make_minimal_config):
+    """Backward-compat: single fresh config instance per test."""
+    return make_minimal_config()
+
+
+@pytest.fixture
+def mock_state(minimal_config):
+    """Return a mock InitializedAppState with minimal config for client tests."""
+    state = MagicMock(spec=InitializedAppState)
+    state.config = minimal_config
+    return state
 
 
 @pytest.fixture
@@ -124,8 +144,7 @@ def client(mock_state):
     """Return a TestClient with mocked app state."""
     from ai_assistant.main import create_app
 
-    app = create_app()
-    app.state.app_state = mock_state
+    app = create_app(state=mock_state)
     return TestClient(app)
 
 
@@ -605,13 +624,14 @@ class TestAPIDeps:
             assert getattr(step, "__name__", None) != "<lambda>"
 
     @pytest.mark.asyncio
-    async def test_init_adapters_null_reranker_when_not_configured(self, minimal_config):
+    async def test_init_adapters_null_reranker_when_not_configured(self, make_minimal_config):
         """Given: reranker provider is None in config.
         When: init_adapters is called.
         Then: NullReranker is used.
         """
         from ai_assistant.adapters.reranker_null import NullReranker
 
+        minimal_config = make_minimal_config()
         minimal_config.reranker.provider = None
 
         mock_vector_store = MagicMock()
@@ -816,11 +836,12 @@ class TestAPIDeps:
             assert STEP_REGISTRY[step_enum.value] is func
 
     @pytest.mark.asyncio
-    async def test_pipeline_with_hyde_step(self, minimal_config):
+    async def test_pipeline_with_hyde_step(self, make_minimal_config):
         """Given: config includes hyde_query step.
         When: init_adapters builds the pipeline.
         Then: 5 steps are present and hyde_query is at index 1.
         """
+        minimal_config = make_minimal_config()
         minimal_config.rag.steps = [
             "embed_query",
             "hyde_query",
@@ -882,11 +903,12 @@ class TestAPIDeps:
         funcs = _build_step_funcs(minimal_config)
         assert len(funcs) == 4
 
-    def test_build_step_funcs_unknown_step_raises(self, minimal_config):
+    def test_build_step_funcs_unknown_step_raises(self, make_minimal_config):
         """Given: a config with an unknown step name.
         When: _build_step_funcs is called.
         Then: ValueError is raised.
         """
+        minimal_config = make_minimal_config()
         minimal_config.rag.steps = ["embed_query", "nonexistent_step"]
         with pytest.raises(ValueError, match="Unknown step"):
             _build_step_funcs(minimal_config)
@@ -1227,11 +1249,12 @@ class TestAPILifespan:
         assert call_args.kwargs["level"] == "INFO"  # minimal_config.debug is False
 
     @pytest.mark.asyncio
-    async def test_lifespan_sets_api_key_from_config(self, minimal_config):
+    async def test_lifespan_sets_api_key_from_config(self, make_minimal_config):
         """Given: config has api_key and env has none.
         When: lifespan startup runs.
         Then: set_api_key is called with config key.
         """
+        minimal_config = make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
@@ -1256,11 +1279,12 @@ class TestAPILifespan:
         mock_set_key.assert_called_once_with("cfg-secret")
 
     @pytest.mark.asyncio
-    async def test_lifespan_skips_set_api_key_when_env_present(self, minimal_config):
+    async def test_lifespan_skips_set_api_key_when_env_present(self, make_minimal_config):
         """Given: env var already has API key.
         When: lifespan startup runs.
         Then: set_api_key is NOT called.
         """
+        minimal_config = make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
@@ -1472,6 +1496,17 @@ class TestAPIMiddleware:
 
             call_args = mock_counter.call_args
             assert call_args.kwargs["labels"]["status"] == "500"
+
+    def test_cors_rejects_evil_origin(self, client):
+        """Given: request from unauthorized origin.
+        When: sent to any endpoint.
+        Then: no CORS headers returned (browser blocks access)."""
+        resp = client.get(
+            "/",
+            headers={"Origin": "http://evil.com"},
+        )
+        headers = {k.lower(): v for k, v in resp.headers.items()}
+        assert "access-control-allow-origin" not in headers
 
 
 # ═══════════════════════════════════════════════════════════════════════════

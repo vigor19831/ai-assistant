@@ -10,9 +10,10 @@ if TYPE_CHECKING:
 
 import httpx
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage
+from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -24,6 +25,7 @@ __all__ = ["OpenAICompatibleLLM"]
 _logger = get_logger("llm.openai_compatible")
 
 
+@register("llm", "openai_compatible")
 class OpenAICompatibleLLM(ILLM, IClosable):
     """LLM using OpenAI-compatible REST API."""
 
@@ -45,55 +47,32 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             self._client = None
 
     def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
+        """Convert domain Message objects to OpenAI API message dicts."""
         out: list[dict[str, Any]] = []
         for m in messages:
-            role = getattr(m, "role", None)
-            if role == "user":
-                content = getattr(m, "text", "") or ""
-                image = getattr(m, "image", None)
-                if image is not None:
-                    parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
-                    image_url = getattr(image, "url", None)
-                    if image_url:
-                        parts.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_url},
-                            }
-                        )
-                    else:
-                        base64_data = getattr(image, "base64_data", None)
-                        if base64_data:
-                            mime_type = getattr(image, "mime_type", "image/png")
-                            data_url = f"data:{mime_type};base64,{base64_data}"
-                            parts.append(
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": data_url},
-                                }
-                            )
-                    out.append({"role": "user", "content": parts})
-                else:
-                    out.append({"role": "user", "content": content})
-            elif role == "assistant":
+            if isinstance(m, UserMessage):
+                out.append({"role": "user", "content": m.text or ""})
+            elif isinstance(m, AssistantMessage):
                 msg: dict[str, Any] = {
                     "role": "assistant",
-                    "content": getattr(m, "text", "") or "",
+                    "content": m.text or "",
                 }
-                tool_calls = getattr(m, "tool_calls", None)
-                if tool_calls:
-                    msg["tool_calls"] = tool_calls
+                if m.tool_calls:
+                    msg["tool_calls"] = m.tool_calls
                 out.append(msg)
-            elif role == "tool":
+            elif isinstance(m, ToolMessage):
                 out.append(
                     {
                         "role": "tool",
-                        "content": getattr(m, "content", ""),
-                        "tool_call_id": getattr(m, "tool_call_id", ""),
+                        "content": m.text or "",
+                        "tool_call_id": m.call_id,
                     }
                 )
             else:
-                _logger.warning("Unknown message type in _build_messages: %s", type(m))
+                _logger.warning(
+                    "Unknown message type in _build_messages",
+                    extra={"message_type": str(type(m))},
+                )
                 out.append({"role": "user", "content": str(m)})
         return out
 
@@ -114,11 +93,17 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 func = tc.get("function", {})
                 name = func.get("name")
             except AttributeError:
-                _logger.warning("Skipping non-dict tool_call: %s", tc)
+                _logger.warning(
+                    "Skipping non-dict tool_call",
+                    extra={"tool_call": str(tc)},
+                )
                 continue
             if ttype == "function":
                 if not tid or not name:
-                    _logger.warning("Skipping incomplete function tool_call: %s", tc)
+                    _logger.warning(
+                        "Skipping incomplete function tool_call",
+                        extra={"tool_call": str(tc)},
+                    )
                     continue
                 parsed.append(
                     {
@@ -131,7 +116,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                     }
                 )
             else:
-                _logger.warning("Unknown tool_call type %r; skipping: %s", ttype, tc)
+                _logger.warning(
+                    "Unknown tool_call type; skipping",
+                    extra={"tool_call_type": ttype, "tool_call": str(tc)},
+                )
         return parsed
 
     def get_context_limit(self) -> int | None:
@@ -228,7 +216,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 if not line or line.startswith(":"):
                     continue
                 if not line.startswith("data: "):
-                    _logger.debug("Unexpected SSE line: %s", line)
+                    _logger.debug(
+                        "Unexpected SSE line",
+                        extra={"line": line},
+                    )
                     continue
                 chunk = line[6:]
                 if chunk == "[DONE]":
@@ -254,7 +245,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                         yield content
                     # tool_calls in delta are ignored — see docstring
                 except (KeyError, IndexError, TypeError) as exc:
-                    _logger.warning("Malformed SSE: %s (%s)", obj, exc)
+                    _logger.warning(
+                        "Malformed SSE",
+                        extra={"obj": str(obj), "error": str(exc)},
+                    )
                     continue
 
     async def stream(

@@ -184,11 +184,12 @@ class TestChatManager:
         """Given: message without RAG prefix.
         When: _retrieve_context is called.
         Then: message passes through unchanged with empty chunks."""
-        prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
             "Hello world"
         )
         assert prompt == "Hello world"
         assert query == "Hello world"
+        assert namespace == "default"
         assert chunks == ()
 
     @pytest.mark.asyncio
@@ -206,9 +207,10 @@ class TestChatManager:
             [chunk], namespace="personal"
         )
 
-        prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
             "[p] What is the capital?"
         )
+        assert namespace == "personal"
         assert len(chunks) > 0
         assert "Paris" in prompt or "France" in prompt or "Context:" in prompt
 
@@ -225,9 +227,10 @@ class TestChatManager:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="work")
 
-        prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
             "[w] When is the deadline?"
         )
+        assert namespace == "work"
         assert len(chunks) > 0
 
     @pytest.mark.asyncio
@@ -243,9 +246,10 @@ class TestChatManager:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="other")
 
-        prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
             "[o] What ingredients?"
         )
+        assert namespace == "other"
         assert len(chunks) > 0
 
     @pytest.mark.asyncio
@@ -255,9 +259,10 @@ class TestChatManager:
         """Given: RAG prefix but no matching chunks.
         When: _retrieve_context is called.
         Then: original query text is returned unchanged."""
-        prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
             "[p] something impossible to find"
         )
+        assert namespace == "personal"
         assert prompt == "something impossible to find"
         assert query == "something impossible to find"
         assert chunks == ()
@@ -277,9 +282,10 @@ class TestChatManager:
             [chunk], namespace="personal"
         )
 
-        prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
             "[p] query text"
         )
+        assert namespace == "personal"
         assert not query.startswith("[p]")
         assert "query text" in query
 
@@ -301,13 +307,16 @@ class TestChatManager:
         (
             prompt_upper,
             query_upper,
+            namespace_upper,
             chunks_upper,
         ) = await chat_manager_with_rag._retrieve_context("[P] test")
         (
             prompt_lower,
             query_lower,
+            namespace_lower,
             chunks_lower,
         ) = await chat_manager_with_rag._retrieve_context("[p] test")
+        assert namespace_upper == namespace_lower == "personal"
         assert chunks_upper == chunks_lower
 
     @pytest.mark.asyncio
@@ -325,7 +334,8 @@ class TestChatManager:
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
         )
-        prompt, query, chunks = await manager._retrieve_context("[p] query")
+        prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
+        assert namespace == "default"
         assert prompt == "[p] query"
         assert query == "[p] query"
         assert chunks == ()
@@ -345,7 +355,8 @@ class TestChatManager:
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
         )
-        prompt, query, chunks = await manager._retrieve_context("[p] query")
+        prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
+        assert namespace == "default"
         assert prompt == "[p] query"
         assert query == "[p] query"
         assert chunks == ()
@@ -369,9 +380,10 @@ class TestChatManager:
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "work prompt"
-            prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+            prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
                 "[w] work item?"
             )
+            assert namespace == "work"
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_creative"
             assert len(chunks) > 0
@@ -408,7 +420,8 @@ class TestChatManager:
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "default prompt"
-            prompt, query, chunks = await manager._retrieve_context("[p] content?")
+            prompt, query, namespace, chunks = await manager._retrieve_context("[p] content?")
+            assert namespace == "personal"
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_strict"
 
@@ -429,9 +442,10 @@ class TestChatManager:
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "code prompt"
-            prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+            prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
                 "[c] configuration?"
             )
+            assert namespace == "code"
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_strict"
             assert len(chunks) > 0
@@ -453,9 +467,10 @@ class TestChatManager:
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "books prompt"
-            prompt, query, chunks = await chat_manager_with_rag._retrieve_context(
+            prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
                 "[b] Q3 report?"
             )
+            assert namespace == "books"
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_strict"
             assert len(chunks) > 0
@@ -534,7 +549,7 @@ class TestChatManager:
         ) as mock_retrieve, patch.object(
             manager_no_rag, "_build_messages", new_callable=AsyncMock
         ) as mock_build:
-            mock_retrieve.return_value = ("Hello", "Hello", ())
+            mock_retrieve.return_value = ("Hello", "Hello", "default", ())
             mock_build.return_value = [UserMessage(text="Hello")]
 
             await manager_no_rag.chat("Hello", "conv-1")
@@ -565,7 +580,7 @@ class TestChatManager:
         ) as mock_retrieve, patch.object(
             manager_no_rag, "_build_messages", new_callable=AsyncMock
         ) as mock_build:
-            mock_retrieve.return_value = ("Hello", "Hello", ())
+            mock_retrieve.return_value = ("Hello", "Hello", "default", ())
             mock_build.return_value = [UserMessage(text="Hello")]
 
             await manager_no_rag.chat("Hello", "conv-1")
@@ -703,15 +718,17 @@ class TestChatManager:
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "prompt"
 
-            prompt_c, query_c, chunks_c = await chat_manager_with_rag._retrieve_context(
+            prompt_c, query_c, namespace_c, chunks_c = await chat_manager_with_rag._retrieve_context(
                 "[c] settings?"
             )
+            assert namespace_c == "code"
             assert len(chunks_c) > 0
             assert chunks_c[0].metadata.source == "doc_code"
 
-            prompt_b, query_b, chunks_b = await chat_manager_with_rag._retrieve_context(
+            prompt_b, query_b, namespace_b, chunks_b = await chat_manager_with_rag._retrieve_context(
                 "[b] plan?"
             )
+            assert namespace_b == "books"
             assert len(chunks_b) > 0
             assert chunks_b[0].metadata.source == "doc_books"
 
@@ -750,7 +767,8 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
-        prompt, query, chunks = await prefix_manager._retrieve_context("[p] test")
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context("[p] test")
+        assert namespace == "personal"
         assert query == "test"
         assert not query.startswith("[p]")
 
@@ -762,9 +780,10 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="deadline"))
         )
-        prompt, query, chunks = await prefix_manager._retrieve_context(
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
             "[w] deadline"
         )
+        assert namespace == "work"
         assert query == "deadline"
         assert not query.startswith("[w]")
 
@@ -776,9 +795,10 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="recipe"))
         )
-        prompt, query, chunks = await prefix_manager._retrieve_context(
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
             "[o] recipe"
         )
+        assert namespace == "other"
         assert query == "recipe"
         assert not query.startswith("[o]")
 
@@ -790,9 +810,10 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="config"))
         )
-        prompt, query, chunks = await prefix_manager._retrieve_context(
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
             "[c] config"
         )
+        assert namespace == "code"
         assert query == "config"
         assert not query.startswith("[c]")
 
@@ -804,9 +825,10 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="report"))
         )
-        prompt, query, chunks = await prefix_manager._retrieve_context(
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
             "[b] report"
         )
+        assert namespace == "books"
         assert query == "report"
         assert not query.startswith("[b]")
 
@@ -818,12 +840,13 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
-        prompt_lower, query_lower, _ = await prefix_manager._retrieve_context(
+        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
             "[p] test"
         )
-        prompt_upper, query_upper, _ = await prefix_manager._retrieve_context(
+        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
             "[P] test"
         )
+        assert ns_lower == ns_upper == "personal"
         assert query_lower == query_upper == "test"
 
     @pytest.mark.asyncio
@@ -834,12 +857,13 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
-        prompt_lower, query_lower, _ = await prefix_manager._retrieve_context(
+        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
             "[w] test"
         )
-        prompt_upper, query_upper, _ = await prefix_manager._retrieve_context(
+        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
             "[W] test"
         )
+        assert ns_lower == ns_upper == "work"
         assert query_lower == query_upper == "test"
 
     @pytest.mark.asyncio
@@ -850,12 +874,13 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
-        prompt_lower, query_lower, _ = await prefix_manager._retrieve_context(
+        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
             "[c] test"
         )
-        prompt_upper, query_upper, _ = await prefix_manager._retrieve_context(
+        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
             "[C] test"
         )
+        assert ns_lower == ns_upper == "code"
         assert query_lower == query_upper == "test"
 
     @pytest.mark.asyncio
@@ -866,12 +891,13 @@ class TestChatPrefixes:
         prefix_manager.pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
-        prompt_lower, query_lower, _ = await prefix_manager._retrieve_context(
+        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
             "[b] test"
         )
-        prompt_upper, query_upper, _ = await prefix_manager._retrieve_context(
+        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
             "[B] test"
         )
+        assert ns_lower == ns_upper == "books"
         assert query_lower == query_upper == "test"
 
     @pytest.mark.asyncio
@@ -883,19 +909,24 @@ class TestChatPrefixes:
             return_value=PipelineData(query=UserMessage(text="query text"))
         )
         for prefix in ["p", "w", "o", "c", "b"]:
-            _, query, _ = await prefix_manager._retrieve_context(
+            _, query, ns, _ = await prefix_manager._retrieve_context(
                 f"[{prefix}] query text"
             )
             assert query == "query text", f"Failed for prefix [{prefix}]"
+            assert ns == {
+                "p": "personal", "w": "work", "o": "other",
+                "c": "code", "b": "books"
+            }[prefix]
 
     @pytest.mark.asyncio
     async def test_no_prefix_no_stripping(self, prefix_manager):
         """Given: message without any prefix.
         When: _retrieve_context is called.
         Then: message is returned unchanged."""
-        prompt, query, chunks = await prefix_manager._retrieve_context(
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
             "plain message without prefix"
         )
+        assert namespace == "default"
         assert query == "plain message without prefix"
         assert prompt == "plain message without prefix"
 

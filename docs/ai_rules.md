@@ -99,16 +99,14 @@ Response format:
 
 **FIND/REPLACE format:** Always include 2-3 lines of unchanged context before and after. Use strict markers:
 ```python
-# ... existing code ...
 <<<<<<< FIND
 def old_function():
     pass
-=========
+===
 def new_function():
     # new logic
     pass
 >>>>>>> REPLACE
-# ... existing code ...
 ```
 If the change exceeds 15 lines, output the full file content or split into multiple small blocks.
 

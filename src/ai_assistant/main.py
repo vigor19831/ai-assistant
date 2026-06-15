@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from ai_assistant.api.deps import InitializedAppState, get_state  # noqa: TC001
+from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import assemble_routers
+from ai_assistant.core.config import CORSConfig, load_config
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
 
 __all__ = ["create_app"]
@@ -23,6 +25,14 @@ class _InfoResponse(BaseModel):
     debug: bool
     llm_model: str
     llm_provider: str
+
+
+def _load_cors_config(state: InitializedAppState | None) -> CORSConfig:
+    """Return CORS config from state or fallback to safe defaults."""
+    if state is not None:
+        return state.config.cors
+    config_path = os.getenv("AI_CONFIG_PATH", "config.yaml")
+    return load_config(config_path).cors
 
 
 def create_app(
@@ -39,12 +49,14 @@ def create_app(
     if state is not None:
         app.state.app_state = state
 
+    cors_cfg = _load_cors_config(state)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=list(cors_cfg.allow_origins),
+        allow_credentials=cors_cfg.allow_credentials,
+        allow_methods=list(cors_cfg.allow_methods),
+        allow_headers=list(cors_cfg.allow_headers),
     )
     app.add_middleware(MetricsMiddleware)
 

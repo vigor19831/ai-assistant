@@ -12,6 +12,7 @@ from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
     LLM_NOT_PROVIDED,
+    LLM_UNAVAILABLE,
     QUERY_EMBEDDING_MISSING,
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
@@ -107,7 +108,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
     Errors added on failure:
         EMBEDDER_NOT_PROVIDED, QUERY_TEXT_MISSING, INTERNAL_SERVER_ERROR.
     """
-    _logger.info("embed_query start", extra={"trace_id": data.trace_id})
+    _logger.debug("embed_query start", extra={"trace_id": data.trace_id})
     embedder = data.metadata.get("embedder")
     if embedder is None:
         _logger.warning("embed_query: no embedder", extra={"trace_id": data.trace_id})
@@ -124,7 +125,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
             )
             return data.add_error(INTERNAL_SERVER_ERROR)
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
-        _logger.info("embed_query done", extra={"trace_id": data.trace_id})
+        _logger.debug("embed_query done", extra={"trace_id": data.trace_id})
         return replace(data, metadata=new_metadata)
     except Exception:
         _logger.exception("embed_query failed", extra={"trace_id": data.trace_id})
@@ -146,7 +147,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
     Errors added on failure:
         VECTOR_STORE_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, INTERNAL_SERVER_ERROR.
     """
-    _logger.info("retrieve start", extra={"trace_id": data.trace_id})
+    _logger.debug("retrieve start", extra={"trace_id": data.trace_id})
     vector_store = data.metadata.get("vector_store")
     if vector_store is None:
         _logger.warning("retrieve: no vector_store", extra={"trace_id": data.trace_id})
@@ -163,8 +164,8 @@ async def retrieve(data: PipelineData) -> PipelineData:
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
         )
-        _logger.info(
-            "retrieve done: %d chunks", len(chunks), extra={"trace_id": data.trace_id}
+        _logger.debug(
+            "retrieve done", extra={"trace_id": data.trace_id, "chunks": len(chunks)}
         )
         return data.with_chunks(chunks)
     except Exception:
@@ -187,16 +188,16 @@ async def rerank(data: PipelineData) -> PipelineData:
     Errors added on failure:
         INTERNAL_SERVER_ERROR.
     """
-    _logger.info(
-        "rerank start: %d chunks", len(data.chunks), extra={"trace_id": data.trace_id}
+    _logger.debug(
+        "rerank start", extra={"trace_id": data.trace_id, "chunks": len(data.chunks)}
     )
     if not data.chunks:
         return replace(data)
 
     reranker = data.metadata.get("reranker")
-    assert reranker is not None  # ← FIX: api/deps guarantees NullReranker fallback
-    # reranker is guaranteed non-None by api/deps (NullReranker fallback)
-    # No branching on None — keeps pipeline pure.
+    if reranker is None:
+        _logger.warning("rerank: no reranker", extra={"trace_id": data.trace_id})
+        return data.add_error(INTERNAL_SERVER_ERROR)
 
     try:
         _raw_query = data.query.text if data.query is not None else None
@@ -213,7 +214,7 @@ async def rerank(data: PipelineData) -> PipelineData:
                 **data.metadata,
                 "rerank_filtered_out": True,
             }
-            _logger.info(
+            _logger.debug(
                 "rerank: all chunks filtered out", extra={"trace_id": data.trace_id}
             )
             return replace(data, chunks=(), metadata=new_metadata)
@@ -222,10 +223,9 @@ async def rerank(data: PipelineData) -> PipelineData:
                 **data.metadata,
                 "rerank_scores": [r.score for r in filtered],
             }
-            _logger.info(
-                "rerank done: %d chunks",
-                len(filtered),
-                extra={"trace_id": data.trace_id},
+            _logger.debug(
+                "rerank done",
+                extra={"trace_id": data.trace_id, "chunks": len(filtered)},
             )
             return replace(
                 data,
@@ -245,17 +245,17 @@ async def build_context(data: PipelineData) -> PipelineData:
     Metadata contract:
         DATA: chunks (list[Chunk]) — read; context (str) — produced.
     """
-    _logger.info(
-        "build_context start: %d chunks",
-        len(data.chunks),
-        extra={"trace_id": data.trace_id},
+    _logger.debug(
+        "build_context start",
+        extra={"trace_id": data.trace_id, "chunks": len(data.chunks)},
     )
     if not data.chunks:
         return data.with_context("")
     lines = [chunk.text for chunk in data.chunks if chunk.text]
     context = "\n\n".join(lines)
-    _logger.info(
-        "build_context done: %d chars", len(context), extra={"trace_id": data.trace_id}
+    _logger.debug(
+        "build_context done",
+        extra={"trace_id": data.trace_id, "chars": len(context)},
     )
     return data.with_context(context)
 
@@ -306,7 +306,7 @@ def _truncate_to_fit(
 
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
-    _logger.info("generate start", extra={"trace_id": data.trace_id})
+    _logger.debug("generate start", extra={"trace_id": data.trace_id})
     llm = data.metadata.get("llm")
     if llm is None:
         _logger.warning("generate: no llm", extra={"trace_id": data.trace_id})
@@ -361,11 +361,13 @@ async def generate(data: PipelineData) -> PipelineData:
 
     try:
         response = await _call_llm(llm, messages)
-    except AdapterError:
-        # Intentional bypass: LLM unavailability is a transient infrastructure
-        # failure, not a pipeline logic error. The HTTP layer maps this to 503.
+    except AdapterError as exc:
         _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
-        raise
+        return data.add_error(f"{LLM_UNAVAILABLE} ({exc})").with_response(
+            AssistantMessage(
+                text="LLM service temporarily unavailable. Please try again later."
+            )
+        )
     except Exception:
         _logger.exception(
             "generate failed after retries", extra={"trace_id": data.trace_id}
@@ -376,7 +378,7 @@ async def generate(data: PipelineData) -> PipelineData:
             )
         )
 
-    _logger.info("generate done", extra={"trace_id": data.trace_id})
+    _logger.debug("generate done", extra={"trace_id": data.trace_id})
     return data.with_response(response)
 
 
@@ -387,7 +389,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     Generates a hypothetical answer to the query, embeds it,
     and stores the embedding in metadata for downstream retrieval.
     """
-    _logger.info("hyde_query start", extra={"trace_id": data.trace_id})
+    _logger.debug("hyde_query start", extra={"trace_id": data.trace_id})
     embedder = data.metadata.get("embedder")
     llm = data.metadata.get("llm")
     if embedder is None:
@@ -434,5 +436,5 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
     new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
-    _logger.info("hyde_query done", extra={"trace_id": data.trace_id})
+    _logger.debug("hyde_query done", extra={"trace_id": data.trace_id})
     return replace(data, metadata=new_metadata)

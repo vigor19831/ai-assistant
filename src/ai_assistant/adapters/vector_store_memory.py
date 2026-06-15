@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import VersionMismatchError
@@ -18,6 +19,7 @@ from ai_assistant.core.ports.vector_store import IVectorStore
 __all__ = ["MemoryVectorStore"]
 
 
+@register("vector_store", "memory")
 class MemoryVectorStore(IVectorStore):
     """Simple in-memory vector store with multi-namespace support and FIFO eviction.
 
@@ -72,6 +74,7 @@ class MemoryVectorStore(IVectorStore):
                     meta = chunk.metadata.custom.copy()
                     meta["source"] = chunk.metadata.source
                     meta["index"] = chunk.metadata.index
+                    meta["total_chunks"] = chunk.metadata.total_chunks
                 ns.metadata[chunk.id] = meta
                 ns._track(chunk.id)
                 ns._evict()
@@ -130,7 +133,6 @@ class MemoryVectorStore(IVectorStore):
                                 "source": c.metadata.source,
                                 "index": c.metadata.index,
                                 "total_chunks": c.metadata.total_chunks,
-                                "created_at": c.metadata.created_at,
                                 "custom": c.metadata.custom,
                             }
                             if c.metadata
@@ -166,10 +168,9 @@ class MemoryVectorStore(IVectorStore):
                     text=c["text"],
                     metadata=(
                         ChunkMetadata(
-                            source=meta["source"],
-                            index=meta["index"],
-                            total_chunks=meta["total_chunks"],
-                            created_at=meta["created_at"],
+                            source=meta.get("source", ""),
+                            index=meta.get("index", 0),
+                            total_chunks=meta.get("total_chunks", 0),
                             custom=meta.get("custom", {}),
                         )
                         if (meta := c.get("metadata"))

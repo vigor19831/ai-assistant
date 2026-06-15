@@ -8,13 +8,17 @@ from typing import Any
 
 import httpx
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.domain.errors import AdapterError
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import resolve_api_key
 
 __all__ = ["OpenAICompatibleEmbedder"]
+
+_logger = get_logger("embedder_openai_compatible")
 
 
 def _extract_embeddings(
@@ -24,6 +28,10 @@ def _extract_embeddings(
     try:
         embeddings = [item["embedding"] for item in data["data"]]
     except (KeyError, TypeError) as exc:
+        _logger.exception(
+            "Unexpected embedder response shape",
+            extra={"model": model},
+        )
         raise AdapterError(f"Unexpected response shape from {model!r}: {exc}") from exc
 
     for i, emb in enumerate(embeddings):
@@ -37,6 +45,7 @@ def _extract_embeddings(
     return embeddings
 
 
+@register("embedder", "openai_compatible")
 class OpenAICompatibleEmbedder(IEmbedder):
     """Embedder using OpenAI-compatible REST API."""
 

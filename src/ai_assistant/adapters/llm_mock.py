@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -14,6 +15,7 @@ from ai_assistant.core.ports.llm import ILLM, Message
 __all__ = ["MockLLM"]
 
 
+@register("llm", "mock")
 class MockLLM(ILLM):
     """Deterministic echo LLM for testing."""
 

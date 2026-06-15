@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-13 19:32:59 UTC | **Mode:** `compact`
-> **Metrics:** 106 files | 89 Python | 15,570 LOC
-> **Full:** 47 | **Signatures:** 21 | **Listed:** 31
+> **Generated:** 2026-06-15 19:00:34 UTC | **Mode:** `compact`
+> **Metrics:** 109 files | 91 Python | 16,062 LOC
+> **Full:** 48 | **Signatures:** 22 | **Listed:** 32
 
 ---
 
@@ -199,16 +199,14 @@ Response format:
 
 **FIND/REPLACE format:** Always include 2-3 lines of unchanged context before and after. Use strict markers:
 ```python
-# ... existing code ...
 <<<<<<< FIND
 def old_function():
     pass
-=========
+===
 def new_function():
     # new logic
     pass
 >>>>>>> REPLACE
-# ... existing code ...
 ```
 If the change exceeds 15 lines, output the full file content or split into multiple small blocks.
 
@@ -268,94 +266,97 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-13 19:32 UTC
+> Auto-generated from source code. Updated: 2026-06-15 19:00 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
 |-----------|-----------|---------|----------|------|
 | `core.retry` | `SystemExit/KeyboardInterrupt` | raise | Critical | 49 |
-| `adapters.chunker_simple` | `ValueError` | chunk_size must be > 0, got {...} | High | 22 |
-| `adapters.chunker_simple` | `ValueError` | chunk_overlap must be >= 0, got {...} | High | 24 |
-| `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High | 26 |
-| `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High | 27 |
-| `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High | 31 |
-| `adapters.factory` | `ValueError` | No LLM adapter registered for '{...}' | High | 48 |
-| `adapters.factory` | `ValueError` | No embedder adapter registered for '{...}' | High | 62 |
-| `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High | 74 |
-| `adapters.factory` | `ValueError` | No vector_store adapter registered for '{...}' | High | 78 |
-| `adapters.factory` | `ValueError` | No chunker adapter registered for '{...}' | High | 86 |
-| `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 94 |
-| `adapters.factory` | `ValueError` | No storage adapter registered for '{...}' | High | 98 |
-| `adapters.factory` | `ValueError` | No reranker adapter registered for '{...}' | High | 110 |
-| `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 113 |
-| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 177 |
-| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 75 |
-| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 71 |
-| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 257 |
-| `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 156 |
+| `adapters.chunker_simple` | `ValueError` | chunk_size must be > 0, got {...} | High | 24 |
+| `adapters.chunker_simple` | `ValueError` | chunk_overlap must be >= 0, got {...} | High | 26 |
+| `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High | 28 |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High | 32 |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High | 36 |
+| `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High | 54 |
+| `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 63 |
+| `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 69 |
+| `adapters.factory` | `ValueError` | No {...} adapter registered for '{...}' | High | 73 |
+| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 153 |
+| `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 81 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 132 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High | 179 |
+| `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High | 265 |
+| `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High | 281 |
+| `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High | 303 |
+| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 314 |
+| `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 158 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 231 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 233 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 235 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 237 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 239 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 241 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 243 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 262 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 251 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 253 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 255 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 257 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 259 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 261 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 263 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 282 |
 | `api.deps` | `ValueError` | Unknown step: {...} | High | 99 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
-| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 262 |
-| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 289 |
+| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 271 |
+| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 298 |
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
-| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 43 |
+| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 80 |
+| `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 85 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 281 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 361 |
-| `features.rag.handlers` | `HTTPException` | Unknown error | High | 250 |
-| `tests.test_api` | `HTTPException` | Unknown error | High | 1401 |
-| `tests.test_api` | `RuntimeError` | boom | High | 1466 |
-| `tests.test_api` | `ValueError` | No storage adapter registered | High | 653 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 280 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 374 |
+| `features.rag.handlers` | `HTTPException` | Unknown error | High | 211 |
+| `tests.test_api` | `HTTPException` | Unknown error | High | 1425 |
+| `tests.test_api` | `RuntimeError` | boom | High | 1490 |
+| `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
- newlines | High | 212 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 552 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 582 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 604 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 559 |
-| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | raise AdapterError(f"Unexpected response shape from {model!r | Medium | 26 |
-| `adapters.factory` | `ImportError` | raise ValueError( | Medium | 73 |
-| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 116 |
-| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 176 |
-| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 238 |
-| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 256 |
-| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 107 |
-| `adapters.reranker_api` | `KeyError/TypeError` | raise AdapterError(f"Unexpected rerank response shape: {exc} | Medium | 74 |
-| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 82 |
+ newlines | High | 218 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 489 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 582 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 612 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 634 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 589 |
+| `tests.test_rag` | `HTTPException` | Unknown error | High | 178 |
+| `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception("Unexpected embedder response shape") | Medium | 30 |
+| `adapters.factory` | `ImportError` | raise ValueError( | Medium | 53 |
+| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning("Skipping non-dict tool_call: %s", tc) | Medium | 92 |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 152 |
+| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 214 |
+| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning("Malformed SSE: %s (%s)", obj, exc) | Medium | 232 |
+| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 83 |
+| `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception("Unexpected rerank response shape") | Medium | 79 |
+| `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 88 |
 | `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
-| `adapters.vector_store_faiss` | `ImportError` | faiss: Any = None  # type: ignore[assignment, no-redef] | Medium | 17 |
-| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss'... | Medium | 355 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 200 |
-| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 78 |
-| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 65 |
-| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 99 |
-| `api.lifespan` | `Exception` | logger.exception("Adapter '%s' shutdown failed", name) | Medium | 119 |
-| `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out: %s/%s", index_path, ns | Medium | 96 |
-| `api.lifespan` | `TimeoutError` | logger.warning("Adapter '%s' shutdown timed out", name) | Medium | 117 |
+| `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
+| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 89 |
+| `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 296 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 220 |
+| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 81 |
+| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 68 |
+| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 105 |
+| `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium | 125 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Index save timed out", extra={"path": index_ | Medium | 99 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium | 123 |
 | `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
-| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 288 |
+| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 297 |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 59 |
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
-| `core.logger` | `OSError` | logger.error("Failed to create log file %s: %s", path, exc) | Medium | 73 |
+| `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 116 |
 | `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 364 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 129 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 170 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 130 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 171 |
 | `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 236 |
 | `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 301 |
 | `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 329 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 369 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 371 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 64 |
@@ -366,33 +367,32 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
 | `core.utils` | `KeyError` | try: | Medium | 76 |
 | `core.utils` | `OSError` | return None | Medium | 63 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning("LLM unavailable: %s", exc, extra={"trace_id | Medium | 118 |
-| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 151 |
-| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 164 |
+| `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 121 |
+| `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 177 |
 | `features.chat.handlers` | `Exception` | await queue.put(exc) | Medium | 66 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 123 |
-| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 156 |
-| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 171 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed", extra={"trace_id": | Medium | 239 |
-| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 271 |
-| `features.chat.handlers` | `HTTPException` | raise | Medium | 121 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Chat failed", extra={"trace_id": trace_id | Medium | 129 |
+| `features.chat.handlers` | `Exception` | _logger.exception("Stream failed", extra={"trace_id": trace_ | Medium | 169 |
+| `features.chat.handlers` | `Exception` | payload = json.dumps({"error": "Internal server error"}) | Medium | 184 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI stream failed", extra={"trace_id": | Medium | 256 |
+| `features.chat.handlers` | `Exception` | _logger.exception("OpenAI chat failed", extra={"trace_id": t | Medium | 291 |
+| `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 272 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 218 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed: %s", exc) | Medium | 235 |
-| `features.chat.manager` | `Exception` | logger.error( | Medium | 274 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed: %s", exc) | Medium | 313 |
-| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 59 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 138 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 199 |
-| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 228 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 259 |
-| `features.rag.handlers` | `Exception` | return { | Medium | 297 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 342 |
-| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 150 |
-| `tests.test_api` | `Exception` | errors.append(e) | Medium | 350 |
-| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 676 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 267 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 209 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 226 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 269 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 318 |
+| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 53 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 141 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 241 |
+| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 270 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 301 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 339 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 384 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 173 |
+| `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
+| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 480 |
 
@@ -409,10 +409,13 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 
 | ID | File | Broken Rule | Why | Fix | Priority |
 |----|------|-------------|-----|-----|----------|
-| 1 | Fixed 2026-06-09: get_context_limit() added to ILLM port. All adapters updated.
+| 1 | Fixed 2026-06-09: get_context_limit() added to ILLM port. All adapters updated. |
 | 2 | Fixed 2026-06-09: NullReranker introduced. `rerank()` no longer branches on `None`. `InitializedAppState.reranker` is `IReranker` (non-optional). |
 | 3 | Fixed 2026-06-09: getattr(config, "vector_store") removed. Pydantic validation guarantees field presence. |
 | 4 | Fixed 2026-06-13: Replaced all `getattr(config, "x", default)` with direct `config.x` access in all adapters. All defaults verified in `AppConfig` Pydantic models. |
+| 5 | Fixed 2026-06-14: `ChunkMetadata` schema drift. `vector_store_faiss.py` and `vector_store_memory.py` serialized `created_at` (not in domain model) and missed `total_chunks` in FAISS `add()`. Introduced `dataclass_from_dict` in `core/utils.py` for strict deserialization. |
+| 6 | Fixed 2026-06-14: Added `get_logger` to `embedder_openai_compatible.py` and `reranker_api.py`. All `AdapterError` wraps now preceded by `logger.exception`. |
+| 7 | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py` | Duplicate HTTP client setup (httpx.AsyncClient, POST, raise_for_status, json parse) | Layer boundaries prevent shared httpx code: core/ is stdlib-only, adapters/ may only import core/*. Extracting to core/ violates stdlib-only rule. Extracting to adapters/_shared violates layer boundaries. | Accept duplication as architectural constraint. Revisit if >3 adapters share pattern. | Low |
 
 Rule: Do not add new drift if old pattern can be fixed properly.
 
@@ -493,6 +496,7 @@ src/
         main.py
         adapters/
             __init__.py
+            _registry.py
             chunker_simple.py
             embedder_mock.py
             embedder_openai_compatible.py
@@ -522,6 +526,7 @@ src/
             metrics.py
             pipeline.py
             pipeline_steps.py
+            query_parser.py
             retry.py
             utils.py
             domain/
@@ -563,6 +568,7 @@ src/
                 manager.py
                 schemas.py
 tests/
+    config.test.yaml
     conftest.py
     pytest.ini
     test_adapters.py
@@ -588,29 +594,40 @@ tests/
   - → `ai_assistant.core.config: load_config`
 - `scripts/check_rag.py`
   - → `ai_assistant.adapters.factory: create_adapter`
-  - → `ai_assistant.core.config: load_config, EmbedderConfig`
-  - → `ai_assistant.core.constants: RAG_NS_MAP, RAG_PREFIX_RE`
+  - → `ai_assistant.core.config: load_config`
+  - → `ai_assistant.core.constants: RAG_NS_MAP`
+  - → `ai_assistant.core.domain.configs: EmbedderConfigData`
   - → `ai_assistant.core.domain.messages: UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
-  - → `ai_assistant.core.pipeline_steps: build_context, embed_query, retrieve`
+  - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.pipeline_steps: embed_query, retrieve, build_context, rerank`
+  - → `ai_assistant.core.query_parser: parse_rag_query`
 - `scripts/index_documents.py`
   - → `ai_assistant.api.deps: init_adapters`
   - → `ai_assistant.core.config: load_config`
   - → `ai_assistant.features.rag.indexing: index_folder`
+- `src/ai_assistant/adapters/__init__.py`
+  - → `ai_assistant.adapters._registry: register`
+  - → `ai_assistant.adapters.factory: create_adapter`
 - `src/ai_assistant/adapters/chunker_simple.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: ChunkerConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
   - → `ai_assistant.core.ports.chunker: IChunker`
 - `src/ai_assistant/adapters/embedder_mock.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: EmbedderConfigData`
   - → `ai_assistant.core.ports.embedder: IEmbedder`
 - `src/ai_assistant/adapters/embedder_openai_compatible.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: EmbedderConfigData`
   - → `ai_assistant.core.domain.errors: AdapterError`
+  - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.embedder: IEmbedder`
   - → `ai_assistant.core.retry: with_retry`
   - → `ai_assistant.core.utils: resolve_api_key`
 - `src/ai_assistant/adapters/factory.py`
+  - → `ai_assistant.adapters._registry: get_registry, register`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
   - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
   - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
@@ -621,42 +638,49 @@ tests/
   - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.core.domain.configs: ChunkerConfigData, EmbedderConfigData, LLMConfigData, RerankerConfigData, StorageConfigData, VectorStoreConfigData`
 - `src/ai_assistant/adapters/llm_mock.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: LLMConfigData`
   - → `ai_assistant.core.domain.messages: AssistantMessage`
   - → `ai_assistant.core.ports.llm: ILLM, Message`
 - `src/ai_assistant/adapters/llm_openai_compatible.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: LLMConfigData`
   - → `ai_assistant.core.domain.errors: AdapterError`
-  - → `ai_assistant.core.domain.messages: AssistantMessage`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.closable: IClosable`
   - → `ai_assistant.core.ports.llm: ILLM, Message`
   - → `ai_assistant.core.retry: with_retry`
   - → `ai_assistant.core.utils: resolve_api_key`
 - `src/ai_assistant/adapters/reranker_api.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: RerankerConfigData`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.domain.errors: AdapterError`
+  - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.reranker: IReranker, RerankResult`
   - → `ai_assistant.core.retry: with_retry`
   - → `ai_assistant.core.utils: resolve_api_key`
 - `src/ai_assistant/adapters/reranker_null.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: RerankerConfigData`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.ports.reranker: IReranker, RerankResult`
 - `src/ai_assistant/adapters/storage_sqlite.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: StorageConfigData`
-  - → `ai_assistant.core.ports.initializable: IInitializable`
   - → `ai_assistant.core.ports.storage: IChatStorage, ISettingsStorage`
 - `src/ai_assistant/adapters/vector_store_faiss.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.domain.errors: AdapterError, VersionMismatchError`
   - → `ai_assistant.core.io_utils: atomic_write`
+  - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.vector_store: IVectorStore`
 - `src/ai_assistant/adapters/vector_store_memory.py`
+  - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.domain.errors: VersionMismatchError`
@@ -694,7 +718,7 @@ tests/
   - → `ai_assistant.core.domain.pipeline: PipelineData`
 - `src/ai_assistant/core/pipeline_steps.py`
   - → `ai_assistant.core.domain.documents: Chunk`
-  - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED, AdapterError`
+  - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, LLM_UNAVAILABLE, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED, AdapterError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
@@ -719,10 +743,13 @@ tests/
   - → `ai_assistant.core.ports.closable: IClosable`
 - `src/ai_assistant/core/ports/storage.py`
   - → `ai_assistant.core.domain.configs: StorageConfigData`
+  - → `ai_assistant.core.ports.initializable: IInitializable`
 - `src/ai_assistant/core/ports/vector_store.py`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.ports.closable: IClosable`
+- `src/ai_assistant/core/query_parser.py`
+  - → `ai_assistant.core.constants: RAG_NS_MAP, RAG_PREFIX_RE`
 - `src/ai_assistant/features/chat/handlers.py`
   - → `ai_assistant.api.deps: InitializedAppState, get_state`
   - → `ai_assistant.core.domain.errors: AdapterError`
@@ -730,8 +757,6 @@ tests/
   - → `ai_assistant.features.chat.schemas: ChatRequest, ChatResponse, OAIChatCompletion, OAIChatCompletionRequest, OAIChatMessage, OAIChoice, OAIDeltaChunk, OAIModel, OAIModelList`
 - `src/ai_assistant/features/chat/manager.py`
   - → `ai_assistant.core.constants: FROZEN_NO_INFO_PHRASES`
-  - → `ai_assistant.core.constants: RAG_NS_MAP`
-  - → `ai_assistant.core.constants: RAG_PREFIX_RE`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.domain.errors: AdapterError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
@@ -741,12 +766,15 @@ tests/
   - → `ai_assistant.core.ports.llm: Message`
   - → `ai_assistant.core.ports: ILLM, IChatStorage, IEmbedder, IReranker, IVectorStore`
   - → `ai_assistant.core.prompts: get_prompt`
+  - → `ai_assistant.core.query_parser: parse_rag_query`
   - → `ai_assistant.core.utils: count_tokens`
 - `src/ai_assistant/features/rag/handlers.py`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.api.deps: InitializedAppState, get_state`
   - → `ai_assistant.core.constants: DOCUMENTS_ROOT`
+  - → `ai_assistant.core.domain.errors: LLM_UNAVAILABLE`
   - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.query_parser: parse_rag_query`
   - → `ai_assistant.features.rag.indexing: index_folder`
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
   - → `ai_assistant.features.rag.schemas: DeleteRequest, DeleteResponse, HealthResponse, IndexRequest, IndexResponse, NamespaceListResponse, QueryRequest, QueryResponse, ReindexRequest, SaveChatRequest`
@@ -765,6 +793,7 @@ tests/
   - → `ai_assistant.api.lifespan: lifespan`
   - → `ai_assistant.api.middleware: MetricsMiddleware`
   - → `ai_assistant.api.router: assemble_routers`
+  - → `ai_assistant.core.config: CORSConfig, load_config`
   - → `ai_assistant.core.metrics: get_metrics, get_metrics_json`
 - `tests/conftest.py`
   - → `ai_assistant.api.deps: InitializedAppState`
@@ -772,19 +801,26 @@ tests/
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.ports.reranker: RerankResult`
   - → `ai_assistant.core: prompts`
+  - → `ai_assistant.features.rag: handlers`
 - `tests/test_adapters.py`
+  - → `ai_assistant.adapters._registry: get_registry`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
   - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.adapters.llm_mock: MockLLM`
   - → `ai_assistant.adapters.reranker_null: NullReranker`
   - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
+  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
   - → `ai_assistant.core.domain.configs: ChunkerConfigData, EmbedderConfigData, LLMConfigData, RerankerConfigData, StorageConfigData, VectorStoreConfigData`
+  - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
+  - → `ai_assistant.core.domain.errors: AdapterError`
   - → `ai_assistant.core.domain.errors: VersionMismatchError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.ports.initializable: IInitializable`
   - → `ai_assistant.core.ports.reranker: RerankResult`
+  - → `ai_assistant.core.ports.storage: IChatStorage`
 - `tests/test_api.py`
   - → `ai_assistant`
   - → `ai_assistant.adapters.reranker_null: NullReranker`
@@ -807,7 +843,7 @@ tests/
   - → `ai_assistant.adapters.reranker_null: NullReranker`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
   - → `ai_assistant.core.config: NamespaceConfig`
-  - → `ai_assistant.core.domain.configs: EmbedderConfigData, VectorStoreConfigData`
+  - → `ai_assistant.core.domain.configs: EmbedderConfigData, RerankerConfigData, VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
@@ -818,6 +854,17 @@ tests/
 - `tests/test_config.py`
   - → `ai_assistant.core.config: AppConfig, ChatConfig, ChunkerConfig, CORSConfig, LLMConfig, NamespaceConfig, RAGConfig, RAGStep, SecurityConfig, UIConfig, VectorStoreConfig, load_config`
 - `tests/test_contracts.py`
+  - → `ai_assistant.adapters._registry: get_registry`
+  - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
+  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
+  - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
+  - → `ai_assistant.adapters.llm_mock: MockLLM`
+  - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
+  - → `ai_assistant.adapters.reranker_api: APIReranker`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
+  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
+  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
   - → `ai_assistant.api: deps`
   - → `ai_assistant.api: lifespan`
   - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
@@ -825,6 +872,7 @@ tests/
   - → `ai_assistant.core.ports.chunker: IChunker`
   - → `ai_assistant.core.ports.closable: IClosable`
   - → `ai_assistant.core.ports.embedder: IEmbedder`
+  - → `ai_assistant.core.ports.initializable: IInitializable`
   - → `ai_assistant.core.ports.llm: ILLM`
   - → `ai_assistant.core.ports.llm: Message`
   - → `ai_assistant.core.ports.reranker: IReranker`
@@ -871,6 +919,7 @@ tests/
   - → `ai_assistant.core.pipeline_steps: build_context, embed_query, generate, hyde_query, rerank, retrieve`
 - `tests/test_pipeline.py`
   - → `ai_assistant.core.domain.documents: Chunk`
+  - → `ai_assistant.core.domain.errors: AdapterError, LLM_UNAVAILABLE`
   - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
@@ -881,15 +930,21 @@ tests/
   - → `ai_assistant.core.prompts: _env_cache, _make_hashable, _render, get_prompt`
   - → `ai_assistant.core.prompts: _kwargs_to_tuple`
 - `tests/test_rag.py`
+  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
+  - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
+  - → `ai_assistant.core.domain.errors: INTERNAL_SERVER_ERROR`
+  - → `ai_assistant.core.domain.errors: LLM_UNAVAILABLE`
   - → `ai_assistant.core.domain.messages: UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
   - → `ai_assistant.core.pipeline_steps: rerank`
   - → `ai_assistant.features.chat.manager: ChatManager`
+  - → `ai_assistant.features.rag.handlers: router`
   - → `ai_assistant.features.rag.indexing: index_folder`
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
+  - → `ai_assistant.features.rag.manager: RAGManager`
   - → `ai_assistant.features.rag: handlers`
   - → `ai_assistant.features.rag: indexing`
 - `tests/test_smoke.py`
@@ -952,6 +1007,7 @@ tests/
 - `src/ai_assistant/core/prompts/v1/rag_default.j2`
 - `src/ai_assistant/core/prompts/v1/rag_strict.j2`
 - `src/ai_assistant/core/prompts/v1/summarize.j2`
+- `src/ai_assistant/core/query_parser.py`
 - `src/ai_assistant/core/retry.py`
 - `src/ai_assistant/core/utils.py`
 - `src/ai_assistant/features/chat/handlers.py`
@@ -963,6 +1019,7 @@ tests/
 - `run.py`
 - `src/ai_assistant/__init__.py`
 - `src/ai_assistant/adapters/__init__.py`
+- `src/ai_assistant/adapters/_registry.py`
 - `src/ai_assistant/adapters/chunker_simple.py`
 - `src/ai_assistant/adapters/embedder_mock.py`
 - `src/ai_assistant/adapters/embedder_openai_compatible.py`
@@ -999,6 +1056,7 @@ tests/
 - `scripts/open_shell.py`
 - `scripts/run_all_tests.py`
 - `scripts/structure.py`
+- `tests/config.test.yaml`
 - `tests/conftest.py`
 - `tests/pytest.ini`
 - `tests/test_adapters.py`
@@ -1087,6 +1145,7 @@ tests/tests_run_*.log
 docs/context_build_*.md
 tests/tests_run_*.log
 MagicMock/
+config.yaml
 
 ```
 
@@ -1196,7 +1255,6 @@ cors:
   allow_origins:
     - "http://localhost"
     - "http://127.0.0.1"
-    - "null"
   allow_credentials: true
   allow_methods: ["*"]
   allow_headers: ["*"]
@@ -1218,7 +1276,7 @@ chunker:
 embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
-  api_key: "sk-local"
+  api_key: sk-local-api-key
   model: embeddinggemma-300m-q8_0
   dim: 768
   timeout: 60.0
@@ -1232,7 +1290,7 @@ embedder:
 llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
-  api_key: "sk-local"
+  api_key: sk-local-api-key
   model: gemma-4-e2b-it
   available_models:
     - gemma-4-e2b-it
@@ -1262,6 +1320,8 @@ vector_store:
   index_path: ./data/indices
   metric: l2
   dim: 768                # ← ОБЯЗАТЕЛЬНО равно embedder.dim
+  max_chunks: 100000
+  max_document_size: 10485760
 
 # ── Storage ──
 storage:
@@ -1274,7 +1334,7 @@ reranker:
   provider: null
   model: rerank-multilingual-v3.0
   api_base: https://api.cohere.com
-  api_key: null
+  api_key: sk-local-api-key
   timeout: 30.0
   threshold: 0.3
 
@@ -1321,6 +1381,12 @@ security:
   api_key: sk-local-api-key
   max_body_size: 10485760
   allowed_hosts: ["localhost", "127.0.0.1"]
+
+# ── Logging ──
+logging:
+  level: "INFO"       # DEBUG, INFO, WARNING, ERROR
+  file: "./data/app.log"
+  format: "text"      # "text" or "json"
 
 ```
 
@@ -1382,7 +1448,7 @@ extend-exclude = ["scripts/", "tests/", "vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH"]
-ignore = ["E501", "TC003"]  # TC003: stdlib typing-only imports are cheap, not worth the noise with FastAPI DI
+ignore = ["E501", "TC003", "TC001"]
 
 [tool.mypy]
 python_version = "3.13"
@@ -1592,6 +1658,7 @@ def _build_step_funcs(
 # Config conversion — Pydantic -> dataclass for port contracts
 # ---------------------------------------------------------------------------
 
+
 def _chunker_data(cfg: AppConfig) -> ChunkerConfigData:
     c = cfg.chunker
     return ChunkerConfigData(
@@ -1608,6 +1675,11 @@ def _embedder_data(cfg: AppConfig) -> EmbedderConfigData:
         api_key=c.api_key,
         dim=c.dim,
         timeout=c.timeout,
+        n_gpu_layers=c.n_gpu_layers,
+        n_batch=c.n_batch,
+        n_ubatch=c.n_ubatch,
+        mmap=c.mmap,
+        mlock=c.mlock,
     )
 
 
@@ -1621,6 +1693,20 @@ def _llm_data(cfg: AppConfig) -> LLMConfigData:
         temperature=c.temperature,
         timeout=c.timeout,
         server_context_size=c.server_context_size,
+        top_p=c.top_p,
+        top_k=c.top_k,
+        min_p=c.min_p,
+        repeat_penalty=c.repeat_penalty,
+        presence_penalty=c.presence_penalty,
+        frequency_penalty=c.frequency_penalty,
+        stop_sequences=tuple(c.stop_sequences),
+        system_message=c.system_message,
+        available_models=tuple(c.available_models),
+        n_gpu_layers=c.n_gpu_layers,
+        n_batch=c.n_batch,
+        n_ubatch=c.n_ubatch,
+        mmap=c.mmap,
+        mlock=c.mlock,
     )
 
 
@@ -1675,7 +1761,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     )
 
     reranker_cfg = _reranker_data(cfg)
-    if reranker_cfg is not None:
+    if reranker_cfg is not None and cfg.reranker.provider is not None:
         state.reranker = create_adapter("reranker", cfg.reranker.provider, reranker_cfg)
     else:
         state.reranker = create_adapter("reranker", "null", RerankerConfigData())
@@ -1686,8 +1772,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         )
     except (ValueError, ImportError):
         _logger.exception(
-            "Storage adapter '%s' not available",
-            cfg.storage.provider,
+            "Storage adapter not available",
+            extra={"provider": cfg.storage.provider},
         )
 
     if state.storage is not None:
@@ -1793,12 +1879,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     mount_static(app, config)
 
-    log_file = config.log_file
-    if log_file is None:
-        log_file = "./data/app.log"
+    log_cfg = config.logging
+    log_level = log_cfg.level if log_cfg else ("DEBUG" if config.debug else "INFO")
+    log_file = log_cfg.file if log_cfg else None
+    log_fmt = log_cfg.format if log_cfg else "text"
     setup_logging(
-        level="DEBUG" if config.debug else "INFO",
+        level=log_level,
         log_file=log_file,
+        fmt=log_fmt,
     )
 
     if config.security.api_key and get_expected_api_key() is None:
@@ -1815,7 +1903,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             for ns in namespaces:
                 await state.vector_store.load(index_path, namespace=ns)
             logger.info(
-                "Loaded %d namespace indices from %s", len(namespaces), index_path
+                "Loaded indices",
+                extra={"count": len(namespaces), "path": index_path},
             )
         except Exception:
             logger.exception("Index load failed on startup")
@@ -1846,11 +1935,14 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                         state.vector_store.save(index_path, namespace=ns),
                         timeout=10.0,
                     )
-                    logger.info("Index saved: %s/%s", index_path, ns)
+                    logger.info("Index saved", extra={"path": index_path, "namespace": ns})
                     saved += 1
                 except TimeoutError:
-                    logger.warning("Index save timed out: %s/%s", index_path, ns)
-            logger.info("Indices persisted: %d/%d namespace(s)", saved, len(namespaces))
+                    logger.warning("Index save timed out", extra={"path": index_path, "namespace": ns})
+            logger.info(
+                "Indices persisted",
+                extra={"saved": saved, "total": len(namespaces)},
+            )
         except Exception:
             logger.exception("Index save failed")
 
@@ -1868,11 +1960,11 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         if adapter is not None:
             try:
                 await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
-                logger.info("Adapter '%s' shutdown complete", name)
+                logger.info("Adapter shutdown complete", extra={"adapter": name})
             except TimeoutError:
-                logger.warning("Adapter '%s' shutdown timed out", name)
+                logger.warning("Adapter shutdown timed out", extra={"adapter": name})
             except Exception:
-                logger.exception("Adapter '%s' shutdown failed", name)
+                logger.exception("Adapter shutdown failed", extra={"adapter": name})
 
 ```
 
@@ -2318,10 +2410,18 @@ class NamespaceConfig(BaseModel):
     prompt: str = "rag_strict"
 
 
+class LoggingConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AI_LOGGING_", extra="forbid")
+    level: str = "INFO"
+    file: str | None = "./data/app.log"
+    format: str = "text"  # "text" or "json"
+
+
 class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AI_",
         extra="forbid",
+        env_file=".env",
     )
     app_name: str = "ai-assistant"
     debug: bool = False
@@ -2340,6 +2440,7 @@ class AppConfig(BaseSettings):
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     namespaces: dict[str, NamespaceConfig] = Field(
         default_factory=lambda: {
             "personal": NamespaceConfig(
@@ -2495,6 +2596,7 @@ __all__ = [
     "AdapterError",
     "VersionMismatchError",
 ]
+
 ```
 
 ### `src/ai_assistant/core/domain/configs.py`
@@ -2519,6 +2621,11 @@ class EmbedderConfigData:
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
+    n_gpu_layers: int = 0
+    n_batch: int = 512
+    n_ubatch: int = 64
+    mmap: bool = True
+    mlock: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -2530,6 +2637,20 @@ class LLMConfigData:
     temperature: float = 0.7
     timeout: float = 300.0
     server_context_size: int | None = None
+    top_p: float = 0.95
+    top_k: int = 40
+    min_p: float = 0.05
+    repeat_penalty: float = 1.1
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    stop_sequences: tuple[str, ...] = ()
+    system_message: str | None = None
+    available_models: tuple[str, ...] = ()
+    n_gpu_layers: int = 99
+    n_batch: int = 512
+    n_ubatch: int = 64
+    mmap: bool = True
+    mlock: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -2634,6 +2755,7 @@ QUERY_EMBEDDING_MISSING = "retrieve: no query embedding"
 LLM_NOT_PROVIDED = "generate: llm not provided"
 QUERY_MISSING = "generate: no query"
 INTERNAL_SERVER_ERROR = "Internal server error"
+LLM_UNAVAILABLE = "generate: LLM unavailable"
 
 ```
 
@@ -2796,10 +2918,11 @@ async def atomic_write(
 
 ### `src/ai_assistant/core/logger.py`
 ```python
-"""Simple structured logging."""
+"""Structured logging with text/json format support and trace_id propagation."""
 
 from __future__ import annotations
 
+import json
 import logging
 import logging.handlers
 import sys
@@ -2815,26 +2938,62 @@ _VALID_LEVELS: Final[frozenset[str]] = frozenset(
 )
 
 
-class _TraceFormatter(logging.Formatter):
-    """Formatter that includes trace_id when present in extra."""
+class _TextFormatter(logging.Formatter):
+    """Text formatter with trace_id support — thread-safe, no record mutation."""
 
     def format(self, record: logging.LogRecord) -> str:
         trace_id = getattr(record, "trace_id", None)
+        trace_prefix = f"trace_id={trace_id} | " if trace_id else ""
+        record.message = record.getMessage()
+        record.asctime = self.formatTime(record, self.datefmt)
+        return (
+            f"{record.asctime} | {record.levelname:8} | {record.name} | "
+            f"{trace_prefix}{record.message}"
+        )
+
+
+class _JsonFormatter(logging.Formatter):
+    """JSON formatter with structured fields including trace_id.
+
+    Extra fields are detected dynamically by comparing against a baseline
+    LogRecord, so this does not hardcode Python version-specific attributes.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry: dict[str, object] = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        trace_id = getattr(record, "trace_id", None)
         if trace_id:
-            record.trace_id_str = f" | trace_id={trace_id}"
-        else:
-            record.trace_id_str = ""
-        return super().format(record)
+            log_entry["trace_id"] = trace_id
+
+        # Detect extra fields by diffing against a default LogRecord.
+        # This set is computed once per format call — cheap and future-proof.
+        baseline = vars(logging.makeLogRecord({}))
+        for key, value in record.__dict__.items():
+            if key not in baseline and not key.startswith("_"):
+                log_entry[key] = value
+
+        return json.dumps(log_entry, ensure_ascii=False, default=str)
 
 
 def setup_logging(
     level: str = "INFO",
     log_file: str | Path | None = "./data/app.log",
+    fmt: str = "text",
 ) -> logging.Logger:
     """Configure application logging.
 
-    Idempotent: repeated calls reuse existing handlers but always
-    refresh the logger level.
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        log_file: Path to log file, or None for console-only.
+        fmt: Log format — "text" or "json".
+
+    Repeated calls clear existing handlers and recreate them,
+    allowing format changes at runtime (e.g., on config reload).
     """
     upper = level.upper()
     if upper not in _VALID_LEVELS:
@@ -2842,15 +3001,21 @@ def setup_logging(
             f"Invalid log level {level!r}. Use one of: {sorted(_VALID_LEVELS)}"
         )
 
+    if fmt not in {"text", "json"}:
+        raise ValueError(f"Invalid log format {fmt!r}. Use 'text' or 'json'.")
+
     logger = logging.getLogger("ai_assistant")
     logger.setLevel(getattr(logging, upper))
 
     with _LOCK:
-        if logger.handlers:
-            return logger
+        # Clear existing handlers to allow format reconfiguration
+        for handler in logger.handlers[:]:
+            handler.close()
+            logger.removeHandler(handler)
 
-        fmt = "%(asctime)s | %(levelname)-8s | %(name)s%(trace_id_str)s | %(message)s"
-        formatter = _TraceFormatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
+        formatter: logging.Formatter = (
+            _TextFormatter() if fmt == "text" else _JsonFormatter()
+        )
 
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(formatter)
@@ -2869,7 +3034,7 @@ def setup_logging(
                 fh.setFormatter(formatter)
                 logger.addHandler(fh)
             except OSError as exc:
-                logger.error("Failed to create log file %s: %s", path, exc)
+                sys.stderr.write(f"Failed to create log file {path}: {exc}\n")
 
     return logger
 
@@ -3081,6 +3246,7 @@ from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
     LLM_NOT_PROVIDED,
+    LLM_UNAVAILABLE,
     QUERY_EMBEDDING_MISSING,
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
@@ -3176,7 +3342,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
     Errors added on failure:
         EMBEDDER_NOT_PROVIDED, QUERY_TEXT_MISSING, INTERNAL_SERVER_ERROR.
     """
-    _logger.info("embed_query start", extra={"trace_id": data.trace_id})
+    _logger.debug("embed_query start", extra={"trace_id": data.trace_id})
     embedder = data.metadata.get("embedder")
     if embedder is None:
         _logger.warning("embed_query: no embedder", extra={"trace_id": data.trace_id})
@@ -3193,7 +3359,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
             )
             return data.add_error(INTERNAL_SERVER_ERROR)
         new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
-        _logger.info("embed_query done", extra={"trace_id": data.trace_id})
+        _logger.debug("embed_query done", extra={"trace_id": data.trace_id})
         return replace(data, metadata=new_metadata)
     except Exception:
         _logger.exception("embed_query failed", extra={"trace_id": data.trace_id})
@@ -3215,7 +3381,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
     Errors added on failure:
         VECTOR_STORE_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, INTERNAL_SERVER_ERROR.
     """
-    _logger.info("retrieve start", extra={"trace_id": data.trace_id})
+    _logger.debug("retrieve start", extra={"trace_id": data.trace_id})
     vector_store = data.metadata.get("vector_store")
     if vector_store is None:
         _logger.warning("retrieve: no vector_store", extra={"trace_id": data.trace_id})
@@ -3232,8 +3398,8 @@ async def retrieve(data: PipelineData) -> PipelineData:
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
         )
-        _logger.info(
-            "retrieve done: %d chunks", len(chunks), extra={"trace_id": data.trace_id}
+        _logger.debug(
+            "retrieve done", extra={"trace_id": data.trace_id, "chunks": len(chunks)}
         )
         return data.with_chunks(chunks)
     except Exception:
@@ -3256,16 +3422,16 @@ async def rerank(data: PipelineData) -> PipelineData:
     Errors added on failure:
         INTERNAL_SERVER_ERROR.
     """
-    _logger.info(
-        "rerank start: %d chunks", len(data.chunks), extra={"trace_id": data.trace_id}
+    _logger.debug(
+        "rerank start", extra={"trace_id": data.trace_id, "chunks": len(data.chunks)}
     )
     if not data.chunks:
         return replace(data)
 
     reranker = data.metadata.get("reranker")
-    assert reranker is not None  # ← FIX: api/deps guarantees NullReranker fallback
-    # reranker is guaranteed non-None by api/deps (NullReranker fallback)
-    # No branching on None — keeps pipeline pure.
+    if reranker is None:
+        _logger.warning("rerank: no reranker", extra={"trace_id": data.trace_id})
+        return data.add_error(INTERNAL_SERVER_ERROR)
 
     try:
         _raw_query = data.query.text if data.query is not None else None
@@ -3282,7 +3448,7 @@ async def rerank(data: PipelineData) -> PipelineData:
                 **data.metadata,
                 "rerank_filtered_out": True,
             }
-            _logger.info(
+            _logger.debug(
                 "rerank: all chunks filtered out", extra={"trace_id": data.trace_id}
             )
             return replace(data, chunks=(), metadata=new_metadata)
@@ -3291,10 +3457,9 @@ async def rerank(data: PipelineData) -> PipelineData:
                 **data.metadata,
                 "rerank_scores": [r.score for r in filtered],
             }
-            _logger.info(
-                "rerank done: %d chunks",
-                len(filtered),
-                extra={"trace_id": data.trace_id},
+            _logger.debug(
+                "rerank done",
+                extra={"trace_id": data.trace_id, "chunks": len(filtered)},
             )
             return replace(
                 data,
@@ -3314,17 +3479,17 @@ async def build_context(data: PipelineData) -> PipelineData:
     Metadata contract:
         DATA: chunks (list[Chunk]) — read; context (str) — produced.
     """
-    _logger.info(
-        "build_context start: %d chunks",
-        len(data.chunks),
-        extra={"trace_id": data.trace_id},
+    _logger.debug(
+        "build_context start",
+        extra={"trace_id": data.trace_id, "chunks": len(data.chunks)},
     )
     if not data.chunks:
         return data.with_context("")
     lines = [chunk.text for chunk in data.chunks if chunk.text]
     context = "\n\n".join(lines)
-    _logger.info(
-        "build_context done: %d chars", len(context), extra={"trace_id": data.trace_id}
+    _logger.debug(
+        "build_context done",
+        extra={"trace_id": data.trace_id, "chars": len(context)},
     )
     return data.with_context(context)
 
@@ -3375,7 +3540,7 @@ def _truncate_to_fit(
 
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
-    _logger.info("generate start", extra={"trace_id": data.trace_id})
+    _logger.debug("generate start", extra={"trace_id": data.trace_id})
     llm = data.metadata.get("llm")
     if llm is None:
         _logger.warning("generate: no llm", extra={"trace_id": data.trace_id})
@@ -3430,11 +3595,13 @@ async def generate(data: PipelineData) -> PipelineData:
 
     try:
         response = await _call_llm(llm, messages)
-    except AdapterError:
-        # Intentional bypass: LLM unavailability is a transient infrastructure
-        # failure, not a pipeline logic error. The HTTP layer maps this to 503.
+    except AdapterError as exc:
         _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
-        raise
+        return data.add_error(f"{LLM_UNAVAILABLE} ({exc})").with_response(
+            AssistantMessage(
+                text="LLM service temporarily unavailable. Please try again later."
+            )
+        )
     except Exception:
         _logger.exception(
             "generate failed after retries", extra={"trace_id": data.trace_id}
@@ -3445,7 +3612,7 @@ async def generate(data: PipelineData) -> PipelineData:
             )
         )
 
-    _logger.info("generate done", extra={"trace_id": data.trace_id})
+    _logger.debug("generate done", extra={"trace_id": data.trace_id})
     return data.with_response(response)
 
 
@@ -3456,7 +3623,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     Generates a hypothetical answer to the query, embeds it,
     and stores the embedding in metadata for downstream retrieval.
     """
-    _logger.info("hyde_query start", extra={"trace_id": data.trace_id})
+    _logger.debug("hyde_query start", extra={"trace_id": data.trace_id})
     embedder = data.metadata.get("embedder")
     llm = data.metadata.get("llm")
     if embedder is None:
@@ -3503,7 +3670,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
     new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
-    _logger.info("hyde_query done", extra={"trace_id": data.trace_id})
+    _logger.debug("hyde_query done", extra={"trace_id": data.trace_id})
     return replace(data, metadata=new_metadata)
 
 ```
@@ -3763,15 +3930,15 @@ class IReranker(IClosable, ABC):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import Any
 
-if TYPE_CHECKING:
-    from ai_assistant.core.domain.configs import StorageConfigData
+from ai_assistant.core.domain.configs import StorageConfigData
+from ai_assistant.core.ports.initializable import IInitializable
 
 __all__ = ["IChatStorage", "ISettingsStorage"]
 
 
-class IChatStorage(ABC):
+class IChatStorage(IInitializable, ABC):
     """Chat history persistence."""
 
     def __init__(self, config: StorageConfigData) -> None:
@@ -3940,7 +4107,7 @@ class IToolRegistry(ABC):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.configs import VectorStoreConfigData
@@ -4142,6 +4309,39 @@ Summarize the following text in {{ max_sentences }} sentences:
 {{ text }}
 
 Summary:
+
+```
+
+### `src/ai_assistant/core/query_parser.py`
+```python
+"""Single source of truth for RAG query prefix parsing."""
+
+from __future__ import annotations
+
+from ai_assistant.core.constants import RAG_NS_MAP, RAG_PREFIX_RE
+
+__all__ = ["parse_rag_query"]
+
+
+def parse_rag_query(text: str) -> tuple[str, str]:
+    """Extract RAG prefix and return (clean_text, namespace).
+
+    Examples:
+        "[p] hello" -> ("hello", "personal")
+        "[w] test"  -> ("test", "work")
+        "hello"     -> ("hello", "default")
+    """
+    if not text:
+        return ("", "default")
+
+    match = RAG_PREFIX_RE.match(text)
+    if not match:
+        return (text, "default")
+
+    prefix = match.group(1).lower()
+    clean = match.group(2).strip()
+    namespace = RAG_NS_MAP.get(prefix, "default")
+    return (clean, namespace)
 
 ```
 
@@ -4503,7 +4703,10 @@ async def chat(
 ) -> ChatResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
-    _logger.info("Chat handler start: trace_id=%s", trace_id)
+    _logger.info(
+        "Chat handler start",
+        extra={"trace_id": trace_id, "conversation_id": conv_id},
+    )
     try:
         response = await state.chat_manager.chat(
             message=req.message,
@@ -4511,14 +4714,20 @@ async def chat(
             metadata={**req.metadata, "trace_id": trace_id},
         )
     except AdapterError as exc:
-        _logger.warning("LLM unavailable: %s", exc, extra={"trace_id": trace_id})
+        _logger.warning(
+            "LLM unavailable",
+            extra={"trace_id": trace_id, "error": str(exc)},
+        )
         _raise_llm_unavailable(exc)
     except HTTPException:
         raise
     except Exception:
         _logger.exception("Chat failed", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Internal server error") from None
-    _logger.info("Chat handler done: trace_id=%s", trace_id)
+    _logger.info(
+        "Chat handler done",
+        extra={"trace_id": trace_id, "conversation_id": conv_id},
+    )
     return ChatResponse(
         message=response.text or "",
         conversation_id=conv_id,
@@ -4533,7 +4742,10 @@ async def chat_stream(
 ) -> StreamingResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
-    _logger.info("Chat stream handler start: trace_id=%s", trace_id)
+    _logger.info(
+        "Chat stream handler start",
+        extra={"trace_id": trace_id, "conversation_id": conv_id},
+    )
 
     async def _llm_stream() -> AsyncIterator[str]:
         try:
@@ -4545,7 +4757,8 @@ async def chat_stream(
                 yield chunk
         except AdapterError as exc:
             _logger.warning(
-                "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
+                "LLM unavailable in stream",
+                extra={"trace_id": trace_id, "error": str(exc)},
             )
             raise
         except Exception:
@@ -4603,7 +4816,10 @@ async def openai_chat_completions(
 
     conv_id = str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
-    _logger.info("OpenAI handler start: trace_id=%s", trace_id)
+    _logger.info(
+        "OpenAI handler start",
+        extra={"trace_id": trace_id, "conversation_id": conv_id},
+    )
     model_id = req.model if req.model is not None else state.config.llm.model
 
     if req.stream:
@@ -4628,7 +4844,8 @@ async def openai_chat_completions(
                     yield delta.model_dump_json()
             except AdapterError as exc:
                 _logger.warning(
-                    "LLM unavailable in stream: %s", exc, extra={"trace_id": trace_id}
+                    "LLM unavailable in stream",
+                    extra={"trace_id": trace_id, "error": str(exc)},
                 )
                 raise
             except Exception:
@@ -4659,7 +4876,10 @@ async def openai_chat_completions(
             metadata={"trace_id": trace_id},
         )
     except AdapterError as exc:
-        _logger.warning("LLM unavailable: %s", exc, extra={"trace_id": trace_id})
+        _logger.warning(
+            "LLM unavailable",
+            extra={"trace_id": trace_id, "error": str(exc)},
+        )
         _raise_llm_unavailable(exc)
     except HTTPException:
         raise
@@ -4667,7 +4887,10 @@ async def openai_chat_completions(
         _logger.exception("OpenAI chat failed", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
-    _logger.info("OpenAI handler done: trace_id=%s", trace_id)
+    _logger.info(
+        "OpenAI handler done",
+        extra={"trace_id": trace_id, "conversation_id": conv_id},
+    )
     return OAIChatCompletion(
         model=model_id,
         created=int(time.time()),
@@ -4809,7 +5032,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.constants import DOCUMENTS_ROOT
+from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 from ai_assistant.features.rag.schemas import (
@@ -4884,6 +5109,7 @@ async def index_documents(
     req: IndexRequest,
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> IndexResponse:
+    start = time.perf_counter()
     namespace = req.namespace or state.config.rag.default_namespace
     ns_cfg = state.config.namespaces.get(namespace)
 
@@ -4935,6 +5161,18 @@ async def index_documents(
         except Exception:
             _logger.exception("Auto-save failed")
             result.setdefault("errors", []).append("Internal server error")
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    _logger.info(
+        "Index documents completed",
+        extra={
+            "namespace": namespace,
+            "indexed_count": result.get("indexed_count", 0),
+            "chunk_count": result.get("chunk_count", 0),
+            "duration_ms": duration_ms,
+            "errors": len(result.get("errors", [])),
+        },
+    )
     return IndexResponse(**result, namespace=namespace)
 
 
@@ -4944,8 +5182,18 @@ async def query_rag(
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> QueryResponse:
+    start = time.perf_counter()
     cfg = state.config.rag
     ns = req.namespace or cfg.default_namespace
+    query_text = req.query
+
+    # Fallback: if namespace not explicitly set, try parsing from query text
+    if ns == cfg.default_namespace:
+        parsed_text, parsed_ns = parse_rag_query(req.query)
+        if parsed_ns != "default":
+            query_text = parsed_text
+            ns = parsed_ns
+
     ns_cfg = state.config.namespaces.get(ns)
 
     # Per-namespace overrides with global fallback
@@ -4960,13 +5208,30 @@ async def query_rag(
         relevance_threshold = ns_cfg.relevance_threshold
 
     result = await manager.query(
-        query_text=req.query,
+        query_text=query_text,
         top_k=req.top_k or cfg.top_k,
         prompt_name=prompt_name,
         prompt_version=req.prompt_version or cfg.prompt_version,
         namespace=ns,
         relevance_threshold=relevance_threshold,
     )
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    _logger.info(
+        "RAG query completed",
+        extra={
+            "namespace": ns,
+            "query_len": len(query_text),
+            "chunks_used": result.get("chunks_used", 0),
+            "duration_ms": duration_ms,
+            "errors": len(result.get("errors", [])),
+        },
+    )
+    for err in result.get("errors", []):
+        if err.startswith(LLM_UNAVAILABLE):
+            raise HTTPException(
+                status_code=503,
+                detail="LLM service temporarily unavailable. Please try again later.",
+            )
     return QueryResponse(**result)
 
 
@@ -5353,6 +5618,27 @@ def main():
 ```python
 # API: src/ai_assistant/adapters/__init__.py
 
+from __future__ import annotations
+from ai_assistant.adapters._registry import register
+from ai_assistant.adapters.factory import create_adapter
+```
+
+### `src/ai_assistant/adapters/_registry.py`
+```python
+# API: src/ai_assistant/adapters/_registry.py
+
+from __future__ import annotations
+from collections.abc import Callable
+def register(port: str, name: str):
+    """Register an adapter class under a port and name.
+
+Usage:
+    @register("llm", "mock")
+    class MockLLM(ILLM): ..."""
+
+def get_registry():
+    """Return a shallow copy of the registry for inspection."""
+
 ```
 
 ### `src/ai_assistant/adapters/chunker_simple.py`
@@ -5361,6 +5647,7 @@ def main():
 
 from __future__ import annotations
 import uuid
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import ChunkerConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.ports.chunker import IChunker
@@ -5375,6 +5662,7 @@ class SimpleChunker(IChunker):
 
 from __future__ import annotations
 import random
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.ports.embedder import IEmbedder
 class MockEmbedder(IEmbedder):
@@ -5391,8 +5679,10 @@ import asyncio
 import json
 from typing import Any
 import httpx
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.domain.errors import AdapterError
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import resolve_api_key
@@ -5408,14 +5698,25 @@ class OpenAICompatibleEmbedder(IEmbedder):
 # API: src/ai_assistant/adapters/factory.py
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import Any
+from ai_assistant.adapters._registry import get_registry, register
+from ai_assistant.adapters.chunker_simple import SimpleChunker
+from ai_assistant.adapters.embedder_mock import MockEmbedder
+from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
+from ai_assistant.adapters.llm_mock import MockLLM
+from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+from ai_assistant.adapters.reranker_api import APIReranker
+from ai_assistant.adapters.reranker_null import NullReranker
+from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 def create_adapter(port: str, name: str, config: Any):
-    """Create an adapter instance by port and name.
+    """Create an adapter instance by port and name via registry lookup.
 
 Args:
     port: Port category (e.g., "llm", "embedder").
     name: Adapter identifier (e.g., "mock", "openai_compatible").
-    config: Configuration objec"""
+    config:"""
 
 ```
 
@@ -5425,6 +5726,7 @@ Args:
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.messages import AssistantMessage
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -5441,9 +5743,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 import httpx
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage
+from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -5461,8 +5764,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import httpx
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.domain.errors import AdapterError
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import resolve_api_key
@@ -5482,6 +5787,7 @@ Compatible with:
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 class NullReranker(IReranker):
@@ -5499,12 +5805,12 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 import aiosqlite
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import StorageConfigData
-from ai_assistant.core.ports.initializable import IInitializable
 from ai_assistant.core.ports.storage import IChatStorage, ISettingsStorage
 def _safe_json_loads(value: str | None, default: Any):
 
-class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
+class SQLiteStorage(IChatStorage, ISettingsStorage):
     """Combined chat and settings storage."""
 
 ```
@@ -5515,16 +5821,29 @@ class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
 
 from __future__ import annotations
 import asyncio
-import datetime
 import json
 from pathlib import Path
 from typing import Any
 import numpy as np
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
+class _NamespaceData:
+    """Per-namespace runtime state."""
+
+def _chunk_to_dict(chunk: Chunk):
+    """Serialize Chunk to dict (strict, no extra fields)."""
+
+def _chunk_from_dict(data: dict[str, Any]):
+    """Deserialize dict to Chunk (strict, matches domain model)."""
+
+class FaissVectorStore(IVectorStore):
+    """FAISS-backed vector store with namespace support."""
+
 ```
 
 ### `src/ai_assistant/adapters/vector_store_memory.py`
@@ -5537,6 +5856,7 @@ import json
 from pathlib import Path
 from typing import Any
 import numpy as np
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import VersionMismatchError
@@ -5571,10 +5891,10 @@ class _NamespaceData:
 
 from __future__ import annotations
 import re
+import time
 from typing import TYPE_CHECKING, Any
 from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
-from ai_assistant.core.constants import RAG_NS_MAP as _NS_MAP
-from ai_assistant.core.constants import RAG_PREFIX_RE as _PREFIX_RE
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
@@ -5620,6 +5940,7 @@ Args:
 # API: src/ai_assistant/features/rag/manager.py
 
 from __future__ import annotations
+import time
 import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -5640,6 +5961,7 @@ class RAGManager:
 # API: src/ai_assistant/main.py
 
 from __future__ import annotations
+import os
 from typing import Annotated, Any
 from fastapi import Depends, FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -5648,8 +5970,12 @@ from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import assemble_routers
+from ai_assistant.core.config import CORSConfig, load_config
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
 class _InfoResponse(BaseModel):
+
+def _load_cors_config(state: InitializedAppState | None):
+    """Return CORS config from state or fallback to safe defaults."""
 
 def create_app(state: InitializedAppState | None=None, lifespan: Any=None):
     """Application factory — creates a fresh FastAPI instance."""

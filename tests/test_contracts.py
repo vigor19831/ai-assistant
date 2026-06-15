@@ -437,6 +437,7 @@ class TestPortAbstractMethods:
         ]
         assert "get_history" in abstract_methods, "IChatStorage.get_history must be abstract"
         assert "save_message" in abstract_methods, "IChatStorage.save_message must be abstract"
+        assert "init_db" in abstract_methods
 
     def test_ichunker_has_chunk_abstract(self):
         """Given: IChunker port.
@@ -687,6 +688,21 @@ def test_ireranker_is_closable() -> None:
     assert issubclass(IReranker, IClosable)
     assert callable(getattr(IReranker, "shutdown", None))
 
+
+@pytest.mark.slow
+@pytest.mark.contract
+def test_ichatstorage_is_initializable() -> None:
+    """IChatStorage must inherit IInitializable so init_db is part of the contract.
+
+    See DRIFT.md: hidden contract was that init_adapters() calls
+    await state.storage.init_db() without checking isinstance.
+    """
+    from ai_assistant.core.ports.initializable import IInitializable
+    from ai_assistant.core.ports.storage import IChatStorage
+
+    assert issubclass(IChatStorage, IInitializable)
+    assert callable(getattr(IChatStorage, "init_db", None))
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAdapterGetattrBan
 # ═══════════════════════════════════════════════════════════════════════════
@@ -723,3 +739,122 @@ class TestAdapterGetattrBan:
                 if "cfg" in code or "config" in code.lower()
             ]
             assert not config_hits, f"getattr on config is drift risk in {rel_path}: {config_hits}"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestAdapterRegistry (NEW)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestAdapterRegistry:
+    """Contract: all adapters register via @register(port, name) decorator.
+
+    Registry is populated eagerly on factory.py import.
+    No if/elif branching in create_adapter().
+    """
+
+    def _get_registry(self) -> dict[str, dict[str, type]]:
+        """Import and return the adapter registry."""
+        from ai_assistant.adapters._registry import get_registry
+
+        return get_registry()
+
+    def test_all_ports_registered(self):
+        """Given: factory.py loaded (eager imports triggered).
+        When: registry is inspected.
+        Then: all 6 expected ports have registered adapters."""
+        registry = self._get_registry()
+        expected_ports = {"llm", "embedder", "vector_store", "chunker", "storage", "reranker"}
+        missing = expected_ports - registry.keys()
+        assert not missing, f"Missing ports in registry: {missing}"
+
+    def test_llm_mock_registered(self):
+        """Given: registry loaded.
+        When: llm port is inspected.
+        Then: MockLLM is registered under 'mock'."""
+        from ai_assistant.adapters.llm_mock import MockLLM
+
+        registry = self._get_registry()
+        assert registry["llm"]["mock"] is MockLLM
+
+    def test_llm_openai_compatible_registered(self):
+        """Given: registry loaded.
+        When: llm port is inspected.
+        Then: OpenAICompatibleLLM is registered under 'openai_compatible'."""
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+
+        registry = self._get_registry()
+        assert registry["llm"]["openai_compatible"] is OpenAICompatibleLLM
+
+    def test_embedder_mock_registered(self):
+        """Given: registry loaded.
+        When: embedder port is inspected.
+        Then: MockEmbedder is registered under 'mock'."""
+        from ai_assistant.adapters.embedder_mock import MockEmbedder
+
+        registry = self._get_registry()
+        assert registry["embedder"]["mock"] is MockEmbedder
+
+    def test_embedder_openai_compatible_registered(self):
+        """Given: registry loaded.
+        When: embedder port is inspected.
+        Then: OpenAICompatibleEmbedder is registered under 'openai_compatible'."""
+        from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
+
+        registry = self._get_registry()
+        assert registry["embedder"]["openai_compatible"] is OpenAICompatibleEmbedder
+
+    def test_vector_store_memory_registered(self):
+        """Given: registry loaded.
+        When: vector_store port is inspected.
+        Then: MemoryVectorStore is registered under 'memory'."""
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
+        registry = self._get_registry()
+        assert registry["vector_store"]["memory"] is MemoryVectorStore
+
+    def test_vector_store_faiss_registered(self):
+        """Given: registry loaded.
+        When: vector_store port is inspected.
+        Then: FaissVectorStore is registered under 'faiss'."""
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        registry = self._get_registry()
+        assert registry["vector_store"]["faiss"] is FaissVectorStore
+
+    def test_chunker_simple_registered(self):
+        """Given: registry loaded.
+        When: chunker port is inspected.
+        Then: SimpleChunker is registered under 'simple'."""
+        from ai_assistant.adapters.chunker_simple import SimpleChunker
+
+        registry = self._get_registry()
+        assert registry["chunker"]["simple"] is SimpleChunker
+
+    def test_storage_sqlite_registered(self):
+        """Given: registry loaded.
+        When: storage port is inspected.
+        Then: SQLiteStorage is registered under 'sqlite'."""
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+
+        registry = self._get_registry()
+        assert registry["storage"]["sqlite"] is SQLiteStorage
+
+    def test_reranker_api_registered(self):
+        """Given: registry loaded.
+        When: reranker port is inspected.
+        Then: APIReranker is registered under 'api'."""
+        from ai_assistant.adapters.reranker_api import APIReranker
+
+        registry = self._get_registry()
+        assert registry["reranker"]["api"] is APIReranker
+
+    def test_reranker_null_registered(self):
+        """Given: registry loaded.
+        When: reranker port is inspected.
+        Then: NullReranker is registered under 'null'."""
+        from ai_assistant.adapters.reranker_null import NullReranker
+
+        registry = self._get_registry()
+        assert registry["reranker"]["null"] is NullReranker

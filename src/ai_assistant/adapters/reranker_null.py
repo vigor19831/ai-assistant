@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 
 __all__ = ["NullReranker"]
 
 
+@register("reranker", "null")
 class NullReranker(IReranker):
     """No-op reranker that returns chunks unchanged."""
 

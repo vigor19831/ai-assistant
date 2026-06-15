@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.constants import (
     FROZEN_NO_INFO_PHRASES,
 )
-from ai_assistant.core.constants import (
-    RAG_NS_MAP as _NS_MAP,
-)
-from ai_assistant.core.constants import (
-    RAG_PREFIX_RE as _PREFIX_RE,
-)
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
@@ -41,8 +37,6 @@ if TYPE_CHECKING:
 __all__ = ["ChatManager"]
 
 logger = get_logger("chat")
-
-# RAG prefix constants imported from core.constants as _NS_MAP / _PREFIX_RE
 
 
 class ChatManager:
@@ -142,22 +136,19 @@ class ChatManager:
 
     async def _retrieve_context(
         self, message: str, trace_id: str | None = None
-    ) -> tuple[str, str, tuple[Chunk, ...]]:
-        """Run RAG retrieval and return (prompt_for_llm, original_query, rag_chunks).
+    ) -> tuple[str, str, str, tuple[Chunk, ...]]:
+        """Run RAG retrieval and return (prompt_for_llm, original_query, namespace, rag_chunks).
 
         If RAG is not triggered or no results are found, returns the original
         message unchanged with empty chunks.
         """
         if not self.pipeline:
-            return message, message, ()
+            return message, message, "default", ()
 
-        m = _PREFIX_RE.match(message)
-        if not m:
-            return message, message, ()
-
-        ns_short = m.group(1).lower()
-        query_text = m.group(2) or ""
-        namespace = _NS_MAP.get(ns_short, "default")
+        query_text, namespace = parse_rag_query(message)
+        if namespace == "default" and message == query_text:
+            # No RAG prefix detected — return original message unchanged
+            return message, message, "default", ()
 
         ns_cfg = self.namespaces.get(namespace)
         relevance_threshold = ns_cfg.relevance_threshold if ns_cfg else 0.3
@@ -182,7 +173,7 @@ class ChatManager:
         data = await self.pipeline.run(data, metadata=metadata)
 
         if not data.chunks:
-            return query_text, query_text, ()
+            return query_text, query_text, namespace, ()
 
         prompt = get_prompt(
             prompt_name,
@@ -190,7 +181,7 @@ class ChatManager:
             query=query_text,
             context=data.context,
         )
-        return prompt, query_text, data.chunks
+        return prompt, query_text, namespace, data.chunks
 
     async def _build_messages(
         self,
@@ -217,8 +208,8 @@ class ChatManager:
                     history = self._trim_history(history, user_msg)
                 except Exception as exc:
                     logger.warning(
-                        "Token-based trim failed (%s), falling back to count-based",
-                        exc,
+                        "Token-based trim failed, falling back to count-based",
+                        extra={"error": str(exc)},
                     )
                     history = (
                         history[-self.history_limit :]
@@ -233,7 +224,7 @@ class ChatManager:
                     elif role == "assistant":
                         messages.insert(-1, AssistantMessage(text=content))
             except Exception as exc:
-                logger.warning("History load failed: %s", exc)
+                logger.warning("History load failed", extra={"error": str(exc)})
 
         return messages
 
@@ -246,20 +237,24 @@ class ChatManager:
         """Process a chat message."""
         meta = metadata or {}
         trace_id = meta.get("trace_id")
+        start = time.perf_counter()
         logger.info(
-            "Chat request: conv=%s, msg_len=%d, trace_id=%s",
-            conversation_id,
-            len(message),
-            trace_id or "none",
+            "Chat request",
+            extra={
+                "trace_id": trace_id,
+                "conversation_id": conversation_id,
+                "msg_len": len(message),
+            },
         )
 
         # Graceful degradation: RAG requested but infrastructure unavailable
-        if _PREFIX_RE.match(message) and not self.pipeline:
+        _clean, _ns = parse_rag_query(message)
+        if _ns != "default" and not self.pipeline:
             return AssistantMessage(
                 text="Document search (RAG) temporarily unavailable."
             )
 
-        prompt_for_llm, original_query, rag_chunks = await self._retrieve_context(
+        prompt_for_llm, original_query, namespace, rag_chunks = await self._retrieve_context(
             message, trace_id=trace_id
         )
 
@@ -272,19 +267,29 @@ class ChatManager:
         except AdapterError:
             raise
         except Exception as exc:
+            duration_ms = int((time.perf_counter() - start) * 1000)
             logger.error(
-                "Chat failed: conv=%s, trace_id=%s, error=%s",
-                conversation_id,
-                trace_id or "none",
-                exc,
+                "Chat failed",
+                extra={
+                    "trace_id": trace_id,
+                    "conversation_id": conversation_id,
+                    "duration_ms": duration_ms,
+                    "error": str(exc),
+                },
             )
             raise AdapterError(f"LLM call failed: {exc}") from exc
 
+        duration_ms = int((time.perf_counter() - start) * 1000)
         logger.info(
-            "Chat response: conv=%s, trace_id=%s, resp_len=%d",
-            conversation_id,
-            trace_id or "none",
-            len(response.text or ""),
+            "Chat response",
+            extra={
+                "trace_id": trace_id,
+                "conversation_id": conversation_id,
+                "resp_len": len(response.text or ""),
+                "duration_ms": duration_ms,
+                "namespace": namespace,
+                "chunks_used": len(rag_chunks),
+            },
         )
 
         response = AssistantMessage(
@@ -311,7 +316,7 @@ class ChatManager:
                     },
                 )
             except Exception as exc:
-                logger.warning("History save failed: %s", exc)
+                logger.warning("History save failed", extra={"error": str(exc)})
 
         return response
 
@@ -324,19 +329,23 @@ class ChatManager:
         """Stream chat response token by token."""
         meta = metadata or {}
         trace_id = meta.get("trace_id")
+        start = time.perf_counter()
         logger.info(
-            "Stream request: conv=%s, msg_len=%d, trace_id=%s",
-            conversation_id,
-            len(message),
-            trace_id or "none",
+            "Stream request",
+            extra={
+                "trace_id": trace_id,
+                "conversation_id": conversation_id,
+                "msg_len": len(message),
+            },
         )
 
         # Graceful degradation: RAG requested but infrastructure unavailable
-        if _PREFIX_RE.match(message) and not self.pipeline:
+        _clean, _ns = parse_rag_query(message)
+        if _ns != "default" and not self.pipeline:
             yield "Document search (RAG) temporarily unavailable."
             return
 
-        prompt_for_llm, original_query, rag_chunks = await self._retrieve_context(
+        prompt_for_llm, original_query, namespace, rag_chunks = await self._retrieve_context(
             message, trace_id=trace_id
         )
 
@@ -352,19 +361,29 @@ class ChatManager:
         except AdapterError:
             raise
         except Exception as exc:
+            duration_ms = int((time.perf_counter() - start) * 1000)
             logger.error(
-                "Stream failed: conv=%s, trace_id=%s, error=%s",
-                conversation_id,
-                trace_id or "none",
-                exc,
+                "Stream failed",
+                extra={
+                    "trace_id": trace_id,
+                    "conversation_id": conversation_id,
+                    "duration_ms": duration_ms,
+                    "error": str(exc),
+                },
             )
             raise AdapterError(f"LLM stream failed: {exc}") from exc
 
+        duration_ms = int((time.perf_counter() - start) * 1000)
         logger.info(
-            "Stream response: conv=%s, trace_id=%s, resp_len=%d",
-            conversation_id,
-            trace_id or "none",
-            len(full_response),
+            "Stream response",
+            extra={
+                "trace_id": trace_id,
+                "conversation_id": conversation_id,
+                "resp_len": len(full_response),
+                "duration_ms": duration_ms,
+                "namespace": namespace,
+                "chunks_used": len(rag_chunks),
+            },
         )
 
         # Save to history after streaming completes
@@ -387,4 +406,4 @@ class ChatManager:
                     },
                 )
             except Exception as exc:
-                logger.warning("History save failed: %s", exc)
+                logger.warning("History save failed", extra={"error": str(exc)})

@@ -12,7 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.constants import DOCUMENTS_ROOT
+from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 from ai_assistant.features.rag.schemas import (
@@ -87,6 +89,7 @@ async def index_documents(
     req: IndexRequest,
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> IndexResponse:
+    start = time.perf_counter()
     namespace = req.namespace or state.config.rag.default_namespace
     ns_cfg = state.config.namespaces.get(namespace)
 
@@ -138,6 +141,18 @@ async def index_documents(
         except Exception:
             _logger.exception("Auto-save failed")
             result.setdefault("errors", []).append("Internal server error")
+
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    _logger.info(
+        "Index documents completed",
+        extra={
+            "namespace": namespace,
+            "indexed_count": result.get("indexed_count", 0),
+            "chunk_count": result.get("chunk_count", 0),
+            "duration_ms": duration_ms,
+            "errors": len(result.get("errors", [])),
+        },
+    )
     return IndexResponse(**result, namespace=namespace)
 
 
@@ -147,8 +162,18 @@ async def query_rag(
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> QueryResponse:
+    start = time.perf_counter()
     cfg = state.config.rag
     ns = req.namespace or cfg.default_namespace
+    query_text = req.query
+
+    # Fallback: if namespace not explicitly set, try parsing from query text
+    if ns == cfg.default_namespace:
+        parsed_text, parsed_ns = parse_rag_query(req.query)
+        if parsed_ns != "default":
+            query_text = parsed_text
+            ns = parsed_ns
+
     ns_cfg = state.config.namespaces.get(ns)
 
     # Per-namespace overrides with global fallback
@@ -163,13 +188,30 @@ async def query_rag(
         relevance_threshold = ns_cfg.relevance_threshold
 
     result = await manager.query(
-        query_text=req.query,
+        query_text=query_text,
         top_k=req.top_k or cfg.top_k,
         prompt_name=prompt_name,
         prompt_version=req.prompt_version or cfg.prompt_version,
         namespace=ns,
         relevance_threshold=relevance_threshold,
     )
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    _logger.info(
+        "RAG query completed",
+        extra={
+            "namespace": ns,
+            "query_len": len(query_text),
+            "chunks_used": result.get("chunks_used", 0),
+            "duration_ms": duration_ms,
+            "errors": len(result.get("errors", [])),
+        },
+    )
+    for err in result.get("errors", []):
+        if err.startswith(LLM_UNAVAILABLE):
+            raise HTTPException(
+                status_code=503,
+                detail="LLM service temporarily unavailable. Please try again later.",
+            )
     return QueryResponse(**result)
 
 

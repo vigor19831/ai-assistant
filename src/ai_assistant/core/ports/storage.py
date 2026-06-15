@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import Any
 
-if TYPE_CHECKING:
-    from ai_assistant.core.domain.configs import StorageConfigData
+from ai_assistant.core.domain.configs import StorageConfigData
+from ai_assistant.core.ports.initializable import IInitializable
 
 __all__ = ["IChatStorage", "ISettingsStorage"]
 
 
-class IChatStorage(ABC):
+class IChatStorage(IInitializable, ABC):
     """Chat history persistence."""
 
     def __init__(self, config: StorageConfigData) -> None:

@@ -183,10 +183,18 @@ class NamespaceConfig(BaseModel):
     prompt: str = "rag_strict"
 
 
+class LoggingConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AI_LOGGING_", extra="forbid")
+    level: str = "INFO"
+    file: str | None = "./data/app.log"
+    format: str = "text"  # "text" or "json"
+
+
 class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AI_",
         extra="forbid",
+        env_file=".env",
     )
     app_name: str = "ai-assistant"
     debug: bool = False
@@ -205,6 +213,7 @@ class AppConfig(BaseSettings):
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
     namespaces: dict[str, NamespaceConfig] = Field(
         default_factory=lambda: {
             "personal": NamespaceConfig(

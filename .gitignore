@@ -64,3 +64,4 @@ tests/tests_run_*.log
 docs/context_build_*.md
 tests/tests_run_*.log
 MagicMock/
+config.yaml

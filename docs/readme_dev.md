@@ -76,6 +76,8 @@ python scripts/context_build.py
 
 `scripts/open_shell.py` - открытие powershell в корне проекта с активированным .venv
 
+`/run.py` - запуск\остановка проекта.
+
 ---
 
 tests/

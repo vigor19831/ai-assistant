@@ -1,6 +1,12 @@
-"""Adapters package - no side-effect imports, no @register.
+"""Adapters package — eager imports trigger @register side-effects.
 
-Adapters are loaded on-demand via create_adapter() in adapters/factory.py.
+All adapters self-register via @register(port, name) on class definition.
+Factory does lazy lookup in the registry — no if/elif branching.
 """
 
-__all__ = []
+from __future__ import annotations
+
+from ai_assistant.adapters._registry import register
+from ai_assistant.adapters.factory import create_adapter
+
+__all__ = ["create_adapter", "register"]

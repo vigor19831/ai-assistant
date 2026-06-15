@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import ChunkerConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.ports.chunker import IChunker
@@ -11,6 +12,7 @@ from ai_assistant.core.ports.chunker import IChunker
 __all__ = ["SimpleChunker"]
 
 
+@register("chunker", "simple")
 class SimpleChunker(IChunker):
     """Split text into fixed-size chunks with overlap."""
 

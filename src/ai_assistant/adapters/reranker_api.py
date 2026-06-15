@@ -9,15 +9,20 @@ import httpx
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.domain.errors import AdapterError
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import resolve_api_key
 
 __all__ = ["APIReranker"]
 
+_logger = get_logger("reranker_api")
 
+
+@register("reranker", "api")
 class APIReranker(IReranker):
     """Cross-encoder reranker using external API (OpenAI-compatible /rerank).
 
@@ -72,6 +77,10 @@ class APIReranker(IReranker):
         try:
             raw_results = data["results"]
         except (KeyError, TypeError) as exc:
+            _logger.exception(
+                "Unexpected rerank response shape",
+                extra={"model": self.model},
+            )
             raise AdapterError(f"Unexpected rerank response shape: {exc}") from exc
 
         results: list[RerankResult] = []

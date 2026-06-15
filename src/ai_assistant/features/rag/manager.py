@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -37,6 +38,7 @@ class IndexingManager:
         namespace: str = "default",
     ) -> dict[str, Any]:
         """Chunk, embed and store documents in namespace."""
+        start = time.perf_counter()
         all_chunks: list[Chunk] = []
         for doc in documents:
             document = Document(
@@ -69,6 +71,16 @@ class IndexingManager:
             all_chunks[i] = replace(all_chunks[i], embedding=emb)
 
         await self.vector_store.add(all_chunks, namespace=namespace)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        _logger.info(
+            "Documents indexed",
+            extra={
+                "namespace": namespace,
+                "indexed_count": len(documents),
+                "chunk_count": len(all_chunks),
+                "duration_ms": duration_ms,
+            },
+        )
         return {
             "indexed_count": len(documents),
             "chunk_count": len(all_chunks),
@@ -102,6 +114,7 @@ class RAGManager:
         relevance_threshold: float = 0.3,
     ) -> dict[str, Any]:
         """Run RAG pipeline for query."""
+        start = time.perf_counter()
         data = PipelineData(
             query=UserMessage(text=query_text),
         )
@@ -117,6 +130,16 @@ class RAGManager:
             "prompt_version": prompt_version,
         }
         result = await self.pipeline.run(data, metadata=metadata)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        _logger.info(
+            "RAG pipeline completed",
+            extra={
+                "namespace": namespace,
+                "chunks_used": len(result.chunks),
+                "duration_ms": duration_ms,
+                "errors": len(result.errors),
+            },
+        )
         return {
             "answer": result.response.text if result.response else "",
             "sources": [

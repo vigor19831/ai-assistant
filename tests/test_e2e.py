@@ -29,12 +29,18 @@ logger = get_logger(__name__)
 
 @pytest.fixture
 def client(mock_state):
-    """Return a TestClient with mocked app state and auth header."""
+    """Return a TestClient with mock state and auth header.
+
+    Uses the function-scoped mock_state fixture so that each test gets a
+    fresh state and mutations inside the test body affect the same object
+    that the app uses.
+    """
     from ai_assistant.main import create_app
     from ai_assistant.api.security import set_api_key
 
     # Chat manager must return real objects for ChatResponse validation
     from ai_assistant.core.domain.messages import AssistantMessage
+
     mock_state.chat_manager.chat = AsyncMock(
         return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
     )
@@ -431,47 +437,45 @@ class TestE2ERAG:
         (tmp_path / "personal").mkdir()
         (tmp_path / "personal" / "test.md").write_text("hello world")
 
-        original_sem = handlers_module._reindex_semaphore
-        handlers_module._reindex_semaphore = asyncio.Semaphore(1)
+        monkeypatch.setattr(
+            handlers_module, "_reindex_semaphore", asyncio.Semaphore(1)
+        )
 
-        try:
-            resp = client.post(
-                "/api/v1/rag/reindex", json={"folder": "personal", "clear": False}
-            )
-            assert resp.status_code == 200
-            task_id = resp.json()["task_id"]
+        resp = client.post(
+            "/api/v1/rag/reindex", json={"folder": "personal", "clear": False}
+        )
+        assert resp.status_code == 200
+        task_id = resp.json()["task_id"]
 
-            for _ in range(100):
-                status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
-                status_data = status_resp.json()
-                if status_data["status"] in ("completed", "failed"):
-                    break
-            else:
-                pytest.fail("Background reindex did not finish in time")
+        for _ in range(100):
+            status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
+            status_data = status_resp.json()
+            if status_data["status"] in ("completed", "failed"):
+                break
+        else:
+            pytest.fail("Background reindex did not finish in time")
 
-            assert status_data["task_id"] == task_id
-            assert task_id not in handlers_module._reindex_tasks
-        finally:
-            handlers_module._reindex_semaphore = original_sem
+        assert status_data["task_id"] == task_id
+        assert task_id not in handlers_module._reindex_tasks
 
-    def test_reindex_ttl_cleanup(self, client):
+    def test_reindex_ttl_cleanup(self, client, monkeypatch):
         """Given: a reindex task finishes and TTL passes.
         When: status endpoint is polled after TTL expiry.
         Then: expired task is removed and status returns 'unknown'."""
         from ai_assistant.features.rag import handlers as handlers_module
 
-        with patch.object(handlers_module, "_REINDEX_STATUS_TTL_SECONDS", 1):
-            resp = client.post(
-                "/api/v1/rag/reindex", json={"folder": "__nonexistent__"}
-            )
-            assert resp.status_code == 200
-            task_id = resp.json()["task_id"]
+        monkeypatch.setattr(handlers_module, "_REINDEX_STATUS_TTL_SECONDS", 1)
+        resp = client.post(
+            "/api/v1/rag/reindex", json={"folder": "__nonexistent__"}
+        )
+        assert resp.status_code == 200
+        task_id = resp.json()["task_id"]
 
-            time.sleep(1.5)
+        time.sleep(1.5)
 
-            status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
-            assert status_resp.status_code == 200
-            assert status_resp.json()["status"] == "unknown"
+        status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
+        assert status_resp.status_code == 200
+        assert status_resp.json()["status"] == "unknown"
 
     def test_query_per_namespace_override(self, client, mock_state):
         """Given: namespace has custom prompt and relevance threshold.

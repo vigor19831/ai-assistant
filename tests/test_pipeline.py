@@ -349,17 +349,20 @@ class TestRerank:
         assert result.metadata.get("rerank_filtered_out") is True
 
     @pytest.mark.asyncio
-    async def test_no_reranker_assertion(self) -> None:
+    async def test_no_reranker_none_returns_error(self) -> None:
         """Given: no reranker in metadata (None).
         When: rerank is called.
-        Then: AssertionError is raised (api/deps guarantees NullReranker)."""
+        Then: INTERNAL_SERVER_ERROR is added; original chunks preserved."""
         data = PipelineData(
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="test")],
         )
         # metadata has no "reranker" key, so .get("reranker") returns None
-        with pytest.raises(AssertionError):
-            await rerank(data)
+        result = await rerank(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        # chunks are preserved (not mutated) so downstream can inspect or ignore
+        assert len(result.chunks) == 1
+        assert result.chunks[0].id == "c1"
 
 
 # ───────────────────────────────────────────────
@@ -460,6 +463,7 @@ class TestGenerate:
         result = await generate(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)
 
+
     @pytest.mark.asyncio
     async def test_no_query(self) -> None:
         """Given: query is None.
@@ -472,6 +476,32 @@ class TestGenerate:
         data = replace(data, metadata={**data.metadata, "llm": llm})
         result = await generate(data)
         assert any(QUERY_MISSING in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_adapter_error_absorbed(self) -> None:
+        """Given: LLM raises AdapterError.
+        When: generate is called.
+        Then: PipelineData returned with error and fallback response."""
+        from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
+
+        class FailingLLM:
+            async def complete(self, messages, max_tokens=None, temperature=None):
+                raise AdapterError("LLM down")
+
+            def get_context_limit(self) -> int | None:
+                return 4096
+
+        llm = FailingLLM()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+        )
+        data = replace(data, metadata={**data.metadata, "llm": llm})
+        result = await generate(data)
+        assert any(LLM_UNAVAILABLE in e for e in result.errors)
+        assert result.response is not None
+        assert "temporarily unavailable" in (result.response.text or "")
 
 
 # ───────────────────────────────────────────────

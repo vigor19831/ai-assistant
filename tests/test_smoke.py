@@ -2,7 +2,7 @@
 
 Coverage: imports without cycles, key modules at module level, no print/pprint,
 no cyrillic in .py, ruff rules (B, SIM, C4, TCH), mypy strict, frozen versions,
-PEP 508 parsing, compileall -q.
+PEP 508 parsing, compileall -q, structured logging format.
 
 Design: Given/When/Then docstrings, one function per test case.
 """
@@ -317,6 +317,64 @@ class TestNoPrintPprintAST:
         Then: zero hits (production code uses logger)."""
         hits = self._scan_directory(_src_dir())
         assert not hits, f"print()/pprint() found in production code: {hits[:5]}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestLoggingFormat
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.smoke
+class TestLoggingFormat:
+    """Smoke: no positional % formatting in logger calls — use extra={} instead.
+
+    Enforces structured logging: static message strings, data in extra dict.
+    """
+
+    def _find_positional_logging(self, source: str, filename: str) -> list[tuple[int, str]]:
+        """AST-scan for logger.* calls with %s or positional args beyond message."""
+        tree = ast.parse(source, filename=filename)
+        hits: list[tuple[int, str]] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute):
+                continue
+            if func.attr not in ("info", "debug", "warning", "error", "exception", "critical"):
+                continue
+            if not isinstance(func.value, ast.Name) or func.value.id != "logger":
+                continue
+            # Check for %s in message string (first positional arg)
+            if node.args:
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    if "%" in first_arg.value:
+                        hits.append((node.lineno, first_arg.value))
+            # Check for positional args beyond message (extra= should be keyword)
+            if len(node.args) > 1:
+                hits.append((node.lineno, ast.unparse(node)))
+        return hits
+
+    def _scan_directory(self, directory: Path) -> list[tuple[str, int, str]]:
+        hits: list[tuple[str, int, str]] = []
+        if not directory.exists():
+            pytest.skip(f"Directory not found: {directory}")
+        for py_file in directory.rglob("*.py"):
+            if py_file.name.startswith("test_"):
+                continue
+            source = py_file.read_text(encoding="utf-8")
+            file_hits = self._find_positional_logging(source, str(py_file))
+            for lineno, detail in file_hits:
+                hits.append((str(py_file), lineno, detail))
+        return hits
+
+    def test_src_no_positional_logging(self):
+        """Given: all .py files in src/ai_assistant.
+        When: AST-scanned for logger.* with %s or positional args.
+        Then: zero hits (use logger.info('msg', extra={'key': val}))."""
+        hits = self._scan_directory(_src_dir())
+        assert not hits, f"Positional logging found: {hits[:5]}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

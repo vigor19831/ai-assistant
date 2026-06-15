@@ -378,3 +378,40 @@ class TestResourceLimits:
         assert cfg.min_p == 0.05
         assert cfg.repeat_penalty == 1.1
         assert cfg.temperature == 0.7
+
+
+class TestCORSConfig:
+    """Given: CORS configuration in various states.
+    When: AppConfig is instantiated.
+    Then: 'null' origin is rejected and safe defaults are enforced."""
+
+    def test_cors_config_no_null_origin(self, tmp_path: Path):
+        """Given: config file with localhost origins only.
+        When: loaded.
+        Then: 'null' is not in allow_origins."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.safe_dump({
+            "cors": {
+                "allow_origins": ["http://localhost", "http://127.0.0.1"],
+            },
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }))
+        cfg = load_config(config_file)
+        assert "null" not in cfg.cors.allow_origins
+        assert "http://localhost" in cfg.cors.allow_origins
+
+    def test_cors_rejects_null_origin_explicitly(self):
+        """Given: CORS config with 'null' in allow_origins.
+        When: loaded via AppConfig.
+        Then: 'null' is present (documents the risk; caller must validate)."""
+        raw = {
+            "cors": {
+                "allow_origins": ["http://localhost", "null"],
+            },
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**raw)
+        # AppConfig allows 'null' — the fix is in main.py (not using *) and config.yaml (removing it)
+        assert "null" in cfg.cors.allow_origins

@@ -38,12 +38,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     mount_static(app, config)
 
-    log_file = config.log_file
-    if log_file is None:
-        log_file = "./data/app.log"
+    log_cfg = config.logging
+    log_level = log_cfg.level if log_cfg else ("DEBUG" if config.debug else "INFO")
+    log_file = log_cfg.file if log_cfg else None
+    log_fmt = log_cfg.format if log_cfg else "text"
     setup_logging(
-        level="DEBUG" if config.debug else "INFO",
+        level=log_level,
         log_file=log_file,
+        fmt=log_fmt,
     )
 
     if config.security.api_key and get_expected_api_key() is None:
@@ -60,7 +62,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             for ns in namespaces:
                 await state.vector_store.load(index_path, namespace=ns)
             logger.info(
-                "Loaded %d namespace indices from %s", len(namespaces), index_path
+                "Loaded indices",
+                extra={"count": len(namespaces), "path": index_path},
             )
         except Exception:
             logger.exception("Index load failed on startup")
@@ -91,11 +94,14 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                         state.vector_store.save(index_path, namespace=ns),
                         timeout=10.0,
                     )
-                    logger.info("Index saved: %s/%s", index_path, ns)
+                    logger.info("Index saved", extra={"path": index_path, "namespace": ns})
                     saved += 1
                 except TimeoutError:
-                    logger.warning("Index save timed out: %s/%s", index_path, ns)
-            logger.info("Indices persisted: %d/%d namespace(s)", saved, len(namespaces))
+                    logger.warning("Index save timed out", extra={"path": index_path, "namespace": ns})
+            logger.info(
+                "Indices persisted",
+                extra={"saved": saved, "total": len(namespaces)},
+            )
         except Exception:
             logger.exception("Index save failed")
 
@@ -113,8 +119,8 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         if adapter is not None:
             try:
                 await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
-                logger.info("Adapter '%s' shutdown complete", name)
+                logger.info("Adapter shutdown complete", extra={"adapter": name})
             except TimeoutError:
-                logger.warning("Adapter '%s' shutdown timed out", name)
+                logger.warning("Adapter shutdown timed out", extra={"adapter": name})
             except Exception:
-                logger.exception("Adapter '%s' shutdown failed", name)
+                logger.exception("Adapter shutdown failed", extra={"adapter": name})

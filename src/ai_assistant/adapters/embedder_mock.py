@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import random
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.ports.embedder import IEmbedder
 
 __all__ = ["MockEmbedder"]
 
 
+@register("embedder", "mock")
 class MockEmbedder(IEmbedder):
     """Deterministic fake embedder for testing."""
 

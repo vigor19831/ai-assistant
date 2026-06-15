@@ -105,6 +105,7 @@ def _build_step_funcs(
 # Config conversion — Pydantic -> dataclass for port contracts
 # ---------------------------------------------------------------------------
 
+
 def _chunker_data(cfg: AppConfig) -> ChunkerConfigData:
     c = cfg.chunker
     return ChunkerConfigData(
@@ -121,6 +122,11 @@ def _embedder_data(cfg: AppConfig) -> EmbedderConfigData:
         api_key=c.api_key,
         dim=c.dim,
         timeout=c.timeout,
+        n_gpu_layers=c.n_gpu_layers,
+        n_batch=c.n_batch,
+        n_ubatch=c.n_ubatch,
+        mmap=c.mmap,
+        mlock=c.mlock,
     )
 
 
@@ -134,6 +140,20 @@ def _llm_data(cfg: AppConfig) -> LLMConfigData:
         temperature=c.temperature,
         timeout=c.timeout,
         server_context_size=c.server_context_size,
+        top_p=c.top_p,
+        top_k=c.top_k,
+        min_p=c.min_p,
+        repeat_penalty=c.repeat_penalty,
+        presence_penalty=c.presence_penalty,
+        frequency_penalty=c.frequency_penalty,
+        stop_sequences=tuple(c.stop_sequences),
+        system_message=c.system_message,
+        available_models=tuple(c.available_models),
+        n_gpu_layers=c.n_gpu_layers,
+        n_batch=c.n_batch,
+        n_ubatch=c.n_ubatch,
+        mmap=c.mmap,
+        mlock=c.mlock,
     )
 
 
@@ -188,7 +208,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     )
 
     reranker_cfg = _reranker_data(cfg)
-    if reranker_cfg is not None:
+    if reranker_cfg is not None and cfg.reranker.provider is not None:
         state.reranker = create_adapter("reranker", cfg.reranker.provider, reranker_cfg)
     else:
         state.reranker = create_adapter("reranker", "null", RerankerConfigData())
@@ -199,8 +219,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         )
     except (ValueError, ImportError):
         _logger.exception(
-            "Storage adapter '%s' not available",
-            cfg.storage.provider,
+            "Storage adapter not available",
+            extra={"provider": cfg.storage.provider},
         )
 
     if state.storage is not None:

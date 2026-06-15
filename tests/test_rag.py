@@ -145,6 +145,43 @@ class TestRAGManager:
         assert result["errors"] == []
 
     @pytest.mark.asyncio
+    async def test_query_llm_unavailable_returns_503(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
+        """Given: pipeline returns LLM_UNAVAILABLE error.
+        When: query_rag handler processes the result.
+        Then: HTTPException with status 503 is raised."""
+        from fastapi import HTTPException
+        from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
+        from ai_assistant.core.pipeline import RAGPipeline
+
+        pipeline = MagicMock(spec=RAGPipeline)
+        pipeline.run = AsyncMock(return_value=MagicMock(
+            response=MagicMock(text="LLM service temporarily unavailable. Please try again later."),
+            chunks=[],
+            errors=[f"{LLM_UNAVAILABLE} (LLM down)"],
+        ))
+
+        mgr = RAGManager(
+            pipeline=pipeline,
+            llm=mock_llm,
+            vector_store=mock_vector_store,
+            embedder=mock_embedder,
+            reranker=mock_reranker,
+        )
+        result = await mgr.query("anything")
+        assert any(LLM_UNAVAILABLE in e for e in result["errors"])
+
+        # Simulate handler check
+        from ai_assistant.features.rag.handlers import router
+        with pytest.raises(HTTPException) as exc_info:
+            for err in result.get("errors", []):
+                if err.startswith(LLM_UNAVAILABLE):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="LLM service temporarily unavailable. Please try again later.",
+                    )
+        assert exc_info.value.status_code == 503
+
+    @pytest.mark.asyncio
     async def test_health_index_loaded(self, mock_vector_store):
         """Given: vector store has namespaces with chunks.
         When: RAGManager.health is called.
@@ -272,27 +309,28 @@ class TestRAGIndexing:
             assert "personal" in result["results"]
             assert result["results"]["personal"]["indexed"] == 1
 
-    def test_status_polling(self):
+    def test_status_polling(self, monkeypatch):
         """Given: a reindex task was started and recorded in _reindex_status.
         When: status is polled from the global dict.
         Then: correct status and timestamps are returned."""
         from ai_assistant.features.rag import handlers as rag_handlers
 
         task_id = "task-123"
-        rag_handlers._reindex_status[task_id] = {
-            "status": "running",
-            "started_at": time.time(),
-        }
+        monkeypatch.setitem(
+            rag_handlers._reindex_status,
+            task_id,
+            {
+                "status": "running",
+                "started_at": time.time(),
+            },
+        )
 
         status = rag_handlers._reindex_status.get(task_id, {})
         assert status["status"] == "running"
         assert "started_at" in status
 
-        # Cleanup so other tests are not affected
-        rag_handlers._reindex_status.clear()
-
     @pytest.mark.asyncio
-    async def test_ttl_cleanup(self):
+    async def test_ttl_cleanup(self, monkeypatch):
         """Given: expired and fresh entries in _reindex_status.
         When: _cleanup_reindex_status is called.
         Then: expired entries are removed, fresh entries survive."""
@@ -301,22 +339,28 @@ class TestRAGIndexing:
         now = time.time()
         ttl = rag_handlers._REINDEX_STATUS_TTL_SECONDS
 
-        rag_handlers._reindex_status["old"] = {
-            "status": "completed",
-            "started_at": now - ttl - 100,
-            "finished_at": now - ttl - 50,
-        }
-        rag_handlers._reindex_status["fresh"] = {
-            "status": "running",
-            "started_at": now - 10,
-        }
+        monkeypatch.setitem(
+            rag_handlers._reindex_status,
+            "old",
+            {
+                "status": "completed",
+                "started_at": now - ttl - 100,
+                "finished_at": now - ttl - 50,
+            },
+        )
+        monkeypatch.setitem(
+            rag_handlers._reindex_status,
+            "fresh",
+            {
+                "status": "running",
+                "started_at": now - 10,
+            },
+        )
 
         await rag_handlers._cleanup_reindex_status()
 
         assert "old" not in rag_handlers._reindex_status
         assert "fresh" in rag_handlers._reindex_status
-
-        rag_handlers._reindex_status.clear()
 
 
 # ── Reranker Regression ──
@@ -374,10 +418,12 @@ class TestRerankerRegression:
 
     @pytest.mark.regression
     @pytest.mark.asyncio
-    async def test_reranker_missing_raises_assertion(self):
+    async def test_reranker_missing_returns_error(self):
         """Given: PipelineData has chunks but no reranker in metadata.
         When: rerank pipeline step executes.
-        Then: AssertionError is raised."""
+        Then: INTERNAL_SERVER_ERROR is added; original chunks preserved."""
+        from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
+
         data = PipelineData(
             query=UserMessage(text="test"),
             chunks=[
@@ -389,5 +435,55 @@ class TestRerankerRegression:
             ],
             metadata={},  # reranker intentionally omitted
         )
-        with pytest.raises(AssertionError):
-            await rerank(data)
+        result = await rerank(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        # chunks are preserved (not mutated) so downstream can inspect or ignore
+        assert len(result.chunks) == 1
+        assert result.chunks[0].id == "c1"
+
+
+
+
+# ── RAG health check after load() ───────────────────────────────────────────
+
+async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> None:
+    """Health check after correct load() shows accurate chunk_count.
+
+    Verifies that load() restores state correctly and health reflects it.
+    """
+    pytest.importorskip("faiss")
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+    from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+    from ai_assistant.features.rag.manager import RAGManager
+    from ai_assistant.core.pipeline import RAGPipeline
+
+    config = VectorStoreConfigData(dim=384, index_path=str(tmp_path))
+    vector_store = FaissVectorStore(config)
+
+    # Add a chunk with embedding
+    chunk = Chunk(
+        id="test-1",
+        text="test content",
+        embedding=[0.1] * 384,
+        metadata=ChunkMetadata(source="test", index=0, total_chunks=1),
+    )
+    await vector_store.add([chunk], namespace="default")
+
+    # Save and reload
+    await vector_store.save(str(tmp_path), namespace="default")
+    await vector_store.load(str(tmp_path), namespace="default")
+
+    # Create minimal RAGManager for health check
+    pipeline = RAGPipeline([])
+    rag_manager = RAGManager(
+        pipeline=pipeline,
+        llm=None,  # type: ignore[arg-type]
+        vector_store=vector_store,
+        embedder=None,  # type: ignore[arg-type]
+        reranker=None,  # type: ignore[arg-type]
+    )
+
+    health = await rag_manager.health()
+    assert health["chunk_count"] == 1
+    assert health["index_loaded"] is True

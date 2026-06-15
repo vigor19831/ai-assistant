@@ -178,9 +178,10 @@ def mock_chunker():
     return m
 
 
+
 @pytest.fixture
 def mock_state():
-    """Return a mock InitializedAppState for API/E2E tests.
+    """Return a fresh mock InitializedAppState for each test.
 
     Uses a real AppConfig for schema fields and AsyncMock for adapters.
     This avoids MagicMock(spec=AppConfig) which does not auto-create
@@ -203,3 +204,55 @@ def mock_state():
     state.pipeline = MagicMock()
     state.limiter = MagicMock()
     return state
+
+
+@pytest.fixture
+def make_mock_state():
+    """Factory fixture — returns a function that creates fresh mock states.
+
+    Use when a test needs multiple isolated states or when a fixture
+    (e.g. client) mutates the state and downstream tests must not see
+    the mutation.
+    """
+    from ai_assistant.api.deps import InitializedAppState
+    from ai_assistant.core.config import AppConfig
+
+    def _factory():
+        config = AppConfig()
+        state = MagicMock(spec=InitializedAppState)
+        state.config = config
+        state.llm = AsyncMock()
+        state.embedder = AsyncMock()
+        state.vector_store = AsyncMock()
+        state.chunker = AsyncMock()
+        state.storage = AsyncMock()
+        state.reranker = AsyncMock()
+        state.chat_manager = AsyncMock()
+        state.pipeline = MagicMock()
+        state.limiter = MagicMock()
+        return state
+
+    return _factory
+
+
+@pytest.fixture(autouse=True)
+def _reset_rag_globals():
+    """Given: RAG handler globals may leak between tests.
+    When: each test starts.
+    Then: _reindex_status, _reindex_tasks, _reindex_semaphore are reset.
+    """
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    # Save originals
+    original_status = dict(rag_handlers._reindex_status)
+    original_tasks = dict(rag_handlers._reindex_tasks)
+    original_sem = rag_handlers._reindex_semaphore
+
+    yield
+
+    # Restore after test
+    rag_handlers._reindex_status.clear()
+    rag_handlers._reindex_status.update(original_status)
+    rag_handlers._reindex_tasks.clear()
+    rag_handlers._reindex_tasks.update(original_tasks)
+    rag_handlers._reindex_semaphore = original_sem

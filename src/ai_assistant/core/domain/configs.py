@@ -18,6 +18,11 @@ class EmbedderConfigData:
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
+    n_gpu_layers: int = 0
+    n_batch: int = 512
+    n_ubatch: int = 64
+    mmap: bool = True
+    mlock: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +34,20 @@ class LLMConfigData:
     temperature: float = 0.7
     timeout: float = 300.0
     server_context_size: int | None = None
+    top_p: float = 0.95
+    top_k: int = 40
+    min_p: float = 0.05
+    repeat_penalty: float = 1.1
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    stop_sequences: tuple[str, ...] = ()
+    system_message: str | None = None
+    available_models: tuple[str, ...] = ()
+    n_gpu_layers: int = 99
+    n_batch: int = 512
+    n_ubatch: int = 64
+    mmap: bool = True
+    mlock: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,8 +9,8 @@ from typing import Any
 
 import aiosqlite
 
+from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import StorageConfigData
-from ai_assistant.core.ports.initializable import IInitializable
 from ai_assistant.core.ports.storage import IChatStorage, ISettingsStorage
 
 __all__ = ["SQLiteStorage"]
@@ -25,7 +25,8 @@ def _safe_json_loads(value: str | None, default: Any) -> Any:
         return default
 
 
-class SQLiteStorage(IChatStorage, ISettingsStorage, IInitializable):
+@register("storage", "sqlite")
+class SQLiteStorage(IChatStorage, ISettingsStorage):
     """Combined chat and settings storage."""
 
     def __init__(self, config: StorageConfigData) -> None:
