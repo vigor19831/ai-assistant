@@ -14,7 +14,6 @@ from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import assemble_routers
 from ai_assistant.core.config import CORSConfig, load_config
-from ai_assistant.core.metrics import get_metrics, get_metrics_json
 
 __all__ = ["create_app"]
 
@@ -80,14 +79,6 @@ def create_app(
             llm_model=cfg.llm.model,
             llm_provider=cfg.llm.provider,
         )
-
-    @app.get("/metrics")
-    async def metrics() -> Response:
-        return Response(content=get_metrics(), media_type="text/plain")
-
-    @app.get("/metrics/json")
-    async def metrics_json() -> dict[str, Any]:
-        return get_metrics_json()
 
     return app
 

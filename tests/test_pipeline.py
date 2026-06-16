@@ -389,7 +389,7 @@ class TestGenerate:
         data = replace(data, metadata={**data.metadata, "llm": llm})
 
         # Mock _estimate_tokens to return exactly the limit
-        def mock_estimate(text, model="gpt-4o"):
+        async def mock_estimate(text, model="gpt-4o"):
             # limit = 4096 - max(256, 409) = 3686
             return 3686
 

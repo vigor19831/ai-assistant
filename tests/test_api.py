@@ -33,7 +33,7 @@ from ai_assistant.api.deps import (
 )
 from ai_assistant.api.lifespan import _async_cleanup, _load_config, lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
-from ai_assistant.api.router import _OAI_TAG, _ROUTERS, assemble_routers
+from ai_assistant.api.router import _ROUTERS, assemble_routers
 from ai_assistant.api.security import (
     SECURITY_MAX_BODY,
     bearer_scheme,
@@ -961,12 +961,13 @@ class TestAPIRouter:
         assert len(routers) >= 4
 
     def test_oai_router_at_root_no_prefix(self):
-        """Given: OpenAI-compatible routers are tagged with _OAI_TAG.
+        """Given: OpenAI-compatible routers are tagged with root tags.
         When: assemble_routers wraps them.
         Then: OAI routers keep original paths without /api/v1 prefix.
         """
+        from ai_assistant.api.router import _ROOT_TAGS
         routers = assemble_routers()
-        oai_routers = [r for r in routers if _OAI_TAG in r.tags]
+        oai_routers = [r for r in routers if any(t in _ROOT_TAGS for t in r.tags)]
         for router in oai_routers:
             # OAI routers should not have /api/v1 prefix in their routes
             for route in router.routes:
@@ -978,8 +979,9 @@ class TestAPIRouter:
         When: assemble_routers wraps them.
         Then: they are mounted under /api/v1 prefix.
         """
+        from ai_assistant.api.router import _ROOT_TAGS
         routers = assemble_routers()
-        legacy_wrappers = [r for r in routers if _OAI_TAG not in r.tags]
+        legacy_wrappers = [r for r in routers if not any(t in _ROOT_TAGS for t in r.tags)]
         for router in legacy_wrappers:
             for route in router.routes:
                 if hasattr(route, "path"):
@@ -990,9 +992,10 @@ class TestAPIRouter:
         When: assemble_routers wraps them.
         Then: wrapper router has require_api_key in dependencies.
         """
+        from ai_assistant.api.router import _ROOT_TAGS
         routers = assemble_routers()
         for router in routers:
-            if _OAI_TAG in router.tags:
+            if any(t in _ROOT_TAGS for t in router.tags):
                 continue
             # Wrapper routers should have dependencies set
             assert router.dependencies, f"Router {router.tags} lacks dependencies"
@@ -1002,13 +1005,14 @@ class TestAPIRouter:
         When: module is loaded.
         Then: all handlers are importable at compile time.
         """
-        assert len(_ROUTERS) == 4
+        assert len(_ROUTERS) == 5
         tags = set()
         for router in _ROUTERS:
             tags.update(router.tags)
         assert "admin" in tags
         assert "chat" in tags or "chat-oai" in tags
         assert "rag" in tags
+        assert "metrics" in tags
 
     def test_no_deferred_import_errors(self):
         """Given: a missing feature handler would break at runtime.

@@ -102,7 +102,7 @@ Response format:
 <<<<<<< FIND
 def old_function():
     pass
-===
+<<<<<<<=>>>>>>>
 def new_function():
     # new logic
     pass

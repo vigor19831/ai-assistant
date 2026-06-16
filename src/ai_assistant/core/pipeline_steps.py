@@ -24,7 +24,7 @@ from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
-from ai_assistant.core.utils import count_tokens
+from ai_assistant.core.utils import async_count_tokens, count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -69,8 +69,8 @@ def step(
     return decorator
 
 
-def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
-    return count_tokens(text, model)
+async def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
+    return await async_count_tokens(text, model)
 
 
 # --- retry helpers for network calls ----------------------------------------
@@ -266,7 +266,7 @@ def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
     return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
 
 
-def _truncate_to_fit(
+async def _truncate_to_fit(
     data: PipelineData,
     prompt: str,
     prompt_name: str,
@@ -281,7 +281,7 @@ def _truncate_to_fit(
         the prompt still exceeds the limit, updated_data will have empty
         chunks and updated_prompt will reflect the last attempted context.
     """
-    prompt_tokens = _estimate_tokens(prompt)
+    prompt_tokens = await _estimate_tokens(prompt)
     current_data = data
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
@@ -300,7 +300,7 @@ def _truncate_to_fit(
             )
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
-        prompt_tokens = _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt)
     return current_data, prompt
 
 
@@ -333,15 +333,15 @@ async def generate(data: PipelineData) -> PipelineData:
     if max_ctx is None or max_ctx <= 0:
         max_ctx = 4096
 
-    prompt_tokens = _estimate_tokens(prompt)
+    prompt_tokens = await _estimate_tokens(prompt)
     margin = max(TOKEN_MARGIN_MIN, int(max_ctx * TOKEN_MARGIN_PCT))
     limit = max_ctx - margin
 
     if prompt_tokens > limit:
-        data, prompt = _truncate_to_fit(
+        data, prompt = await _truncate_to_fit(
             data, prompt, prompt_name, prompt_version, query_text, limit
         )
-        prompt_tokens = _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens)  "

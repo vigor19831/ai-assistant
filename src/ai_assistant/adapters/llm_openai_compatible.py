@@ -152,6 +152,9 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             "max_tokens": max_tok,
             "temperature": temperature if temperature is not None else self.temperature,
         }
+        stop = [s for s in self.config.stop_sequences if s]
+        if stop:
+            payload["stop"] = stop
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self._timeout)
         resp = await self._client.post(url, headers=headers, json=payload)
@@ -205,6 +208,9 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             "temperature": temperature if temperature is not None else self.temperature,
             "stream": True,
         }
+        stop = [s for s in self.config.stop_sequences if s]
+        if stop:
+            payload["stop"] = stop
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=self._timeout)
         async with self._client.stream(

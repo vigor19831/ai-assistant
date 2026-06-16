@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-15 20:35:04 UTC | **Mode:** `compact`
-> **Metrics:** 109 files | 91 Python | 16,191 LOC
+> **Generated:** 2026-06-16 05:01:46 UTC | **Mode:** `compact`
+> **Metrics:** 109 files | 91 Python | 16,195 LOC
 > **Full:** 48 | **Signatures:** 22 | **Listed:** 32
 
 ---
@@ -202,7 +202,7 @@ Response format:
 <<<<<<< FIND
 def old_function():
     pass
-===
+<<<<<<<=>>>>>>>
 def new_function():
     # new logic
     pass
@@ -266,7 +266,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-15 20:35 UTC
+> Auto-generated from source code. Updated: 2026-06-16 05:01 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -710,6 +710,7 @@ tests/
 - `src/ai_assistant/api/router.py`
   - → `ai_assistant.api.security: require_api_key`
   - → `ai_assistant.api: admin`
+  - → `ai_assistant.core.metrics: get_metrics, get_metrics_json`
   - → `ai_assistant.features.chat: handlers`
   - → `ai_assistant.features.rag: handlers`
 - `src/ai_assistant/api/security.py`
@@ -726,7 +727,7 @@ tests/
   - → `ai_assistant.core.ports.llm: Message`
   - → `ai_assistant.core.prompts: get_prompt`
   - → `ai_assistant.core.retry: with_retry`
-  - → `ai_assistant.core.utils: count_tokens`
+  - → `ai_assistant.core.utils: async_count_tokens, count_tokens`
 - `src/ai_assistant/core/ports/chunker.py`
   - → `ai_assistant.core.domain.configs: ChunkerConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, Document`
@@ -794,7 +795,6 @@ tests/
   - → `ai_assistant.api.middleware: MetricsMiddleware`
   - → `ai_assistant.api.router: assemble_routers`
   - → `ai_assistant.core.config: CORSConfig, load_config`
-  - → `ai_assistant.core.metrics: get_metrics, get_metrics_json`
 - `tests/conftest.py`
   - → `ai_assistant.api.deps: InitializedAppState`
   - → `ai_assistant.core.config: AppConfig`
@@ -2033,6 +2033,9 @@ from fastapi import APIRouter, Depends
 
 from ai_assistant.api import admin
 from ai_assistant.api.security import require_api_key
+from ai_assistant.core.metrics import get_metrics, get_metrics_json
+
+from fastapi import Response
 
 # Explicit feature handler imports — import errors surface at compile time
 # instead of being deferred to the first HTTP request.
@@ -2041,12 +2044,27 @@ from ai_assistant.features.rag import handlers as rag_handlers
 
 __all__ = ["assemble_routers"]
 
-# Tag used to identify OpenAI-compatible routers (kept at root, no prefix).
-_OAI_TAG = "chat-oai"
+# Tags for routers that stay at root (no /api/v1 prefix, no API key).
+_ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics"})
+
+# Metrics router — no API key, Prometheus-compatible exposition format
+_metrics_router = APIRouter(tags=["metrics"])
+
+
+@_metrics_router.get("/metrics", response_class=Response)
+async def _metrics_endpoint() -> Response:
+    return Response(content=get_metrics(), media_type="text/plain; version=0.0.4")
+
+
+@_metrics_router.get("/metrics/json")
+async def _metrics_json_endpoint() -> dict[str, Any]:
+    return get_metrics_json()
+
 
 # Explicit router registry — missing handlers fail immediately at import time.
 # Add new routers here when adding feature handlers.
 _ROUTERS: list[APIRouter] = [
+    _metrics_router,
     admin.router,
     chat_handlers.router,
     chat_handlers.router_oai,
@@ -2062,9 +2080,9 @@ def assemble_routers() -> list[APIRouter]:
     # OpenAI-compatible routers (tagged with _OAI_TAG) stay at root without wrapping
     wrapped: list[APIRouter] = []
     for router in routers:
-        is_oai = _OAI_TAG in router.tags
-        if is_oai:
-            # OpenAI routers keep their original paths, no prefix, no extra wrapper
+        is_root = any(tag in _ROOT_TAGS for tag in router.tags)
+        if is_root:
+            # Root routers keep their original paths, no prefix, no extra wrapper
             wrapped.append(router)
         else:
             # Legacy routers get /api/v1 prefix + API key dependency via wrapper
@@ -3263,7 +3281,7 @@ from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
-from ai_assistant.core.utils import count_tokens
+from ai_assistant.core.utils import async_count_tokens, count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -3308,8 +3326,8 @@ def step(
     return decorator
 
 
-def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
-    return count_tokens(text, model)
+async def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
+    return await async_count_tokens(text, model)
 
 
 # --- retry helpers for network calls ----------------------------------------
@@ -3505,7 +3523,7 @@ def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
     return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
 
 
-def _truncate_to_fit(
+async def _truncate_to_fit(
     data: PipelineData,
     prompt: str,
     prompt_name: str,
@@ -3520,7 +3538,7 @@ def _truncate_to_fit(
         the prompt still exceeds the limit, updated_data will have empty
         chunks and updated_prompt will reflect the last attempted context.
     """
-    prompt_tokens = _estimate_tokens(prompt)
+    prompt_tokens = await _estimate_tokens(prompt)
     current_data = data
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
@@ -3539,7 +3557,7 @@ def _truncate_to_fit(
             )
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
-        prompt_tokens = _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt)
     return current_data, prompt
 
 
@@ -3572,15 +3590,15 @@ async def generate(data: PipelineData) -> PipelineData:
     if max_ctx is None or max_ctx <= 0:
         max_ctx = 4096
 
-    prompt_tokens = _estimate_tokens(prompt)
+    prompt_tokens = await _estimate_tokens(prompt)
     margin = max(TOKEN_MARGIN_MIN, int(max_ctx * TOKEN_MARGIN_PCT))
     limit = max_ctx - margin
 
     if prompt_tokens > limit:
-        data, prompt = _truncate_to_fit(
+        data, prompt = await _truncate_to_fit(
             data, prompt, prompt_name, prompt_version, query_text, limit
         )
-        prompt_tokens = _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens)  "
@@ -5976,7 +5994,6 @@ from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import assemble_routers
 from ai_assistant.core.config import CORSConfig, load_config
-from ai_assistant.core.metrics import get_metrics, get_metrics_json
 class _InfoResponse(BaseModel):
 
 def _load_cors_config(state: InitializedAppState | None):
