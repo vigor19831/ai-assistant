@@ -392,7 +392,7 @@ class TestE2ERAG:
         When: POST /api/v1/rag/save-chat.
         Then: file is saved under namespace and indexing is attempted."""
         monkeypatch.setattr(
-            "ai_assistant.features.rag.handlers.DOCUMENTS_ROOT", tmp_path
+            mock_state.config.rag, "chat_exports_root", str(tmp_path)
         )
         mock_state.chunker.chunk = AsyncMock(return_value=[])
         mock_state.embedder.embed = AsyncMock(return_value=[[0.1] * 384])
@@ -426,14 +426,15 @@ class TestE2ERAG:
         assert isinstance(errors, list)
         assert any(e.get("loc") == ["body", "folder"] for e in errors)
 
-    def test_reindex_status_polling(self, client, tmp_path, monkeypatch):
+    def test_reindex_status_polling(self, client, mock_state, tmp_path, monkeypatch):
         """Given: reindex task is started.
         When: polling /api/v1/rag/reindex/status/{task_id}.
         Then: eventually reports completed and task is cleaned from memory."""
         from ai_assistant.features.rag import handlers as handlers_module
-        from ai_assistant.features.rag import indexing as indexing_module
 
-        monkeypatch.setattr(indexing_module, "DOCUMENTS_ROOT", tmp_path)
+        monkeypatch.setattr(
+            mock_state.config.rag, "documents_root", str(tmp_path)
+        )
         (tmp_path / "personal").mkdir()
         (tmp_path / "personal" / "test.md").write_text("hello world")
 

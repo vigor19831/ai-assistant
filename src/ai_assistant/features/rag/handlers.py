@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
-from ai_assistant.core.constants import DOCUMENTS_ROOT
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import parse_rag_query
@@ -283,10 +283,11 @@ async def save_chat(
     filename = req.filename
     content = req.content
 
-    # Save to documents folder
-    folder = DOCUMENTS_ROOT / namespace
+    # Save to chat exports folder
+    exports_root = Path(state.config.rag.chat_exports_root)
+    folder = exports_root / namespace
     folder_resolved = await asyncio.to_thread(folder.resolve)
-    docs_resolved = await asyncio.to_thread(DOCUMENTS_ROOT.resolve)
+    docs_resolved = await asyncio.to_thread(exports_root.resolve)
 
     if not folder_resolved.is_relative_to(docs_resolved):
         raise HTTPException(status_code=400, detail="Invalid namespace")
@@ -373,6 +374,7 @@ async def reindex_documents(
                     embedder=state.embedder,
                     vector_store=state.vector_store,
                     max_file_size=state.config.vector_store.max_document_size,
+                    documents_root=Path(state.config.rag.documents_root),
                 )
                 async with _reindex_lock:
                     _reindex_status[task_id] = {

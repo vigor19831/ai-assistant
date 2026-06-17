@@ -56,6 +56,7 @@ class OpenAICompatibleEmbedder(IEmbedder):
         self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
         self._dim: int = config.dim
         self._timeout: float = config.timeout
+        self._connect_timeout: float | None = config.connect_timeout
         self._client: httpx.AsyncClient | None = None
 
     async def shutdown(self) -> None:
@@ -77,7 +78,12 @@ class OpenAICompatibleEmbedder(IEmbedder):
             "Content-Type": "application/json",
         }
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
+            timeout = (
+                httpx.Timeout(self._timeout, connect=self._connect_timeout)
+                if self._connect_timeout is not None
+                else self._timeout
+            )
+            self._client = httpx.AsyncClient(timeout=timeout)
         resp = await self._client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.text

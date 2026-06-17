@@ -652,9 +652,17 @@ class TestKeyFilesExist:
 
     def test_pytest_ini_exists(self):
         """Given: project root.
-        When: checking for pytest.ini.
-        Then: file exists."""
-        assert (_project_root() / "tests" / "pytest.ini").exists()
+        When: checking for pyproject.toml pytest config.
+        Then: pyproject.toml exists and contains [tool.pytest.ini_options]."""
+        import tomllib
+
+        pyproject = _project_root() / "pyproject.toml"
+        assert pyproject.exists()
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
+        assert "tool" in data
+        assert "pytest" in data.get("tool", {})
+        assert "ini_options" in data.get("tool", {}).get("pytest", {})
 
     def test_conftest_py_exists(self):
         """Given: tests directory.
@@ -799,3 +807,59 @@ class TestSecurityKeyResolution:
         monkeypatch.setenv("AI_SECURITY_API_KEY", "test-smoke-key")
         key = get_expected_api_key()
         assert key == "test-smoke-key"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestLoggingSetup
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.smoke
+class TestLoggingSetup:
+    """Smoke: setup_logging accepts rotation parameters without error."""
+
+    def test_setup_logging_with_defaults(self):
+        """Given: default parameters. When: setup_logging is called.
+        Then: returns logger without error."""
+        from ai_assistant.core.logger import setup_logging
+
+        logger = setup_logging()
+        assert logger is not None
+        assert logger.name == "ai_assistant"
+
+    def test_setup_logging_with_custom_rotation(self, tmp_path):
+        """Given: custom max_bytes and backup_count.
+        When: setup_logging is called. Then: file handler has correct params."""
+        from ai_assistant.core.logger import setup_logging
+
+        log_file = tmp_path / "test.log"
+        logger = setup_logging(
+            level="DEBUG",
+            log_file=str(log_file),
+            fmt="text",
+            max_bytes=1_024,
+            backup_count=3,
+        )
+        assert logger is not None
+        assert log_file.parent.exists()
+        file_handlers = [h for h in logger.handlers if hasattr(h, "maxBytes")]
+        assert len(file_handlers) == 1
+        assert file_handlers[0].maxBytes == 1_024
+        assert file_handlers[0].backupCount == 3
+
+    def test_setup_logging_json_format(self):
+        """Given: fmt='json'. When: setup_logging is called.
+        Then: returns logger without error."""
+        from ai_assistant.core.logger import setup_logging
+
+        logger = setup_logging(fmt="json")
+        assert logger is not None
+
+    def test_setup_logging_console_only(self):
+        """Given: log_file=None. When: setup_logging is called.
+        Then: returns logger with only console handler."""
+        from ai_assistant.core.logger import setup_logging
+
+        logger = setup_logging(log_file=None)
+        file_handlers = [h for h in logger.handlers if hasattr(h, "baseFilename")]
+        assert len(file_handlers) == 0

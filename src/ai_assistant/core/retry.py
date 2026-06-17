@@ -60,7 +60,8 @@ def with_retry(
                             sleep_for = min(sleep_for, max_delay)
                         await asyncio.sleep(sleep_for)
                         current_delay *= backoff
-            assert last_exception is not None
+            if last_exception is None:
+                raise RuntimeError("last_exception is None after retry loop")
             raise last_exception
 
         @functools.wraps(func)
@@ -84,7 +85,8 @@ def with_retry(
                             sleep_for = min(sleep_for, max_delay)
                         time.sleep(sleep_for)
                         current_delay *= backoff
-            assert last_exception is not None
+            if last_exception is None:
+                raise RuntimeError("last_exception is None after retry loop")
             raise last_exception
 
         wrapper = async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper

@@ -64,6 +64,8 @@ def setup_logging(
     level: str = "INFO",
     log_file: str | Path | None = "./data/app.log",
     fmt: str = "text",
+    max_bytes: int = 10_485_760,
+    backup_count: int = 2,
 ) -> logging.Logger:
     """Configure application logging.
 
@@ -71,6 +73,8 @@ def setup_logging(
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         log_file: Path to log file, or None for console-only.
         fmt: Log format — "text" or "json".
+        max_bytes: Maximum size in bytes before rotating the log file.
+        backup_count: Number of backup files to keep.
 
     Repeated calls clear existing handlers and recreate them,
     allowing format changes at runtime (e.g., on config reload).
@@ -107,8 +111,8 @@ def setup_logging(
                 path.parent.mkdir(parents=True, exist_ok=True)
                 fh = logging.handlers.RotatingFileHandler(
                     path,
-                    maxBytes=10 * 1024 * 1024,
-                    backupCount=2,
+                    maxBytes=max_bytes,
+                    backupCount=backup_count,
                     encoding="utf-8",
                 )
                 fh.setFormatter(formatter)

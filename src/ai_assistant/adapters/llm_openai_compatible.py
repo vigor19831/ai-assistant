@@ -37,6 +37,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         self.max_tokens: int = config.max_tokens
         self.temperature: float = config.temperature
         self._timeout: float = config.timeout
+        self._connect_timeout: float | None = config.connect_timeout
         self._max_stream_tokens: int = config.max_tokens * 2
         self._client: httpx.AsyncClient | None = None
 
@@ -156,7 +157,12 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         if stop:
             payload["stop"] = stop
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
+            timeout = (
+                httpx.Timeout(self._timeout, connect=self._connect_timeout)
+                if self._connect_timeout is not None
+                else self._timeout
+            )
+            self._client = httpx.AsyncClient(timeout=timeout)
         resp = await self._client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         data = resp.json()
@@ -212,7 +218,12 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         if stop:
             payload["stop"] = stop
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
+            timeout = (
+                httpx.Timeout(self._timeout, connect=self._connect_timeout)
+                if self._connect_timeout is not None
+                else self._timeout
+            )
+            self._client = httpx.AsyncClient(timeout=timeout)
         async with self._client.stream(
             "POST", url, headers=headers, json=payload
         ) as resp:

@@ -287,8 +287,6 @@ class TestRAGIndexing:
         """Given: markdown files in tmp_path/sources/personal.
         When: index_folder is called with folder='personal'.
         Then: documents are indexed and namespace 'personal' appears in results."""
-        from ai_assistant.features.rag import indexing as indexing_module
-
         sources = tmp_path / "sources"
         personal = sources / "personal"
         personal.mkdir(parents=True)
@@ -297,17 +295,17 @@ class TestRAGIndexing:
         # Prevent auto-save from triggering on mock config
         mock_vector_store.config.index_path = None
 
-        with patch.object(indexing_module, "DOCUMENTS_ROOT", sources):
-            result = await index_folder(
-                folder="personal",
-                clear=False,
-                chunker=mock_chunker,
-                embedder=mock_embedder,
-                vector_store=mock_vector_store,
-            )
-            assert result["success"] is True
-            assert "personal" in result["results"]
-            assert result["results"]["personal"]["indexed"] == 1
+        result = await index_folder(
+            folder="personal",
+            clear=False,
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+            documents_root=str(sources),
+        )
+        assert result["success"] is True
+        assert "personal" in result["results"]
+        assert result["results"]["personal"]["indexed"] == 1
 
     def test_status_polling(self, monkeypatch):
         """Given: a reindex task was started and recorded in _reindex_status.

@@ -71,6 +71,7 @@ class EmbedderConfig(BaseSettings):
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
+    connect_timeout: float | None = None
     n_gpu_layers: int = 0
     n_batch: int = 512
     n_ubatch: int = 64
@@ -88,6 +89,7 @@ class LLMConfig(BaseSettings):
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout: float = 300.0
+    connect_timeout: float | None = None
     stop_sequences: list[str] = Field(default_factory=list)
     system_message: str | None = None
     # === Sampling ===
@@ -163,6 +165,19 @@ class RAGConfig(BaseSettings):
     default_namespace: str = "default"
     relevance_threshold: float = 0.3
     max_tool_iterations: int = 5
+    documents_root: str = "sources"
+    chat_exports_root: str = "sources"
+
+    @field_validator("documents_root", "chat_exports_root")
+    @classmethod
+    def _strip_trailing_slash(cls, v: str) -> str:
+        """Normalize path: strip trailing slashes, reject absolute paths."""
+        v = v.strip()
+        if not v:
+            raise ValueError("path must be non-empty")
+        if v.startswith("/") or v.startswith("\\") or v.startswith("~"):
+            raise ValueError(f"path must be relative, got: {v}")
+        return v.rstrip("/").rstrip("\\")
 
 
 class SecurityConfig(BaseSettings):
@@ -188,6 +203,8 @@ class LoggingConfig(BaseSettings):
     level: str = "INFO"
     file: str | None = "./data/app.log"
     format: str = "text"  # "text" or "json"
+    max_bytes: int = 10_485_760  # 10 MB
+    backup_count: int = 2
 
 
 class AppConfig(BaseSettings):

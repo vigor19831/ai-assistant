@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
-"""audit_project.py — Domain-aware dead code audit.
+"""check_all.py — Unified project validation.
 
-Understands framework registration patterns:
-  @router.post("/path")  ->  function is used by FastAPI
-  @step("name")          ->  function is used by pipeline registry
-  @register("port", "name") ->  adapter is used by factory
+Universally checks any Python project with standard tools:
+- ruff (lint)
+- mypy (types)
+- pytest + coverage (tests + branch coverage)
+- coverage audit (analyzes .coverage JSON for low coverage)
+- AST audit (dead code, duplicates, cycles via ast module)
 
 Usage:
-    python scripts/audit_project.py          # interactive mode selection
-    python scripts/audit_project.py --ast    # AST-only, no interactivity
-    python scripts/audit_project.py --auto   # skip interactive, use defaults
-
-Exit: 0=empty list, 1=found something, 2=error
+    python scripts/check_all.py         # interactive menu
+    python scripts/check_all.py 1       # tests only
+    python scripts/check_all.py 5       # full check
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
+import json
+import os
+import subprocess
 import sys
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,9 +31,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 # ── Config ───────────────────────────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = PROJECT_ROOT / "src" / "ai_assistant"
-COVERAGE_FILE = PROJECT_ROOT / ".coverage"
+ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
+TESTS = ROOT / "tests"
+COVERAGE_FILE = ROOT / ".coverage"
 
 SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "vendor", "ui", "data", "logs", "tmp", "temp", "ops"}
 SKIP_FILES = {"__init__.py"}
@@ -50,118 +56,68 @@ SKIP_METHODS = {
     "__getstate__", "__setstate__", "__post_init__",
 }
 
-# ── Domain-aware registration patterns ───────────────────────────────────────
-# These decorators mark functions/classes as "used by framework".
-# The script extracts registered names and treats them as referenced.
-REGISTRATION_DECORATORS: dict[str, tuple[str, ...]] = {
-    # FastAPI router registration
-    "router": ("get", "post", "put", "delete", "patch", "head", "options", "websocket"),
-    "APIRouter": ("get", "post", "put", "delete", "patch", "head", "options", "websocket"),
-    # Pipeline step registration
-    "step": ("step",),
-    # Adapter factory registration
-    "register": ("register",),
-    # App-level decorators (if used)
-    "app": ("get", "post", "put", "delete", "patch"),
-    "FastAPI": ("get", "post", "put", "delete", "patch"),
-}
-
-# Router variable name patterns (prefix-based to avoid hardcoding)
 ROUTER_VARIABLE_PREFIXES = ("router", "admin_router", "api_router")
-
-# ABC base classes that define port contracts — their methods are required
 ABC_BASES = {"ABC", "IChunker", "IEmbedder", "ILLM", "IReranker", "IVectorStore",
              "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
              "ITool", "IToolRegistry"}
-
-# Framework base classes whose methods are callbacks (not called by user code)
 FRAMEWORK_BASES = {"BaseHTTPMiddleware", "BaseMiddleware", "Middleware"}
-
-# Framework callback methods that are never called by user code directly.
-# Only skipped when the class inherits from FRAMEWORK_BASES.
 FRAMEWORK_CALLBACKS = frozenset({"dispatch", "lifespan"})
 
 
-# ── Coverage ──────────────────────────────────────────────────────────────────
-class CoverageAnalyzer:
-    def __init__(self, coverage_path: Path):
-        self.coverage_path = coverage_path
-        self.executed_lines: dict[str, set[int]] = {}
-        self._load()
+# ── Auto-Logging to Root (always on) ────────────────────────────────────────
 
-    def _load(self) -> None:
-        try:
-            import coverage as cov_module
-        except ImportError:
-            return
-        try:
-            data = cov_module.CoverageData(str(self.coverage_path))
-            data.read()
-            for filename in data.measured_files():
-                lines = data.lines(filename)
-                if lines:
-                    self.executed_lines[filename] = set(lines)
-        except Exception:
-            pass
+class TeeOutput:
+    """Redirects stdout/stderr to both console and a log file in project root."""
 
-    def is_live(self, file: Path, line: int) -> bool:
-        for key in (str(file), str(file.resolve())):
-            if key in self.executed_lines:
-                return line in self.executed_lines[key]
-        return False
+    def __init__(self, log_path: Path):
+        self.log_path = log_path
+        self.log_file = open(log_path, "w", encoding="utf-8")
+        self._stdout = sys.stdout
+        self._stderr = sys.stderr
+        self._lock = threading.Lock()
 
-    def has_data(self) -> bool:
-        return bool(self.executed_lines)
+    def write(self, data: str) -> int:
+        with self._lock:
+            self._stdout.write(data)
+            self._stdout.flush()
+            self.log_file.write(data)
+            self.log_file.flush()
+        return len(data)
 
+    def flush(self) -> None:
+        with self._lock:
+            self._stdout.flush()
+            self.log_file.flush()
 
-# ── Interactive prompt ───────────────────────────────────────────────────────
-def ask_mode(cov: CoverageAnalyzer) -> bool:
-    """Single question: AST or Coverage."""
-    print()
-    print("  AUDIT PROJECT")
-    print("  " + "-" * 36)
-    print()
+    def isatty(self) -> bool:
+        return self._stdout.isatty()
 
-    ast_label = "AST-only   (static analysis)"
-    if cov.has_data():
-        cov_label = f"Coverage   (data: {len(cov.executed_lines)} files)"
-        default = "2"
-    else:
-        cov_label = "Coverage   (no .coverage -- run pytest --cov)"
-        default = "1"
+    def fileno(self) -> int:
+        return self._stdout.fileno()
 
-    print(f"  [1]  {ast_label}")
-    print(f"  [2]  {cov_label}")
-    print()
+    def close(self) -> None:
+        self.log_file.close()
 
-    while True:
-        try:
-            choice = input(f"  Mode [1/2] (default {default}): ").strip() or default
-        except (EOFError, KeyboardInterrupt):
-            print("\n  ! Interrupted -- switching to AST")
-            return True
-        if choice == "1":
-            print("  -> AST-only")
-            return True
-        if choice == "2":
-            if not cov.has_data():
-                print("  ! No coverage data -- switching to AST")
-                return True
-            print("  -> Coverage-based")
-            return False
-        print("  ! Enter 1 or 2")
+    def __enter__(self):
+        sys.stdout = self
+        sys.stderr = self
+        return self
+
+    def __exit__(self, *args):
+        sys.stdout = self._stdout
+        sys.stderr = self._stderr
+        self.close()
 
 
-# ── Progress helper ──────────────────────────────────────────────────────────
-def _check(label: str, items: list) -> list:
-    """Print progress line and return result."""
-    count = len(items)
-    sym = "ok" if count == 0 else f"{count} found"
-    print(f"  *  {label:<36} {sym}")
-    return items
+def setup_logging() -> TeeOutput:
+    """Setup logging to file in project root. Always active."""
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = ROOT / f"check_all_{timestamp}.log"
+    return TeeOutput(log_path)
 
 
-# ── File / AST helpers ──────────────────────────────────────────────────────
+# ── Universal AST Audit (inline, no external deps) ──────────────────────────
+
 def collect_py(root: Path) -> list[Path]:
     return [
         f for f in root.rglob("*.py")
@@ -206,18 +162,6 @@ class ReferenceCollector(ast.NodeVisitor):
     def __init__(self):
         self.refs: set[str] = set()
 
-    def _add_name(self, node: ast.expr) -> None:
-        if isinstance(node, ast.Name):
-            self.refs.add(node.id)
-        elif isinstance(node, ast.Call):
-            self._add_name(node.func)
-        elif isinstance(node, ast.Attribute):
-            self.refs.add(node.attr)
-            if isinstance(node.value, ast.Name):
-                self.refs.add(node.value.id)
-            elif isinstance(node.value, ast.Attribute):
-                self._add_name(node.value)
-
     def visit_Name(self, node: ast.Name) -> None:
         self.refs.add(node.id)
         self.generic_visit(node)
@@ -229,41 +173,44 @@ class ReferenceCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
-        self._add_name(node.func)
+        if isinstance(node.func, ast.Name):
+            self.refs.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            self.refs.add(node.func.attr)
+            if isinstance(node.func.value, ast.Name):
+                self.refs.add(node.func.value.id)
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         for dec in node.decorator_list:
-            self._add_name(dec)
+            if isinstance(dec, ast.Name):
+                self.refs.add(dec.id)
+            elif isinstance(dec, ast.Attribute):
+                self.refs.add(dec.attr)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         for dec in node.decorator_list:
-            self._add_name(dec)
+            if isinstance(dec, ast.Name):
+                self.refs.add(dec.id)
+            elif isinstance(dec, ast.Attribute):
+                self.refs.add(dec.attr)
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         for dec in node.decorator_list:
-            self._add_name(dec)
+            if isinstance(dec, ast.Name):
+                self.refs.add(dec.id)
+            elif isinstance(dec, ast.Attribute):
+                self.refs.add(dec.attr)
         self.generic_visit(node)
 
 
 class RegistrationCollector(ast.NodeVisitor):
-    """Extract names of functions/classes registered via framework decorators.
-
-    Examples:
-        @router.post("/chat")  ->  registers 'chat' function
-        @router_oai.get("/v1/models") -> registers 'list_models' function
-        @step("embed_query")   ->  registers 'embed_query' function
-        @register("llm", "mock") -> registers 'MockLLM' class
-    """
-
     def __init__(self):
         self.registered_names: set[str] = set()
-        self.registered_modules: set[str] = set()
 
     def _get_decorator_name(self, node: ast.expr) -> str:
-        """Get decorator name like 'router.post' or 'step'."""
         if isinstance(node, ast.Name):
             return node.id
         elif isinstance(node, ast.Attribute):
@@ -274,22 +221,18 @@ class RegistrationCollector(ast.NodeVisitor):
         return ""
 
     def _is_router_variable(self, name: str) -> bool:
-        """Check if name matches router variable patterns (prefix-based)."""
         return any(name == prefix or name.startswith(prefix + "_") for prefix in ROUTER_VARIABLE_PREFIXES)
 
     def _is_registration_decorator(self, name: str) -> bool:
-        """Check if decorator name matches known registration patterns."""
         parts = name.split(".")
         if len(parts) == 2:
             base, method = parts
-            # Check known decorator classes
-            if base in REGISTRATION_DECORATORS:
-                return method in REGISTRATION_DECORATORS[base]
-            # Check router variable names (router_oai.get, etc.)
+            if base in {"router", "APIRouter", "app", "FastAPI", "step", "register"}:
+                return method in {"get", "post", "put", "delete", "patch", "head", "options", "websocket", "step", "register"}
             if self._is_router_variable(base):
-                return method in ("get", "post", "put", "delete", "patch", "head", "options", "websocket")
+                return method in {"get", "post", "put", "delete", "patch", "head", "options", "websocket"}
         if len(parts) == 1:
-            return parts[0] in REGISTRATION_DECORATORS
+            return parts[0] in {"step", "register"}
         return False
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -311,7 +254,6 @@ class RegistrationCollector(ast.NodeVisitor):
             dec_name = self._get_decorator_name(dec)
             if self._is_registration_decorator(dec_name):
                 self.registered_names.add(name)
-                self.registered_modules.add("")
 
 
 class DefinitionCollector(ast.NodeVisitor):
@@ -335,7 +277,6 @@ class DefinitionCollector(ast.NodeVisitor):
         return [self._get_name(b) for b in node.bases]
 
     def _check_registration_decorator(self, node: ast.AST) -> None:
-        """Check if any decorator is a registration decorator."""
         if not hasattr(node, "decorator_list"):
             return
         rc = RegistrationCollector()
@@ -395,17 +336,11 @@ class DefinitionCollector(ast.NodeVisitor):
             if not node.target.id.startswith("_") and node.target.id not in SKIP_NAMES:
                 self.defs[node.target.id] = ("variable", node.lineno)
 
-    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
-        if isinstance(node.target, ast.Name):
-            if not node.target.id.startswith("_") and node.target.id not in SKIP_NAMES:
-                self.defs[node.target.id] = ("variable", node.lineno)
 
-
-# ── Registry ─────────────────────────────────────────────────────────────────
 def build_registry(all_files: list[Path]) -> dict[str, dict]:
     registry: dict[str, dict] = {}
     for f in all_files:
-        rel = f.relative_to(SRC_DIR.parent)
+        rel = f.relative_to(SRC.parent)
         parts = list(rel.parts)
         if parts[-1] == "__init__.py":
             parts = parts[:-1]
@@ -454,7 +389,6 @@ def build_registry(all_files: list[Path]) -> dict[str, dict]:
     return registry
 
 
-# ── Checks ───────────────────────────────────────────────────────────────────
 def find_orphaned_files(registry: dict) -> list[tuple[Path, str]]:
     all_imports: set[str] = set()
     for info in registry.values():
@@ -467,10 +401,8 @@ def find_orphaned_files(registry: dict) -> list[tuple[Path, str]]:
             continue
         if f.name in ENTRY_POINT_FILES:
             continue
-        # File is not orphaned if it has registration decorators (exports via framework)
         if info["has_registration_decorator"]:
             continue
-        # File is not orphaned if it exports symbols in __all__
         if info["exports"]:
             continue
         found = any(
@@ -493,7 +425,6 @@ def find_unused_symbols(registry: dict) -> list[tuple[Path, str, str, int]]:
         for name, (kind, line) in info["defs"].items():
             if name in SKIP_NAMES:
                 continue
-            # Registered names are considered used
             if name in info["registered_names"]:
                 continue
             if name in global_refs:
@@ -505,12 +436,10 @@ def find_unused_symbols(registry: dict) -> list[tuple[Path, str, str, int]]:
 
 
 def _is_framework_class(bases: list[str]) -> bool:
-    """Check if class inherits from a framework base (has framework callbacks)."""
     return any(base in FRAMEWORK_BASES for base in bases)
 
 
 def _is_abc_class(bases: list[str]) -> bool:
-    """Check if class inherits from an ABC port (has contract-required methods)."""
     return any(base in ABC_BASES for base in bases)
 
 
@@ -520,19 +449,12 @@ def find_unused_methods(registry: dict) -> list[tuple[Path, str, str, int]]:
         f = info["file"]
         for cls_name, methods in info["methods"].items():
             bases = info["classes"].get(cls_name, (0, []))[1]
-
-            # Skip ABC port classes — methods are contract-required
             if _is_abc_class(bases):
                 continue
-
-            # Skip framework classes — framework callbacks are not user-called
             is_framework = _is_framework_class(bases)
-
             for method, line in methods.items():
-                # Framework callbacks (dispatch, lifespan) are not unused
                 if is_framework and method in FRAMEWORK_CALLBACKS:
                     continue
-
                 found = method in info["refs"]
                 if not found:
                     for other_mod, other_info in registry.items():
@@ -563,7 +485,6 @@ def find_dead_constants(registry: dict) -> list[tuple[Path, str, int]]:
 def find_duplicate_blocks(registry: dict, min_lines: int = 5) -> list[tuple[Path, Path, int, int]]:
     if not hasattr(ast, "unparse"):
         return []
-
     blocks: dict[str, list[tuple[Path, int]]] = {}
     for mod, info in registry.items():
         f = info["file"]
@@ -580,7 +501,6 @@ def find_duplicate_blocks(registry: dict, min_lines: int = 5) -> list[tuple[Path
                 if len(lines) >= min_lines:
                     h = hashlib.md5("\n".join(lines).encode()).hexdigest()[:16]
                     blocks.setdefault(h, []).append((f, node.lineno))
-
     duplicates = []
     seen = set()
     for h, locations in blocks.items():
@@ -596,40 +516,7 @@ def find_duplicate_blocks(registry: dict, min_lines: int = 5) -> list[tuple[Path
     return duplicates
 
 
-def check_stale_pyproject() -> list[str]:
-    issues = []
-    pp = PROJECT_ROOT / "pyproject.toml"
-    if not pp.exists():
-        return issues
-    try:
-        import tomllib
-        with pp.open("rb") as fh:
-            data = tomllib.load(fh)
-    except Exception as exc:
-        return [f"Cannot parse pyproject.toml: {exc}"]
-
-    for override in data.get("tool", {}).get("mypy", {}).get("overrides", []):
-        raw_modules = override.get("module", [])
-        modules = [raw_modules] if isinstance(raw_modules, str) else raw_modules
-        for mod in modules:
-            if "*" in mod:
-                continue
-            parts = mod.split(".")
-            rel = parts[1:] if parts[0] == "ai_assistant" else parts
-            if not rel:
-                continue
-            fp = SRC_DIR
-            for p in rel[:-1]:
-                fp = fp / p
-            file_candidate = fp / (rel[-1] + ".py")
-            pkg_candidate = fp / rel[-1] / "__init__.py"
-            if not file_candidate.exists() and not pkg_candidate.exists():
-                issues.append(f"mypy override '{mod}' -> file not found")
-    return issues
-
-
 def check_cycles(registry: dict) -> list[str]:
-    """Detect import cycles via DFS. Each unique cycle reported once."""
     cycles: list[str] = []
     seen_cycles: set[tuple[str, ...]] = set()
 
@@ -659,121 +546,273 @@ def check_cycles(registry: dict) -> list[str]:
 
     for mod in registry:
         dfs(mod, [mod])
-
     return cycles
 
 
-def check_empty_dirs(root: Path) -> list[tuple[Path, str]]:
-    empty = []
-    for d in sorted(root.rglob("*")):
-        if not d.is_dir() or d == root:
+def run_ast_audit(src_dir: Path) -> tuple[list, list, list, list, list, list]:
+    all_src = collect_py(src_dir)
+    registry = build_registry(all_src)
+    orphaned = find_orphaned_files(registry)
+    unused = find_unused_symbols(registry)
+    methods = find_unused_methods(registry)
+    consts = find_dead_constants(registry)
+    dups = find_duplicate_blocks(registry, min_lines=5)
+    cycles = check_cycles(registry)
+    return orphaned, unused, methods, consts, dups, cycles
+
+
+# ── Coverage Audit ──────────────────────────────────────────────────────────
+
+def run_coverage_audit() -> list[tuple[str, float, str]]:
+    """Analyze .coverage file and return low-coverage files."""
+    if not COVERAGE_FILE.exists():
+        return [("No .coverage file found — run tests first", 0.0, "ERROR")]
+
+    json_path = ROOT / "coverage_audit_temp.json"
+    try:
+        result = subprocess.run([
+            sys.executable, "-m", "coverage", "json",
+            "-o", str(json_path),
+            "--pretty-print",
+        ], cwd=ROOT, capture_output=True, text=True)
+
+        if result.returncode != 0 or not json_path.exists():
+            return [("Failed to generate coverage JSON", 0.0, f"ERROR: {result.stderr[:200]}")]
+
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as exc:
+        return [("Exception during coverage audit", 0.0, f"ERROR: {exc}")]
+    finally:
+        json_path.unlink(missing_ok=True)
+
+    issues = []
+    for filename, info in data.get("files", {}).items():
+        rel = filename.replace(str(ROOT), "").replace("\\", "/").lstrip("/")
+        if not rel.startswith("src/"):
             continue
-        try:
-            if not any(d.iterdir()):
-                empty.append((d, "empty"))
-        except OSError:
-            pass
-    return empty
+
+        summary = info.get("summary", {})
+        percent = summary.get("percent_covered", 0)
+        branches = summary.get("num_branches", 0)
+        missing_branches = summary.get("missing_branches", 0)
+
+        if percent < 50:
+            issues.append((rel, percent, "CRITICAL: <50% coverage"))
+        elif percent < 70:
+            issues.append((rel, percent, "WARNING: <70% coverage"))
+        elif branches > 0 and missing_branches / branches > 0.3:
+            issues.append((rel, percent, f"BRANCHES: {missing_branches}/{branches} missed"))
+
+    issues.sort(key=lambda x: x[1])
+    return issues
 
 
-# ── Report ───────────────────────────────────────────────────────────────────
-def report(orphaned, unused, dead_methods, dead_consts, duplicates, stale, cycles, empty, mode: str) -> int:
-    total = len(orphaned) + len(unused) + len(dead_methods) + len(dead_consts) + len(duplicates) + len(stale) + len(cycles) + len(empty)
+# ── Menu & Runner ───────────────────────────────────────────────────────────
 
-    print()
-    print(f"  DEAD CODE AUDIT  |  {mode}")
-    print("  " + "-" * 40)
-    print("  This script DETECTS potential issues. Manual review required.")
-    print("  " + "-" * 40)
+def _run_cmd(cmd: list[str], desc: str) -> bool:
+    print(f"\n{'='*60}")
+    print(f"  {desc}")
+    print(f"{'='*60}")
+
+    # Fix hanging: non-interactive, unbuffered, no stdin
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTEST_CURRENT_TEST"] = ""
+    # Prevent pytest from trying to use terminal features
+    env["TERM"] = "dumb"
+    env["PY_COLORS"] = "0"
+    # Force pytest to not use any interactive features
+    env["CI"] = "true"
+
+    # Use Popen with streaming to avoid PIPE deadlock on Windows
+    process = subprocess.Popen(
+        cmd,
+        cwd=ROOT,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,  # Line buffered
+    )
+
+    # Stream output in real-time to prevent PIPE buffer deadlock
+    if process.stdout:
+        for line in iter(process.stdout.readline, ''):
+            sys.stdout.write(line)
+            sys.stdout.flush()
+        process.stdout.close()
+
+    returncode = process.wait()
+
+    if returncode == 0:
+        print(f"\n  [OK] {desc}")
+        return True
+    else:
+        print(f"\n  [FAIL] {desc}")
+        return False
+
+
+def _show_ast_results(orphaned, unused, methods, consts, dups, cycles):
+    print(f"\n{'='*60}")
+    print("  AST AUDIT RESULTS")
+    print(f"{'='*60}")
 
     sections = [
         (orphaned, "Orphaned files"),
         (unused, "Unused symbols"),
-        (dead_methods, "Unused methods"),
-        (dead_consts, "Dead constants"),
-        (duplicates, "Duplicate blocks"),
-        (stale, "Stale pyproject refs"),
+        (methods, "Unused methods"),
+        (consts, "Dead constants"),
+        (dups, "Duplicate blocks"),
         (cycles, "Circular imports"),
-        (empty, "Empty directories"),
     ]
 
+    total = 0
     for items, label in sections:
         if items:
+            total += len(items)
             print(f"\n  {label}  ({len(items)}):")
             for item in items:
-                if len(item) == 2 and isinstance(item[0], Path):
+                if len(item) == 2:
                     f, reason = item
-                    rel = f.relative_to(PROJECT_ROOT)
+                    rel = f.relative_to(ROOT)
                     print(f"    {rel}  -- {reason}")
                 elif len(item) == 3:
                     f, name, line = item
-                    rel = f.relative_to(PROJECT_ROOT)
+                    rel = f.relative_to(ROOT)
                     print(f"    {rel}:{line}  -- {name}")
                 elif len(item) == 4 and isinstance(item[1], str):
                     f, name, kind, line = item
-                    rel = f.relative_to(PROJECT_ROOT)
+                    rel = f.relative_to(ROOT)
                     print(f"    {rel}:{line}  -- {kind} {name}")
                 elif len(item) == 4 and isinstance(item[1], Path):
                     f1, f2, l1, l2 = item
-                    r1 = f1.relative_to(PROJECT_ROOT)
-                    r2 = f2.relative_to(PROJECT_ROOT)
+                    r1 = f1.relative_to(ROOT)
+                    r2 = f2.relative_to(ROOT)
                     print(f"    {r1}:{l1} ~ {r2}:{l2}")
-                else:
-                    print(f"    {item}")
 
-    print()
     if total == 0:
-        print("  [OK] No suspicious code detected.")
-        print("  Note: This is static analysis. Runtime usage may differ.")
-        return 0
-
-    print(f"  [!] {total} item(s) detected for manual review.")
-    print("  Action: Review each item. Remove if truly unused, or document why kept.")
-    return 1
-
-
-# ── Main ─────────────────────────────────────────────────────────────────────
-def main(argv: Sequence[str] | None = None) -> int:
-    import argparse
-    parser = argparse.ArgumentParser(description="Domain-aware dead code audit")
-    parser.add_argument("--ast", action="store_true", help="AST-only (ignore coverage)")
-    parser.add_argument("--coverage-file", type=Path, default=COVERAGE_FILE, help="Path to .coverage")
-    parser.add_argument("--auto", action="store_true", help="Skip interactive, use defaults")
-    args = parser.parse_args(argv)
-
-    if not SRC_DIR.exists():
-        print("  [ERR] src/ai_assistant not found")
-        return 2
-
-    cov = CoverageAnalyzer(args.coverage_file)
-
-    if args.ast or args.auto:
-        use_ast = args.ast
-        if args.auto and not args.ast and not cov.has_data():
-            use_ast = True
+        print("\n  [OK] No AST issues found.")
+        return True
     else:
-        use_ast = ask_mode(cov)
+        print(f"\n  [!] {total} AST issue(s) found — review recommended.")
+        return False
 
-    mode = "AST" if use_ast else "Coverage"
 
-    print()
-    print("  Scanning...")
-    print()
+def _show_coverage_results(issues: list):
+    print(f"\n{'='*60}")
+    print("  COVERAGE AUDIT RESULTS")
+    print(f"{'='*60}")
 
-    all_src = collect_py(SRC_DIR)
-    registry = build_registry(all_src)
-    print(f"  *  Registry built                         {len(registry)} modules")
+    if not issues:
+        print("\n  [OK] All files have good coverage.")
+        return True
 
-    orphaned = _check("Orphaned files",       find_orphaned_files(registry))
-    unused   = _check("Unused symbols",       find_unused_symbols(registry))
-    methods  = _check("Unused methods",       find_unused_methods(registry))
-    consts   = _check("Dead constants",       find_dead_constants(registry))
-    dups     = _check("Duplicate blocks",     find_duplicate_blocks(registry, min_lines=5))
-    stale    = _check("Stale pyproject refs", check_stale_pyproject())
-    cycles   = _check("Circular imports",     check_cycles(registry))
-    empty    = _check("Empty directories",    check_empty_dirs(SRC_DIR))
+    if issues[0][2].startswith("ERROR"):
+        print(f"\n  [ERR] {issues[0][0]}")
+        return False
 
-    return report(orphaned, unused, methods, consts, dups, stale, cycles, empty, mode)
+    print(f"\n  [!] {len(issues)} file(s) with low coverage:\n")
+    for fname, pct, reason in issues:
+        print(f"    {pct:5.1f}%  {fname}")
+        print(f"           {reason}")
+    print("\n  Action: Add tests for uncovered paths.")
+    return False
+
+
+def main() -> int:
+    # Always log to file in project root
+    log = setup_logging()
+    log.__enter__()
+
+    try:
+        print("\n  CHECK ALL — Unified project validation")
+        print("  " + "=" * 56)
+        print("\n  [1]  tests          — pytest only (fast)")
+        print("  [2]  tests+coverage — pytest + branch coverage + audit")
+        print("  [3]  lint           — ruff + mypy")
+        print("  [4]  audit          — AST dead code audit (no tests)")
+        print("  [5]  full           — lint → tests → coverage → audit")
+        print()
+
+        try:
+            choice = input("  Choice [5]: ").strip() or "5"
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Cancelled.")
+            return 0
+
+        ok = True
+
+        if choice == "1":
+            ok &= _run_cmd([sys.executable, "-m", "pytest", str(TESTS), "-v", "--tb=short"], "TESTS")
+
+        elif choice == "2":
+            ok &= _run_cmd([
+                sys.executable, "-m", "pytest", str(TESTS),
+                "--cov=src/ai_assistant", "--cov-branch",
+                "--cov-report=term-missing:skip-covered",
+                "-v", "--tb=short",
+            ], "TESTS + COVERAGE")
+            cov_ok = _show_coverage_results(run_coverage_audit())
+            ok &= cov_ok
+
+        elif choice == "3":
+            ok &= _run_cmd([sys.executable, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
+            ok &= _run_cmd([sys.executable, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
+
+        elif choice == "4":
+            orphaned, unused, methods, consts, dups, cycles = run_ast_audit(SRC)
+            ast_ok = _show_ast_results(orphaned, unused, methods, consts, dups, cycles)
+            ok &= ast_ok
+
+        elif choice == "5":
+            # Full pipeline
+            ok &= _run_cmd([sys.executable, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
+            if not ok:
+                print("\n  Stopping — fix lint errors first.")
+                return 1
+
+            ok &= _run_cmd([sys.executable, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
+            if not ok:
+                print("\n  Stopping — fix type errors first.")
+                return 1
+
+            ok &= _run_cmd([
+                sys.executable, "-m", "pytest", str(TESTS),
+                "--cov=src/ai_assistant", "--cov-branch",
+                "--cov-report=term-missing:skip-covered",
+                "-v", "--tb=short",
+            ], "TESTS + COVERAGE")
+            if not ok:
+                print("\n  Stopping — fix test failures first.")
+                return 1
+
+            cov_ok = _show_coverage_results(run_coverage_audit())
+            ast_ok = _show_ast_results(*run_ast_audit(SRC))
+
+            ok &= cov_ok and ast_ok
+
+        else:
+            print(f"\n  [ERR] Unknown choice: {choice}")
+            return 1
+
+        print(f"\n{'='*60}")
+        if ok:
+            print("  [OK] ALL CHECKS PASSED")
+        else:
+            print("  [WARN] SOME CHECKS NEED ATTENTION")
+        print(f"{'='*60}")
+
+        return 0 if ok else 1
+
+    finally:
+        log.__exit__(None, None, None)
+        # Print log path to console (bypassing closed log)
+        sys.stdout.write(f"\n  Log saved to: {log.log_path}\n")
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":

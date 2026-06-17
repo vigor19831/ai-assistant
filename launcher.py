@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher — menu for scripts/ and tests/. Run from project root: python scripts/launcher.py"""
+"""Launcher — menu for scripts/ and tests/. Run from project root: python launcher.py"""
 
 import os
 import subprocess
@@ -10,7 +10,7 @@ VENV = ".venv"
 PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
 
 # Auto-activate venv if running from outside
-_VENV = Path(__file__).parent.parent / ".venv"
+_VENV = Path(__file__).parent / ".venv"
 _VENV_PY = _VENV / PY
 
 if _VENV.exists() and not sys.executable.startswith(str(_VENV)):
@@ -60,14 +60,13 @@ def run(py, target, root, extra):
 
 
 def main():
-    # Root is parent of scripts/ directory
-    root = Path(__file__).parent.parent.resolve()
+    # Root is the directory where launcher.py lives (project root)
+    root = Path(__file__).parent.resolve()
     py = get_python(root)
 
     scripts, tests, n = [], [], 1
     for f in collect(root, "scripts"):
-        # Skip self and open_shell
-        if f.name not in ("__init__.py", "launcher.py"):
+        if f.name != "__init__.py":
             scripts.append((n, f.name, str(f)))
             n += 1
     for f in collect(root, "tests"):

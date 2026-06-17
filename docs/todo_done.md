@@ -98,8 +98,20 @@
 [x] Factory переписана: жесткий `if/elif` заменен на декоратор `@register` для масштабируемости.
 [x] Изолированы тестовые фикстуры: убран shared `MagicMock`, добавлены factory/deepcopy для `AppConfig`.
 [x] Добавлен guard в `FaissVectorStore` `load()`: бросает `AdapterError` при отсутствии `store.json`.
-[x] `query_parser.py`: единый `parse_rag_query()` в `core/` заменил дублирующийся парсинг `[p]`/`[w]` в `ChatManager`, `rag/handlers.py` и `check_rag.py`. Устранена размазанность, теперь namespace не теряется между слоями.
-[x] query_parser.py: единый parse_rag_query() в core/ устранил дублирование парсинга [p]/[w] между ChatManager, rag/handlers.py и check_rag.py. Namespace больше не теряется при правках чата. (2026-06-15)
-[x] adapters/logging + test_chat.py: 16 вызовов логирования в 4 адаптерах переведены на extra={}; тесты test_chat.py синхронизированы с 4-tuple сигнатурой _retrieve_context() — 27 тестов восстановлены. (2026-06-15)
-[x] Убраны `ResourceWarning: unclosed database`, закрытие SQLite-соединений теперь происходит через `closing()` из `contextlib` в трёх тестах `test_adapters.py`.
-[x] pipeline_steps.py: _estimate_tokens и _truncate_to_fit переведены в async через async_count_tokens для устранения блокировки event loop токенайзером; /metrics и /metrics/json роуты перенесены из main.py в router.py с единым registry через _ROOT_TAGS, устранено дублирование и обеспечена совместимость Prometheus scraper. (2026-06-15)
+[x] `query_parser.py`: единый `parse_rag_query()` в `core/` заменил дублирующийся парсинг `[p]`/`[w]` в трёх местах. Namespace не теряется между слоями.
+[x] Логирование в 4 адаптерах переведено на `extra={}`; `test_chat.py` синхронизирован с 4-tuple сигнатурой `_retrieve_context()` — 27 тестов восстановлены.
+[x] Убраны `ResourceWarning: unclosed database` через `closing()` из `contextlib` в `test_adapters.py`.
+[x] `_estimate_tokens` и `_truncate_to_fit` переведены в async; роуты `/metrics` и `/metrics/json` вынесены из `main.py` в `router.py` с единым registry.
+[x] SQLite WAL mode (`PRAGMA journal_mode=WAL`) в `init_db()`.
+[x] Фильтрация пустых `stop_sequences` в `llm_openai_compatible.py`.
+[х] Усовершенствовали тесты, теперь покрывает до 84% кода.
+
+
+
+
+[х] Log rotation config | `logging.max_bytes`, `logging.backup_count` в `LoggingConfig`. Изолировано, не трогает pipeline. | `core/config.py`, `core/logger.py` | `tests/test_config.py`, `tests/test_smoke.py`
+
+
+[х] connect_timeout в config | `LLMConfig`/`EmbedderConfig` + `httpx.AsyncClient`. Два адаптера, одинаковая логика. | `core/config.py`, `adapters/llm_openai_compatible.py`, `adapters/embedder_openai_compatible.py` | `tests/test_adapters.py`, `tests/test_integration.py`
+
+[х] documents_root в config | `RAGConfig` + разделение `CHAT_EXPORTS_ROOT`. | `core/config.py`, `core/constants.py`, `features/rag/handlers.py`, `scripts/index_documents.py` | `tests/test_rag.py`, `tests/test_e2e.py`

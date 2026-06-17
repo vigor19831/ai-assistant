@@ -17,6 +17,7 @@ from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.adapters.llm_mock import MockLLM
+from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
@@ -503,6 +504,18 @@ class TestFactory:
         assert adapter is not None
         assert type(adapter).__name__.startswith("OpenAICompatible")
 
+    @pytest.mark.parametrize(
+        "port,name,config",
+        [
+            ("llm", "openai_compatible", LLMConfigData(api_key="sk-test", connect_timeout=5.0)),
+            ("embedder", "openai_compatible", EmbedderConfigData(api_key="sk-test", connect_timeout=5.0)),
+        ],
+    )
+    def test_create_openai_compatible_with_connect_timeout(self, port, name, config):
+        adapter = create_adapter(port, name, config)
+        assert adapter is not None
+        assert adapter._connect_timeout == 5.0
+
     def test_unknown_llm_raises(self):
         with pytest.raises(ValueError, match="No llm adapter registered"):
             create_adapter("llm", "unknown", LLMConfigData())
@@ -541,6 +554,270 @@ class TestFactory:
     def test_unknown_port_raises(self):
         with pytest.raises(ValueError, match="Unknown adapter port"):
             create_adapter("unknown_port", "whatever", RerankerConfigData())
+
+
+# ── TestOpenAICompatibleLLM ──
+
+
+class TestOpenAICompatibleLLM:
+    """Given: OpenAICompatibleLLM with mocked HTTP client.
+    When: complete() and stream() are called with various inputs.
+    Then: correct payload is sent and responses are parsed.
+    """
+
+    @pytest.fixture
+    def llm(self):
+        return OpenAICompatibleLLM(LLMConfigData(
+            api_key="sk-test",
+            model="gpt-4",
+            api_base="http://test/v1",
+            max_tokens=100,
+            temperature=0.5,
+            stop_sequences=["", "end", "stop", ""],
+        ))
+
+    @pytest.mark.asyncio
+    async def test_complete_sends_stop_sequences_filtered(self, llm):
+        """Empty strings in stop_sequences must be filtered out of payload."""
+        from unittest.mock import MagicMock, AsyncMock, patch
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            await llm.complete([UserMessage(text="hi")])
+
+            call_kwargs = mock_post.call_args.kwargs
+            payload = call_kwargs["json"]
+            assert payload.get("stop") == ["end", "stop"]
+            assert payload["model"] == "gpt-4"
+            assert payload["max_tokens"] == 100
+            assert payload["temperature"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_complete_no_stop_when_empty(self, llm):
+        """If all stop_sequences are empty, stop key must not be in payload."""
+        from unittest.mock import MagicMock, AsyncMock, patch
+
+        llm.config = LLMConfigData(
+            api_key="sk-test",
+            model="gpt-4",
+            stop_sequences=[],
+        )
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            await llm.complete([UserMessage(text="hi")])
+            payload = mock_post.call_args.kwargs["json"]
+            assert "stop" not in payload
+
+    @pytest.mark.asyncio
+    async def test_complete_custom_max_tokens_and_temperature(self, llm):
+        """max_tokens and temperature parameters override config defaults."""
+        from unittest.mock import MagicMock, AsyncMock, patch
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            await llm.complete(
+                [UserMessage(text="hi")],
+                max_tokens=50,
+                temperature=0.9,
+            )
+            payload = mock_post.call_args.kwargs["json"]
+            assert payload["max_tokens"] == 50
+            assert payload["temperature"] == 0.9
+
+    @pytest.mark.asyncio
+    async def test_complete_raises_adapter_error_on_bad_response(self, llm):
+        """Malformed API response must raise AdapterError."""
+        from unittest.mock import MagicMock, AsyncMock, patch
+        from ai_assistant.core.domain.errors import AdapterError
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"choices": []}  # missing message
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+            with pytest.raises(AdapterError, match="Unexpected response shape"):
+                await llm.complete([UserMessage(text="hi")])
+
+    @pytest.mark.asyncio
+    async def test_stream_sends_stream_true(self, llm):
+        """Streaming request must have stream=True in payload."""
+        from unittest.mock import MagicMock, AsyncMock
+
+        async def aiter_lines():
+            return
+            yield
+
+        mock_response = MagicMock()
+        mock_response.aiter_lines = aiter_lines
+        mock_response.raise_for_status = MagicMock()
+
+        class AsyncCtxMgr:
+            async def __aenter__(self):
+                return mock_response
+            async def __aexit__(self, *args):
+                return None
+
+        mock_client = MagicMock()
+        mock_client.stream = MagicMock(return_value=AsyncCtxMgr())
+
+        llm._client = mock_client
+
+        chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+
+        call_args = mock_client.stream.call_args
+        payload = call_args.kwargs["json"]
+        assert payload["stream"] is True
+        assert payload.get("stop") == ["end", "stop"]
+
+    def test_get_context_limit_from_server_context_size(self):
+        """server_context_size takes priority over max_tokens."""
+        llm = OpenAICompatibleLLM(LLMConfigData(
+            api_key="sk-test",
+            server_context_size=8192,
+            max_tokens=100,
+        ))
+        assert llm.get_context_limit() == 8192
+
+    def test_get_context_limit_fallback_to_max_tokens(self):
+        """If server_context_size is None, use max_tokens."""
+        llm = OpenAICompatibleLLM(LLMConfigData(
+            api_key="sk-test",
+            server_context_size=None,
+            max_tokens=2048,
+        ))
+        assert llm.get_context_limit() == 2048
+
+    def test_get_context_limit_returns_none(self):
+        """If both are invalid, return None."""
+        llm = OpenAICompatibleLLM(LLMConfigData(
+            api_key="sk-test",
+            server_context_size=0,
+            max_tokens=0,
+        ))
+        assert llm.get_context_limit() is None
+
+    def test_build_messages_user_and_assistant(self):
+        """_build_messages converts UserMessage and AssistantMessage correctly."""
+        llm = OpenAICompatibleLLM(LLMConfigData(api_key="sk-test"))
+        messages = [
+            UserMessage(text="hello"),
+            AssistantMessage(text="world", tool_calls=[{"id": "1"}]),
+        ]
+        result = llm._build_messages(messages)
+        assert result == [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "world", "tool_calls": [{"id": "1"}]},
+        ]
+
+    def test_build_messages_tool_message(self):
+        """ToolMessage includes tool_call_id."""
+        from ai_assistant.core.domain.messages import ToolMessage
+        llm = OpenAICompatibleLLM(LLMConfigData(api_key="sk-test"))
+        messages = [ToolMessage(text="result", call_id="call-1")]
+        result = llm._build_messages(messages)
+        assert result == [
+            {"role": "tool", "content": "result", "tool_call_id": "call-1"},
+        ]
+
+    def test_parse_tool_calls_valid(self):
+        """Valid tool_calls are parsed and normalized."""
+        llm = OpenAICompatibleLLM(LLMConfigData(api_key="sk-test"))
+        raw = [
+            {
+                "id": "tc1",
+                "type": "function",
+                "function": {"name": "test", "arguments": '{"x": 1}'},
+            }
+        ]
+        result = llm._parse_tool_calls(raw)
+        assert len(result) == 1
+        assert result[0]["id"] == "tc1"
+        assert result[0]["function"]["name"] == "test"
+
+    def test_parse_tool_calls_skips_invalid(self):
+        """Incomplete tool_calls are skipped with warning."""
+        llm = OpenAICompatibleLLM(LLMConfigData(api_key="sk-test"))
+        raw = [
+            {"id": "tc1", "type": "function", "function": {}},  # missing name
+            {"type": "function", "function": {"name": "ok"}},    # missing id
+        ]
+        result = llm._parse_tool_calls(raw)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_shutdown_closes_client(self, llm):
+        """shutdown must close and clear HTTP client."""
+        from unittest.mock import AsyncMock
+
+        mock_client = AsyncMock()
+        llm._client = mock_client
+        await llm.shutdown()
+        mock_client.aclose.assert_awaited_once()
+        assert llm._client is None
+
+    @pytest.mark.asyncio
+    async def test_connect_timeout_used_in_client(self, llm):
+        """connect_timeout must be passed to httpx.AsyncClient via Timeout."""
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import httpx
+
+        llm._connect_timeout = 3.0
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+            with patch("httpx.AsyncClient.__init__", return_value=None) as mock_init:
+                llm._client = None
+                await llm.complete([UserMessage(text="hi")])
+
+                call_kwargs = mock_init.call_args.kwargs
+                timeout = call_kwargs["timeout"]
+                assert isinstance(timeout, httpx.Timeout)
+                assert timeout.connect == 3.0
+
+    @pytest.mark.asyncio
+    async def test_connect_timeout_none_uses_plain_timeout(self, llm):
+        """If connect_timeout is None, use plain float timeout (backward compat)."""
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import httpx
+
+        llm._connect_timeout = None
+        llm._timeout = 10.0
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+            with patch("httpx.AsyncClient.__init__", return_value=None) as mock_init:
+                llm._client = None
+                await llm.complete([UserMessage(text="hi")])
+
+                call_kwargs = mock_init.call_args.kwargs
+                timeout = call_kwargs["timeout"]
+                assert timeout == 10.0
 
 
 # ── TestFactoryRegistry ──

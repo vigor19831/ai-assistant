@@ -364,9 +364,10 @@ class TestIntegrationAPIInit:
                 "max_tokens": 50,
                 "temperature": 0.7,
                 "timeout": 5.0,
+                "connect_timeout": 2.0,
                 "stop_sequences": [],
             },
-            embedder={"provider": "mock", "dim": 3, "timeout": 5.0},
+            embedder={"provider": "mock", "dim": 3, "timeout": 5.0, "connect_timeout": 2.0},
             vector_store={
                 "provider": "memory",
                 "dim": 3,
@@ -450,9 +451,10 @@ class TestIntegrationAPIInit:
                 "max_tokens": 50,
                 "temperature": 0.7,
                 "timeout": 5.0,
+                "connect_timeout": 2.0,
                 "stop_sequences": [],
             },
-            embedder={"provider": "mock", "dim": 3, "timeout": 5.0},
+            embedder={"provider": "mock", "dim": 3, "timeout": 5.0, "connect_timeout": 2.0},
             vector_store={
                 "provider": "memory",
                 "dim": 3,

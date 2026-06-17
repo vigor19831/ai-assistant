@@ -132,6 +132,7 @@ async def main() -> int:
             chunker=state.chunker,
             embedder=state.embedder,
             vector_store=state.vector_store,
+            documents_root=Path(config.rag.documents_root),
         )
     except Exception as exc:
         print(f"[ERROR] Indexing failed: {exc}")

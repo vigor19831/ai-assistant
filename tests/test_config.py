@@ -231,6 +231,20 @@ class TestEnvPrefixOverride:
         cfg = RAGConfig()
         assert cfg.top_k == 10
 
+    def test_logging_max_bytes_env_override(self, monkeypatch):
+        """Given: AI_LOGGING_MAX_BYTES is set.
+        When: LoggingConfig is instantiated. Then: max_bytes reflects env value."""
+        monkeypatch.setenv("AI_LOGGING_MAX_BYTES", "5242880")
+        cfg = AppConfig()
+        assert cfg.logging.max_bytes == 5_242_880
+
+    def test_logging_backup_count_env_override(self, monkeypatch):
+        """Given: AI_LOGGING_BACKUP_COUNT is set.
+        When: LoggingConfig is instantiated. Then: backup_count reflects env value."""
+        monkeypatch.setenv("AI_LOGGING_BACKUP_COUNT", "5")
+        cfg = AppConfig()
+        assert cfg.logging.backup_count == 5
+
 
 class TestYamlLoading:
     """Given: YAML config files in various states.
@@ -289,6 +303,28 @@ class TestYamlLoading:
         cfg = load_config(missing)
         assert isinstance(cfg, AppConfig)
         assert cfg.host == "0.0.0.0"
+
+    def test_yaml_loads_logging_rotation_config(self, tmp_path: Path):
+        """Given: YAML file contains logging rotation settings.
+        When: load_config is called. Then: logging reflects the overrides."""
+        config_file = tmp_path / "logging_config.yaml"
+        config_file.write_text(yaml.safe_dump({
+            "logging": {
+                "level": "DEBUG",
+                "file": "./data/test.log",
+                "format": "json",
+                "max_bytes": 5_242_880,
+                "backup_count": 5,
+            },
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }))
+        cfg = load_config(config_file)
+        assert cfg.logging.level == "DEBUG"
+        assert cfg.logging.file == "./data/test.log"
+        assert cfg.logging.format == "json"
+        assert cfg.logging.max_bytes == 5_242_880
+        assert cfg.logging.backup_count == 5
 
 
 class TestNamespacesDefaultFactory:
@@ -378,6 +414,40 @@ class TestResourceLimits:
         assert cfg.min_p == 0.05
         assert cfg.repeat_penalty == 1.1
         assert cfg.temperature == 0.7
+
+
+class TestLoggingConfig:
+    """Given: LoggingConfig in various states.
+    When: instantiated or loaded.
+    Then: defaults and overrides behave correctly."""
+
+    def test_logging_defaults(self):
+        """Given: no overrides. When: AppConfig is instantiated.
+        Then: logging has expected defaults."""
+        cfg = AppConfig()
+        assert cfg.logging.level == "INFO"
+        assert cfg.logging.file == "./data/app.log"
+        assert cfg.logging.format == "text"
+        assert cfg.logging.max_bytes == 10_485_760
+        assert cfg.logging.backup_count == 2
+
+    def test_logging_custom_values(self):
+        """Given: custom logging config. When: AppConfig is loaded.
+        Then: custom values are preserved."""
+        raw = {
+            "logging": {"max_bytes": 5_242_880, "backup_count": 5},
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.logging.max_bytes == 5_242_880
+        assert cfg.logging.backup_count == 5
+
+    def test_logging_rejects_unknown_key(self):
+        """Given: unknown key in logging config.
+        When: AppConfig is loaded. Then: ValidationError is raised."""
+        with pytest.raises(ValueError):
+            AppConfig(logging={"unknown_key": 123})
 
 
 class TestCORSConfig:

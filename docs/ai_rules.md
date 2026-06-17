@@ -1,4 +1,6 @@
 # AI Rules
+> Version: 2026-06-17
+> Next review: 2026-09-17
 
 ## 0. Ground Truth
 
@@ -97,18 +99,25 @@ Response format:
 2. Changes -- file path + full content or FIND/REPLACE
 3. Verification -- pytest commands, test update needed?
 
-**FIND/REPLACE format:** Always include 2-3 lines of unchanged context before and after. Use strict markers:
-```python
-<<<<<<< FIND
-def old_function():
-    pass
-<<<<<<<=>>>>>>>
-def new_function():
-    # new logic
-    pass
->>>>>>> REPLACE
+**FIND/REPLACE format:** Two separate fenced blocks per change. The user copies each block directly into editor find/replace.
+
+```find:src/path/to/file.py
+# 2 lines of unchanged context ABOVE
+OLD code exactly as in file
+# 2 lines of unchanged context BELOW
 ```
-If the change exceeds 15 lines, output the full file content or split into multiple small blocks.
+
+```replace:src/path/to/file.py
+# 2 lines of unchanged context ABOVE
+NEW replacement code
+# 2 lines of unchanged context BELOW
+```
+
+Rules:
+- Labels `find:` and `replace:` are mandatory and must include the file path.
+- Content inside blocks must match the original file EXACTLY.
+- No other text between the two blocks.
+- If change exceeds 10 lines, output the full file as `replace:` block only.
 
 File review checklist (output findings only, skip if clean):
 - LANGUAGE: No Cyrillic in code/comments/docstrings (domain constants exempt)
@@ -142,7 +151,7 @@ Feature conflicts with Absolute Constraint:
 - `docs/` is source of truth. Code must match docs. If conflict, update docs first.
 - When proposing core change, explain: what breaks, what improves, alternatives.
 
-## FastAPI DI and Ruff type-checking rules
+### 11.1. FastAPI DI and Ruff type-checking rules
 
 With `from __future__ import annotations`, all annotations are strings
 at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
@@ -157,3 +166,27 @@ at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
 
 Do NOT use `request: Any` — breaks FastAPI DI with 422.
 Do NOT move `Request` under `TYPE_CHECKING` — same result.
+
+## 12. Rule Self-Check
+
+Before outputting code, verify:
+- [ ] All changed files listed in Output Protocol
+- [ ] No rule from Section 2 (Absolute Constraints) violated
+- [ ] If >3 files changed, split proposed or get confirmation
+- [ ] Tests updated for new functionality
+
+## 13. Technology Decay
+
+When a technology in the stack becomes obsolete:
+1. Mark related config fields as deprecated in `AppConfig` with `deprecated=True` (Pydantic v2)
+2. Add backward-compat loader in `model_validator(mode="before")`
+3. Remove only after 2 major versions or 1 year, whichever is longer
+4. Update `docs/drift.md` with migration path
+
+## 14. Rule Evolution
+
+These rules themselves change:
+- Proposed changes go to `docs/ai_rules_proposed.md`
+- User approves -> move to this file, bump `rules_version` in header
+- Rejected ideas stay in `proposed.md` with reason for rejection
+- Review rules quarterly or after 5+ violations in one month

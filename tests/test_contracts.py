@@ -858,3 +858,96 @@ class TestAdapterRegistry:
 
         registry = self._get_registry()
         assert registry["reranker"]["null"] is NullReranker
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestPortKwargsBan (runtime contract)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestPortKwargsBan:
+    """Contract: port abstract methods must not use **kwargs."""
+
+    def _get_port_methods(self) -> list[tuple[str, str, inspect.Signature]]:
+        """Return (port_name, method_name, signature) for all port methods."""
+        from ai_assistant.core.ports import (
+            IChatStorage,
+            IChunker,
+            IEmbedder,
+            ILLM,
+            IReranker,
+            IVectorStore,
+        )
+
+        ports = {
+            "ILLM": ILLM,
+            "IEmbedder": IEmbedder,
+            "IVectorStore": IVectorStore,
+            "IReranker": IReranker,
+            "IChatStorage": IChatStorage,
+            "IChunker": IChunker,
+        }
+        methods: list[tuple[str, str, inspect.Signature]] = []
+        for name, cls in ports.items():
+            for method_name, method in inspect.getmembers(
+                cls, predicate=inspect.isfunction
+            ):
+                if getattr(method, "__isabstractmethod__", False):
+                    sig = inspect.signature(method)
+                    methods.append((name, method_name, sig))
+        return methods
+
+    def test_no_kwargs_in_port_methods(self):
+        """Given: all abstract port methods.
+        When: signatures are inspected.
+        Then: no **kwargs parameters.
+        """
+        violations = []
+        for port_name, method_name, sig in self._get_port_methods():
+            for param in sig.parameters.values():
+                if param.kind == inspect.Parameter.VAR_KEYWORD:
+                    violations.append(f"{port_name}.{method_name} has **{param.name}")
+        assert not violations, f"**kwargs banned in port methods: {violations}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestPortReturnTypes (runtime contract)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestPortReturnTypes:
+    """Contract: port methods have consistent return type annotations."""
+
+    def test_embedder_embed_returns_list_of_lists(self):
+        """Given: IEmbedder.embed signature.
+        When: return annotation inspected.
+        Then: returns list[list[float]].
+        """
+        from ai_assistant.core.ports.embedder import IEmbedder
+
+        sig = inspect.signature(IEmbedder.embed)
+        assert sig.return_annotation == "list[list[float]]"
+
+    def test_vector_store_search_returns_list_of_chunks(self):
+        """Given: IVectorStore.search signature.
+        When: return annotation inspected.
+        Then: returns list[Chunk].
+        """
+        from ai_assistant.core.ports.vector_store import IVectorStore
+
+        sig = inspect.signature(IVectorStore.search)
+        assert "list[Chunk]" in str(sig.return_annotation)
+
+    def test_llm_complete_returns_assistant_message(self):
+        """Given: ILLM.complete signature.
+        When: return annotation inspected.
+        Then: returns AssistantMessage.
+        """
+        from ai_assistant.core.ports.llm import ILLM
+
+        sig = inspect.signature(ILLM.complete)
+        assert "AssistantMessage" in str(sig.return_annotation)

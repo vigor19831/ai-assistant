@@ -42,10 +42,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log_level = log_cfg.level if log_cfg else ("DEBUG" if config.debug else "INFO")
     log_file = log_cfg.file if log_cfg else None
     log_fmt = log_cfg.format if log_cfg else "text"
+    max_bytes = log_cfg.max_bytes if log_cfg else 10_485_760
+    backup_count = log_cfg.backup_count if log_cfg else 2
     setup_logging(
         level=log_level,
         log_file=log_file,
         fmt=log_fmt,
+        max_bytes=max_bytes,
+        backup_count=backup_count,
     )
 
     if config.security.api_key and get_expected_api_key() is None:

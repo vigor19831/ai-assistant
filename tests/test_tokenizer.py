@@ -282,5 +282,5 @@ class TestAsyncTokenizer:
         mock_enc = MagicMock()
         mock_enc.encode.return_value = [1, 2, 3]
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=mock_enc):
-            result = await async_count_tokens("hello", model="custom", local_dir="/tmp/tok")
+            result = await async_count_tokens("hello", model="custom", local_dir=".pytest_tmp/tok")
             assert result == 3

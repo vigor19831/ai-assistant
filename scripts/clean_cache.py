@@ -13,7 +13,6 @@ import os
 import shutil
 import stat
 import sys
-import tempfile
 from pathlib import Path
 
 # ── Configuration ──
@@ -45,6 +44,8 @@ SAFE_PATTERNS: list[str] = [
     "*.bak",
     "*.orig",
     "pip-wheel-metadata",
+    ".test_tmp",          # ← тестовая временная папка в корне проекта
+    ".pytest_tmp",        # ← pytest tmp_path fixture artifacts
 ]
 
 NEVER_TOUCH: set[str] = {
@@ -58,12 +59,6 @@ NEVER_TOUCH: set[str] = {
     "README_DEV.md",
     "AI_RULES.md",
 }
-
-# Top-level temp patterns (shallow scan in system temp)
-SYSTEM_TEMP_PATTERNS: list[str] = ["test.db", "pytest-*"]
-
-# Deep-scan directories inside system temp
-SYSTEM_TEMP_DEEP_DIRS: list[str] = ["tmp_*"]
 
 
 # ── Logic ──
@@ -91,37 +86,11 @@ def find_targets(root: Path, patterns: list[str]) -> list[Path]:
     return sorted(targets)
 
 
-def find_system_temp_targets() -> list[Path]:
-    temp_dir = Path(tempfile.gettempdir())
-    targets: set[Path] = set()
-
-    # Shallow scan for top-level patterns
-    for pattern in SYSTEM_TEMP_PATTERNS:
-        for p in temp_dir.glob(pattern):
-            targets.add(p.resolve())
-
-    # Deep scan inside temp directories
-    for pattern in SYSTEM_TEMP_DEEP_DIRS:
-        for p in temp_dir.glob(pattern):
-            resolved = p.resolve()
-            if resolved.is_dir():
-                for db in resolved.rglob("test.db"):
-                    targets.add(db.resolve())
-                for db in resolved.rglob("*.db"):
-                    if "test" in db.name.lower():
-                        targets.add(db.resolve())
-            else:
-                targets.add(resolved)
-
-    return sorted(targets)
-
-
 def format_size(path: Path | int) -> str:
     if isinstance(path, int):
         size = float(path)
     elif isinstance(path, Path):
         try:
-            # Use lstat for symlinks (size of symlink itself, not target)
             if path.is_symlink():
                 size = float(path.lstat().st_size)
             elif path.is_file():
@@ -191,10 +160,10 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
     print(f"  {title}")
     print(f"{'─' * 60}")
     for d in dirs:
-        rel = str(d.relative_to(root)) if root and d.is_relative_to(root) else str(d)
+        rel = str(d.relative_to(root)) if root and _is_relative_to(d, root) else str(d)
         print(f"  [DIR]  {rel:<50} {format_size(d):>10}")
     for f in files:
-        rel = str(f.relative_to(root)) if root and f.is_relative_to(root) else str(f)
+        rel = str(f.relative_to(root)) if root and _is_relative_to(f, root) else str(f)
         print(f"  [FILE] {rel:<50} {format_size(f):>10}")
     total = 0
     for t in targets:
@@ -213,30 +182,23 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
     print(f"  Total: {len(dirs)} dirs, {len(files)} files  ({format_size(total)})")
 
 
-def _scan_all(root: Path) -> list[Path]:
-    all_targets: list[Path] = []
-    project_targets = find_targets(root, SAFE_PATTERNS)
-    if project_targets:
-        print_section("Project", project_targets, root)
-        all_targets.extend(project_targets)
-    system_targets = find_system_temp_targets()
-    if system_targets:
-        print_section(f"System Temp  ({tempfile.gettempdir()})", system_targets)
-        all_targets.extend(system_targets)
-    return all_targets
+def _is_relative_to(path: Path, other: Path) -> bool:
+    """Polyfill for Path.is_relative_to (Python 3.9+)."""
+    try:
+        path.relative_to(other)
+        return True
+    except ValueError:
+        return False
 
 
 def _detect_project_root() -> Path:
-    """Find project root or abort."""
-    dev_root = Path(__file__).parent.parent.resolve()
-    candidates = [
-        dev_root,
-        dev_root.parent,
-    ]
-    for candidate in candidates:
-        if (candidate / "src" / "ai_assistant").is_dir():
-            return candidate
-    print("ERROR: Could not detect project root (no src/ai_assistant found).", file=sys.stderr)
+    """Find project root by looking for pyproject.toml or .git."""
+    current = Path(__file__).resolve().parent
+    while current.parent != current:
+        if (current / "pyproject.toml").exists() or (current / ".git").exists():
+            return current
+        current = current.parent
+    print("ERROR: Could not detect project root.", file=sys.stderr)
     sys.exit(1)
 
 
@@ -253,26 +215,25 @@ def main() -> int:
     except EOFError:
         ans = "2"
 
-    if ans == "2":
-        all_targets = _scan_all(root)
-        if not all_targets:
-            print("Nothing to clean — everything is clean.")
-        return 0
-
-    # ans == "1" or default — delete without confirmation
-    all_targets = _scan_all(root)
-    if not all_targets:
+    targets = find_targets(root, SAFE_PATTERNS)
+    if not targets:
         print("Nothing to clean — everything is clean.")
         return 0
 
+    print_section("Project", targets, root)
+
+    if ans == "2":
+        return 0
+
+    # ans == "1" or default — delete
     print(f"\n{'=' * 60}")
     print("Deleting...")
     deleted = 0
     skipped = 0
     failed = 0
-    for target in all_targets:
+    for target in targets:
         ok, reason = delete_target(target)
-        rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
+        rel = str(target.relative_to(root)) if _is_relative_to(target, root) else str(target)
         if ok:
             print(f"  [OK]   {rel}")
             deleted += 1

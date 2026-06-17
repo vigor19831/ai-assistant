@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-16 05:01:46 UTC | **Mode:** `compact`
-> **Metrics:** 109 files | 91 Python | 16,195 LOC
-> **Full:** 48 | **Signatures:** 22 | **Listed:** 32
+> **Generated:** 2026-06-17 05:46:12 UTC | **Mode:** `compact`
+> **Metrics:** 112 files | 95 Python | 18,125 LOC
+> **Full:** 48 | **Signatures:** 23 | **Listed:** 34
 
 ---
 
@@ -99,6 +99,8 @@ All rights reserved. For personal use only.
 > Auto-extracted from: `ai_rules.md`
 ```markdown
 # AI Rules
+> Version: 2026-06-17
+> Next review: 2026-09-17
 
 ## 0. Ground Truth
 
@@ -197,18 +199,25 @@ Response format:
 2. Changes -- file path + full content or FIND/REPLACE
 3. Verification -- pytest commands, test update needed?
 
-**FIND/REPLACE format:** Always include 2-3 lines of unchanged context before and after. Use strict markers:
-```python
-<<<<<<< FIND
-def old_function():
-    pass
-<<<<<<<=>>>>>>>
-def new_function():
-    # new logic
-    pass
->>>>>>> REPLACE
+**FIND/REPLACE format:** Two separate fenced blocks per change. The user copies each block directly into editor find/replace.
+
+```find:src/path/to/file.py
+# 2 lines of unchanged context ABOVE
+OLD code exactly as in file
+# 2 lines of unchanged context BELOW
 ```
-If the change exceeds 15 lines, output the full file content or split into multiple small blocks.
+
+```replace:src/path/to/file.py
+# 2 lines of unchanged context ABOVE
+NEW replacement code
+# 2 lines of unchanged context BELOW
+```
+
+Rules:
+- Labels `find:` and `replace:` are mandatory and must include the file path.
+- Content inside blocks must match the original file EXACTLY.
+- No other text between the two blocks.
+- If change exceeds 10 lines, output the full file as `replace:` block only.
 
 File review checklist (output findings only, skip if clean):
 - LANGUAGE: No Cyrillic in code/comments/docstrings (domain constants exempt)
@@ -242,7 +251,7 @@ Feature conflicts with Absolute Constraint:
 - `docs/` is source of truth. Code must match docs. If conflict, update docs first.
 - When proposing core change, explain: what breaks, what improves, alternatives.
 
-## FastAPI DI and Ruff type-checking rules
+### 11.1. FastAPI DI and Ruff type-checking rules
 
 With `from __future__ import annotations`, all annotations are strings
 at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
@@ -258,6 +267,30 @@ at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
 Do NOT use `request: Any` — breaks FastAPI DI with 422.
 Do NOT move `Request` under `TYPE_CHECKING` — same result.
 
+## 12. Rule Self-Check
+
+Before outputting code, verify:
+- [ ] All changed files listed in Output Protocol
+- [ ] No rule from Section 2 (Absolute Constraints) violated
+- [ ] If >3 files changed, split proposed or get confirmation
+- [ ] Tests updated for new functionality
+
+## 13. Technology Decay
+
+When a technology in the stack becomes obsolete:
+1. Mark related config fields as deprecated in `AppConfig` with `deprecated=True` (Pydantic v2)
+2. Add backward-compat loader in `model_validator(mode="before")`
+3. Remove only after 2 major versions or 1 year, whichever is longer
+4. Update `docs/drift.md` with migration path
+
+## 14. Rule Evolution
+
+These rules themselves change:
+- Proposed changes go to `docs/ai_rules_proposed.md`
+- User approves -> move to this file, bump `rules_version` in header
+- Rejected ideas stay in `proposed.md` with reason for rejection
+- Review rules quarterly or after 5+ violations in one month
+
 ```
 
 ---
@@ -266,12 +299,13 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-16 05:01 UTC
+> Auto-generated from source code. Updated: 2026-06-17 05:46 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
 |-----------|-----------|---------|----------|------|
 | `core.retry` | `SystemExit/KeyboardInterrupt` | raise | Critical | 49 |
+| `tests.test_retry` | `KeyboardInterrupt` | Raised KeyboardInterrupt | Critical | 132 |
 | `adapters.chunker_simple` | `ValueError` | chunk_size must be > 0, got {...} | High | 24 |
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap must be >= 0, got {...} | High | 26 |
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High | 28 |
@@ -281,7 +315,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High | 63 |
 | `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High | 69 |
 | `adapters.factory` | `ValueError` | No {...} adapter registered for '{...}' | High | 73 |
-| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 165 |
+| `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 174 |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 84 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 133 |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High | 182 |
@@ -291,30 +325,33 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 324 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 158 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 251 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 253 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 255 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 257 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 259 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 261 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 263 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 282 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 253 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 255 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 257 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 259 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 261 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 263 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 265 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 284 |
 | `api.deps` | `ValueError` | Unknown step: {...} | High | 99 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
-| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 271 |
-| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 298 |
+| `core.config` | `ValueError` | path must be non-empty | High | 177 |
+| `core.config` | `ValueError` | path must be relative, got: {...} | High | 179 |
+| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 288 |
+| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 315 |
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
-| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 80 |
-| `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 85 |
+| `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 84 |
+| `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 89 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
+| `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 283 |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 380 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 211 |
-| `tests.test_api` | `HTTPException` | Unknown error | High | 1425 |
-| `tests.test_api` | `RuntimeError` | boom | High | 1490 |
+| `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
+| `tests.test_api` | `RuntimeError` | boom | High | 1494 |
 | `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
@@ -323,33 +360,39 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `tests.test_pipeline` | `RuntimeError` | fail | High | 612 |
 | `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 634 |
 | `tests.test_pipeline` | `ValueError` | permanent | High | 589 |
+| `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
+| `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
+| `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
+| `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
 | `tests.test_rag` | `HTTPException` | Unknown error | High | 178 |
+| `tests.test_retry` | `exc` | fail #{...} | High | 38 |
+| `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 42 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 53 |
-| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium | 95 |
-| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 164 |
-| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 229 |
-| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning( | Medium | 247 |
-| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 86 |
+| `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium | 96 |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium | 173 |
+| `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium | 246 |
+| `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning( | Medium | 264 |
+| `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 87 |
 | `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception( | Medium | 79 |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 91 |
 | `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 89 |
 | `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 303 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 220 |
-| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 81 |
-| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 68 |
-| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 110 |
-| `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium | 130 |
-| `api.lifespan` | `TimeoutError` | logger.warning( | Medium | 101 |
-| `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium | 128 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 222 |
+| `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 85 |
+| `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 72 |
+| `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 114 |
+| `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium | 134 |
+| `api.lifespan` | `TimeoutError` | logger.warning( | Medium | 105 |
+| `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium | 132 |
 | `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
-| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 297 |
+| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 314 |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 59 |
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
-| `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 116 |
+| `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 120 |
 | `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 364 |
 | `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 130 |
 | `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 171 |
@@ -359,7 +402,7 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 371 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
-| `core.retry` | `last_exception` | Raised last_exception | Medium | 64 |
+| `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
 | `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 123 |
 | `core.utils` | `Exception` | pass | Medium | 79 |
 | `core.utils` | `Exception` | if _cjk_ratio(text) > 0.3: | Medium | 126 |
@@ -387,14 +430,16 @@ Do NOT move `Request` under `TYPE_CHECKING` — same result.
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 141 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 241 |
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 270 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 301 |
-| `features.rag.handlers` | `Exception` | return { | Medium | 339 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 384 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 302 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 340 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 386 |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 173 |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
+| `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
+| `tests.test_logger` | `OSError` | disk full | Low | 214 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.
 
@@ -464,6 +509,7 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
     .gitignore
     README.md
     config.yaml
+    launcher.py
     pyproject.toml
     run.py
 docs/
@@ -475,20 +521,16 @@ docs/
     todo.md
     todo_done.md
 scripts/
-    audit_project.py
+    check_all.py
     check_llm.py
-    check_mypy.py
     check_rag.py
-    check_ruff.py
     clean_cache.py
     context_build.py
     download_tokenizers.py
     error_taxonomy_build.py
     index_documents.py
     kill.py
-    launcher.py
     open_shell.py
-    run_all_tests.py
     structure.py
 src/
     ai_assistant/
@@ -570,7 +612,6 @@ src/
 tests/
     config.test.yaml
     conftest.py
-    pytest.ini
     test_adapters.py
     test_api.py
     test_chat.py
@@ -579,10 +620,17 @@ tests/
     test_domain.py
     test_e2e.py
     test_integration.py
+    test_logger.py
+    test_metrics.py
     test_pipeline.py
     test_prompts.py
+    test_properties.py
     test_rag.py
+    test_resilience.py
+    test_retry.py
     test_smoke.py
+    test_stateful_ports.py
+    test_static.py
     test_tokenizer.py
 ```
 
@@ -727,7 +775,7 @@ tests/
   - → `ai_assistant.core.ports.llm: Message`
   - → `ai_assistant.core.prompts: get_prompt`
   - → `ai_assistant.core.retry: with_retry`
-  - → `ai_assistant.core.utils: async_count_tokens, count_tokens`
+  - → `ai_assistant.core.utils: async_count_tokens`
 - `src/ai_assistant/core/ports/chunker.py`
   - → `ai_assistant.core.domain.configs: ChunkerConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, Document`
@@ -772,7 +820,6 @@ tests/
 - `src/ai_assistant/features/rag/handlers.py`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.api.deps: InitializedAppState, get_state`
-  - → `ai_assistant.core.constants: DOCUMENTS_ROOT`
   - → `ai_assistant.core.domain.errors: LLM_UNAVAILABLE`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.query_parser: parse_rag_query`
@@ -796,8 +843,24 @@ tests/
   - → `ai_assistant.api.router: assemble_routers`
   - → `ai_assistant.core.config: CORSConfig, load_config`
 - `tests/conftest.py`
+  - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
+  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
+  - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
+  - → `ai_assistant.adapters.llm_mock: MockLLM`
+  - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
+  - → `ai_assistant.adapters.reranker_api: APIReranker`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
+  - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
+  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
   - → `ai_assistant.api.deps: InitializedAppState`
   - → `ai_assistant.core.config: AppConfig`
+  - → `ai_assistant.core.domain.configs: ChunkerConfigData`
+  - → `ai_assistant.core.domain.configs: EmbedderConfigData`
+  - → `ai_assistant.core.domain.configs: LLMConfigData`
+  - → `ai_assistant.core.domain.configs: RerankerConfigData`
+  - → `ai_assistant.core.domain.configs: StorageConfigData`
+  - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.ports.reranker: RerankResult`
   - → `ai_assistant.core: prompts`
@@ -808,6 +871,7 @@ tests/
   - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.adapters.llm_mock: MockLLM`
+  - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
   - → `ai_assistant.adapters.reranker_null: NullReranker`
   - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
@@ -818,6 +882,7 @@ tests/
   - → `ai_assistant.core.domain.errors: AdapterError`
   - → `ai_assistant.core.domain.errors: VersionMismatchError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.domain.messages: ToolMessage`
   - → `ai_assistant.core.ports.initializable: IInitializable`
   - → `ai_assistant.core.ports.reranker: RerankResult`
   - → `ai_assistant.core.ports.storage: IChatStorage`
@@ -828,7 +893,8 @@ tests/
   - → `ai_assistant.api.deps: AppState, InitializedAppState, _STEP_MAP, _build_step_funcs, get_state, init_adapters`
   - → `ai_assistant.api.lifespan: _async_cleanup, _load_config, lifespan`
   - → `ai_assistant.api.middleware: MetricsMiddleware`
-  - → `ai_assistant.api.router: _OAI_TAG, _ROUTERS, assemble_routers`
+  - → `ai_assistant.api.router: _ROOT_TAGS`
+  - → `ai_assistant.api.router: _ROUTERS, assemble_routers`
   - → `ai_assistant.api.security: SECURITY_MAX_BODY, bearer_scheme, check_request_size, get_expected_api_key, require_api_key, set_api_key`
   - → `ai_assistant.api.security: set_api_key`
   - → `ai_assistant.api: admin`
@@ -879,6 +945,7 @@ tests/
   - → `ai_assistant.core.ports.storage: IChatStorage`
   - → `ai_assistant.core.ports.vector_store: IVectorStore`
   - → `ai_assistant.core.ports: IChatStorage, IChunker, IClosable, IEmbedder, ILLM, IReranker, IVectorStore`
+  - → `ai_assistant.core.ports: IChatStorage, IChunker, IEmbedder, ILLM, IReranker, IVectorStore`
 - `tests/test_domain.py`
   - → `ai_assistant.core.constants: FROZEN_NO_INFO_PHRASES`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
@@ -895,7 +962,6 @@ tests/
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.features.chat.manager: ChatManager`
   - → `ai_assistant.features.rag: handlers`
-  - → `ai_assistant.features.rag: indexing`
   - → `ai_assistant.main: create_app`
 - `tests/test_integration.py`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
@@ -917,6 +983,10 @@ tests/
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
   - → `ai_assistant.core.pipeline_steps: build_context, embed_query, generate, hyde_query, rerank, retrieve`
+- `tests/test_logger.py`
+  - → `ai_assistant.core.logger: _JsonFormatter, _TextFormatter, _VALID_LEVELS, get_logger, setup_logging`
+- `tests/test_metrics.py`
+  - → `ai_assistant.core.metrics: _DEFAULT_BUCKETS, _key_str, _labels_key, _metric_line, get_metrics, get_metrics_json, increment_counter, observe_histogram`
 - `tests/test_pipeline.py`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.domain.errors: AdapterError, LLM_UNAVAILABLE`
@@ -929,6 +999,21 @@ tests/
 - `tests/test_prompts.py`
   - → `ai_assistant.core.prompts: _env_cache, _make_hashable, _render, get_prompt`
   - → `ai_assistant.core.prompts: _kwargs_to_tuple`
+- `tests/test_properties.py`
+  - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
+  - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
+  - → `ai_assistant.adapters.llm_mock: MockLLM`
+  - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.core.domain.configs: ChunkerConfigData`
+  - → `ai_assistant.core.domain.configs: EmbedderConfigData`
+  - → `ai_assistant.core.domain.configs: LLMConfigData`
+  - → `ai_assistant.core.domain.configs: RerankerConfigData`
+  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
+  - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.ports.chunker: IChunker`
+  - → `ai_assistant.core.ports.embedder: IEmbedder`
+  - → `ai_assistant.core.ports.llm: ILLM`
+  - → `ai_assistant.core.ports.reranker: IReranker`
 - `tests/test_rag.py`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
@@ -946,7 +1031,14 @@ tests/
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
   - → `ai_assistant.features.rag.manager: RAGManager`
   - → `ai_assistant.features.rag: handlers`
-  - → `ai_assistant.features.rag: indexing`
+- `tests/test_resilience.py`
+  - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
+  - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
+  - → `ai_assistant.core.domain.configs: EmbedderConfigData, LLMConfigData`
+  - → `ai_assistant.core.domain.errors: AdapterError`
+  - → `ai_assistant.core.domain.messages: UserMessage`
+- `tests/test_retry.py`
+  - → `ai_assistant.core.retry: with_retry, _PERMANENT_ERRORS`
 - `tests/test_smoke.py`
   - → `ai_assistant`
   - → `ai_assistant.adapters.factory: __all__`
@@ -957,7 +1049,17 @@ tests/
   - → `ai_assistant.api: lifespan`
   - → `ai_assistant.core.config: load_config, AppConfig`
   - → `ai_assistant.core.logger: get_logger`
+  - → `ai_assistant.core.logger: setup_logging`
   - → `ai_assistant.core.ports.tools: ITool, ToolSpec, ToolResult`
+- `tests/test_stateful_ports.py`
+  - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
+  - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
+  - → `ai_assistant.core.domain.configs: VectorStoreConfigData, StorageConfigData`
+  - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
+  - → `ai_assistant.core.ports.storage: IChatStorage`
+  - → `ai_assistant.core.ports.vector_store: IVectorStore`
+- `tests/test_static.py`
+  - → `ai_assistant.api.static: mount_static`
 - `tests/test_tokenizer.py`
   - → `ai_assistant.core.utils: _resolve_tokenizer_dir, async_count_tokens, async_get_tokenizer, count_tokens, get_tokenizer`
 
@@ -1016,6 +1118,7 @@ tests/
 - `src/ai_assistant/features/rag/schemas.py`
 
 ### Signatures Only
+- `launcher.py`
 - `run.py`
 - `src/ai_assistant/__init__.py`
 - `src/ai_assistant/adapters/__init__.py`
@@ -1041,24 +1144,19 @@ tests/
 
 ### Listed Only (no content)
 - `.gitattributes`
-- `scripts/audit_project.py`
+- `scripts/check_all.py`
 - `scripts/check_llm.py`
-- `scripts/check_mypy.py`
 - `scripts/check_rag.py`
-- `scripts/check_ruff.py`
 - `scripts/clean_cache.py`
 - `scripts/context_build.py`
 - `scripts/download_tokenizers.py`
 - `scripts/error_taxonomy_build.py`
 - `scripts/index_documents.py`
 - `scripts/kill.py`
-- `scripts/launcher.py`
 - `scripts/open_shell.py`
-- `scripts/run_all_tests.py`
 - `scripts/structure.py`
 - `tests/config.test.yaml`
 - `tests/conftest.py`
-- `tests/pytest.ini`
 - `tests/test_adapters.py`
 - `tests/test_api.py`
 - `tests/test_chat.py`
@@ -1067,10 +1165,17 @@ tests/
 - `tests/test_domain.py`
 - `tests/test_e2e.py`
 - `tests/test_integration.py`
+- `tests/test_logger.py`
+- `tests/test_metrics.py`
 - `tests/test_pipeline.py`
 - `tests/test_prompts.py`
+- `tests/test_properties.py`
 - `tests/test_rag.py`
+- `tests/test_resilience.py`
+- `tests/test_retry.py`
 - `tests/test_smoke.py`
+- `tests/test_stateful_ports.py`
+- `tests/test_static.py`
 - `tests/test_tokenizer.py`
 
 ---
@@ -1113,8 +1218,19 @@ ENV/
 *.swp
 *.swo
 *~
+
+# Test / coverage artifacts
 .coverage
 htmlcov/
+.pytest_cache/
+tests/.pytest_cache/
+.test_tmp/
+.pytest_tmp/
+.hypothesis/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
 
 # Data
 data/
@@ -1126,8 +1242,9 @@ data/
 .env
 .env.local
 
-# Logs
+# Logs (all variants)
 *.log
+tests_run_*.log
 
 # User content (never commit)
 sources/
@@ -1137,13 +1254,10 @@ vendor/
 src/*.egg-info/
 src/**/*.egg-info/
 
-# runtime
+# Runtime / scripts
 scripts/*.pid
 scripts/*.log
-tests/.pytest_cache/
-tests/tests_run_*.log
 docs/context_build_*.md
-tests/tests_run_*.log
 MagicMock/
 config.yaml
 
@@ -1280,6 +1394,7 @@ embedder:
   model: embeddinggemma-300m-q8_0
   dim: 768
   timeout: 60.0
+connect_timeout: 5.0  # Таймаут на установку TCP-соединения (None = использовать timeout)
   n_gpu_layers: 0        # -1 = все слои на GPU, 0 = только CPU, 10 = 10 слоёв на GPU
   n_batch: 512            # размер батча для обработки
   n_ubatch: 64            # микро-батч
@@ -1306,6 +1421,7 @@ llm:
   frequency_penalty: 0.0
   stop_sequences: []
   timeout: 300.0
+connect_timeout: 5.0  # Таймаут на установку TCP-соединения (None = использовать timeout)
   server_context_size: 4096
   # === GPU / Performance ===
   n_gpu_layers: 99        # -1 = все слои на GPU, 0 = только CPU
@@ -1387,6 +1503,8 @@ logging:
   level: "INFO"       # DEBUG, INFO, WARNING, ERROR
   file: "./data/app.log"
   format: "text"      # "text" or "json"
+  max_bytes: 10485760 # 10 MB per log file before rotation
+  backup_count: 2     # keep 2 backup files (app.log.1, app.log.2)
 
 ```
 
@@ -1422,16 +1540,13 @@ dependencies = [
 dev = [
     "pytest>=8.2.0,<9.0.0",
     "pytest-asyncio>=0.23.0,<1.0.0",
+    "pytest-timeout>=2.3.0,<3.0.0",
     "respx>=0.21.0,<1.0.0",
+    "hypothesis>=6.100.0,<7.0.0",
     "ruff>=0.4.0,<1.0.0",
     "mypy>=1.10.0,<2.0.0",
     "types-PyYAML>=6.0.12,<7.0.0",
     "types-aiofiles>=23.2.0,<24.0.0",
-    "pre-commit>=3.7.0,<4.0.0",
-    "pytest-timeout>=2.3.0,<3.0.0",
-    "mutmut>=2.4.0,<3.0.0",
-    "hypothesis>=6.100.0,<7.0.0",
-    "vulture>=2.11,<3.0.0",
 ]
 faiss = [
     "faiss-cpu>=1.8.0,<2.0.0",
@@ -1474,15 +1589,39 @@ disallow_untyped_defs = false
 disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
+minversion = "8.2"
+addopts = "-ra -q --strict-markers --tb=short"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-timeout = 240
-addopts = "-m 'not online'"
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+markers = [
+    "online: requires running server",
+    "slow: takes >1s",
+    "smoke: smoke tests",
+    "contract: contract tests",
+    "e2e: end-to-end tests",
+    "integration: integration tests",
+    "regression: regression tests",
+]
 
 [tool.mutmut]
 paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/", "src/ai_assistant/pipeline/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 backup = false
+
+[tool.coverage.run]
+branch = true
+source = ["src/ai_assistant"]
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
 
 ```
 
@@ -1675,6 +1814,7 @@ def _embedder_data(cfg: AppConfig) -> EmbedderConfigData:
         api_key=c.api_key,
         dim=c.dim,
         timeout=c.timeout,
+        connect_timeout=c.connect_timeout,
         n_gpu_layers=c.n_gpu_layers,
         n_batch=c.n_batch,
         n_ubatch=c.n_ubatch,
@@ -1692,6 +1832,7 @@ def _llm_data(cfg: AppConfig) -> LLMConfigData:
         max_tokens=c.max_tokens,
         temperature=c.temperature,
         timeout=c.timeout,
+        connect_timeout=c.connect_timeout,
         server_context_size=c.server_context_size,
         top_p=c.top_p,
         top_k=c.top_k,
@@ -1883,10 +2024,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log_level = log_cfg.level if log_cfg else ("DEBUG" if config.debug else "INFO")
     log_file = log_cfg.file if log_cfg else None
     log_fmt = log_cfg.format if log_cfg else "text"
+    max_bytes = log_cfg.max_bytes if log_cfg else 10_485_760
+    backup_count = log_cfg.backup_count if log_cfg else 2
     setup_logging(
         level=log_level,
         log_file=log_file,
         fmt=log_fmt,
+        max_bytes=max_bytes,
+        backup_count=backup_count,
     )
 
     if config.security.api_key and get_expected_api_key() is None:
@@ -2029,13 +2174,13 @@ class MetricsMiddleware(BaseHTTPMiddleware):
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import Any
+
+from fastapi import APIRouter, Depends, Response
 
 from ai_assistant.api import admin
 from ai_assistant.api.security import require_api_key
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
-
-from fastapi import Response
 
 # Explicit feature handler imports — import errors surface at compile time
 # instead of being deferred to the first HTTP request.
@@ -2321,6 +2466,7 @@ class EmbedderConfig(BaseSettings):
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
+    connect_timeout: float | None = None
     n_gpu_layers: int = 0
     n_batch: int = 512
     n_ubatch: int = 64
@@ -2338,6 +2484,7 @@ class LLMConfig(BaseSettings):
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout: float = 300.0
+    connect_timeout: float | None = None
     stop_sequences: list[str] = Field(default_factory=list)
     system_message: str | None = None
     # === Sampling ===
@@ -2413,6 +2560,19 @@ class RAGConfig(BaseSettings):
     default_namespace: str = "default"
     relevance_threshold: float = 0.3
     max_tool_iterations: int = 5
+    documents_root: str = "sources"
+    chat_exports_root: str = "sources"
+
+    @field_validator("documents_root", "chat_exports_root")
+    @classmethod
+    def _strip_trailing_slash(cls, v: str) -> str:
+        """Normalize path: strip trailing slashes, reject absolute paths."""
+        v = v.strip()
+        if not v:
+            raise ValueError("path must be non-empty")
+        if v.startswith("/") or v.startswith("\\") or v.startswith("~"):
+            raise ValueError(f"path must be relative, got: {v}")
+        return v.rstrip("/").rstrip("\\")
 
 
 class SecurityConfig(BaseSettings):
@@ -2438,6 +2598,8 @@ class LoggingConfig(BaseSettings):
     level: str = "INFO"
     file: str | None = "./data/app.log"
     format: str = "text"  # "text" or "json"
+    max_bytes: int = 10_485_760  # 10 MB
+    backup_count: int = 2
 
 
 class AppConfig(BaseSettings):
@@ -2644,6 +2806,7 @@ class EmbedderConfigData:
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
+    connect_timeout: float | None = None
     n_gpu_layers: int = 0
     n_batch: int = 512
     n_ubatch: int = 64
@@ -2659,6 +2822,7 @@ class LLMConfigData:
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout: float = 300.0
+    connect_timeout: float | None = None
     server_context_size: int | None = None
     top_p: float = 0.95
     top_k: int = 40
@@ -3007,6 +3171,8 @@ def setup_logging(
     level: str = "INFO",
     log_file: str | Path | None = "./data/app.log",
     fmt: str = "text",
+    max_bytes: int = 10_485_760,
+    backup_count: int = 2,
 ) -> logging.Logger:
     """Configure application logging.
 
@@ -3014,6 +3180,8 @@ def setup_logging(
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         log_file: Path to log file, or None for console-only.
         fmt: Log format — "text" or "json".
+        max_bytes: Maximum size in bytes before rotating the log file.
+        backup_count: Number of backup files to keep.
 
     Repeated calls clear existing handlers and recreate them,
     allowing format changes at runtime (e.g., on config reload).
@@ -3050,8 +3218,8 @@ def setup_logging(
                 path.parent.mkdir(parents=True, exist_ok=True)
                 fh = logging.handlers.RotatingFileHandler(
                     path,
-                    maxBytes=10 * 1024 * 1024,
-                    backupCount=2,
+                    maxBytes=max_bytes,
+                    backupCount=backup_count,
                     encoding="utf-8",
                 )
                 fh.setFormatter(formatter)
@@ -3281,7 +3449,7 @@ from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
-from ai_assistant.core.utils import async_count_tokens, count_tokens
+from ai_assistant.core.utils import async_count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -4130,7 +4298,7 @@ class IToolRegistry(ABC):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.configs import VectorStoreConfigData
@@ -4190,9 +4358,9 @@ class IVectorStore(IClosable, ABC):
     @abstractmethod
     async def list_by_filter(
         self,
-        filters: dict[str, Any],
+        filters: dict[str, str | int | float | bool | None],
         namespace: str = "default",
-    ) -> list[tuple[str, dict[str, Any]]]:
+    ) -> list[tuple[str, dict[str, str | int | float | bool | None]]]:
         """Return (chunk_id, metadata) matching ALL filters key-values in namespace."""
         ...
 
@@ -4432,7 +4600,8 @@ def with_retry(
                             sleep_for = min(sleep_for, max_delay)
                         await asyncio.sleep(sleep_for)
                         current_delay *= backoff
-            assert last_exception is not None
+            if last_exception is None:
+                raise RuntimeError("last_exception is None after retry loop")
             raise last_exception
 
         @functools.wraps(func)
@@ -4456,7 +4625,8 @@ def with_retry(
                             sleep_for = min(sleep_for, max_delay)
                         time.sleep(sleep_for)
                         current_delay *= backoff
-            assert last_exception is not None
+            if last_exception is None:
+                raise RuntimeError("last_exception is None after retry loop")
             raise last_exception
 
         wrapper = async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
@@ -5048,13 +5218,13 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
-from ai_assistant.core.constants import DOCUMENTS_ROOT
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import parse_rag_query
@@ -5326,10 +5496,11 @@ async def save_chat(
     filename = req.filename
     content = req.content
 
-    # Save to documents folder
-    folder = DOCUMENTS_ROOT / namespace
+    # Save to chat exports folder
+    exports_root = Path(state.config.rag.chat_exports_root)
+    folder = exports_root / namespace
     folder_resolved = await asyncio.to_thread(folder.resolve)
-    docs_resolved = await asyncio.to_thread(DOCUMENTS_ROOT.resolve)
+    docs_resolved = await asyncio.to_thread(exports_root.resolve)
 
     if not folder_resolved.is_relative_to(docs_resolved):
         raise HTTPException(status_code=400, detail="Invalid namespace")
@@ -5416,6 +5587,7 @@ async def reindex_documents(
                     embedder=state.embedder,
                     vector_store=state.vector_store,
                     max_file_size=state.config.vector_store.max_document_size,
+                    documents_root=Path(state.config.rag.documents_root),
                 )
                 async with _reindex_lock:
                     _reindex_status[task_id] = {
@@ -5577,6 +5749,26 @@ class ReindexRequest(BaseModel):
 ```
 
 ## 🧩 API Signatures
+
+### `launcher.py`
+```python
+# API: launcher.py
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+def get_python(root: Path):
+
+def collect(root: Path, subdir: str):
+
+def print_menu(scripts, tests, last):
+
+def run(py, target, root, extra):
+
+def main():
+
+```
 
 ### `run.py`
 ```python
@@ -5946,10 +6138,10 @@ from ai_assistant.core.logger import get_logger
 def _read_file(path: Path):
     """Read text file with encoding fallback."""
 
-def _discover_documents(folder: str | None=None, max_file_size: int | None=None):
+def _discover_documents(folder: str | None=None, max_file_size: int | None=None, documents_root: Path | None=None):
     """Discover documents in folders. Returns {namespace: [docs]}."""
 
-async def index_folder(folder: str | None, clear: bool, chunker: Any, embedder: Any, vector_store: Any, max_file_size: int | None=None):
+async def index_folder(folder: str | None, clear: bool, chunker: Any, embedder: Any, vector_store: Any, max_file_size: int | None=None, documents_root: Path | None=None):
     """Index documents from disk folders directly into vector store.
 
 Args:
@@ -5986,7 +6178,7 @@ class RAGManager:
 from __future__ import annotations
 import os
 from typing import Annotated, Any
-from fastapi import Depends, FastAPI, Response
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from ai_assistant.api.deps import InitializedAppState, get_state

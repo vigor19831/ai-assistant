@@ -32,8 +32,19 @@ ENV/
 *.swp
 *.swo
 *~
+
+# Test / coverage artifacts
 .coverage
 htmlcov/
+.pytest_cache/
+tests/.pytest_cache/
+.test_tmp/
+.pytest_tmp/
+.hypothesis/
+
+# Type checker / linter caches
+.mypy_cache/
+.ruff_cache/
 
 # Data
 data/
@@ -45,8 +56,9 @@ data/
 .env
 .env.local
 
-# Logs
+# Logs (all variants)
 *.log
+tests_run_*.log
 
 # User content (never commit)
 sources/
@@ -56,12 +68,9 @@ vendor/
 src/*.egg-info/
 src/**/*.egg-info/
 
-# runtime
+# Runtime / scripts
 scripts/*.pid
 scripts/*.log
-tests/.pytest_cache/
-tests/tests_run_*.log
 docs/context_build_*.md
-tests/tests_run_*.log
 MagicMock/
 config.yaml

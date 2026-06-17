@@ -24,7 +24,7 @@ from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
-from ai_assistant.core.utils import async_count_tokens, count_tokens
+from ai_assistant.core.utils import async_count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence

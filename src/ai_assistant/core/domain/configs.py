@@ -18,6 +18,7 @@ class EmbedderConfigData:
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
+    connect_timeout: float | None = None
     n_gpu_layers: int = 0
     n_batch: int = 512
     n_ubatch: int = 64
@@ -33,6 +34,7 @@ class LLMConfigData:
     max_tokens: int = 4096
     temperature: float = 0.7
     timeout: float = 300.0
+    connect_timeout: float | None = None
     server_context_size: int | None = None
     top_p: float = 0.95
     top_k: int = 40

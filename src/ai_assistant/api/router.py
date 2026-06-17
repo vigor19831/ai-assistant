@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import Any
+
+from fastapi import APIRouter, Depends, Response
 
 from ai_assistant.api import admin
 from ai_assistant.api.security import require_api_key
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
-
-from fastapi import Response
 
 # Explicit feature handler imports — import errors surface at compile time
 # instead of being deferred to the first HTTP request.

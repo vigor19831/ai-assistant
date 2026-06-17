@@ -30,16 +30,18 @@ def _read_file(path: Path) -> str:
 def _discover_documents(
     folder: str | None = None,
     max_file_size: int | None = None,
+    documents_root: Path | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Discover documents in folders. Returns {namespace: [docs]}."""
     result: dict[str, list[dict[str, Any]]] = {}
+    root = Path(documents_root) if documents_root is not None else DOCUMENTS_ROOT
 
     if folder:
-        folders = [DOCUMENTS_ROOT / folder]
+        folders = [root / folder]
     else:
-        if not DOCUMENTS_ROOT.exists():
+        if not root.exists():
             return {}
-        folders = [d for d in DOCUMENTS_ROOT.iterdir() if d.is_dir()]
+        folders = [d for d in root.iterdir() if d.is_dir()]
 
     for folder_path in folders:
         namespace = folder_path.name
@@ -70,7 +72,7 @@ def _discover_documents(
             if not content.strip():
                 continue
 
-            rel_source = str(file_path.relative_to(DOCUMENTS_ROOT))
+            rel_source = str(file_path.relative_to(root))
 
             if len(content) > CHUNK_SIZE:
                 for i, start in enumerate(range(0, len(content), CHUNK_SIZE)):
@@ -111,6 +113,7 @@ async def index_folder(
     embedder: Any,
     vector_store: Any,
     max_file_size: int | None = None,
+    documents_root: Path | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -121,13 +124,14 @@ async def index_folder(
         embedder: IEmbedder instance.
         vector_store: IVectorStore instance.
         max_file_size: Max file size in bytes before skipping (guard).
+        documents_root: Root path for document folders. Falls back to DOCUMENTS_ROOT.
 
     Returns:
         Dict with results per namespace and any errors.
     """
     from ai_assistant.features.rag.manager import IndexingManager
 
-    docs_by_ns = _discover_documents(folder, max_file_size=max_file_size)
+    docs_by_ns = _discover_documents(folder, max_file_size=max_file_size, documents_root=documents_root)
     if not docs_by_ns:
         return {"success": True, "results": {}, "errors": ["No documents found"]}
 

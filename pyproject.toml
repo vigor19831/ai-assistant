@@ -28,16 +28,13 @@ dependencies = [
 dev = [
     "pytest>=8.2.0,<9.0.0",
     "pytest-asyncio>=0.23.0,<1.0.0",
+    "pytest-timeout>=2.3.0,<3.0.0",
     "respx>=0.21.0,<1.0.0",
+    "hypothesis>=6.100.0,<7.0.0",
     "ruff>=0.4.0,<1.0.0",
     "mypy>=1.10.0,<2.0.0",
     "types-PyYAML>=6.0.12,<7.0.0",
     "types-aiofiles>=23.2.0,<24.0.0",
-    "pre-commit>=3.7.0,<4.0.0",
-    "pytest-timeout>=2.3.0,<3.0.0",
-    "mutmut>=2.4.0,<3.0.0",
-    "hypothesis>=6.100.0,<7.0.0",
-    "vulture>=2.11,<3.0.0",
 ]
 faiss = [
     "faiss-cpu>=1.8.0,<2.0.0",
@@ -80,12 +77,36 @@ disallow_untyped_defs = false
 disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
+minversion = "8.2"
+addopts = "-ra -q --strict-markers --tb=short"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-timeout = 240
-addopts = "-m 'not online'"
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+markers = [
+    "online: requires running server",
+    "slow: takes >1s",
+    "smoke: smoke tests",
+    "contract: contract tests",
+    "e2e: end-to-end tests",
+    "integration: integration tests",
+    "regression: regression tests",
+]
 
 [tool.mutmut]
 paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/", "src/ai_assistant/pipeline/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 backup = false
+
+[tool.coverage.run]
+branch = true
+source = ["src/ai_assistant"]
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlcov"
