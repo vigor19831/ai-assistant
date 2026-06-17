@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-17 05:46:12 UTC | **Mode:** `compact`
-> **Metrics:** 112 files | 95 Python | 18,125 LOC
-> **Full:** 48 | **Signatures:** 23 | **Listed:** 34
+> **Generated:** 2026-06-17 11:10:47 UTC | **Mode:** `compact`
+> **Metrics:** 108 files | 93 Python | 17,945 LOC
+> **Full:** 48 | **Signatures:** 21 | **Listed:** 32
 
 ---
 
@@ -299,7 +299,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-17 05:46 UTC
+> Auto-generated from source code. Updated: 2026-06-17 11:10 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -325,46 +325,47 @@ These rules themselves change:
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 324 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 158 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 253 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 255 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 257 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 259 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 261 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 263 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 265 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 284 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 255 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 257 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 259 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 261 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 263 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 265 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 267 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 286 |
 | `api.deps` | `ValueError` | Unknown step: {...} | High | 99 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
-| `core.config` | `ValueError` | path must be non-empty | High | 177 |
-| `core.config` | `ValueError` | path must be relative, got: {...} | High | 179 |
-| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 288 |
-| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 315 |
+| `core.config` | `ValueError` | path must be non-empty | High | 179 |
+| `core.config` | `ValueError` | path must be relative, got: {...} | High | 181 |
+| `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High | 290 |
+| `core.config` | `ValueError` | Invalid YAML in {...}: {...} | High | 317 |
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
 | `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 84 |
 | `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 89 |
+| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 62 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 283 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 380 |
-| `features.rag.handlers` | `HTTPException` | Unknown error | High | 211 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
+| `features.rag.handlers` | `HTTPException` | Unknown error | High | 214 |
 | `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
 | `tests.test_api` | `RuntimeError` | boom | High | 1494 |
 | `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
-| `tests.test_pipeline` | `AdapterError` | LLM down | High | 489 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 582 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 612 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 634 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 589 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 535 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 635 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 665 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 687 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 642 |
 | `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
-| `tests.test_rag` | `HTTPException` | Unknown error | High | 178 |
+| `tests.test_rag` | `HTTPException` | Unknown error | High | 179 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
 | `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 42 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
@@ -388,18 +389,18 @@ These rules themselves change:
 | `api.lifespan` | `TimeoutError` | logger.warning( | Medium | 105 |
 | `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium | 132 |
 | `api.security` | `ValueError` | raise HTTPException( | Medium | 64 |
-| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 314 |
+| `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium | 316 |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium | 59 |
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
 | `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 120 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 364 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 130 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 171 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 236 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 301 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 329 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 371 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 380 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 127 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 170 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 237 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 303 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 343 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 387 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
@@ -421,19 +422,19 @@ These rules themselves change:
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 270 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 209 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 226 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 272 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 321 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 283 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 222 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 239 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 285 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 334 |
 | `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 53 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 141 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 241 |
-| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 270 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 302 |
-| `features.rag.handlers` | `Exception` | return { | Medium | 340 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 386 |
-| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 173 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 144 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 244 |
+| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 273 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 305 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 343 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 389 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 187 |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
@@ -461,6 +462,7 @@ These rules themselves change:
 | 5 | Fixed 2026-06-14: `ChunkMetadata` schema drift. `vector_store_faiss.py` and `vector_store_memory.py` serialized `created_at` (not in domain model) and missed `total_chunks` in FAISS `add()`. Introduced `dataclass_from_dict` in `core/utils.py` for strict deserialization. |
 | 6 | Fixed 2026-06-14: Added `get_logger` to `embedder_openai_compatible.py` and `reranker_api.py`. All `AdapterError` wraps now preceded by `logger.exception`. |
 | 7 | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py` | Duplicate HTTP client setup (httpx.AsyncClient, POST, raise_for_status, json parse) | Layer boundaries prevent shared httpx code: core/ is stdlib-only, adapters/ may only import core/*. Extracting to core/ violates stdlib-only rule. Extracting to adapters/_shared violates layer boundaries. | Accept duplication as architectural constraint. Revisit if >3 adapters share pattern. | Low |
+| 8 | `src/ai_assistant/core/pipeline_steps.py` (retrieve, rerank, generate) | `typing.cast("PipelineConfig | None", data.metadata.get("pipeline_config"))` | `PipelineData.metadata: dict[str, Any]` is untyped bag. Steps extract values by string key with no static type guarantee. Mypy requires cast; Ruff TC006 requires quoted type in cast. | Accept cast as temporary measure. Fix by structuring PipelineData metadata (TypedDict or explicit fields) — CORE CHANGE REQUIRED. See proposed fix in docs/ai_rules_proposed.md or core refactor backlog. | Low |
 
 Rule: Do not add new drift if old pattern can be fixed properly.
 
@@ -505,13 +507,10 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
 
 ## 🗂️ Structure
 ```
-    .gitattributes
     .gitignore
     README.md
     config.yaml
-    launcher.py
     pyproject.toml
-    run.py
 docs/
     ai_rules.md
     drift.md
@@ -610,7 +609,6 @@ src/
                 manager.py
                 schemas.py
 tests/
-    config.test.yaml
     conftest.py
     test_adapters.py
     test_api.py
@@ -765,10 +763,12 @@ tests/
   - → `ai_assistant.core.logger: get_logger`
 - `src/ai_assistant/core/pipeline.py`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY`
 - `src/ai_assistant/core/pipeline_steps.py`
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, LLM_UNAVAILABLE, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED, AdapterError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.metrics: increment_counter`
@@ -809,6 +809,7 @@ tests/
   - → `ai_assistant.core.domain.documents: Chunk`
   - → `ai_assistant.core.domain.errors: AdapterError`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
@@ -832,6 +833,7 @@ tests/
 - `src/ai_assistant/features/rag/manager.py`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
   - → `ai_assistant.core.domain.messages: UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
@@ -979,6 +981,7 @@ tests/
   - → `ai_assistant.core.domain.configs: ChunkerConfigData, EmbedderConfigData, LLMConfigData, RerankerConfigData, StorageConfigData, VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
@@ -992,7 +995,7 @@ tests/
   - → `ai_assistant.core.domain.errors: AdapterError, LLM_UNAVAILABLE`
   - → `ai_assistant.core.domain.errors: EMBEDDER_NOT_PROVIDED, INTERNAL_SERVER_ERROR, LLM_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, QUERY_MISSING, QUERY_TEXT_MISSING, VECTOR_STORE_NOT_PROVIDED`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
-  - → `ai_assistant.core.domain.pipeline: PipelineData`
+  - → `ai_assistant.core.domain.pipeline: PipelineConfig, PipelineData`
   - → `ai_assistant.core.pipeline_steps: build_context, embed_query, generate, hyde_query, rerank, retrieve`
   - → `ai_assistant.core.ports.reranker: RerankResult`
   - → `ai_assistant.core.retry: with_retry`
@@ -1118,8 +1121,6 @@ tests/
 - `src/ai_assistant/features/rag/schemas.py`
 
 ### Signatures Only
-- `launcher.py`
-- `run.py`
 - `src/ai_assistant/__init__.py`
 - `src/ai_assistant/adapters/__init__.py`
 - `src/ai_assistant/adapters/_registry.py`
@@ -1143,7 +1144,6 @@ tests/
 - `src/ai_assistant/main.py`
 
 ### Listed Only (no content)
-- `.gitattributes`
 - `scripts/check_all.py`
 - `scripts/check_llm.py`
 - `scripts/check_rag.py`
@@ -1155,7 +1155,6 @@ tests/
 - `scripts/kill.py`
 - `scripts/open_shell.py`
 - `scripts/structure.py`
-- `tests/config.test.yaml`
 - `tests/conftest.py`
 - `tests/test_adapters.py`
 - `tests/test_api.py`
@@ -1939,6 +1938,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         namespaces=cfg.namespaces,
         prompt_version=cfg.rag.prompt_version,
         top_k=cfg.rag.top_k,
+        token_margin_min=cfg.rag.token_margin_min,
+        token_margin_pct=cfg.rag.token_margin_pct,
     )
 
     if state.llm is None:
@@ -2560,6 +2561,8 @@ class RAGConfig(BaseSettings):
     default_namespace: str = "default"
     relevance_threshold: float = 0.3
     max_tool_iterations: int = 5
+    token_margin_min: int = 256
+    token_margin_pct: float = 0.1
     documents_root: str = "sources"
     chat_exports_root: str = "sources"
 
@@ -2995,7 +2998,25 @@ if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
 
-__all__ = ["PipelineData"]
+__all__ = ["PipelineData", "PipelineConfig"]
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineConfig:
+    """Typed configuration for RAG pipeline steps.
+
+    Mirrors a subset of RAGConfig as a stdlib dataclass
+    so that pipeline steps have a typed contract without
+    depending on Pydantic.
+    """
+
+    top_k: int = 5
+    namespace: str = "default"
+    relevance_threshold: float = 0.3
+    prompt_name: str = "rag_strict"
+    prompt_version: str = "v1"
+    token_margin_min: int = 256
+    token_margin_pct: float = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -3383,7 +3404,7 @@ def get_metrics_json() -> dict[str, Any]:
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -3391,7 +3412,25 @@ if TYPE_CHECKING:
 
     from ai_assistant.core.domain.pipeline import PipelineData
 
-__all__ = ["RAGPipeline"]
+
+@dataclass(frozen=True, slots=True)
+class PipelineConfig:
+    """Immutable per-query pipeline configuration."""
+
+    top_k: int = 5
+    namespace: str = "default"
+    relevance_threshold: float = 0.3
+    prompt_name: str = "rag_strict"
+    prompt_version: str = "v1"
+    token_margin_min: int = 256
+    token_margin_pct: float = 0.1
+
+
+class ConfigurationError(Exception):
+    """Pipeline metadata missing required keys."""
+
+
+__all__ = ["PipelineConfig", "RAGPipeline", "ConfigurationError"]
 
 
 class RAGPipeline:
@@ -3412,12 +3451,41 @@ class RAGPipeline:
             metadata: Optional metadata dict merged into data.metadata.
                 Used to inject dependencies (embedder, vector_store, etc.)
                 without coupling steps to AppState.
+
+        Raises:
+            ConfigurationError: If required metadata keys are missing for
+                the configured steps.
         """
         if metadata:
+            # Validate required keys once at entry, not in each step
+            required_keys = self._required_keys_for_steps()
+            missing = [k for k in required_keys if k not in metadata]
+            if missing:
+                raise ConfigurationError(
+                    f"Missing required metadata keys: {missing}"
+                )
             data = replace(data, metadata={**data.metadata, **metadata})
         for step in self.steps:
             data = await step(data)
         return data
+
+    def _required_keys_for_steps(self) -> set[str]:
+        """Return required metadata keys based on configured steps."""
+        from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+
+        key_map: dict[str, set[str]] = {
+            "embed_query": {"embedder"},
+            "retrieve": {"vector_store"},
+            "rerank": {"reranker"},
+            "build_context": set(),
+            "generate": {"llm", "pipeline_config"},
+            "hyde_query": {"embedder", "llm"},
+        }
+        required: set[str] = set()
+        for step_name, step_func in STEP_REGISTRY.items():
+            if any(s is step_func for s in self.steps):
+                required |= key_map.get(step_name, set())
+        return required
 
 ```
 
@@ -3431,7 +3499,7 @@ No in-place mutation.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -3445,6 +3513,7 @@ from ai_assistant.core.domain.errors import (
     AdapterError,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.pipeline import PipelineConfig
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.prompts import get_prompt
@@ -3471,10 +3540,6 @@ __all__: list[str] = [
 _logger = get_logger("pipeline.steps")
 
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
-
-# --- Token budget constants for generate() ---------------------------------
-TOKEN_MARGIN_MIN = 256  # absolute minimum tokens reserved for response
-TOKEN_MARGIN_PCT = 0.1  # fraction of context window reserved for response
 
 
 def step(
@@ -3564,8 +3629,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
     Metadata contract:
         IN:  vector_store (IVectorStore) — required.
              query_embedding (list[float]) — produced by embed_query.
-             top_k (int) — optional, default 5.
-             namespace (str) — optional, default "default".
+             pipeline_config (PipelineConfig) — provides top_k, namespace.
         OUT: chunks (list[Chunk]) — written to PipelineData.chunks.
              Metric "rag_chunks" recorded.
 
@@ -3582,8 +3646,11 @@ async def retrieve(data: PipelineData) -> PipelineData:
         _logger.warning("retrieve: no embedding", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
-        top_k = data.metadata.get("top_k", 5)
-        namespace = data.metadata.get("namespace") or "default"
+        cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+        if cfg is None:
+            cfg = PipelineConfig()
+        top_k = cfg.top_k
+        namespace = cfg.namespace
         chunks = await _call_search(vector_store, embedding, top_k, namespace)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
@@ -3604,8 +3671,7 @@ async def rerank(data: PipelineData) -> PipelineData:
 
     Metadata contract:
         IN:  reranker (IReranker) — required, never None (NullReranker if disabled).
-             top_k (int) — optional, default 5.
-             relevance_threshold (float) — optional, default 0.3.
+             pipeline_config (PipelineConfig) — provides top_k, relevance_threshold.
         OUT: rerank_filtered_out (bool) — set True if all chunks filtered.
              rerank_scores (list[float]) — set if chunks survive filtering.
         DATA: chunks (list[Chunk]) — replaced with filtered subset.
@@ -3627,8 +3693,11 @@ async def rerank(data: PipelineData) -> PipelineData:
     try:
         _raw_query = data.query.text if data.query is not None else None
         query = _raw_query if _raw_query is not None else " "
-        top_k = data.metadata.get("top_k", 5)
-        threshold = data.metadata.get("relevance_threshold", 0.3)
+        cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+        if cfg is None:
+            cfg = PipelineConfig()
+        top_k = cfg.top_k
+        threshold = cfg.relevance_threshold
 
         results = await reranker.rerank(query, data.chunks, top_k=top_k)
 
@@ -3698,6 +3767,7 @@ async def _truncate_to_fit(
     prompt_version: str,
     query_text: str,
     limit: int,
+    model: str = "gpt-4o",
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -3706,7 +3776,7 @@ async def _truncate_to_fit(
         the prompt still exceeds the limit, updated_data will have empty
         chunks and updated_prompt will reflect the last attempted context.
     """
-    prompt_tokens = await _estimate_tokens(prompt)
+    prompt_tokens = await _estimate_tokens(prompt, model=model)
     current_data = data
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
@@ -3725,12 +3795,21 @@ async def _truncate_to_fit(
             )
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
-        prompt_tokens = await _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt, model=model)
     return current_data, prompt
 
 
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
+    """Generate response from context using LLM.
+
+    Metadata contract:
+        IN:  llm (ILLM) — required.
+             pipeline_config (PipelineConfig) — provides prompt_name,
+                 prompt_version, token_margin_min, token_margin_pct.
+        DATA: query (UserMessage), context (str), chunks (tuple[Chunk]).
+        OUT: response (AssistantMessage).
+    """
     _logger.debug("generate start", extra={"trace_id": data.trace_id})
     llm = data.metadata.get("llm")
     if llm is None:
@@ -3741,8 +3820,11 @@ async def generate(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_MISSING)
 
     query_text = data.query.text or "  "
-    prompt_version = data.metadata.get("prompt_version", "v1")
-    prompt_name = data.metadata.get("prompt_name", "rag_strict")
+    cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+    if cfg is None:
+        cfg = PipelineConfig()
+    prompt_version = cfg.prompt_version
+    prompt_name = cfg.prompt_name
 
     try:
         prompt = get_prompt(
@@ -3758,15 +3840,17 @@ async def generate(data: PipelineData) -> PipelineData:
     if max_ctx is None or max_ctx <= 0:
         max_ctx = 4096
 
-    prompt_tokens = await _estimate_tokens(prompt)
-    margin = max(TOKEN_MARGIN_MIN, int(max_ctx * TOKEN_MARGIN_PCT))
+    tokenizer_model = data.metadata.get("tokenizer_model", "gpt-4o")
+    prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
+    margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
     limit = max_ctx - margin
 
     if prompt_tokens > limit:
         data, prompt = await _truncate_to_fit(
-            data, prompt, prompt_name, prompt_version, query_text, limit
+            data, prompt, prompt_name, prompt_version, query_text, limit,
+            model=tokenizer_model,
         )
-        prompt_tokens = await _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens)  "
@@ -5294,6 +5378,9 @@ def _get_rag_manager(
         vector_store=state.vector_store,
         embedder=state.embedder,
         reranker=state.reranker,
+        token_margin_min=state.config.rag.token_margin_min,
+        token_margin_pct=state.config.rag.token_margin_pct,
+        tokenizer_model=state.config.chat.tokenizer_model,
     )
 
 
@@ -5749,79 +5836,6 @@ class ReindexRequest(BaseModel):
 ```
 
 ## 🧩 API Signatures
-
-### `launcher.py`
-```python
-# API: launcher.py
-
-import os
-import subprocess
-import sys
-from pathlib import Path
-def get_python(root: Path):
-
-def collect(root: Path, subdir: str):
-
-def print_menu(scripts, tests, last):
-
-def run(py, target, root, extra):
-
-def main():
-
-```
-
-### `run.py`
-```python
-# API: run.py
-
-from __future__ import annotations
-import contextlib
-import os
-import shutil
-import signal
-import socket
-import subprocess
-import sys
-import time
-from pathlib import Path
-def _ensure_venv():
-    """Return path to venv python. If venv missing — print instructions and exit."""
-
-def _check_venv():
-    """Alias for _ensure_venv (backward compatibility)."""
-
-def _reexec_if_needed():
-    """If running from system python, restart self via venv python."""
-
-import yaml
-def _run(cmd: list[str], log: Path | None=None, **kwargs):
-
-def port_free(port: int):
-
-def wait_port(port: int, timeout: float=30.0):
-
-def _find_exe(name: str):
-
-def _find_model(name: str):
-
-def _load_config():
-
-def _wait_for_stop():
-    """Block until user presses Enter or Ctrl+C."""
-
-def start():
-
-def stop():
-
-def kill_main():
-    """Emergency kill switch — kills all project processes and frees ports."""
-
-def _pause_on_error():
-    """Pause before exit on Windows when launched by double-click."""
-
-def main():
-
-```
 
 ### `src/ai_assistant/__init__.py`
 ```python

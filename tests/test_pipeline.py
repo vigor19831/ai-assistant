@@ -24,7 +24,7 @@ from ai_assistant.core.domain.errors import (
     VECTOR_STORE_NOT_PROVIDED,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
-from ai_assistant.core.domain.pipeline import PipelineData
+from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.core.pipeline_steps import (
     build_context,
@@ -39,9 +39,9 @@ from ai_assistant.core.retry import with_retry
 logger = logging.getLogger(__name__)
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # Fake helpers
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class FakeEmbedder:
@@ -90,9 +90,9 @@ class FakeLLM:
         return 4096
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestEmbedQuery
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestEmbedQuery:
@@ -133,10 +133,11 @@ class TestEmbedQuery:
 
     @pytest.mark.asyncio
     async def test_no_embedder(self) -> None:
-        """Given: metadata has no embedder.
+        """Given: metadata has no embedder (None value).
         When: embed_query is called.
         Then: EMBEDDER_NOT_PROVIDED error is added."""
         data = PipelineData(query=UserMessage(text="hello"))
+        data = replace(data, metadata={**data.metadata, "embedder": None})
         result = await embed_query(data)
         assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
 
@@ -152,9 +153,9 @@ class TestEmbedQuery:
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestRetrieve
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestRetrieve:
@@ -175,11 +176,10 @@ class TestRetrieve:
             query=UserMessage(text="hello"),
             metadata={
                 "query_embedding": [0.0, 1.0, 0.0],
-                "top_k": 5,
-                "namespace": None,
+                "pipeline_config": PipelineConfig(top_k=5, namespace="default"),
+                "vector_store": store,
             },
         )
-        data = replace(data, metadata={**data.metadata, "vector_store": store})
         result = await retrieve(data)
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
@@ -197,41 +197,50 @@ class TestRetrieve:
             query=UserMessage(text="hello"),
             metadata={
                 "query_embedding": [0.0, 1.0, 0.0],
-                "top_k": 0,
-                "namespace": "test",
+                "pipeline_config": PipelineConfig(top_k=0, namespace="test"),
+                "vector_store": store,
             },
         )
-        data = replace(data, metadata={**data.metadata, "vector_store": store})
         result = await retrieve(data)
         assert len(result.chunks) == 0
 
     @pytest.mark.asyncio
     async def test_no_vector_store(self) -> None:
-        """Given: metadata has no vector_store.
+        """Given: metadata has no vector_store (None value).
         When: retrieve is called.
         Then: VECTOR_STORE_NOT_PROVIDED error is added."""
         data = PipelineData(
             query=UserMessage(text="hello"),
-            metadata={"query_embedding": [0.0, 1.0, 0.0]},
+            metadata={
+                "query_embedding": [0.0, 1.0, 0.0],
+                "pipeline_config": PipelineConfig(),
+                "vector_store": None,
+            },
         )
         result = await retrieve(data)
         assert any(VECTOR_STORE_NOT_PROVIDED in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_no_embedding(self) -> None:
-        """Given: metadata has no query_embedding.
+        """Given: metadata has no query_embedding (None value).
         When: retrieve is called.
         Then: QUERY_EMBEDDING_MISSING error is added."""
         store = FakeVectorStore()
-        data = PipelineData(query=UserMessage(text="hello"))
-        data = replace(data, metadata={**data.metadata, "vector_store": store})
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            metadata={
+                "vector_store": store,
+                "pipeline_config": PipelineConfig(),
+                "query_embedding": None,
+            },
+        )
         result = await retrieve(data)
         assert any(QUERY_EMBEDDING_MISSING in e for e in result.errors)
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestBuildContext
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestBuildContext:
@@ -294,9 +303,9 @@ class TestBuildContext:
         assert result.context == ""
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestRerank
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestRerank:
@@ -321,10 +330,10 @@ class TestRerank:
                 Chunk(id="c2", text="second"),
                 Chunk(id="c3", text="third"),
             ],
-        )
-        data = replace(
-            data,
-            metadata={**data.metadata, "reranker": FakeReranker(), "top_k": 2},
+            metadata={
+                "reranker": FakeReranker(),
+                "pipeline_config": PipelineConfig(top_k=2),
+            },
         )
         result = await rerank(data)
         assert len(result.chunks) == 2
@@ -342,22 +351,25 @@ class TestRerank:
         data = PipelineData(
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="low")],
+            metadata={
+                "reranker": FakeReranker(),
+                "pipeline_config": PipelineConfig(),
+            },
         )
-        data = replace(data, metadata={**data.metadata, "reranker": FakeReranker()})
         result = await rerank(data)
         assert result.chunks == ()
         assert result.metadata.get("rerank_filtered_out") is True
 
     @pytest.mark.asyncio
     async def test_no_reranker_none_returns_error(self) -> None:
-        """Given: no reranker in metadata (None).
+        """Given: no reranker in metadata (None value).
         When: rerank is called.
         Then: INTERNAL_SERVER_ERROR is added; original chunks preserved."""
         data = PipelineData(
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="test")],
+            metadata={"pipeline_config": PipelineConfig(), "reranker": None},
         )
-        # metadata has no "reranker" key, so .get("reranker") returns None
         result = await rerank(data)
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
         # chunks are preserved (not mutated) so downstream can inspect or ignore
@@ -365,9 +377,9 @@ class TestRerank:
         assert result.chunks[0].id == "c1"
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestGenerate
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestGenerate:
@@ -384,13 +396,20 @@ class TestGenerate:
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            metadata={
+                "pipeline_config": PipelineConfig(
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                    token_margin_min=256,
+                    token_margin_pct=0.1,
+                ),
+                "llm": llm,
+            },
         )
-        data = replace(data, metadata={**data.metadata, "llm": llm})
 
         # Mock _estimate_tokens to return exactly the limit
         async def mock_estimate(text, model="gpt-4o"):
-            # limit = 4096 - max(256, 409) = 3686
+            # limit = 4096 - max(256, int(4096 * 0.1)) = 3686
             return 3686
 
         monkeypatch.setattr(
@@ -418,9 +437,16 @@ class TestGenerate:
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            metadata={
+                "pipeline_config": PipelineConfig(
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                    token_margin_min=256,
+                    token_margin_pct=0.1,
+                ),
+                "llm": llm,
+            },
         )
-        data = replace(data, metadata={**data.metadata, "llm": llm})
         result = await generate(data)
         assert result.response is not None
         assert result.response.text == "fallback"
@@ -444,25 +470,39 @@ class TestGenerate:
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            metadata={
+                "pipeline_config": PipelineConfig(
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                    token_margin_min=256,
+                    token_margin_pct=0.1,
+                ),
+                "llm": llm,
+            },
         )
-        data = replace(data, metadata={**data.metadata, "llm": llm})
         result = await generate(data)
         assert len(captured_messages) == 1
         assert captured_messages[0].text  # prompt text is non-empty
 
     @pytest.mark.asyncio
     async def test_no_llm(self) -> None:
-        """Given: metadata has no llm.
+        """Given: metadata has no llm (None value).
         When: generate is called.
         Then: LLM_NOT_PROVIDED error is added."""
         data = PipelineData(
             query=UserMessage(text="q"),
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            metadata={
+                "pipeline_config": PipelineConfig(
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                    token_margin_min=256,
+                    token_margin_pct=0.1,
+                ),
+                "llm": None,
+            },
         )
         result = await generate(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)
-
 
     @pytest.mark.asyncio
     async def test_no_query(self) -> None:
@@ -470,10 +510,16 @@ class TestGenerate:
         When: generate is called.
         Then: QUERY_MISSING error is added."""
         data = PipelineData(
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            metadata={
+                "pipeline_config": PipelineConfig(
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                    token_margin_min=256,
+                    token_margin_pct=0.1,
+                ),
+                "llm": FakeLLM(),
+            },
         )
-        llm = FakeLLM()
-        data = replace(data, metadata={**data.metadata, "llm": llm})
         result = await generate(data)
         assert any(QUERY_MISSING in e for e in result.errors)
 
@@ -495,18 +541,25 @@ class TestGenerate:
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
-            metadata={"prompt_version": "v1", "prompt_name": "rag_default"},
+            metadata={
+                "pipeline_config": PipelineConfig(
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                    token_margin_min=256,
+                    token_margin_pct=0.1,
+                ),
+                "llm": llm,
+            },
         )
-        data = replace(data, metadata={**data.metadata, "llm": llm})
         result = await generate(data)
         assert any(LLM_UNAVAILABLE in e for e in result.errors)
         assert result.response is not None
         assert "temporarily unavailable" in (result.response.text or "")
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestHydeQuery
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestHydeQuery:
@@ -531,34 +584,34 @@ class TestHydeQuery:
 
     @pytest.mark.asyncio
     async def test_no_embedder(self) -> None:
-        """Given: metadata has no embedder.
+        """Given: metadata has no embedder (None value).
         When: hyde_query is called.
         Then: EMBEDDER_NOT_PROVIDED error is added."""
         llm = FakeLLM("answer")
         data = PipelineData(
             query=UserMessage(text="question"),
-            metadata={"llm": llm},
+            metadata={"llm": llm, "embedder": None},
         )
         result = await hyde_query(data)
         assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_no_llm(self) -> None:
-        """Given: metadata has no llm.
+        """Given: metadata has no llm (None value).
         When: hyde_query is called.
         Then: LLM_NOT_PROVIDED error is added."""
         embedder = FakeEmbedder()
         data = PipelineData(
             query=UserMessage(text="question"),
-            metadata={"embedder": embedder},
+            metadata={"embedder": embedder, "llm": None},
         )
         result = await hyde_query(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)
 
 
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 # TestRetry
-# ───────────────────────────────────────────────
+# ———————————————————————————————————————
 
 
 class TestRetry:

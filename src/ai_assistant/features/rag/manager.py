@@ -97,12 +97,18 @@ class RAGManager:
         vector_store: IVectorStore,
         embedder: IEmbedder,
         reranker: IReranker,
+        token_margin_min: int = 256,
+        token_margin_pct: float = 0.1,
+        tokenizer_model: str = "gpt-4o",
     ) -> None:
         self.pipeline = pipeline
         self.llm = llm
         self.vector_store = vector_store
         self.embedder = embedder
         self.reranker = reranker
+        self.token_margin_min = token_margin_min
+        self.token_margin_pct = token_margin_pct
+        self.tokenizer_model = tokenizer_model
 
     async def query(
         self,
@@ -115,19 +121,27 @@ class RAGManager:
     ) -> dict[str, Any]:
         """Run RAG pipeline for query."""
         start = time.perf_counter()
+        from ai_assistant.core.domain.pipeline import PipelineConfig
+
         data = PipelineData(
             query=UserMessage(text=query_text),
+        )
+        pipeline_config = PipelineConfig(
+            top_k=top_k,
+            namespace=namespace,
+            relevance_threshold=relevance_threshold,
+            prompt_name=prompt_name,
+            prompt_version=prompt_version,
+            token_margin_min=self.token_margin_min,
+            token_margin_pct=self.token_margin_pct,
         )
         metadata = {
             "llm": self.llm,
             "embedder": self.embedder,
             "vector_store": self.vector_store,
             "reranker": self.reranker,
-            "top_k": top_k,
-            "namespace": namespace,
-            "relevance_threshold": relevance_threshold,
-            "prompt_name": prompt_name,
-            "prompt_version": prompt_version,
+            "pipeline_config": pipeline_config,
+            "tokenizer_model": self.tokenizer_model,
         }
         result = await self.pipeline.run(data, metadata=metadata)
         duration_ms = int((time.perf_counter() - start) * 1000)

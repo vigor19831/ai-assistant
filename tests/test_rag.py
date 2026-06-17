@@ -82,7 +82,7 @@ class TestRAGManager:
         await mgr.query("test", namespace="work")
 
         metadata = pipeline.run.call_args.kwargs["metadata"]
-        assert metadata["namespace"] == "work"
+        assert metadata["pipeline_config"].namespace == "work"
 
     @pytest.mark.asyncio
     async def test_query_prompt_and_threshold_override(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
@@ -113,9 +113,10 @@ class TestRAGManager:
         )
 
         metadata = pipeline.run.call_args.kwargs["metadata"]
-        assert metadata["prompt_name"] == "rag_creative"
-        assert metadata["prompt_version"] == "v2"
-        assert metadata["relevance_threshold"] == 0.5
+        pipeline_config = metadata["pipeline_config"]
+        assert pipeline_config.prompt_name == "rag_creative"
+        assert pipeline_config.prompt_version == "v2"
+        assert pipeline_config.relevance_threshold == 0.5
 
     @pytest.mark.asyncio
     async def test_query_empty_results_handling(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):

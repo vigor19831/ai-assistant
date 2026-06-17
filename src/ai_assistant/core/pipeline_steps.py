@@ -6,7 +6,7 @@ No in-place mutation.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -20,6 +20,7 @@ from ai_assistant.core.domain.errors import (
     AdapterError,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.pipeline import PipelineConfig
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.prompts import get_prompt
@@ -46,10 +47,6 @@ __all__: list[str] = [
 _logger = get_logger("pipeline.steps")
 
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
-
-# --- Token budget constants for generate() ---------------------------------
-TOKEN_MARGIN_MIN = 256  # absolute minimum tokens reserved for response
-TOKEN_MARGIN_PCT = 0.1  # fraction of context window reserved for response
 
 
 def step(
@@ -139,8 +136,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
     Metadata contract:
         IN:  vector_store (IVectorStore) — required.
              query_embedding (list[float]) — produced by embed_query.
-             top_k (int) — optional, default 5.
-             namespace (str) — optional, default "default".
+             pipeline_config (PipelineConfig) — provides top_k, namespace.
         OUT: chunks (list[Chunk]) — written to PipelineData.chunks.
              Metric "rag_chunks" recorded.
 
@@ -157,8 +153,11 @@ async def retrieve(data: PipelineData) -> PipelineData:
         _logger.warning("retrieve: no embedding", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
-        top_k = data.metadata.get("top_k", 5)
-        namespace = data.metadata.get("namespace") or "default"
+        cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+        if cfg is None:
+            cfg = PipelineConfig()
+        top_k = cfg.top_k
+        namespace = cfg.namespace
         chunks = await _call_search(vector_store, embedding, top_k, namespace)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
@@ -179,8 +178,7 @@ async def rerank(data: PipelineData) -> PipelineData:
 
     Metadata contract:
         IN:  reranker (IReranker) — required, never None (NullReranker if disabled).
-             top_k (int) — optional, default 5.
-             relevance_threshold (float) — optional, default 0.3.
+             pipeline_config (PipelineConfig) — provides top_k, relevance_threshold.
         OUT: rerank_filtered_out (bool) — set True if all chunks filtered.
              rerank_scores (list[float]) — set if chunks survive filtering.
         DATA: chunks (list[Chunk]) — replaced with filtered subset.
@@ -202,8 +200,11 @@ async def rerank(data: PipelineData) -> PipelineData:
     try:
         _raw_query = data.query.text if data.query is not None else None
         query = _raw_query if _raw_query is not None else " "
-        top_k = data.metadata.get("top_k", 5)
-        threshold = data.metadata.get("relevance_threshold", 0.3)
+        cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+        if cfg is None:
+            cfg = PipelineConfig()
+        top_k = cfg.top_k
+        threshold = cfg.relevance_threshold
 
         results = await reranker.rerank(query, data.chunks, top_k=top_k)
 
@@ -273,6 +274,7 @@ async def _truncate_to_fit(
     prompt_version: str,
     query_text: str,
     limit: int,
+    model: str = "gpt-4o",
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -281,7 +283,7 @@ async def _truncate_to_fit(
         the prompt still exceeds the limit, updated_data will have empty
         chunks and updated_prompt will reflect the last attempted context.
     """
-    prompt_tokens = await _estimate_tokens(prompt)
+    prompt_tokens = await _estimate_tokens(prompt, model=model)
     current_data = data
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
@@ -300,12 +302,21 @@ async def _truncate_to_fit(
             )
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
-        prompt_tokens = await _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt, model=model)
     return current_data, prompt
 
 
 @step("generate")
 async def generate(data: PipelineData) -> PipelineData:
+    """Generate response from context using LLM.
+
+    Metadata contract:
+        IN:  llm (ILLM) — required.
+             pipeline_config (PipelineConfig) — provides prompt_name,
+                 prompt_version, token_margin_min, token_margin_pct.
+        DATA: query (UserMessage), context (str), chunks (tuple[Chunk]).
+        OUT: response (AssistantMessage).
+    """
     _logger.debug("generate start", extra={"trace_id": data.trace_id})
     llm = data.metadata.get("llm")
     if llm is None:
@@ -316,8 +327,11 @@ async def generate(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_MISSING)
 
     query_text = data.query.text or "  "
-    prompt_version = data.metadata.get("prompt_version", "v1")
-    prompt_name = data.metadata.get("prompt_name", "rag_strict")
+    cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+    if cfg is None:
+        cfg = PipelineConfig()
+    prompt_version = cfg.prompt_version
+    prompt_name = cfg.prompt_name
 
     try:
         prompt = get_prompt(
@@ -333,15 +347,17 @@ async def generate(data: PipelineData) -> PipelineData:
     if max_ctx is None or max_ctx <= 0:
         max_ctx = 4096
 
-    prompt_tokens = await _estimate_tokens(prompt)
-    margin = max(TOKEN_MARGIN_MIN, int(max_ctx * TOKEN_MARGIN_PCT))
+    tokenizer_model = data.metadata.get("tokenizer_model", "gpt-4o")
+    prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
+    margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
     limit = max_ctx - margin
 
     if prompt_tokens > limit:
         data, prompt = await _truncate_to_fit(
-            data, prompt, prompt_name, prompt_version, query_text, limit
+            data, prompt, prompt_name, prompt_version, query_text, limit,
+            model=tokenizer_model,
         )
-        prompt_tokens = await _estimate_tokens(prompt)
+        prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens)  "

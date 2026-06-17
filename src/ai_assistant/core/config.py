@@ -165,6 +165,8 @@ class RAGConfig(BaseSettings):
     default_namespace: str = "default"
     relevance_threshold: float = 0.3
     max_tool_iterations: int = 5
+    token_margin_min: int = 256
+    token_margin_pct: float = 0.1
     documents_root: str = "sources"
     chat_exports_root: str = "sources"
 

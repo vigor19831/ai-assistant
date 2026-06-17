@@ -81,6 +81,9 @@ def _get_rag_manager(
         vector_store=state.vector_store,
         embedder=state.embedder,
         reranker=state.reranker,
+        token_margin_min=state.config.rag.token_margin_min,
+        token_margin_pct=state.config.rag.token_margin_pct,
+        tokenizer_model=state.config.chat.tokenizer_model,
     )
 
 

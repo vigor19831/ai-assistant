@@ -33,6 +33,7 @@ HARD_EXCLUDED = {
     ".venv", "venv", "env", ".env", "node_modules", ".idea", ".vscode",
     "dist", "build", "*.egg-info",
     "data", "sources", "vendor",
+    ".test_tmp", ".hypothesis",
 }
 
 # Сканируем, но обработка зависит от режима
@@ -53,9 +54,12 @@ SKIP_FILES = [
     "*.jpg", "*.jpeg", "*.png", "*.gif", "*.webp",
     "*.mp3", "*.wav", "*.lock", ".DS_Store", "Thumbs.db",
     "*.log", "*.pid",
+    "structure.txt",
     "*context_build_*.md",
+    "*.test.yaml", "*.test.yml",
     # Runtime scripts — not part of project code
-    "start.py", "stop.py", "s_launcher.py",
+    "run.py", "launcher.py",
+    ".gitattributes", ".coverage",
 ]
 
 

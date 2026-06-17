@@ -231,6 +231,22 @@ class TestEnvPrefixOverride:
         cfg = RAGConfig()
         assert cfg.top_k == 10
 
+    def test_rag_token_margin_min_env_override(self, monkeypatch):
+        """Given: AI_RAG_TOKEN_MARGIN_MIN is set.
+        When: RAGConfig is instantiated.
+        Then: token_margin_min reflects the env value."""
+        monkeypatch.setenv("AI_RAG_TOKEN_MARGIN_MIN", "512")
+        cfg = RAGConfig()
+        assert cfg.token_margin_min == 512
+
+    def test_rag_token_margin_pct_env_override(self, monkeypatch):
+        """Given: AI_RAG_TOKEN_MARGIN_PCT is set.
+        When: RAGConfig is instantiated.
+        Then: token_margin_pct reflects the env value."""
+        monkeypatch.setenv("AI_RAG_TOKEN_MARGIN_PCT", "0.2")
+        cfg = RAGConfig()
+        assert cfg.token_margin_pct == 0.2
+
     def test_logging_max_bytes_env_override(self, monkeypatch):
         """Given: AI_LOGGING_MAX_BYTES is set.
         When: LoggingConfig is instantiated. Then: max_bytes reflects env value."""
@@ -395,6 +411,32 @@ class TestResourceLimits:
         Then: max_history_messages defaults to 10_000."""
         cfg = ChatConfig()
         assert cfg.max_history_messages == 10_000
+
+    def test_rag_config_default_token_margins(self):
+        """Given: no env overrides.
+        When: RAGConfig is instantiated.
+        Then: token_margin_min and token_margin_pct have expected defaults."""
+        cfg = RAGConfig()
+        assert cfg.token_margin_min == 256
+        assert cfg.token_margin_pct == 0.1
+
+    def test_rag_config_token_margin_defaults(self):
+        """Given: no env overrides.
+        When: RAGConfig is instantiated.
+        Then: token_margin_min and token_margin_pct have expected defaults."""
+        cfg = RAGConfig()
+        assert cfg.token_margin_min == 256
+        assert cfg.token_margin_pct == 0.1
+
+    def test_rag_config_token_margin_override(self, monkeypatch):
+        """Given: AI_RAG_TOKEN_MARGIN_MIN and AI_RAG_TOKEN_MARGIN_PCT env vars.
+        When: RAGConfig is instantiated.
+        Then: env values override defaults."""
+        monkeypatch.setenv("AI_RAG_TOKEN_MARGIN_MIN", "512")
+        monkeypatch.setenv("AI_RAG_TOKEN_MARGIN_PCT", "0.2")
+        cfg = RAGConfig()
+        assert cfg.token_margin_min == 512
+        assert cfg.token_margin_pct == 0.2
 
     def test_vector_store_config_default_resource_limits(self):
         """Given: no env overrides.

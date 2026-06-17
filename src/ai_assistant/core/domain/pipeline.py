@@ -10,7 +10,25 @@ if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
 
-__all__ = ["PipelineData"]
+__all__ = ["PipelineData", "PipelineConfig"]
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineConfig:
+    """Typed configuration for RAG pipeline steps.
+
+    Mirrors a subset of RAGConfig as a stdlib dataclass
+    so that pipeline steps have a typed contract without
+    depending on Pydantic.
+    """
+
+    top_k: int = 5
+    namespace: str = "default"
+    relevance_threshold: float = 0.3
+    prompt_name: str = "rag_strict"
+    prompt_version: str = "v1"
+    token_margin_min: int = 256
+    token_margin_pct: float = 0.1
 
 
 @dataclass(frozen=True, slots=True)

@@ -257,16 +257,20 @@ class TestIntegrationChatRAG:
         data = PipelineData(query=query)
 
         # Act
+        from ai_assistant.core.domain.pipeline import PipelineConfig
+
         metadata = {
             "embedder": embedder,
             "vector_store": vector_store,
             "reranker": reranker,
             "llm": llm,
-            "top_k": 5,
-            "namespace": "default",
-            "relevance_threshold": 0.3,
-            "prompt_version": "v1",
-            "prompt_name": "rag_strict",
+            "pipeline_config": PipelineConfig(
+                top_k=5,
+                namespace="default",
+                relevance_threshold=0.3,
+                prompt_version="v1",
+                prompt_name="rag_strict",
+            ),
         }
         result = await pipeline.run(data, metadata=metadata)
 
@@ -318,16 +322,20 @@ class TestIntegrationFullRAG:
         query = UserMessage(text="Tell me about Python")
         data = PipelineData(query=query)
 
+        from ai_assistant.core.domain.pipeline import PipelineConfig
+
         metadata = {
             "embedder": embedder,
             "vector_store": vector_store,
             "reranker": reranker,
             "llm": llm,
-            "top_k": 5,
-            "namespace": "docs",
-            "relevance_threshold": 0.3,
-            "prompt_version": "v1",
-            "prompt_name": "rag_strict",
+            "pipeline_config": PipelineConfig(
+                top_k=5,
+                namespace="docs",
+                relevance_threshold=0.3,
+                prompt_version="v1",
+                prompt_name="rag_strict",
+            ),
         }
 
         # Act
@@ -418,6 +426,8 @@ class TestIntegrationAPIInit:
 
         query = UserMessage(text="What is capital of Italy?")
         data = PipelineData(query=query)
+        from ai_assistant.core.domain.pipeline import PipelineConfig
+
         result = await state.pipeline.run(
             data,
             metadata={
@@ -425,11 +435,13 @@ class TestIntegrationAPIInit:
                 "vector_store": state.vector_store,
                 "reranker": state.reranker,
                 "llm": state.llm,
-                "namespace": "test",
-                "top_k": 3,
-                "relevance_threshold": 0.3,
-                "prompt_version": "v1",
-                "prompt_name": "rag_default",
+                "pipeline_config": PipelineConfig(
+                    top_k=3,
+                    namespace="test",
+                    relevance_threshold=0.3,
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                ),
             },
         )
 
@@ -495,6 +507,8 @@ class TestIntegrationAPIInit:
 
         query = UserMessage(text="Tell me about Go")
         data = PipelineData(query=query)
+        from ai_assistant.core.domain.pipeline import PipelineConfig
+
         result = await state.pipeline.run(
             data,
             metadata={
@@ -502,11 +516,13 @@ class TestIntegrationAPIInit:
                 "vector_store": state.vector_store,
                 "reranker": state.reranker,
                 "llm": state.llm,
-                "namespace": "test",
-                "top_k": 3,
-                "relevance_threshold": 0.3,
-                "prompt_version": "v1",
-                "prompt_name": "rag_default",
+                "pipeline_config": PipelineConfig(
+                    top_k=3,
+                    namespace="test",
+                    relevance_threshold=0.3,
+                    prompt_version="v1",
+                    prompt_name="rag_default",
+                ),
             },
         )
 

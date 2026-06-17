@@ -247,6 +247,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         namespaces=cfg.namespaces,
         prompt_version=cfg.rag.prompt_version,
         top_k=cfg.rag.top_k,
+        token_margin_min=cfg.rag.token_margin_min,
+        token_margin_pct=cfg.rag.token_margin_pct,
     )
 
     if state.llm is None:

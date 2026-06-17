@@ -74,6 +74,8 @@ class ChatManager:
         namespaces: dict[str, Any] | None = None,
         prompt_version: str = "v1",
         top_k: int = 5,
+        token_margin_min: int = 256,
+        token_margin_pct: float = 0.1,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
@@ -88,6 +90,8 @@ class ChatManager:
         self.namespaces = namespaces or {}
         self.prompt_version = prompt_version
         self.top_k = top_k
+        self.token_margin_min = token_margin_min
+        self.token_margin_pct = token_margin_pct
 
     def _count_tokens(self, text: str) -> int:
         return count_tokens(text, self.tokenizer_model)
@@ -159,15 +163,24 @@ class ChatManager:
             trace_id=trace_id or "",
         )
 
+        from ai_assistant.core.domain.pipeline import PipelineConfig
+
+        pipeline_config = PipelineConfig(
+            top_k=self.top_k,
+            namespace=namespace,
+            relevance_threshold=relevance_threshold,
+            prompt_name=prompt_name,
+            prompt_version=self.prompt_version,
+            token_margin_min=self.token_margin_min,
+            token_margin_pct=self.token_margin_pct,
+        )
+
         metadata = {
-            "top_k": self.top_k,
-            "prompt_name": prompt_name,
-            "prompt_version": self.prompt_version,
-            "namespace": namespace,
-            "relevance_threshold": relevance_threshold,
+            "pipeline_config": pipeline_config,
             "embedder": self.embedder,
             "vector_store": self.vector_store,
             "reranker": self.reranker,
+            "tokenizer_model": self.tokenizer_model,
         }
 
         data = await self.pipeline.run(data, metadata=metadata)
