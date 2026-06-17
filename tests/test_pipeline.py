@@ -404,10 +404,12 @@ class TestGenerate:
                     token_margin_pct=0.1,
                 ),
                 "llm": llm,
+                "tokenizer_model": "gpt-4o",
             },
         )
 
         # Mock _estimate_tokens to return exactly the limit
+        # Production calls pass model explicitly from metadata
         async def mock_estimate(text, model="gpt-4o"):
             # limit = 4096 - max(256, int(4096 * 0.1)) = 3686
             return 3686
@@ -422,18 +424,18 @@ class TestGenerate:
         assert not result.errors
 
     @pytest.mark.asyncio
-    async def test_max_ctx_none_fallback(self) -> None:
-        """Given: llm.get_context_limit() returns None.
+    async def test_max_ctx_adapter_provides_valid_limit(self) -> None:
+        """Given: llm.get_context_limit() returns valid limit (adapter fallback).
         When: generate is called.
-        Then: falls back to 4096; prompt is evaluated against fallback."""
-        class NoLimitLLM:
+        Then: pipeline uses adapter limit directly; no pipeline fallback needed."""
+        class ValidLimitLLM:
             async def complete(self, messages, max_tokens=None, temperature=None):
                 return AssistantMessage(text="fallback")
 
             def get_context_limit(self) -> int | None:
-                return None
+                return 4096  # Adapter provides valid fallback
 
-        llm = NoLimitLLM()
+        llm = ValidLimitLLM()
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
@@ -445,6 +447,7 @@ class TestGenerate:
                     token_margin_pct=0.1,
                 ),
                 "llm": llm,
+                "tokenizer_model": "gpt-4o",
             },
         )
         result = await generate(data)
@@ -478,6 +481,7 @@ class TestGenerate:
                     token_margin_pct=0.1,
                 ),
                 "llm": llm,
+                "tokenizer_model": "gpt-4o",
             },
         )
         result = await generate(data)
@@ -499,6 +503,7 @@ class TestGenerate:
                     token_margin_pct=0.1,
                 ),
                 "llm": None,
+                "tokenizer_model": "gpt-4o",
             },
         )
         result = await generate(data)
@@ -518,6 +523,7 @@ class TestGenerate:
                     token_margin_pct=0.1,
                 ),
                 "llm": FakeLLM(),
+                "tokenizer_model": "gpt-4o",
             },
         )
         result = await generate(data)
@@ -549,6 +555,7 @@ class TestGenerate:
                     token_margin_pct=0.1,
                 ),
                 "llm": llm,
+                "tokenizer_model": "gpt-4o",
             },
         )
         result = await generate(data)

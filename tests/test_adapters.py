@@ -703,14 +703,14 @@ class TestOpenAICompatibleLLM:
         ))
         assert llm.get_context_limit() == 2048
 
-    def test_get_context_limit_returns_none(self):
-        """If both are invalid, return None."""
+    def test_get_context_limit_returns_default(self):
+        """If both are invalid, return default 4096."""
         llm = OpenAICompatibleLLM(LLMConfigData(
             api_key="sk-test",
             server_context_size=0,
             max_tokens=0,
         ))
-        assert llm.get_context_limit() is None
+        assert llm.get_context_limit() == 4096
 
     def test_build_messages_user_and_assistant(self):
         """_build_messages converts UserMessage and AssistantMessage correctly."""

@@ -2,30 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
+
+from ai_assistant.core.domain.errors import ConfigurationError
+from ai_assistant.core.domain.pipeline import PipelineConfig
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from ai_assistant.core.domain.pipeline import PipelineData
-
-
-@dataclass(frozen=True, slots=True)
-class PipelineConfig:
-    """Immutable per-query pipeline configuration."""
-
-    top_k: int = 5
-    namespace: str = "default"
-    relevance_threshold: float = 0.3
-    prompt_name: str = "rag_strict"
-    prompt_version: str = "v1"
-    token_margin_min: int = 256
-    token_margin_pct: float = 0.1
-
-
-class ConfigurationError(Exception):
-    """Pipeline metadata missing required keys."""
 
 
 __all__ = ["PipelineConfig", "RAGPipeline", "ConfigurationError"]

@@ -1,117 +1,119 @@
-[x] Фабрика `create_app`: убран глобальный `app`, тесты создают изолированные инстансы без хаков.
-[x] Фикстура `client`: `app` создается внутри, убран `object.__setattr__` и патч `init_adapters`.
-[x] Убран `reset_global_state`, сброс состояния теперь происходит через `create_app()` в каждом тесте.
-[x] Inline retry вынесен из `generate()` в `_call_llm()` с декоратором `@with_retry`.
-[x] Удалена мутация `config` в рантайме (`state.config.security.api_key = req.api_key`).
-[x] `ToolResult` переведен в `frozen=True` dataclass, все мутации полей заменены на создание нового экземпляра.
-[x] Реализован graceful degradation при недоступном LLM: возврат 503 с текстом вместо 500.
-[x] Добавлена TTL-очистка `_reindex_status` (удаление старых записей при len > 1000).
-[x] Добавлен backpressure в `MetricsLogger`, но впоследствии `MetricsMiddleware` и `MetricsLogger` полностью удалены как избыточный вес.
-[x] Добавлена поддержка OpenAI `content: str | list[dict]` для Vision-совместимости.
-[x] Добавлен метод `shutdown()` в порты `IEmbedder`, `IVectorStore` и `IReranker` с реализацией graceful shutdown в `lifespan`.
-[x] Убран прямой импорт `pipeline.steps` из `ChatManager`, используется `RAGPipeline` из `AppState`.
-[x] Заменен динамический `importlib` в `router.py` на явные импорты для отлова ошибок на этапе compile-time.
-[x] `PipelineData`: эволюционировал от обычного dataclass к `frozen=True` + `slots=True` для runtime-гарантии иммутабельности и защиты от опечаток.
-[x] Убран глобальный флаг `_static_mounted`, проверка перенесена в `app.routes` или `app.state`.
-[x] Сужены `except Exception` до конкретных типов (`ImportError`, `ValueError`) в `init_adapters`.
-[x] Удален `core/circuit_breaker.py` и все его использования как преждевременная сложность.
-[x] Упрощен security-слой: удален дублирующий `APIKeyMiddleware` и самописный `LimitMiddleware`, оставлен `require_api_key`.
-[x] Удалены `voice`/`vision`/`long_term_memory` и `tool_registry` из ядра и инициализации `AppState`.
-[x] `AppState` разделен на стартовый и `InitializedAppState`, убраны `Optional` и `slots=True` для гибкости тестов.
-[x] Убит глобальный pipeline step registry (`@step`), шаги импортируются и собираются явно в `core/pipeline_steps.py`.
-[x] Глобальный Adapter Registry заменен на явную фабрику `create_adapter` с локальным декоратором `@register`.
-[x] CPU-bound вызовы (FAISS, tiktoken) обернуты в `asyncio.to_thread()` для предотвращения блокировки event loop.
-[x] Добавлен guard на max 5 итераций tool loop в `generate()` для предотвращения infinite loop.
-[x] Добавлен CJK fallback в `count_tokens()` для корректного подсчета токенов китайского/японского текста.
-[x] Добавлена очистка `rerank_*` ключей из metadata при `reranker=None`.
-[x] Создан `RAGStep` StrEnum и динамический `_STEP_MAP` для конфигурации шагов через `config.yaml`.
-[x] Реализован per-namespace config block в `config.yaml` с индивидуальными threshold, chunk_size и prompt.
-[x] Добавлена поддержка `prompt_version` в config для управления версиями промптов без правки кода.
-[x] Удалены `ImagePayload`, `VoicePayload` и связанные заглушки из chat-слоя.
-[x] Починен `check_smoke.py` после удаления voice/vision (убраны `AttributeError`).
-[x] Синхронизирована документация (README, AI_RULES, TODO, config) после удаления voice/vision.
-[x] Унифицирован `relevance_threshold` в одном месте, удален из `VectorStoreConfig`.
-[x] Добавлены warnings на неизвестные env vars при загрузке конфига с `extra="ignore"`.
-[x] `DummyReranker` заменен на `NullReranker`, убраны проверки `if reranker is None` из pipeline.
-[x] Добавлен `trace_id` в `PipelineData` с пробросом в логи шагов и HTTP handlers.
-[x] Заменены динамические классы `type("C", (), {...})` в скриптах на dataclass-фабрики.
-[x] Удалена магическая строка `"__terminal__"` из launcher, заменена на Enum/Literal.
-[x] Удален мёртвый комментарий "voice-vision branch" из `test_contracts.py`.
-[x] Исправлен CORS fallback crash при отсутствии config.yaml (замена `["*"]` на localhost).
-[x] Убран избыточный `__post_init__` в `UserMessage`, поле `text` сделано обязательным `str`.
-[x] Синхронизирован `config_version` между `config.yaml` и `AppConfig` (поднят до 1.5.0).
-[x] Убрано дублирование вызова `_mount_static`, оставлена единственная точка в `lifespan.py`.
-[x] Заменен тип `Any` на `ChatManager` в `AppState` для восстановления типобезопасности.
-[x] Перенесен `STEP_REGISTRY` и функции шагов из `pipeline/` в `core/pipeline_steps.py`.
-[x] Удалена мёртвая функция `_rehydrate_state` из `deps.py`.
-[x] Убраны defensive `getattr` для config в `lifespan`, заменены на прямой доступ.
-[x] Типизирован `limiter` в `AppState` (`Callable | None` вместо `Any`).
-[x] Типизирован `STEP_REGISTRY` (`dict[str, Callable[[PipelineData], Awaitable[PipelineData]]]`).
-[x] Вынесены magic numbers (256, 0.1) в `generate()` в именованные константы (`TOKEN_MARGIN_MIN`, `TOKEN_MARGIN_PCT`).
-[x] Добавлен метод `with_metadata()` в `PipelineData` для единообразия API.
-[x] Добавлены базовые метрики observability (счетчики, latency) и endpoint `/metrics`.
-[x] Синхронизирован `dev/tests/config.test.yaml` с корневым `config.yaml` (добавлены namespaces).
-[x] Убран хардкод путей в RAG handlers, вынесен в константы или config.
-[x] Вынесен truncation loop из `generate()` в `_truncate_to_fit()` с fallback `max_ctx`.
-[x] Исправлен `pre_commit_check.py`: убрано дублирование, добавлена проверка `**kwargs`.
-[x] Исправлен `check_mutations.py`: `return 0` заменен на `return 1` при проваленном тесте.
-[x] Исправлен `launcher.py`: удален дубль ключа `TEST_FLAGS` "clean_cache".
-[x] Исправлен `context_build.py`: `write_text()` заменен на `atomic_write()`.
-[x] Исправлена race condition в `_reindex_status` и глобальных dict `metrics.py`.
-[x] Переименованы ЗАГЛАВНЫЕ файлы в прописные.
-[x] Изменена структура проекта для личного пользования.
-[x] Прокинут `rag.top_k` из конфига в `ChatManager`, убран magic number.
-[x] Дедуплицирована логика `chat`/`stream_chat` через вынос `_build_messages` и `_retrieve_context`.
-[x] Упрощен `launcher` до чистого меню (номер → запуск), убраны `ask_flags` и диалоги.
-[x] Скрипты сделаны интерактивными: при отсутствии аргументов запрашивают выбор цифрами.
-[x] Удалены мусорные `getattr` из `main.py`, `admin.py`, `chat/manager.py` и `static.py`, заменены на прямой доступ.
-[x] Убран underscore prefix из импортов `_chat_handlers`/`_rag_handlers` в `router.py`.
-[x] Добавлен `NotImplementedError` в TODO `stream_chat` вместо молчаливого пропуска.
-[x] Добавлен метод `get_context_limit()` в порт `ILLM` и реализован в адаптерах.
-[x] Добавлено свойство `index_path` в порт `IVectorStore` и реализовано в адаптерах.
-[x] Убран defensive `getattr` из `lifespan.py`, заменен на прямой доступ `config.vector_store`.
-[x] Добавлен `ToolMessage` dataclass в `domain/messages.py`, обновлен `Message` alias и `generate()`.
-[x] Добавлено поле `log_file: str | None` в `AppConfig`.
-[x] Добавлен `IClosable` в порт `IReranker` с реализацией `shutdown` во всех адаптерах.
-[x] Добавлена защита от `IndexError` при пустом `embeddings` в `embed_query` и `hyde_query`.
-[x] Исправлен `KeyError` `prompt_version`/`prompt_name` в `generate()` через использование `.get()` с fallback.
-[x] Добавлена защита от пустого `last_user_msg` в `openai_chat_completions` (HTTPException 400).
-[x] Удален `getattr` в `llm_mock`, порт теперь принимает строго типизированные `Message`.
-[x] Добавлена Pydantic-схема `ReindexRequest` для эндпоинта `reindex_documents`.
-[x] Исправлено имя env var для API ключа на `AI_SECURITY_API_KEY`.
-[x] Удален мертвый tool-calling loop из `generate()`.
-[x] Убрана запись и удаление PID-file из `lifespan`.
-[x] Удален `_model_list_cache`, список моделей строится на лету.
-[x] `atomic_write`: добавлен и затем удален `os.unlink(tmp)` из `finally`, так как `os.replace` уже удаляет файл.
-[x] Убран импорт приватного `_mount_static` из `lifespan`.
-[x] Удалено поле `rate_limit` из конфига как нереализованная функциональность.
-[x] Добавлен Heartbeat в `features/chat/handlers.py` для решения проблемы "медленного соединения".
-[x] Проведен полный рефакторинг тестов, удалены дублирующие скрипты.
-[x] Исправлен schema drift `ChunkMetadata`: убран `created_at`, добавлен `total_chunks`, внедрен `dataclass_from_dict`.
-[x] Добавлено оборачивание `httpx.HTTPError` в `AdapterError` в LLM, embedder и reranker адаптерах.
-[x] Исправлен CORS: чтение из `config.yaml`, убран хардкод `["*"]` и опасное значение `"null"`.
-[x] Убран duck typing (`getattr`) в `_build_messages`, заменен на `isinstance` и явные типы.
-[x] Заменен `assert` на `if` в `rerank()` для корректной работы при запуске с `python -O`.
-[x] Синхронизированы поля `core/domain/configs.py` с `config.yaml` (добавлены missing поля, убраны лишние).
-[x] `generate()` теперь поглощает `AdapterError` в `data.add_error()`, сохраняя чистоту pipeline.
-[x] Порт `IChatStorage` теперь явно наследует `IInitializable`.
-[x] Factory переписана: жесткий `if/elif` заменен на декоратор `@register` для масштабируемости.
-[x] Изолированы тестовые фикстуры: убран shared `MagicMock`, добавлены factory/deepcopy для `AppConfig`.
-[x] Добавлен guard в `FaissVectorStore` `load()`: бросает `AdapterError` при отсутствии `store.json`.
-[x] `query_parser.py`: единый `parse_rag_query()` в `core/` заменил дублирующийся парсинг `[p]`/`[w]` в трёх местах. Namespace не теряется между слоями.
-[x] Логирование в 4 адаптерах переведено на `extra={}`; `test_chat.py` синхронизирован с 4-tuple сигнатурой `_retrieve_context()` — 27 тестов восстановлены.
-[x] Убраны `ResourceWarning: unclosed database` через `closing()` из `contextlib` в `test_adapters.py`.
-[x] `_estimate_tokens` и `_truncate_to_fit` переведены в async; роуты `/metrics` и `/metrics/json` вынесены из `main.py` в `router.py` с единым registry.
-[x] SQLite WAL mode (`PRAGMA journal_mode=WAL`) в `init_db()`.
-[x] Фильтрация пустых `stop_sequences` в `llm_openai_compatible.py`.
-[х] Усовершенствовали тесты, теперь покрывает до 84% кода.
-
-
-
-
-[х] Log rotation config | `logging.max_bytes`, `logging.backup_count` в `LoggingConfig`. Изолировано, не трогает pipeline. | `core/config.py`, `core/logger.py` | `tests/test_config.py`, `tests/test_smoke.py`
-
-
-[х] connect_timeout в config | `LLMConfig`/`EmbedderConfig` + `httpx.AsyncClient`. Два адаптера, одинаковая логика. | `core/config.py`, `adapters/llm_openai_compatible.py`, `adapters/embedder_openai_compatible.py` | `tests/test_adapters.py`, `tests/test_integration.py`
-
-[х] documents_root в config | `RAGConfig` + разделение `CHAT_EXPORTS_ROOT`. | `core/config.py`, `core/constants.py`, `features/rag/handlers.py`, `scripts/index_documents.py` | `tests/test_rag.py`, `tests/test_e2e.py`
+[+] Фабрика `create_app`: убран глобальный `app`, тесты создают изолированные инстансы без хаков.
+[+] Фикстура `client`: `app` создается внутри, убран `object.__setattr__` и патч `init_adapters`.
+[+] Убран `reset_global_state`, сброс состояния теперь происходит через `create_app()` в каждом тесте.
+[+] Inline retry вынесен из `generate()` в `_call_llm()` с декоратором `@with_retry`.
+[+] Удалена мутация `config` в рантайме (`state.config.security.api_key = req.api_key`).
+[+] `ToolResult` переведен в `frozen=True` dataclass, все мутации полей заменены на создание нового экземпляра.
+[+] Реализован graceful degradation при недоступном LLM: возврат 503 с текстом вместо 500.
+[+] Добавлена TTL-очистка `_reindex_status` (удаление старых записей при len > 1000).
+[+] Добавлен backpressure в `MetricsLogger`, но впоследствии `MetricsMiddleware` и `MetricsLogger` полностью удалены как избыточный вес.
+[+] Добавлена поддержка OpenAI `content: str | list[dict]` для Vision-совместимости.
+[+] Добавлен метод `shutdown()` в порты `IEmbedder`, `IVectorStore` и `IReranker` с реализацией graceful shutdown в `lifespan`.
+[+] Убран прямой импорт `pipeline.steps` из `ChatManager`, используется `RAGPipeline` из `AppState`.
+[+] Заменен динамический `importlib` в `router.py` на явные импорты для отлова ошибок на этапе compile-time.
+[+] `PipelineData`: эволюционировал от обычного dataclass к `frozen=True` + `slots=True` для runtime-гарантии иммутабельности и защиты от опечаток.
+[+] Убран глобальный флаг `_static_mounted`, проверка перенесена в `app.routes` или `app.state`.
+[+] Сужены `except Exception` до конкретных типов (`ImportError`, `ValueError`) в `init_adapters`.
+[+] Удален `core/circuit_breaker.py` и все его использования как преждевременная сложность.
+[+] Упрощен security-слой: удален дублирующий `APIKeyMiddleware` и самописный `LimitMiddleware`, оставлен `require_api_key`.
+[+] Удалены `voice`/`vision`/`long_term_memory` и `tool_registry` из ядра и инициализации `AppState`.
+[+] `AppState` разделен на стартовый и `InitializedAppState`, убраны `Optional` и `slots=True` для гибкости тестов.
+[+] Убит глобальный pipeline step registry (`@step`), шаги импортируются и собираются явно в `core/pipeline_steps.py`.
+[+] Глобальный Adapter Registry заменен на явную фабрику `create_adapter` с локальным декоратором `@register`.
+[+] CPU-bound вызовы (FAISS, tiktoken) обернуты в `asyncio.to_thread()` для предотвращения блокировки event loop.
+[+] Добавлен guard на max 5 итераций tool loop в `generate()` для предотвращения infinite loop.
+[+] Добавлен CJK fallback в `count_tokens()` для корректного подсчета токенов китайского/японского текста.
+[+] Добавлена очистка `rerank_*` ключей из metadata при `reranker=None`.
+[+] Создан `RAGStep` StrEnum и динамический `_STEP_MAP` для конфигурации шагов через `config.yaml`.
+[+] Реализован per-namespace config block в `config.yaml` с индивидуальными threshold, chunk_size и prompt.
+[+] Добавлена поддержка `prompt_version` в config для управления версиями промптов без правки кода.
+[+] Удалены `ImagePayload`, `VoicePayload` и связанные заглушки из chat-слоя.
+[+] Починен `check_smoke.py` после удаления voice/vision (убраны `AttributeError`).
+[+] Синхронизирована документация (README, AI_RULES, TODO, config) после удаления voice/vision.
+[+] Унифицирован `relevance_threshold` в одном месте, удален из `VectorStoreConfig`.
+[+] Добавлены warnings на неизвестные env vars при загрузке конфига с `extra="ignore"`.
+[+] `DummyReranker` заменен на `NullReranker`, убраны проверки `if reranker is None` из pipeline.
+[+] Добавлен `trace_id` в `PipelineData` с пробросом в логи шагов и HTTP handlers.
+[+] Заменены динамические классы `type("C", (), {...})` в скриптах на dataclass-фабрики.
+[+] Удалена магическая строка `"__terminal__"` из launcher, заменена на Enum/Literal.
+[+] Удален мёртвый комментарий "voice-vision branch" из `test_contracts.py`.
+[+] Исправлен CORS fallback crash при отсутствии config.yaml (замена `["*"]` на localhost).
+[+] Убран избыточный `__post_init__` в `UserMessage`, поле `text` сделано обязательным `str`.
+[+] Синхронизирован `config_version` между `config.yaml` и `AppConfig` (поднят до 1.5.0).
+[+] Убрано дублирование вызова `_mount_static`, оставлена единственная точка в `lifespan.py`.
+[+] Заменен тип `Any` на `ChatManager` в `AppState` для восстановления типобезопасности.
+[+] Перенесен `STEP_REGISTRY` и функции шагов из `pipeline/` в `core/pipeline_steps.py`.
+[+] Удалена мёртвая функция `_rehydrate_state` из `deps.py`.
+[+] Убраны defensive `getattr` для config в `lifespan`, заменены на прямой доступ.
+[+] Типизирован `limiter` в `AppState` (`Callable | None` вместо `Any`).
+[+] Типизирован `STEP_REGISTRY` (`dict[str, Callable[[PipelineData], Awaitable[PipelineData]]]`).
+[+] Вынесены magic numbers (256, 0.1) в `generate()` в именованные константы (`TOKEN_MARGIN_MIN`, `TOKEN_MARGIN_PCT`).
+[+] Добавлен метод `with_metadata()` в `PipelineData` для единообразия API.
+[+] Добавлены базовые метрики observability (счетчики, latency) и endpoint `/metrics`.
+[+] Синхронизирован `dev/tests/config.test.yaml` с корневым `config.yaml` (добавлены namespaces).
+[+] Убран хардкод путей в RAG handlers, вынесен в константы или config.
+[+] Вынесен truncation loop из `generate()` в `_truncate_to_fit()` с fallback `max_ctx`.
+[+] Исправлен `pre_commit_check.py`: убрано дублирование, добавлена проверка `**kwargs`.
+[+] Исправлен `check_mutations.py`: `return 0` заменен на `return 1` при проваленном тесте.
+[+] Исправлен `launcher.py`: удален дубль ключа `TEST_FLAGS` "clean_cache".
+[+] Исправлен `context_build.py`: `write_text()` заменен на `atomic_write()`.
+[+] Исправлена race condition в `_reindex_status` и глобальных dict `metrics.py`.
+[+] Переименованы ЗАГЛАВНЫЕ файлы в прописные.
+[+] Изменена структура проекта для личного пользования.
+[+] Прокинут `rag.top_k` из конфига в `ChatManager`, убран magic number.
+[+] Дедуплицирована логика `chat`/`stream_chat` через вынос `_build_messages` и `_retrieve_context`.
+[+] Упрощен `launcher` до чистого меню (номер → запуск), убраны `ask_flags` и диалоги.
+[+] Скрипты сделаны интерактивными: при отсутствии аргументов запрашивают выбор цифрами.
+[+] Удалены мусорные `getattr` из `main.py`, `admin.py`, `chat/manager.py` и `static.py`, заменены на прямой доступ.
+[+] Убран underscore prefix из импортов `_chat_handlers`/`_rag_handlers` в `router.py`.
+[+] Добавлен `NotImplementedError` в TODO `stream_chat` вместо молчаливого пропуска.
+[+] Добавлен метод `get_context_limit()` в порт `ILLM` и реализован в адаптерах.
+[+] Добавлено свойство `index_path` в порт `IVectorStore` и реализовано в адаптерах.
+[+] Убран defensive `getattr` из `lifespan.py`, заменен на прямой доступ `config.vector_store`.
+[+] Добавлен `ToolMessage` dataclass в `domain/messages.py`, обновлен `Message` alias и `generate()`.
+[+] Добавлено поле `log_file: str | None` в `AppConfig`.
+[+] Добавлен `IClosable` в порт `IReranker` с реализацией `shutdown` во всех адаптерах.
+[+] Добавлена защита от `IndexError` при пустом `embeddings` в `embed_query` и `hyde_query`.
+[+] Исправлен `KeyError` `prompt_version`/`prompt_name` в `generate()` через использование `.get()` с fallback.
+[+] Добавлена защита от пустого `last_user_msg` в `openai_chat_completions` (HTTPException 400).
+[+] Удален `getattr` в `llm_mock`, порт теперь принимает строго типизированные `Message`.
+[+] Добавлена Pydantic-схема `ReindexRequest` для эндпоинта `reindex_documents`.
+[+] Исправлено имя env var для API ключа на `AI_SECURITY_API_KEY`.
+[+] Удален мертвый tool-calling loop из `generate()`.
+[+] Убрана запись и удаление PID-file из `lifespan`.
+[+] Удален `_model_list_cache`, список моделей строится на лету.
+[+] `atomic_write`: добавлен и затем удален `os.unlink(tmp)` из `finally`, так как `os.replace` уже удаляет файл.
+[+] Убран импорт приватного `_mount_static` из `lifespan`.
+[+] Удалено поле `rate_limit` из конфига как нереализованная функциональность.
+[+] Добавлен Heartbeat в `features/chat/handlers.py` для решения проблемы "медленного соединения".
+[+] Проведен полный рефакторинг тестов, удалены дублирующие скрипты.
+[+] Исправлен schema drift `ChunkMetadata`: убран `created_at`, добавлен `total_chunks`, внедрен `dataclass_from_dict`.
+[+] Добавлено оборачивание `httpx.HTTPError` в `AdapterError` в LLM, embedder и reranker адаптерах.
+[+] Исправлен CORS: чтение из `config.yaml`, убран хардкод `["*"]` и опасное значение `"null"`.
+[+] Убран duck typing (`getattr`) в `_build_messages`, заменен на `isinstance` и явные типы.
+[+] Заменен `assert` на `if` в `rerank()` для корректной работы при запуске с `python -O`.
+[+] Синхронизированы поля `core/domain/configs.py` с `config.yaml` (добавлены missing поля, убраны лишние).
+[+] `generate()` теперь поглощает `AdapterError` в `data.add_error()`, сохраняя чистоту pipeline.
+[+] Порт `IChatStorage` теперь явно наследует `IInitializable`.
+[+] Factory переписана: жесткий `if/elif` заменен на декоратор `@register` для масштабируемости.
+[+] Изолированы тестовые фикстуры: убран shared `MagicMock`, добавлены factory/deepcopy для `AppConfig`.
+[+] Добавлен guard в `FaissVectorStore` `load()`: бросает `AdapterError` при отсутствии `store.json`.
+[+] `query_parser.py`: единый `parse_rag_query()` в `core/` заменил дублирующийся парсинг `[p]`/`[w]` в трёх местах. Namespace не теряется между слоями.
+[+] Логирование в 4 адаптерах переведено на `extra={}`; `test_chat.py` синхронизирован с 4-tuple сигнатурой `_retrieve_context()` — 27 тестов восстановлены.
+[+] Убраны `ResourceWarning: unclosed database` через `closing()` из `contextlib` в `test_adapters.py`.
+[+] `_estimate_tokens` и `_truncate_to_fit` переведены в async; роуты `/metrics` и `/metrics/json` вынесены из `main.py` в `router.py` с единым registry.
+[+] SQLite WAL mode (`PRAGMA journal_mode=WAL`) в `init_db()`.
+[+] Фильтрация пустых `stop_sequences` в `llm_openai_compatible.py`.
+[х] Усовершенствовали тесты, теперь покрывает до 85% проекта.
+[+] Log rotation: `logging.max_bytes`, `logging.backup_count` в `LoggingConfig`.
+[+] `connect_timeout` в `LLMConfig`/`EmbedderConfig`, единая логика `httpx.AsyncClient` в обоих адаптерах.
+[+] `documents_root` в `RAGConfig`, разделён `CHAT_EXPORTS_ROOT`.
+[+] `token_margin_min`/`token_margin_pct` в конфиг, убраны константы; `PipelineConfig` перенесён в `core/domain/pipeline.py` как stdlib dataclass.
+[+] Убраны fallbacks из pipeline steps: `metadata["key"]` вместо `.get()`, `KeyError` → `ConfigurationError`.
+[+] Убран хардкод `model="gpt-4o"`, `tokenizer_model` прокидывается через менеджеры.
+[+] `max_ctx` fallback перенесён в адаптеры (`get_context_limit()`), обновлён `MockLLM`.
+[+] Убрано дублирование `PipelineConfig`/`ConfigurationError` — импорты из `core/domain/`.
+[+] Ужесточены типы в `_call_embed`/`_call_search`/`_call_llm`: `Any` → `IEmbedder`/`IVectorStore`/`ILLM`.
+[+] Добавлены docstrings в `core/domain/configs.py`.
+[+] CJK threshold вынесен в `_CJK_RATIO_THRESHOLD = 0.3`, убраны magic literals.
+[+] Все продакшен-вызовы `count_tokens` явно передают `model` из конфига; `utils.py` задокументирован.

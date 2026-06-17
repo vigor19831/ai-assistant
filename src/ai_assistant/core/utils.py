@@ -25,6 +25,10 @@ __all__ = [
     "resolve_api_key",
 ]
 
+# Named constant for CJK ratio threshold to avoid magic numbers
+# CJK-heavy text above this threshold uses len(text) instead of len(text)//4
+_CJK_RATIO_THRESHOLD: float = 0.3
+
 
 def resolve_api_key(config_value: str | None, env_var: str = "OPENAI_API_KEY") -> str:
     """Resolve API key from config or environment."""
@@ -108,13 +112,16 @@ def count_tokens(
     text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
 ) -> int:
     """Count tokens. Fallback to char//4 if no tokenizer available.
-    CJK-heavy text (>30%) falls back to len(text) instead of len(text)//4.
+    CJK-heavy text (>threshold) falls back to len(text) instead of len(text)//4.
+
+    NOTE: The default model="gpt-4o" is for backward compatibility and tests.
+    Production code MUST pass model explicitly from cfg.chat.tokenizer_model.
     """
     if not text:
         return 0
     enc = get_tokenizer(model, local_dir=local_dir)
     if enc is None:
-        if _cjk_ratio(text) > 0.3:
+        if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
             return len(text)
         return len(text) // 4
     try:
@@ -124,7 +131,7 @@ def count_tokens(
         # tiktoken: encode() returns list[int]
         return len(enc.encode(text))
     except Exception:
-        if _cjk_ratio(text) > 0.3:
+        if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
             return len(text)
         return len(text) // 4
 
@@ -132,7 +139,11 @@ def count_tokens(
 async def async_count_tokens(
     text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
 ) -> int:
-    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool."""
+    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool.
+
+    NOTE: The default model="gpt-4o" is for backward compatibility and tests.
+    Production code MUST pass model explicitly from cfg.chat.tokenizer_model.
+    """
     return await asyncio.to_thread(count_tokens, text, model, local_dir)
 
 

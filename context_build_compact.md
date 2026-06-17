@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-17 11:10:47 UTC | **Mode:** `compact`
-> **Metrics:** 108 files | 93 Python | 17,945 LOC
+> **Generated:** 2026-06-17 19:17:51 UTC | **Mode:** `compact`
+> **Metrics:** 108 files | 93 Python | 18,070 LOC
 > **Full:** 48 | **Signatures:** 21 | **Listed:** 32
 
 ---
@@ -299,7 +299,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-17 11:10 UTC
+> Auto-generated from source code. Updated: 2026-06-17 19:17 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -342,11 +342,11 @@ These rules themselves change:
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
 | `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 84 |
 | `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 89 |
-| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 62 |
+| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 48 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
-| `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
+| `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
@@ -356,18 +356,18 @@ These rules themselves change:
 | `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
-| `tests.test_pipeline` | `AdapterError` | LLM down | High | 535 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 635 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 665 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 687 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 642 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 541 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 642 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 672 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 694 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 649 |
 | `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
 | `tests.test_rag` | `HTTPException` | Unknown error | High | 179 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
-| `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 42 |
+| `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 43 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 53 |
 | `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium | 96 |
@@ -394,23 +394,23 @@ These rules themselves change:
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
 | `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 120 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 380 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 127 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 170 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 237 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 303 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 343 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 387 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 386 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 129 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 172 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 239 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 305 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 345 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 393 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
-| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 123 |
-| `core.utils` | `Exception` | pass | Medium | 79 |
-| `core.utils` | `Exception` | if _cjk_ratio(text) > 0.3: | Medium | 126 |
+| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 130 |
+| `core.utils` | `Exception` | pass | Medium | 83 |
+| `core.utils` | `Exception` | if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD: | Medium | 133 |
 | `core.utils` | `ImportError` | tiktoken = None  # type: ignore[assignment] | Medium | 12 |
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
-| `core.utils` | `KeyError` | try: | Medium | 76 |
-| `core.utils` | `OSError` | return None | Medium | 63 |
+| `core.utils` | `KeyError` | try: | Medium | 80 |
+| `core.utils` | `OSError` | return None | Medium | 67 |
 | `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 121 |
 | `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 177 |
 | `features.chat.handlers` | `Exception` | await queue.put(exc) | Medium | 66 |
@@ -440,6 +440,7 @@ These rules themselves change:
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
 | `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
+| `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium | 61 |
 | `tests.test_logger` | `OSError` | disk full | Low | 214 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.
@@ -463,6 +464,12 @@ These rules themselves change:
 | 6 | Fixed 2026-06-14: Added `get_logger` to `embedder_openai_compatible.py` and `reranker_api.py`. All `AdapterError` wraps now preceded by `logger.exception`. |
 | 7 | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py` | Duplicate HTTP client setup (httpx.AsyncClient, POST, raise_for_status, json parse) | Layer boundaries prevent shared httpx code: core/ is stdlib-only, adapters/ may only import core/*. Extracting to core/ violates stdlib-only rule. Extracting to adapters/_shared violates layer boundaries. | Accept duplication as architectural constraint. Revisit if >3 adapters share pattern. | Low |
 | 8 | `src/ai_assistant/core/pipeline_steps.py` (retrieve, rerank, generate) | `typing.cast("PipelineConfig | None", data.metadata.get("pipeline_config"))` | `PipelineData.metadata: dict[str, Any]` is untyped bag. Steps extract values by string key with no static type guarantee. Mypy requires cast; Ruff TC006 requires quoted type in cast. | Accept cast as temporary measure. Fix by structuring PipelineData metadata (TypedDict or explicit fields) — CORE CHANGE REQUIRED. See proposed fix in docs/ai_rules_proposed.md or core refactor backlog. | Low |
+| 9 | ~~`src/ai_assistant/core/pipeline_steps.py`~~ (fixed 2026-06-17) | ~~`model: str = "gpt-4o"` default~~ | ~~Default был fallback для тестов/CLI~~ | **Fixed:** убраны все дефолты `"gpt-4o"` из `_estimate_tokens()` и `_truncate_to_fit()`. `tokenizer_model` теперь обязательный ключ в metadata. `ChatManager` всегда передаёт его. Все тесты обновлены. | — |
+| 10 | `src/ai_assistant/core/retry.py` | `max_retries=3, delay=1.0, backoff=2.0` хардкод в `@with_retry` на адаптерах | Resilience policy — не бизнес-логика. Меняется раз в 10 лет. Вынесение в config требует CORE CHANGE (новые поля в `EmbedderConfigData`, `LLMConfigData`, `RerankerConfigData`) + inline-фабрики декораторов (костыль). | Accept as architectural constraint. Пересмотреть при добавлении `IRetryPolicy` порта или embedded-режима с 0 retries. | Low |
+| 11 | `src/ai_assistant/core/prompts/__init__.py` | Jinja2 import в core/ | Prompt rendering — domain logic, Jinja2 — implementation detail. Для 30-летнего горизонта абстракция `IPromptRenderer` предпочтительна, но требует нового порта + адаптера + обновления factory + всех вызовов. | Accept as grandfathered exception. Документировать при добавлении второго движка шаблонов (Mustache, etc.). | Low |
+| 12 | `src/ai_assistant/core/prompts/__init__.py` | `_make_hashable()` без защиты от циклических ссылок | Текущие prompts не содержат self-referencing dataclasses. Защита — YAGNI. | Accept. Добавить при первом `RecursionError` в продакшене. | Low |
+
+
 
 Rule: Do not add new drift if old pattern can be fixed properly.
 
@@ -762,6 +769,8 @@ tests/
 - `src/ai_assistant/api/security.py`
   - → `ai_assistant.core.logger: get_logger`
 - `src/ai_assistant/core/pipeline.py`
+  - → `ai_assistant.core.domain.errors: ConfigurationError`
+  - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY`
 - `src/ai_assistant/core/pipeline_steps.py`
@@ -772,7 +781,9 @@ tests/
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.metrics: increment_counter`
-  - → `ai_assistant.core.ports.llm: Message`
+  - → `ai_assistant.core.ports.embedder: IEmbedder`
+  - → `ai_assistant.core.ports.llm: ILLM, Message`
+  - → `ai_assistant.core.ports.vector_store: IVectorStore`
   - → `ai_assistant.core.prompts: get_prompt`
   - → `ai_assistant.core.retry: with_retry`
   - → `ai_assistant.core.utils: async_count_tokens`
@@ -1064,6 +1075,7 @@ tests/
 - `tests/test_static.py`
   - → `ai_assistant.api.static: mount_static`
 - `tests/test_tokenizer.py`
+  - → `ai_assistant.core.utils: _CJK_RATIO_THRESHOLD`
   - → `ai_assistant.core.utils: _resolve_tokenizer_dir, async_count_tokens, async_get_tokenizer, count_tokens, get_tokenizer`
 
 ---
@@ -2789,7 +2801,14 @@ __all__ = [
 
 ### `src/ai_assistant/core/domain/configs.py`
 ```python
-"""core/domain/configs.py"""
+"""Immutable dataclass configurations for adapter port contracts.
+
+Each dataclass mirrors a subset of the Pydantic AppConfig models
+(core/config.py) as stdlib-only frozen dataclasses. This keeps
+core/ports/ free of any Pydantic dependency and guarantees immutability.
+
+All fields have sensible defaults matching the production config defaults.
+"""
 
 from __future__ import annotations
 
@@ -2798,12 +2817,35 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ChunkerConfigData:
+    """Configuration for document chunking adapters.
+
+    Attributes:
+        chunk_size: Target size of each chunk in characters.
+        chunk_overlap: Number of overlapping characters between chunks.
+    """
+
     chunk_size: int = 512
     chunk_overlap: int = 50
 
 
 @dataclass(frozen=True, slots=True)
 class EmbedderConfigData:
+    """Configuration for text embedding adapters.
+
+    Attributes:
+        model: Model identifier on the embedding server.
+        api_base: Base URL of the OpenAI-compatible embedding API.
+        api_key: Optional API key for authentication.
+        dim: Embedding vector dimension (must match vector_store.dim).
+        timeout: Total request timeout in seconds.
+        connect_timeout: TCP connection timeout in seconds.
+        n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU).
+        n_batch: Batch size for embedding processing.
+        n_ubatch: Micro-batch size.
+        mmap: Use memory-mapped files to reduce RAM usage.
+        mlock: Lock pages in RAM to prevent swapping.
+    """
+
     model: str = "text-embedding-3-small"
     api_base: str = "https://api.openai.com/v1"
     api_key: str | None = None
@@ -2819,6 +2861,33 @@ class EmbedderConfigData:
 
 @dataclass(frozen=True, slots=True)
 class LLMConfigData:
+    """Configuration for language model adapters.
+
+    Attributes:
+        model: Model identifier on the LLM server.
+        api_base: Base URL of the OpenAI-compatible LLM API.
+        api_key: Optional API key for authentication.
+        max_tokens: Maximum tokens to generate per completion.
+        temperature: Sampling temperature (0.0 = deterministic, 1.0 = random).
+        timeout: Total request timeout in seconds.
+        connect_timeout: TCP connection timeout in seconds.
+        server_context_size: Context window size advertised by the server.
+        top_p: Nucleus sampling probability threshold.
+        top_k: Top-k sampling limit (-1 = disabled).
+        min_p: Minimum token probability threshold.
+        repeat_penalty: Penalty for repeated tokens (1.0 = no penalty).
+        presence_penalty: Penalty for token presence (-2.0 to 2.0).
+        frequency_penalty: Penalty for token frequency (-2.0 to 2.0).
+        stop_sequences: Sequences that stop generation.
+        system_message: Optional system prompt override.
+        available_models: List of models available on this server.
+        n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU).
+        n_batch: Batch size for inference.
+        n_ubatch: Micro-batch size.
+        mmap: Use memory-mapped files to reduce RAM usage.
+        mlock: Lock pages in RAM to prevent swapping.
+    """
+
     model: str = "gpt-4o-mini"
     api_base: str = "https://api.openai.com/v1"
     api_key: str | None = None
@@ -2845,6 +2914,16 @@ class LLMConfigData:
 
 @dataclass(frozen=True, slots=True)
 class VectorStoreConfigData:
+    """Configuration for vector store adapters.
+
+    Attributes:
+        dim: Embedding vector dimension (must match embedder.dim).
+        index_path: Directory path for persistent index storage.
+        metric: Distance metric ("l2", "cosine", "ip").
+        max_chunks: Maximum number of chunks per namespace.
+        max_document_size: Maximum document size in bytes.
+    """
+
     dim: int = 384
     index_path: str = "./data/indices/default"
     metric: str = "l2"
@@ -2854,11 +2933,27 @@ class VectorStoreConfigData:
 
 @dataclass(frozen=True, slots=True)
 class StorageConfigData:
+    """Configuration for persistent storage adapters.
+
+    Attributes:
+        db_path: Path to the SQLite database file.
+    """
+
     db_path: str = "./data/storage.db"
 
 
 @dataclass(frozen=True, slots=True)
 class RerankerConfigData:
+    """Configuration for reranker adapters.
+
+    Attributes:
+        model: Model identifier for the reranker endpoint.
+        api_base: Base URL of the reranker API.
+        api_key: Optional API key for authentication.
+        timeout: Total request timeout in seconds.
+        threshold: Minimum relevance score to keep a chunk (0.0 to 1.0).
+    """
+
     model: str = "rerank-multilingual-v3.0"
     api_base: str = "https://api.cohere.com"
     api_key: str | None = None
@@ -3404,30 +3499,16 @@ def get_metrics_json() -> dict[str, Any]:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
+
+from ai_assistant.core.domain.errors import ConfigurationError
+from ai_assistant.core.domain.pipeline import PipelineConfig
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from ai_assistant.core.domain.pipeline import PipelineData
-
-
-@dataclass(frozen=True, slots=True)
-class PipelineConfig:
-    """Immutable per-query pipeline configuration."""
-
-    top_k: int = 5
-    namespace: str = "default"
-    relevance_threshold: float = 0.3
-    prompt_name: str = "rag_strict"
-    prompt_version: str = "v1"
-    token_margin_min: int = 256
-    token_margin_pct: float = 0.1
-
-
-class ConfigurationError(Exception):
-    """Pipeline metadata missing required keys."""
 
 
 __all__ = ["PipelineConfig", "RAGPipeline", "ConfigurationError"]
@@ -3499,7 +3580,7 @@ No in-place mutation.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -3521,11 +3602,13 @@ from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import async_count_tokens
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
-    from ai_assistant.core.ports.llm import Message
+    from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.llm import ILLM, Message
+    from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__: list[str] = [
     "build_context",
@@ -3559,7 +3642,7 @@ def step(
     return decorator
 
 
-async def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
+async def _estimate_tokens(text: str, model: str) -> int:
     return await async_count_tokens(text, model)
 
 
@@ -3567,21 +3650,21 @@ async def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_embed(embedder: Any, text: str) -> list[list[float]]:
+async def _call_embed(embedder: IEmbedder, text: str) -> list[list[float]]:
     """Embed a single text with retry."""
     return await embedder.embed([text])
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
 async def _call_search(
-    vector_store: Any, embedding: list[float], top_k: int, namespace: str
-) -> list[Any]:
+    vector_store: IVectorStore, embedding: list[float], top_k: int, namespace: str
+) -> list[Chunk]:
     """Search vector store with retry."""
     return await vector_store.search(embedding, top_k=top_k, namespace=namespace)
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_llm(llm: Any, messages: Sequence[Message]) -> AssistantMessage:
+async def _call_llm(llm: ILLM, messages: list[Message]) -> AssistantMessage:
     """Call LLM with retry."""
     return await llm.complete(messages)
 
@@ -3767,7 +3850,7 @@ async def _truncate_to_fit(
     prompt_version: str,
     query_text: str,
     limit: int,
-    model: str = "gpt-4o",
+    model: str,
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -3837,10 +3920,14 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt = _build_fallback_prompt(data.chunks, query_text)
 
     max_ctx = llm.get_context_limit()
-    if max_ctx is None or max_ctx <= 0:
-        max_ctx = 4096
 
-    tokenizer_model = data.metadata.get("tokenizer_model", "gpt-4o")
+    tokenizer_model = data.metadata.get("tokenizer_model")
+    if tokenizer_model is None:
+        _logger.error(
+            "tokenizer_model missing in metadata",
+            extra={"trace_id": data.trace_id},
+        )
+        return data.add_error("tokenizer_model missing in metadata")
     prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
     margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
     limit = max_ctx - margin
@@ -3912,7 +3999,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_TEXT_MISSING)
 
     # Generate hypothetical answer
-    hyde_messages = [
+    hyde_messages: list[Message] = [
         UserMessage(
             text=f"Write a short passage that answers this question: {data.query.text}"
         )
@@ -4749,6 +4836,10 @@ __all__ = [
     "resolve_api_key",
 ]
 
+# Named constant for CJK ratio threshold to avoid magic numbers
+# CJK-heavy text above this threshold uses len(text) instead of len(text)//4
+_CJK_RATIO_THRESHOLD: float = 0.3
+
 
 def resolve_api_key(config_value: str | None, env_var: str = "OPENAI_API_KEY") -> str:
     """Resolve API key from config or environment."""
@@ -4832,13 +4923,16 @@ def count_tokens(
     text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
 ) -> int:
     """Count tokens. Fallback to char//4 if no tokenizer available.
-    CJK-heavy text (>30%) falls back to len(text) instead of len(text)//4.
+    CJK-heavy text (>threshold) falls back to len(text) instead of len(text)//4.
+
+    NOTE: The default model="gpt-4o" is for backward compatibility and tests.
+    Production code MUST pass model explicitly from cfg.chat.tokenizer_model.
     """
     if not text:
         return 0
     enc = get_tokenizer(model, local_dir=local_dir)
     if enc is None:
-        if _cjk_ratio(text) > 0.3:
+        if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
             return len(text)
         return len(text) // 4
     try:
@@ -4848,7 +4942,7 @@ def count_tokens(
         # tiktoken: encode() returns list[int]
         return len(enc.encode(text))
     except Exception:
-        if _cjk_ratio(text) > 0.3:
+        if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
             return len(text)
         return len(text) // 4
 
@@ -4856,7 +4950,11 @@ def count_tokens(
 async def async_count_tokens(
     text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
 ) -> int:
-    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool."""
+    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool.
+
+    NOTE: The default model="gpt-4o" is for backward compatibility and tests.
+    Production code MUST pass model explicitly from cfg.chat.tokenizer_model.
+    """
     return await asyncio.to_thread(count_tokens, text, model, local_dir)
 
 

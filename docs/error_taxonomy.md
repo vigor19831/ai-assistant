@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-17 11:10 UTC
+> Auto-generated from source code. Updated: 2026-06-17 19:17 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -42,11 +42,11 @@
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
 | `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 84 |
 | `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 89 |
-| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 62 |
+| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 48 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
-| `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 36 |
+| `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
@@ -56,18 +56,18 @@
 | `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
-| `tests.test_pipeline` | `AdapterError` | LLM down | High | 535 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 635 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 665 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 687 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 642 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 541 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 642 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 672 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 694 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 649 |
 | `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
 | `tests.test_rag` | `HTTPException` | Unknown error | High | 179 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
-| `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 42 |
+| `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 43 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium | 53 |
 | `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium | 96 |
@@ -94,23 +94,23 @@
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
 | `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 120 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 380 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 127 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 170 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 237 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 303 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 343 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 387 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 386 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 129 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 172 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 239 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 305 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 345 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 393 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
-| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 123 |
-| `core.utils` | `Exception` | pass | Medium | 79 |
-| `core.utils` | `Exception` | if _cjk_ratio(text) > 0.3: | Medium | 126 |
+| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 130 |
+| `core.utils` | `Exception` | pass | Medium | 83 |
+| `core.utils` | `Exception` | if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD: | Medium | 133 |
 | `core.utils` | `ImportError` | tiktoken = None  # type: ignore[assignment] | Medium | 12 |
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
-| `core.utils` | `KeyError` | try: | Medium | 76 |
-| `core.utils` | `OSError` | return None | Medium | 63 |
+| `core.utils` | `KeyError` | try: | Medium | 80 |
+| `core.utils` | `OSError` | return None | Medium | 67 |
 | `features.chat.handlers` | `AdapterError` | _logger.warning( | Medium | 121 |
 | `features.chat.handlers` | `AdapterError` | payload = json.dumps( | Medium | 177 |
 | `features.chat.handlers` | `Exception` | await queue.put(exc) | Medium | 66 |
@@ -140,6 +140,7 @@
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
 | `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
+| `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium | 61 |
 | `tests.test_logger` | `OSError` | disk full | Low | 214 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.

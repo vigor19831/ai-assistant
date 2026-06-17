@@ -248,6 +248,48 @@ class TestGetTokenizer:
             assert r2 is mock_enc
 
 
+class TestCJKThresholdConstant:
+    """Given: CJK threshold constant exists.
+    When: _CJK_RATIO_THRESHOLD is accessed.
+    Then: it has expected value and is used in count_tokens."""
+
+    def test_threshold_constant_value(self) -> None:
+        """Given: _CJK_RATIO_THRESHOLD is defined.
+        When: accessing its value.
+        Then: it equals 0.3."""
+        from ai_assistant.core.utils import _CJK_RATIO_THRESHOLD
+        assert _CJK_RATIO_THRESHOLD == 0.3
+        assert isinstance(_CJK_RATIO_THRESHOLD, float)
+
+    def test_threshold_used_in_count_tokens(self) -> None:
+        """Given: text with CJK ratio exactly at threshold.
+        When: count_tokens is called without tokenizer.
+        Then: threshold comparison uses > (strict), so //4 fallback applies."""
+        with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
+            # 3 CJK out of 10 chars = exactly 30% = threshold
+            # Since comparison is > threshold, this should use //4
+            text = "abc这def日g中"
+            assert len(text) == 10
+            from ai_assistant.core.utils import _CJK_RATIO_THRESHOLD
+            ratio = 3 / 10  # 0.3 exactly
+            assert ratio == _CJK_RATIO_THRESHOLD
+            result = count_tokens(text)
+            assert result == 10 // 4  # Uses //4 because ratio is NOT > threshold
+
+    def test_threshold_above_uses_len(self) -> None:
+        """Given: text with CJK ratio above threshold.
+        When: count_tokens is called without tokenizer.
+        Then: len(text) fallback is used."""
+        with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
+            from ai_assistant.core.utils import _CJK_RATIO_THRESHOLD
+            # 4 CJK out of 10 chars = 40% > 0.3 threshold
+            text = "abc这def日g中日"
+            ratio = 4 / 10  # 0.4
+            assert ratio > _CJK_RATIO_THRESHOLD
+            result = count_tokens(text)
+            assert result == len(text)  # Uses len because ratio > threshold
+
+
 class TestAsyncTokenizer:
     """Given: async tokenizer operations.
     When: async_count_tokens or async_get_tokenizer is called.

@@ -6,7 +6,7 @@ No in-place mutation.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -28,11 +28,13 @@ from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import async_count_tokens
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
-    from ai_assistant.core.ports.llm import Message
+    from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.llm import ILLM, Message
+    from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__: list[str] = [
     "build_context",
@@ -66,7 +68,7 @@ def step(
     return decorator
 
 
-async def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
+async def _estimate_tokens(text: str, model: str) -> int:
     return await async_count_tokens(text, model)
 
 
@@ -74,21 +76,21 @@ async def _estimate_tokens(text: str, model: str = "gpt-4o") -> int:
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_embed(embedder: Any, text: str) -> list[list[float]]:
+async def _call_embed(embedder: IEmbedder, text: str) -> list[list[float]]:
     """Embed a single text with retry."""
     return await embedder.embed([text])
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
 async def _call_search(
-    vector_store: Any, embedding: list[float], top_k: int, namespace: str
-) -> list[Any]:
+    vector_store: IVectorStore, embedding: list[float], top_k: int, namespace: str
+) -> list[Chunk]:
     """Search vector store with retry."""
     return await vector_store.search(embedding, top_k=top_k, namespace=namespace)
 
 
 @with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_llm(llm: Any, messages: Sequence[Message]) -> AssistantMessage:
+async def _call_llm(llm: ILLM, messages: list[Message]) -> AssistantMessage:
     """Call LLM with retry."""
     return await llm.complete(messages)
 
@@ -274,7 +276,7 @@ async def _truncate_to_fit(
     prompt_version: str,
     query_text: str,
     limit: int,
-    model: str = "gpt-4o",
+    model: str,
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -344,10 +346,14 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt = _build_fallback_prompt(data.chunks, query_text)
 
     max_ctx = llm.get_context_limit()
-    if max_ctx is None or max_ctx <= 0:
-        max_ctx = 4096
 
-    tokenizer_model = data.metadata.get("tokenizer_model", "gpt-4o")
+    tokenizer_model = data.metadata.get("tokenizer_model")
+    if tokenizer_model is None:
+        _logger.error(
+            "tokenizer_model missing in metadata",
+            extra={"trace_id": data.trace_id},
+        )
+        return data.add_error("tokenizer_model missing in metadata")
     prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
     margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
     limit = max_ctx - margin
@@ -419,7 +425,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_TEXT_MISSING)
 
     # Generate hypothetical answer
-    hyde_messages = [
+    hyde_messages: list[Message] = [
         UserMessage(
             text=f"Write a short passage that answers this question: {data.query.text}"
         )

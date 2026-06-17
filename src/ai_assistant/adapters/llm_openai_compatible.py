@@ -124,7 +124,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         return parsed
 
     def get_context_limit(self) -> int | None:
-        """Return context limit from config."""
+        """Return context limit from config, or default 4096."""
         cfg = self.config
         limit = cfg.server_context_size
         if limit is not None and limit > 0:
@@ -132,7 +132,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         limit = cfg.max_tokens
         if limit > 0:
             return limit
-        return None
+        return 4096
 
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
     async def _complete_impl(

@@ -264,6 +264,7 @@ class TestIntegrationChatRAG:
             "vector_store": vector_store,
             "reranker": reranker,
             "llm": llm,
+            "tokenizer_model": "gpt-4o",
             "pipeline_config": PipelineConfig(
                 top_k=5,
                 namespace="default",
@@ -329,6 +330,7 @@ class TestIntegrationFullRAG:
             "vector_store": vector_store,
             "reranker": reranker,
             "llm": llm,
+            "tokenizer_model": "gpt-4o",
             "pipeline_config": PipelineConfig(
                 top_k=5,
                 namespace="docs",
@@ -435,6 +437,7 @@ class TestIntegrationAPIInit:
                 "vector_store": state.vector_store,
                 "reranker": state.reranker,
                 "llm": state.llm,
+                "tokenizer_model": "gpt-4o",
                 "pipeline_config": PipelineConfig(
                     top_k=3,
                     namespace="test",
@@ -516,6 +519,7 @@ class TestIntegrationAPIInit:
                 "vector_store": state.vector_store,
                 "reranker": state.reranker,
                 "llm": state.llm,
+                "tokenizer_model": "gpt-4o",
                 "pipeline_config": PipelineConfig(
                     top_k=3,
                     namespace="test",

@@ -14,7 +14,7 @@ Invariants:
 from __future__ import annotations
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
@@ -274,14 +274,13 @@ class TestChunkerProperties:
         """
         from ai_assistant.core.domain.configs import ChunkerConfigData
 
-        if chunk_overlap >= chunk_size:
-            pytest.skip("chunk_overlap must be < chunk_size")
+        assume(chunk_overlap < chunk_size)
 
         # Create fresh chunker with generated params
         fresh_chunker = type(chunker_impl)(
             ChunkerConfigData(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         )
-        doc = Document(id="prop-test", text=text, metadata={})
+        doc = Document(id="prop-test", content=text, metadata={})
         chunks = await fresh_chunker.chunk(doc)
 
         # Invariant: empty text -> empty or single empty chunk

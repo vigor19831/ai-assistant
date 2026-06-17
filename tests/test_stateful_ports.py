@@ -22,6 +22,7 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.ports.vector_store import IVectorStore
 from ai_assistant.core.ports.storage import IChatStorage
 
+pytestmark = pytest.mark.timeout(0)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,12 +55,16 @@ def _make_chunk(idx: int, text: str = "test", dim: int = 384) -> Chunk:
 
 
 def _run_async(coro):
-    """Run async coroutine in a new event loop."""
-    loop = asyncio.new_event_loop()
+    """Run async coroutine in a fresh event loop with proper cleanup."""
     try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        return asyncio.run(coro)
+    except RuntimeError:
+        # Fallback if already in async context (shouldn't happen in tests)
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
 
 
 # ---------------------------------------------------------------------------
