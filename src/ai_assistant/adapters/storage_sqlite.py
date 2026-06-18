@@ -11,7 +11,10 @@ import aiosqlite
 
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import StorageConfigData
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.storage import IChatStorage, ISettingsStorage
+
+_logger = get_logger("adapters.storage_sqlite")
 
 __all__ = ["SQLiteStorage"]
 
@@ -21,7 +24,8 @@ def _safe_json_loads(value: str | None, default: Any) -> Any:
         return default
     try:
         return json.loads(value)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        _logger.warning("JSON decode failed in storage", extra={"error": str(exc)})
         return default
 
 

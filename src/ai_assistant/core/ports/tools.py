@@ -34,11 +34,11 @@ class ToolSpec:
 
     name: str
     description: str
-    parameters: dict[str, Any]  # JSON Schema object
+    parameters: dict[str, object]  # JSON Schema object
     required: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class ToolCall:
     """A request from LLM to invoke a tool."""
 
@@ -60,7 +60,7 @@ class ToolResult:
 class ITool(ABC):
     """Single tool implementation."""
 
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: object) -> None:
         self.config = config
 
     @property

@@ -531,13 +531,19 @@ class TestChunkMetadata:
     Then: fields are correct; instance is frozen."""
 
     def test_construction_with_all_fields(self) -> None:
-        """Given: source, index, total_chunks.
+        """Given: source, index, total_chunks, source_uri.
         When: ChunkMetadata is constructed.
         Then: all fields are set."""
-        meta = ChunkMetadata(source="doc-1", index=3, total_chunks=10)
+        meta = ChunkMetadata(
+            source="doc-1",
+            index=3,
+            total_chunks=10,
+            source_uri="file:///tmp/doc.md",
+        )
         assert meta.source == "doc-1"
         assert meta.index == 3
         assert meta.total_chunks == 10
+        assert meta.source_uri == "file:///tmp/doc.md"
 
     def test_frozen_rejects_source_mutation(self) -> None:
         """Given: constructed ChunkMetadata.
@@ -560,7 +566,7 @@ class TestChunkMetadata:
         When: arbitrary attribute is added.
         Then: AttributeError."""
         assert hasattr(ChunkMetadata, "__slots__")
-        meta = ChunkMetadata(source="doc", index=0, total_chunks=1)
+        meta = ChunkMetadata(source="doc", index=0, total_chunks=1, source_uri=None)
         assert not hasattr(meta, "__dict__")
 
 

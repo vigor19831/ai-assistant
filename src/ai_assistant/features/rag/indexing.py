@@ -73,6 +73,8 @@ def _discover_documents(
                 continue
 
             rel_source = str(file_path.relative_to(root))
+            abs_path = file_path.absolute()  # NOT resolve() — preserve symlinks
+            source_uri = Path(abs_path).as_uri()
 
             if len(content) > CHUNK_SIZE:
                 for i, start in enumerate(range(0, len(content), CHUNK_SIZE)):
@@ -85,6 +87,7 @@ def _discover_documents(
                                 "source": rel_source,
                                 "folder": namespace,
                                 "chunk": i,
+                                "source_uri": source_uri,  # Pass through to chunker
                             },
                         }
                     )
@@ -96,6 +99,7 @@ def _discover_documents(
                         "metadata": {
                             "source": rel_source,
                             "folder": namespace,
+                            "source_uri": source_uri,  # Pass through to chunker
                         },
                     }
                 )

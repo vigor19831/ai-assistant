@@ -45,11 +45,16 @@ def _get_tmp_dir() -> Path:
 
 
 def _make_chunk(idx: int, text: str = "test", dim: int = 384) -> Chunk:
-    """Create a chunk with deterministic embedding."""
+    """Create a chunk with deterministic embedding and source_uri."""
     return Chunk(
         id=f"chunk-{idx}",
         text=text,
-        metadata=ChunkMetadata(source="test", index=idx, total_chunks=1),
+        metadata=ChunkMetadata(
+            source="test",
+            index=idx,
+            total_chunks=1,
+            source_uri=f"file:///tmp/test_{idx}.md",
+        ),
         embedding=[0.01 * (idx % 100)] * dim,
     )
 
@@ -145,7 +150,7 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
     def save_and_load(self, namespace: str) -> None:
         """Given: store has state.
         When: save then load.
-        Then: state is preserved.
+        Then: state is preserved, including source_uri.
         """
         tmp_dir = _get_tmp_dir()
         path = str(tmp_dir / f"vs_{namespace}")
@@ -163,6 +168,11 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
             # Not all expected may be found (embedding similarity), but
             # found ones must be in expected set
             assert result_ids.issubset(expected_ids)
+            # Verify source_uri survives save/load cycle
+            for r in results:
+                if r.metadata is not None:
+                    assert r.metadata.source_uri is not None
+                    assert r.metadata.source_uri.startswith("file:///")
 
     @invariant()
     def store_initialized_or_none(self) -> None:

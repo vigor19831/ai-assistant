@@ -484,7 +484,6 @@ class TestAPIDeps:
             "pipeline",
             "storage",
             "chat_manager",
-            "limiter",
         ):
             assert hasattr(state, attr), f"AppState missing {attr}"
 
@@ -500,7 +499,6 @@ class TestAPIDeps:
         assert state.vector_store is None
         assert state.pipeline is None
         assert state.chat_manager is None
-        assert state.limiter is None
 
     # ── init_adapters (mocked factory) ──
 

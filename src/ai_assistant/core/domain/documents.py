@@ -13,6 +13,7 @@ class ChunkMetadata:
     total_chunks: int
     custom: dict[str, Any] = field(default_factory=dict)
     original_path: str | None = None
+    source_uri: str | None = None  # Platform-independent file URI, e.g. file:///path/to/doc.md
 
 
 @dataclass(frozen=True, slots=True)

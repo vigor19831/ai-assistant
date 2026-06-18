@@ -56,6 +56,8 @@ def _chunk_to_dict(chunk: Chunk) -> dict[str, Any]:
             "index": meta.index if meta else 0,
             "total_chunks": meta.total_chunks if meta else 0,
             "custom": meta.custom if meta else {},
+            "original_path": meta.original_path if meta else None,
+            "source_uri": meta.source_uri if meta else None,
         },
     }
 
@@ -68,6 +70,8 @@ def _chunk_from_dict(data: dict[str, Any]) -> Chunk:
         index=meta_raw.get("index", 0),
         total_chunks=meta_raw.get("total_chunks", 0),
         custom=meta_raw.get("custom", {}),
+        original_path=meta_raw.get("original_path"),
+        source_uri=meta_raw.get("source_uri"),  # backward compat: old indices have None
     )
     return Chunk(
         id=data["id"],

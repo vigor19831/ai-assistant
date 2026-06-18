@@ -15,7 +15,7 @@ from ai_assistant.core.ports.closable import IClosable
 __all__ = ["IReranker", "RerankResult"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class RerankResult:
     """Single rerank result with relevance score."""
 

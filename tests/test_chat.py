@@ -691,7 +691,7 @@ class TestChatManager:
             "[p] Weather in Paris?", "conv-1"
         ):
             chunks.append(chunk_text)
-        assert chunks == ["Paris", " is", " sunny."]
+        assert chunks == ["Paris", " is", " sunny.", "\n\nSources:\n[1] doc1"]
 
     @pytest.mark.asyncio
     async def test_namespace_c_and_b_prefixes(self, chat_manager_with_rag):
@@ -953,10 +953,10 @@ class TestChatManagerSources:
             storage=None,
         )
 
-    def test_append_sources_with_original_path(self, manager_for_sources):
-        """Given: chunks with original_path set.
+    def test_append_sources_with_source_uri(self, manager_for_sources):
+        """Given: chunks with source_uri set.
         When: _append_rag_sources is called.
-        Then: file:/// links are used."""
+        Then: source_uri is used verbatim."""
         chunks = (
             Chunk(
                 id="c1",
@@ -965,7 +965,7 @@ class TestChatManagerSources:
                     source="doc1",
                     index=0,
                     total_chunks=1,
-                    original_path="/home/user/docs/france.md",
+                    source_uri="file:///home/user/docs/france.md",
                 ),
             ),
         )
@@ -974,8 +974,8 @@ class TestChatManagerSources:
         assert "file:///home/user/docs/france.md" in result
         assert "Sources:" in result
 
-    def test_append_sources_without_original_path(self, manager_for_sources):
-        """Given: chunks without original_path.
+    def test_append_sources_without_source_uri_fallback_to_source(self, manager_for_sources):
+        """Given: chunks without source_uri.
         When: _append_rag_sources is called.
         Then: source field is used as fallback."""
         chunks = (
@@ -1003,7 +1003,7 @@ class TestChatManagerSources:
                     source="doc1",
                     index=0,
                     total_chunks=1,
-                    original_path="/docs/unknown.md",
+                    source_uri="file:///docs/unknown.md",
                 ),
             ),
         )
@@ -1023,7 +1023,7 @@ class TestChatManagerSources:
                     source="doc1",
                     index=0,
                     total_chunks=1,
-                    original_path="/docs/france.md",
+                    source_uri="file:///docs/france.md",
                 ),
             ),
         )
@@ -1033,9 +1033,9 @@ class TestChatManagerSources:
         assert "file:///docs/france.md" in result
 
     def test_append_sources_multiple_citations(self, manager_for_sources):
-        """Given: multiple chunks with original_path.
+        """Given: multiple chunks with source_uri.
         When: _append_rag_sources is called.
-        Then: all sources are listed with file links."""
+        Then: all sources are listed with source_uri links."""
         chunks = (
             Chunk(
                 id="c1",
@@ -1044,7 +1044,7 @@ class TestChatManagerSources:
                     source="doc1",
                     index=0,
                     total_chunks=2,
-                    original_path="/docs/a.md",
+                    source_uri="file:///docs/a.md",
                 ),
             ),
             Chunk(
@@ -1054,7 +1054,7 @@ class TestChatManagerSources:
                     source="doc2",
                     index=1,
                     total_chunks=2,
-                    original_path="/docs/b.md",
+                    source_uri="file:///docs/b.md",
                 ),
             ),
         )
@@ -1073,6 +1073,27 @@ class TestChatManagerSources:
         answer = "Some answer."
         result = ChatManager._append_rag_sources(answer, ())
         assert result == answer
+
+    def test_append_sources_old_index_without_source_uri_fallback(self, manager_for_sources):
+        """Given: chunk from old index without source_uri (backward compat).
+        When: _append_rag_sources is called.
+        Then: falls back to source field."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Old data",
+                metadata=ChunkMetadata(
+                    source="legacy_doc",
+                    index=0,
+                    total_chunks=1,
+                    # source_uri is None — simulates old index
+                ),
+            ),
+        )
+        answer = "Old answer."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert "[1] legacy_doc" in result
+        assert "Sources:" in result
 
 
 # ── TestChatHistoryTrimming ──

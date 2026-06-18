@@ -54,6 +54,9 @@ class IndexingManager:
                         source=document.id,
                         index=idx,
                         total_chunks=len(chunks),
+                        original_path=chunk.metadata.original_path if chunk.metadata else None,
+                        source_uri=chunk.metadata.source_uri if chunk.metadata else None,
+                        custom=chunk.metadata.custom if chunk.metadata else {},
                     ),
                 )
                 all_chunks.append(chunk)

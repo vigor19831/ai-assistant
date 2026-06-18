@@ -104,7 +104,7 @@
 [+] `_estimate_tokens` и `_truncate_to_fit` переведены в async; роуты `/metrics` и `/metrics/json` вынесены из `main.py` в `router.py` с единым registry.
 [+] SQLite WAL mode (`PRAGMA journal_mode=WAL`) в `init_db()`.
 [+] Фильтрация пустых `stop_sequences` в `llm_openai_compatible.py`.
-[х] Усовершенствовали тесты, теперь покрывает до 85% проекта.
+[+] Усовершенствовали тесты, теперь покрывает до 85% проекта.
 [+] Log rotation: `logging.max_bytes`, `logging.backup_count` в `LoggingConfig`.
 [+] `connect_timeout` в `LLMConfig`/`EmbedderConfig`, единая логика `httpx.AsyncClient` в обоих адаптерах.
 [+] `documents_root` в `RAGConfig`, разделён `CHAT_EXPORTS_ROOT`.
@@ -117,3 +117,23 @@
 [+] Добавлены docstrings в `core/domain/configs.py`.
 [+] CJK threshold вынесен в `_CJK_RATIO_THRESHOLD = 0.3`, убраны magic literals.
 [+] Все продакшен-вызовы `count_tokens` явно передают `model` из конфига; `utils.py` задокументирован.
+
+
+[+] Источники в ответе чата | Добавить в конец ответа список использованных источников с гиперссылками на файлы. Формат: `[1] filename.md`. Путь должен быть кликабельным (file:/// или кастомный протокол). Зачем: пользователь видит, откуда взята информация. | `src/ai_assistant/features/chat/manager.py` (`_append_rag_sources`), `src/ai_assistant/core/domain/documents.py` (`ChunkMetadata` добавить `original_path`) | `tests/test_chat.py` (проверить формат sources), `tests/test_integration.py` (проверить metadata)
+
+[+] `RerankResult` frozen — добавить `frozen=True` в `@dataclass` | Иммутабельность портовых объектов — фундаментальный контракт. Мутация результатов ранжирования приведёт к race conditions в pipeline. | `src/ai_assistant/core/ports/reranker.py` | `tests/test_contracts.py`, `tests/test_adapters.py`
+
+[+] `ToolCall` frozen — добавить `frozen=True` в `@dataclass` | Аргументы вызова инструмента не должны меняться после создания. Нарушает контракт иммутабельности. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_domain.py`
+
+[+] Silent JSON corruption в SQLite — добавить логирование при `JSONDecodeError` | Глотание ошибки без логирования скрывает повреждение данных в БД и делает дебаг невозможным. | `src/ai_assistant/adapters/storage_sqlite.py` | `tests/test_adapters.py`
+
+[+] `LLM_UNAVAILABLE` в `__all__` — добавить константу в список экспорта | Ломает явные импорты и может сломать mypy strict mode. | `src/ai_assistant/core/domain/errors.py` | `tests/test_domain.py`, `mypy`
+
+[+] Убрать `sqlmodel` — мёртвая зависимость | Нарушает абсолютное ограничение "No orphaned dependencies". Раздувает окружение без причины. | `pyproject.toml` | `grep -r sqlmodel src/`, `scripts/check_all.py`
+
+[+] Orphaned `limiter` field — убрать мёртвое поле из `AppState` | Поле `limiter: object | None` осталось после удаления rate-limiter'а. Нарушает правило "orphaned code — remove callee". | `src/ai_assistant/api/deps.py` | `tests/test_api.py`, `tests/conftest.py`
+
+[+] `ITool` config Any → object | Заменить `config: Any` на `config: object` | Правило "No Any where concrete type visible". `object` достаточно для абстрактного базового класса. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_smoke.py`
+
+[+] `ToolSpec.parameters` Any → object | Заменить `dict[str, Any]` на `dict[str, object]` | JSON Schema parameters — nested dicts/lists/primitives, `object` покрывает без потери безопасности. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_smoke.py`
+

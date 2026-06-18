@@ -75,6 +75,8 @@ class MemoryVectorStore(IVectorStore):
                     meta["source"] = chunk.metadata.source
                     meta["index"] = chunk.metadata.index
                     meta["total_chunks"] = chunk.metadata.total_chunks
+                    meta["original_path"] = chunk.metadata.original_path
+                    meta["source_uri"] = chunk.metadata.source_uri
                 ns.metadata[chunk.id] = meta
                 ns._track(chunk.id)
                 ns._evict()
@@ -134,6 +136,8 @@ class MemoryVectorStore(IVectorStore):
                                 "index": c.metadata.index,
                                 "total_chunks": c.metadata.total_chunks,
                                 "custom": c.metadata.custom,
+                                "original_path": c.metadata.original_path,
+                                "source_uri": c.metadata.source_uri,
                             }
                             if c.metadata
                             else None
@@ -172,6 +176,8 @@ class MemoryVectorStore(IVectorStore):
                             index=meta.get("index", 0),
                             total_chunks=meta.get("total_chunks", 0),
                             custom=meta.get("custom", {}),
+                            original_path=meta.get("original_path"),
+                            source_uri=meta.get("source_uri"),  # backward compat
                         )
                         if (meta := c.get("metadata"))
                         else None

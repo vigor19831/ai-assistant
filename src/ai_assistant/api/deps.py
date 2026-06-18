@@ -57,7 +57,6 @@ class AppState:
     pipeline: RAGPipeline | None = None
     storage: IChatStorage | None = None
     chat_manager: ChatManager | None = None
-    limiter: object | None = None
 
 
 @dataclass
@@ -73,7 +72,6 @@ class InitializedAppState:
     chunker: IChunker
     chat_manager: ChatManager
     reranker: IReranker
-    limiter: object | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +273,6 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         chunker=state.chunker,
         reranker=state.reranker,
         chat_manager=state.chat_manager,
-        limiter=state.limiter,
     )
 
 

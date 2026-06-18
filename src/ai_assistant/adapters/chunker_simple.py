@@ -46,6 +46,9 @@ class SimpleChunker(IChunker):
                 chunk_texts.append(chunk_text)
 
         total = len(chunk_texts)
+        custom_meta = document.metadata.copy()
+        custom_meta.pop("source_uri", None)  # Avoid duplication — lives in typed field
+
         return [
             Chunk(
                 id=str(uuid.uuid4()),
@@ -54,7 +57,9 @@ class SimpleChunker(IChunker):
                     source=document.id,
                     index=idx,
                     total_chunks=total,
-                    custom=document.metadata.copy(),
+                    custom=custom_meta,
+                    original_path=document.metadata.get("original_path"),  # preserve if present
+                    source_uri=document.metadata.get("source_uri"),
                 ),
             )
             for idx, ct in enumerate(chunk_texts)

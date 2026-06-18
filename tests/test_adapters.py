@@ -186,8 +186,14 @@ class TestMemoryVectorStore:
     @pytest.mark.asyncio
     async def test_save_and_load(self, tmp_path):
         store = MemoryVectorStore(VectorStoreConfigData(dim=3))
+        meta = ChunkMetadata(
+            source="doc1",
+            index=0,
+            total_chunks=1,
+            source_uri="file:///tmp/test.md",
+        )
         await store.add(
-            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="test"
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0], metadata=meta)], namespace="test"
         )
         path = str(tmp_path / "idx")
         await store.save(path, namespace="test")
@@ -197,6 +203,8 @@ class TestMemoryVectorStore:
         results = await store2.search([1.0, 0.0, 0.0], top_k=1, namespace="test")
         assert len(results) == 1
         assert results[0].id == "c1"
+        assert results[0].metadata is not None
+        assert results[0].metadata.source_uri == "file:///tmp/test.md"
 
     @pytest.mark.asyncio
     async def test_dim_mismatch_raises(self, tmp_path):

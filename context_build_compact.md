@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-18 05:06:11 UTC | **Mode:** `compact`
-> **Metrics:** 108 files | 93 Python | 18,219 LOC
+> **Generated:** 2026-06-18 08:05:57 UTC | **Mode:** `compact`
+> **Metrics:** 108 files | 93 Python | 18,284 LOC
 > **Full:** 48 | **Signatures:** 21 | **Listed:** 32
 
 ---
@@ -299,7 +299,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-18 05:06 UTC
+> Auto-generated from source code. Updated: 2026-06-18 08:05 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -317,13 +317,13 @@ These rules themselves change:
 | `adapters.factory` | `ValueError` | No {...} adapter registered for '{...}' | High | 73 |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High | 174 |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High | 84 |
-| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 133 |
-| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High | 182 |
-| `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High | 272 |
-| `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High | 290 |
-| `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High | 311 |
-| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 324 |
-| `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 158 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High | 137 |
+| `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High | 186 |
+| `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High | 276 |
+| `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High | 294 |
+| `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High | 315 |
+| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 328 |
+| `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 162 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
 | `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 255 |
 | `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 257 |
@@ -348,8 +348,8 @@ These rules themselves change:
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 297 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 394 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 214 |
 | `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
 | `tests.test_api` | `RuntimeError` | boom | High | 1494 |
@@ -379,8 +379,8 @@ These rules themselves change:
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 91 |
 | `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
-| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 89 |
-| `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 303 |
+| `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 93 |
+| `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 307 |
 | `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 222 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 85 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 72 |
@@ -422,24 +422,24 @@ These rules themselves change:
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 284 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 223 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 240 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 286 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 335 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 283 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 222 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 239 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 285 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 334 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 144 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 244 |
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 273 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 305 |
 | `features.rag.handlers` | `Exception` | return { | Medium | 343 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 389 |
-| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 187 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 190 |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
 | `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
-| `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium | 61 |
+| `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium | 66 |
 | `tests.test_logger` | `OSError` | disk full | Low | 214 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.
@@ -467,6 +467,7 @@ These rules themselves change:
 | 10 | `src/ai_assistant/core/retry.py` | `max_retries=3, delay=1.0, backoff=2.0` хардкод в `@with_retry` на адаптерах | Resilience policy — не бизнес-логика. Меняется раз в 10 лет. Вынесение в config требует CORE CHANGE (новые поля в `EmbedderConfigData`, `LLMConfigData`, `RerankerConfigData`) + inline-фабрики декораторов (костыль). | Accept as architectural constraint. Пересмотреть при добавлении `IRetryPolicy` порта или embedded-режима с 0 retries. | Low |
 | 11 | `src/ai_assistant/core/prompts/__init__.py` | Jinja2 import в core/ | Prompt rendering — domain logic, Jinja2 — implementation detail. Для 30-летнего горизонта абстракция `IPromptRenderer` предпочтительна, но требует нового порта + адаптера + обновления factory + всех вызовов. | Accept as grandfathered exception. Документировать при добавлении второго движка шаблонов (Mustache, etc.). | Low |
 | 12 | `src/ai_assistant/core/prompts/__init__.py` | `_make_hashable()` без защиты от циклических ссылок | Текущие prompts не содержат self-referencing dataclasses. Защита — YAGNI. | Accept. Добавить при первом `RecursionError` в продакшене. | Low |
+| 13 | `core/domain/documents.py` | `original_path` smuggled through pipeline without contract | No first-class field for source URI propagation | Added `source_uri` to `ChunkMetadata` (CORE CHANGE) | Low |
 
 
 
@@ -2979,6 +2980,7 @@ class ChunkMetadata:
     total_chunks: int
     custom: dict[str, Any] = field(default_factory=dict)
     original_path: str | None = None
+    source_uri: str | None = None  # Platform-independent file URI, e.g. file:///path/to/doc.md
 
 
 @dataclass(frozen=True, slots=True)
@@ -6218,7 +6220,6 @@ class _NamespaceData:
 # API: src/ai_assistant/features/chat/manager.py
 
 from __future__ import annotations
-import re
 import time
 from typing import TYPE_CHECKING, Any
 from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES

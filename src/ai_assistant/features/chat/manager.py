@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -50,8 +49,8 @@ class ChatManager:
         def _source_link(chunk: Chunk) -> str:
             if chunk.metadata is None:
                 return "unknown"
-            if chunk.metadata.original_path:
-                return f"file://{chunk.metadata.original_path}"
+            if chunk.metadata.source_uri:
+                return chunk.metadata.source_uri
             return chunk.metadata.source
 
         src_lines = [
