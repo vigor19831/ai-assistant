@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
+    from .ports.embedder import IEmbedder
+    from .ports.llm import ILLM
+    from .ports.reranker import IReranker
+    from .ports.vector_store import IVectorStore
 
 __all__ = ["PipelineData", "PipelineConfig"]
 
@@ -37,9 +41,19 @@ class PipelineData:
     chunks: tuple[Chunk, ...] = field(default_factory=tuple)
     context: str = ""
     response: AssistantMessage | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
     errors: tuple[str, ...] = field(default_factory=tuple)
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+
+    # Typed dependency fields — replace metadata bag
+    embedder: IEmbedder | None = None
+    vector_store: IVectorStore | None = None
+    reranker: IReranker | None = None
+    llm: ILLM | None = None
+    pipeline_config: PipelineConfig | None = None
+    query_embedding: list[float] | None = None
+    tokenizer_model: str | None = None
+    rerank_filtered_out: bool | None = None
+    rerank_scores: list[float] | None = None
 
     def with_chunks(self, chunks: list[Chunk] | tuple[Chunk, ...]) -> PipelineData:
         """Return a new PipelineData with updated chunks."""
@@ -56,3 +70,39 @@ class PipelineData:
     def add_error(self, msg: str) -> PipelineData:
         """Return a new PipelineData with an additional error message."""
         return replace(self, errors=(*self.errors, msg))
+
+    def with_embedder(self, embedder: IEmbedder | None) -> PipelineData:
+        """Return a new PipelineData with updated embedder."""
+        return replace(self, embedder=embedder)
+
+    def with_vector_store(self, vector_store: IVectorStore | None) -> PipelineData:
+        """Return a new PipelineData with updated vector_store."""
+        return replace(self, vector_store=vector_store)
+
+    def with_reranker(self, reranker: IReranker | None) -> PipelineData:
+        """Return a new PipelineData with updated reranker."""
+        return replace(self, reranker=reranker)
+
+    def with_llm(self, llm: ILLM | None) -> PipelineData:
+        """Return a new PipelineData with updated llm."""
+        return replace(self, llm=llm)
+
+    def with_pipeline_config(self, pipeline_config: PipelineConfig | None) -> PipelineData:
+        """Return a new PipelineData with updated pipeline_config."""
+        return replace(self, pipeline_config=pipeline_config)
+
+    def with_query_embedding(self, query_embedding: list[float] | None) -> PipelineData:
+        """Return a new PipelineData with updated query_embedding."""
+        return replace(self, query_embedding=query_embedding)
+
+    def with_tokenizer_model(self, tokenizer_model: str | None) -> PipelineData:
+        """Return a new PipelineData with updated tokenizer_model."""
+        return replace(self, tokenizer_model=tokenizer_model)
+
+    def with_rerank_filtered_out(self, rerank_filtered_out: bool | None) -> PipelineData:
+        """Return a new PipelineData with updated rerank_filtered_out."""
+        return replace(self, rerank_filtered_out=rerank_filtered_out)
+
+    def with_rerank_scores(self, rerank_scores: list[float] | None) -> PipelineData:
+        """Return a new PipelineData with updated rerank_scores."""
+        return replace(self, rerank_scores=rerank_scores)

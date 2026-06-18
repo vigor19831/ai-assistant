@@ -754,6 +754,8 @@ class TestAPIDeps:
         When: get_state is called.
         Then: the mock is returned.
         """
+        from ai_assistant.api.deps import RAGState
+
         app = FastAPI()
         mock_state = InitializedAppState(
             config=AppConfig(),
@@ -765,6 +767,7 @@ class TestAPIDeps:
             chunker=MagicMock(),
             chat_manager=MagicMock(),
             reranker=MagicMock(),
+            rag_state=RAGState(),
         )
         app.state.app_state = mock_state
 

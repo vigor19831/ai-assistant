@@ -15,11 +15,41 @@ import sys
 import time
 from pathlib import Path
 
-# Ports used by the project (must match config.yaml defaults)
-_PROJECT_PORTS = (8080, 8081, 8000)
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore[assignment]
 
 # Process names to kill
 _KILL_NAMES = ("llama-server", "llama-server.exe", "uvicorn")
+
+
+def _load_project_ports(root: Path) -> tuple[int, ...]:
+    """Read ports from config.yaml, fallback to defaults."""
+    config_path = root / "config.yaml"
+    defaults = (8080, 8081, 8000)
+    if yaml is None or not config_path.exists():
+        return defaults
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        ports: set[int] = set()
+        # API server port
+        api_port = data.get("api", {}).get("port")
+        if isinstance(api_port, int):
+            ports.add(api_port)
+        # LLM server port(s) from api_base
+        llm_config = data.get("llm", {})
+        api_base = llm_config.get("api_base", "")
+        for part in api_base.split(":"):
+            try:
+                p = int(part.rstrip("/").split("/")[-1])
+                if 1 <= p <= 65535:
+                    ports.add(p)
+            except ValueError:
+                continue
+        return tuple(ports) if ports else defaults
+    except Exception:
+        return defaults
 
 
 def _port_holder_pid(port: int) -> int | None:
@@ -121,6 +151,9 @@ def _wait_port_free(port: int, timeout: float = 3.0) -> bool:
 
 
 def main() -> int:
+    root = Path(__file__).resolve().parent.parent
+    project_ports = _load_project_ports(root)
+
     print("=" * 50)
     print("  AI Assistant — Emergency Kill Switch")
     print("=" * 50)
@@ -136,7 +169,7 @@ def main() -> int:
 
     # 2. Kill by port holders
     print("\n[2/3] Killing port holders...")
-    for port in _PROJECT_PORTS:
+    for port in project_ports:
         pid = _port_holder_pid(port)
         if pid is not None:
             print(f"  Port {port} held by PID {pid} — terminating...")

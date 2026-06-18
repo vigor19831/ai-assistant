@@ -4,25 +4,6 @@
 # TODO
 ===============================================================================
 
-[ ] `PipelineData.metadata` — untyped bag | ⚠️ CORE CHANGE: `dict[str, Any]` создаёт untyped bag. Требуется TypedDict или explicit fields для типобезопасности. Затронет все pipeline steps и тесты. | `src/ai_assistant/core/domain/pipeline.py`, `src/ai_assistant/core/pipeline_steps.py` | `tests/test_contracts.py`, `tests/test_domain.py`, `docs/drift.md`
-
-[ ] Jinja2 в `core/` — нарушение stdlib-only | ⚠️ CORE CHANGE: Прямой импорт Jinja2 в `core/prompts` нарушает абсолютное ограничение. Требуется абстракция `IPromptRenderer` и перенос в `adapters/`. Затронет все вызовы `get_prompt()`. | `src/ai_assistant/core/prompts/__init__.py` | `tests/test_contracts.py`, `docs/drift.md`
-
-[ ] Global mutable state в RAG — `_reindex_semaphore`, `_reindex_tasks` | Глобальные переменные нарушают принцип явного состояния. Требуют переноса в `AppState` или DI. | `src/ai_assistant/features/rag/handlers.py` | `tests/test_rag.py`, `tests/conftest.py`
-
-[ ] `gpt-4o` fallback — хардкод в `count_tokens` | Захардкожен `model="gpt-4o"`. Нарушает "No bare literals" и "Explicit over implicit". | `src/ai_assistant/core/utils.py` | `tests/test_tokenizer.py`
-
-[ ] Кириллица в скриптах — перевести комментарии на английский | Нарушает Output Protocol. Скрипты не production, но правило едино. | `scripts/context_build.py`, `scripts/error_taxonomy_build.py` | `tests/test_smoke.py` (требуется расширение сканирования на `scripts/`)
-
-[ ] Хардкод портов в `kill.py` — `8080, 8081, 8000` | Утилита не найдёт процессы, если пользователь изменил порты в `config.yaml`. | `scripts/kill.py` | Ручной тест с нестандартными портами
-
-[ ] `SAFE_PATTERNS` vs `.gitignore` — дублирование правил очистки | При добавлении новых артефактов они забываются в одном из мест. | `scripts/clean_cache.py`, `.gitignore` | Ручной аудит, запуск `python scripts/clean_cache.py`
-
-
-
-
-
-
 СОВЕРШЕНСТВОВАНИЕ RAG
 [ ] Read-only внешние каталоги | Скрипт `index_external.py` + config поле `rag.external_sources: list[{path, namespace, read_only}]`. Индексирует папки вне проекта, не копирует файлы, не удаляет оригиналы. Зачем: подключить Obsidian, Documents и т.д. без изменения структуры. | `scripts/index_external.py` (новый), `src/ai_assistant/core/config.py` (`RAGConfig` + `ExternalSourceConfig`), `src/ai_assistant/core/domain/documents.py` (`ChunkMetadata.original_path`) | `tests/test_config.py` (проверить парсинг config), `tests/test_rag.py` (проверить read-only guard)
 

@@ -21,6 +21,7 @@ SAFE_PATTERNS: list[str] = [
     "__pycache__",
     "*.py[cod]",
     "*$py.class",
+    "*.so",
     "*.egg-info",
     ".eggs",
     "*.egg",
@@ -44,8 +45,10 @@ SAFE_PATTERNS: list[str] = [
     "*.bak",
     "*.orig",
     "pip-wheel-metadata",
-    ".test_tmp",          # ← тестовая временная папка в корне проекта
-    ".pytest_tmp",        # ← pytest tmp_path fixture artifacts
+    ".test_tmp",
+    ".pytest_tmp",
+    ".env",
+    ".env.local",
 ]
 
 NEVER_TOUCH: set[str] = {

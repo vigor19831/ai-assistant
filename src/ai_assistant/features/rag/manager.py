@@ -126,9 +126,6 @@ class RAGManager:
         start = time.perf_counter()
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
-        data = PipelineData(
-            query=UserMessage(text=query_text),
-        )
         pipeline_config = PipelineConfig(
             top_k=top_k,
             namespace=namespace,
@@ -138,15 +135,16 @@ class RAGManager:
             token_margin_min=self.token_margin_min,
             token_margin_pct=self.token_margin_pct,
         )
-        metadata = {
-            "llm": self.llm,
-            "embedder": self.embedder,
-            "vector_store": self.vector_store,
-            "reranker": self.reranker,
-            "pipeline_config": pipeline_config,
-            "tokenizer_model": self.tokenizer_model,
-        }
-        result = await self.pipeline.run(data, metadata=metadata)
+        data = PipelineData(
+            query=UserMessage(text=query_text),
+            llm=self.llm,
+            embedder=self.embedder,
+            vector_store=self.vector_store,
+            reranker=self.reranker,
+            pipeline_config=pipeline_config,
+            tokenizer_model=self.tokenizer_model,
+        )
+        result = await self.pipeline.run(data)
         duration_ms = int((time.perf_counter() - start) * 1000)
         _logger.info(
             "RAG pipeline completed",

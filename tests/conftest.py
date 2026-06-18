@@ -187,7 +187,7 @@ def mock_state():
     This avoids MagicMock(spec=AppConfig) which does not auto-create
     Pydantic fields reliably.
     """
-    from ai_assistant.api.deps import InitializedAppState
+    from ai_assistant.api.deps import InitializedAppState, RAGState
     from ai_assistant.core.config import AppConfig
 
     config = AppConfig()  # real config with all defaults
@@ -203,6 +203,7 @@ def mock_state():
     state.chat_manager = AsyncMock()
     state.pipeline = MagicMock()
     state.limiter = MagicMock()
+    state.rag_state = RAGState()
     return state
 
 
@@ -214,7 +215,7 @@ def make_mock_state():
     (e.g. client) mutates the state and downstream tests must not see
     the mutation.
     """
-    from ai_assistant.api.deps import InitializedAppState
+    from ai_assistant.api.deps import InitializedAppState, RAGState
     from ai_assistant.core.config import AppConfig
 
     def _factory():
@@ -230,6 +231,7 @@ def make_mock_state():
         state.chat_manager = AsyncMock()
         state.pipeline = MagicMock()
         state.limiter = MagicMock()
+        state.rag_state = RAGState()
         return state
 
     return _factory
@@ -239,23 +241,11 @@ def make_mock_state():
 def _reset_rag_globals():
     """Given: RAG handler globals may leak between tests.
     When: each test starts.
-    Then: _reindex_status, _reindex_tasks, _reindex_semaphore are reset.
+    Then: no-op — globals were removed, RAGState is per-instance.
+
+    Kept as autouse sentinel to document the architectural change.
     """
-    from ai_assistant.features.rag import handlers as rag_handlers
-
-    # Save originals
-    original_status = dict(rag_handlers._reindex_status)
-    original_tasks = dict(rag_handlers._reindex_tasks)
-    original_sem = rag_handlers._reindex_semaphore
-
     yield
-
-    # Restore after test
-    rag_handlers._reindex_status.clear()
-    rag_handlers._reindex_status.update(original_status)
-    rag_handlers._reindex_tasks.clear()
-    rag_handlers._reindex_tasks.update(original_tasks)
-    rag_handlers._reindex_semaphore = original_sem
 
 
 # ---------------------------------------------------------------------------

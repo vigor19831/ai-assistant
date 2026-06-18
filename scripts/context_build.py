@@ -2,10 +2,10 @@
 """
 context_build.py — AI Context Builder.
 
-Правила обработки папок:
-  .venv .git data sources vendor — всегда исключены полностью
-  docs — исключена, но ai_rules.md и error_taxonomy.md встроены в контекст
-  scripts tests — список файлов в rules/compact, полное содержимое в full
+Folder processing rules:
+  .venv .git data sources vendor — always fully excluded
+  docs — excluded, but ai_rules.md and error_taxonomy.md are embedded in context
+  scripts tests — file list in rules/compact, full content in full mode
 """
 
 import argparse
@@ -24,10 +24,10 @@ logger = logging.getLogger("context_build")
 
 
 # ============================================================================
-# НАСТРОЙКИ
+# SETTINGS
 # ============================================================================
 
-# ВСЕГДА исключены — не сканируем, не показываем
+# ALWAYS excluded — do not scan, do not show
 HARD_EXCLUDED = {
     ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".venv", "venv", "env", ".env", "node_modules", ".idea", ".vscode",
@@ -36,18 +36,18 @@ HARD_EXCLUDED = {
     ".test_tmp", ".hypothesis",
 }
 
-# Сканируем, но обработка зависит от режима
+# Scanned, but processing depends on mode
 SPECIAL_DIRS = {"docs", "scripts", "tests"}
 
-# Файлы из docs, которые ВСЕГДА встроены в контекст (ищем в корне и в docs/)
+# Docs files that are ALWAYS embedded in context (search in root and docs/)
 REQUIRED_DOCS = ["ai_rules.md", "error_taxonomy.md", "DRIFT.md", "FUTURE.md"]
 
-# Файлы, которые ВСЕГДА полностью в compact (кроме tests/scripts)
+# Files that are ALWAYS full in compact mode (except tests/scripts)
 ALWAYS_FULL = {
     "config.yaml", "pyproject.toml", ".gitignore", "README.md",
 }
 
-# Пропускаем
+# Skip
 SKIP_FILES = [
     "*.pyc", "*.pyo", "*.so", "*.dll", "*.exe",
     "*.gguf", "*.bin", "*.pt", "*.pth", "*.onnx", "*.safetensors",
@@ -145,19 +145,19 @@ def _run_error_taxonomy(root: Path) -> None:
 # ============================================================================
 
 def scan(root: Path, mode: str):
-    """Сканируем файлы с учётом режима."""
+    """Scan files according to mode."""
     all_files = []      # (rel_path, content, size, type)
-    py_files = []       # для графа зависимостей
+    py_files = []       # for dependency graph
     metrics = {"total": 0, "py": 0, "loc": 0, "classes": 0, "funcs": 0}
 
     for dirpath, dirnames, filenames in os.walk(root):
-        # Исключаем жёстко
+        # Hard exclude
         dirnames[:] = [d for d in dirnames if d not in HARD_EXCLUDED]
 
         rel_dir = Path(dirpath).relative_to(root)
         parts = rel_dir.parts
 
-        # Определяем тип папки
+        # Determine folder type
         is_docs = "docs" in parts
         is_scripts = "scripts" in parts
         is_tests = "tests" in parts
@@ -173,11 +173,11 @@ def scan(root: Path, mode: str):
             size = path.stat().st_size
             metrics["total"] += 1
 
-            # docs — не читаем содержимое (кроме REQUIRED_DOCS, но они отдельно)
+            # docs — do not read content (except REQUIRED_DOCS, added later)
             if is_docs:
-                continue  # пропускаем, REQUIRED_DOCS добавим позже
+                continue  # skip, REQUIRED_DOCS will be added later
 
-            # Читаем содержимое
+            # Read content
             try:
                 content = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
@@ -200,17 +200,17 @@ def scan(root: Path, mode: str):
                 except SyntaxError:
                     pass
 
-            # Определяем тип отображения
+            # Determine display type
             if mode == "rules":
                 all_files.append((rel, None, size, "listed"))
 
             elif mode == "full":
-                # В full: scripts и tests полностью, остальные тоже полностью
+                # In full: scripts and tests fully, others too
                 all_files.append((rel, content, size, "full"))
 
             else:  # compact
                 if is_scripts or is_tests:
-                    # Только список
+                    # List only
                     all_files.append((rel, None, size, "listed"))
                 elif basename in ALWAYS_FULL or "core" in parts or "api" in parts or "handlers" in basename or "schemas" in basename:
                     all_files.append((rel, content, size, "full"))
@@ -219,7 +219,7 @@ def scan(root: Path, mode: str):
                 else:
                     all_files.append((rel, content, size, "listed"))
 
-    # Добавляем REQUIRED_DOCS отдельно (ищем в корне и в docs/)
+    # Add REQUIRED_DOCS separately (search in root and docs/)
     for doc_name in REQUIRED_DOCS:
         found = False
         for location in [root / doc_name, root / "docs" / doc_name]:
@@ -288,7 +288,7 @@ def extract_signature(source: str, rel_path: str) -> str:
 def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    # Разделяем
+    # Split by type
     doc_files = [(r, c) for r, c, s, t in all_files if t == "doc"]
     full_files = [(r, c) for r, c, s, t in all_files if t == "full"]
     sig_files = [(r, c) for r, c, s, t in all_files if t == "signature"]
@@ -317,7 +317,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
             "",
         ])
 
-    # AI Rules & Error Taxonomy (из doc_files)
+    # AI Rules & Error Taxonomy (from doc_files)
     for rel, content in doc_files:
         title = "🚨 AI Development Guidelines" if "ai_rules" in rel else "⚠️ Error Taxonomy"
         lines.extend([
@@ -419,23 +419,23 @@ def menu():
     print("  ==================")
 
     options = [
-        "rules  — структура, правила, зависимости (zero code)",
-        "compact — критичные файлы + сигнатуры остальных",
-        "full — ВСЁ полностью (включая тесты и скрипты)",
+        "rules  — structure, rules, dependencies (zero code)",
+        "compact — critical files + signatures for the rest",
+        "full — EVERYTHING fully (including tests and scripts)",
     ]
 
-    print("\nВыберите режим:")
+    print("\nSelect mode:")
     for i, opt in enumerate(options, 1):
         marker = ">" if i == 2 else " "
         print(f"  {marker} [{i}] {opt}")
 
     while True:
-        raw = input("\nВыбор [1-3], Enter = 2: ").strip()
+        raw = input("\nChoice [1-3], Enter = 2: ").strip()
         if raw == "":
             return "compact"
         if raw.isdigit() and 1 <= int(raw) <= 3:
             return ["rules", "compact", "full"][int(raw) - 1]
-        print("Неверный ввод")
+        print("Invalid input")
 
 
 # ============================================================================
@@ -471,7 +471,7 @@ def main():
     out_path = root / out_name
     write_file(out_path, md)
 
-    print(f"\nГотово: {out_path} ({len(md):,} символов, ~{len(md)//4:,} токенов)")
+    print(f"\nDone: {out_path} ({len(md):,} chars, ~{len(md)//4:,} tokens)")
     return 0
 
 

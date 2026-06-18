@@ -7,8 +7,7 @@ Design: Given/When/Then docstrings, one function per test case.
 from __future__ import annotations
 
 import logging
-from dataclasses import FrozenInstanceError, replace
-from types import MappingProxyType
+from dataclasses import FrozenInstanceError
 from unittest import mock
 
 import pytest
@@ -61,7 +60,6 @@ class TestPipelineDataFunctional:
             chunks=(chunk,),
             context="ctx",
             response=resp,
-            metadata={"k": "v"},
             errors=("old",),
         )
         data2 = data.add_error("new")
@@ -70,7 +68,6 @@ class TestPipelineDataFunctional:
         assert data2.chunks == (chunk,)
         assert data2.context == "ctx"
         assert data2.response is resp
-        assert data2.metadata == {"k": "v"}
         assert data2.errors == ("old", "new")
         assert data.errors == ("old",)  # original unchanged
 
@@ -113,6 +110,48 @@ class TestPipelineDataFunctional:
         assert data2.response is resp
         assert data is not data2
 
+    def test_with_embedder_returns_new_instance(self) -> None:
+        """Given: empty PipelineData.
+        When: with_embedder() is called.
+        Then: new instance holds embedder; original is None."""
+        class FakeEmbedder:
+            pass
+        embedder = FakeEmbedder()
+        data = PipelineData()
+        data2 = data.with_embedder(embedder)
+
+        assert data.embedder is None
+        assert data2.embedder is embedder
+        assert data is not data2
+
+    def test_with_vector_store_returns_new_instance(self) -> None:
+        """Given: empty PipelineData.
+        When: with_vector_store() is called.
+        Then: new instance holds vector_store; original is None."""
+        class FakeVS:
+            pass
+        vs = FakeVS()
+        data = PipelineData()
+        data2 = data.with_vector_store(vs)
+
+        assert data.vector_store is None
+        assert data2.vector_store is vs
+        assert data is not data2
+
+    def test_with_llm_returns_new_instance(self) -> None:
+        """Given: empty PipelineData.
+        When: with_llm() is called.
+        Then: new instance holds llm; original is None."""
+        class FakeLLM:
+            pass
+        llm = FakeLLM()
+        data = PipelineData()
+        data2 = data.with_llm(llm)
+
+        assert data.llm is None
+        assert data2.llm is llm
+        assert data is not data2
+
     def test_chaining_methods(self) -> None:
         """Given: empty PipelineData.
         When: methods are chained via intermediate variables.
@@ -148,14 +187,6 @@ class TestPipelineDataFunctional:
         Then: errors remains a tuple."""
         data = PipelineData(errors=("e1",))
         assert isinstance(data.errors, tuple)
-
-    def test_metadata_is_plain_dict(self) -> None:
-        """Given: metadata is passed.
-        When: PipelineData is constructed.
-        Then: metadata is a plain dict, not MappingProxyType."""
-        data = PipelineData(metadata={"a": 1})
-        assert isinstance(data.metadata, dict)
-        assert not isinstance(data.metadata, MappingProxyType)
 
 
 # ───────────────────────────────────────────────
@@ -200,13 +231,25 @@ class TestPipelineDataFrozen:
         with pytest.raises(FrozenInstanceError):
             data.response = None  # type: ignore[misc]
 
-    def test_frozen_metadata_reassignment(self) -> None:
-        """Given: PipelineData with metadata.
-        When: metadata is reassigned.
+    def test_frozen_embedder_mutation(self) -> None:
+        """Given: PipelineData with embedder.
+        When: embedder is reassigned.
         Then: FrozenInstanceError."""
-        data = PipelineData(metadata={"a": 1})
+        class FakeEmbedder:
+            pass
+        data = PipelineData(embedder=FakeEmbedder())
         with pytest.raises(FrozenInstanceError):
-            data.metadata = {}  # type: ignore[misc]
+            data.embedder = None  # type: ignore[misc]
+
+    def test_frozen_vector_store_mutation(self) -> None:
+        """Given: PipelineData with vector_store.
+        When: vector_store is reassigned.
+        Then: FrozenInstanceError."""
+        class FakeVS:
+            pass
+        data = PipelineData(vector_store=FakeVS())
+        with pytest.raises(FrozenInstanceError):
+            data.vector_store = None  # type: ignore[misc]
 
     def test_frozen_errors_mutation(self) -> None:
         """Given: empty PipelineData.
@@ -301,15 +344,6 @@ class TestPipelineDataCompatibility:
         assert data.response is resp
         assert data.errors == ("e1",)
 
-    def test_metadata_merge_compatibility(self) -> None:
-        """Given: metadata needs merging.
-        When: replace() is used with spread.
-        Then: merged dict is produced; original untouched."""
-        data = PipelineData(metadata={"a": 1})
-        data2 = replace(data, metadata={**data.metadata, "b": 2})
-        assert data2.metadata == {"a": 1, "b": 2}
-        assert data.metadata == {"a": 1}
-
     def test_default_values_compatible(self) -> None:
         """Given: no arguments to constructor.
         When: PipelineData() is called.
@@ -319,16 +353,24 @@ class TestPipelineDataCompatibility:
         assert data.chunks == ()
         assert data.context == ""
         assert data.response is None
-        assert data.metadata == {}
         assert data.errors == ()
+        assert data.embedder is None
+        assert data.vector_store is None
+        assert data.reranker is None
+        assert data.llm is None
+        assert data.pipeline_config is None
+        assert data.query_embedding is None
+        assert data.tokenizer_model is None
+        assert data.rerank_filtered_out is None
+        assert data.rerank_scores is None
 
     def test_frozen_rejects_direct_mutation(self) -> None:
         """Given: frozen PipelineData.
         When: direct field mutation is attempted.
         Then: FrozenInstanceError is raised."""
-        data = PipelineData(metadata={"a": 1})
+        data = PipelineData(embedder=None)
         with pytest.raises(FrozenInstanceError):
-            data.metadata = {"b": 2}  # type: ignore[misc]
+            data.embedder = None  # type: ignore[misc]
 
 
 # ───────────────────────────────────────────────

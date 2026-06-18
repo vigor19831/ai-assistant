@@ -36,41 +36,6 @@ _logger = get_logger("rag.handlers")
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
-# ── Background reindex coordination ─────────────────────────────────────────
-_reindex_semaphore = asyncio.Semaphore(1)
-_reindex_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
-_reindex_status: dict[str, dict[str, Any]] = {}
-_reindex_lock = asyncio.Lock()
-
-_REINDEX_STATUS_TTL_SECONDS = 3600
-_REINDEX_STATUS_MAX_ENTRIES = 1000
-
-
-async def _cleanup_reindex_status() -> None:
-    """Remove expired entries and enforce max size cap on _reindex_status."""
-    async with _reindex_lock:
-        now = time.time()
-
-        # TTL cleanup: remove entries whose last activity is older than TTL
-        expired = [
-            tid
-            for tid, info in _reindex_status.items()
-            if now - (info.get("finished_at") or info.get("started_at", 0))
-            > _REINDEX_STATUS_TTL_SECONDS
-        ]
-        for tid in expired:
-            _reindex_status.pop(tid, None)
-
-        # Cap cleanup: if still over max, remove oldest by started_at
-        if len(_reindex_status) > _REINDEX_STATUS_MAX_ENTRIES:
-            sorted_by_age = sorted(
-                _reindex_status.items(),
-                key=lambda item: item[1].get("started_at", 0),
-            )
-            excess = len(_reindex_status) - _REINDEX_STATUS_MAX_ENTRIES
-            for tid, _ in sorted_by_age[:excess]:
-                _reindex_status.pop(tid, None)
-
 
 def _get_rag_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
@@ -96,7 +61,7 @@ async def index_documents(
     namespace = req.namespace or state.config.rag.default_namespace
     ns_cfg = state.config.namespaces.get(namespace)
 
-    # ── Per-namespace chunker override (only if size differs from base) ──
+    # -- Per-namespace chunker override (only if size differs from base) --
     chunker = state.chunker
     if ns_cfg is not None and ns_cfg.chunk_size != state.config.chunker.chunk_size:
         base_cfg = state.config.chunker
@@ -109,7 +74,7 @@ async def index_documents(
         vector_store=state.vector_store,
     )
 
-    # ── Resource guard: document size ──
+    # -- Resource guard: document size --
     max_doc_size = state.config.vector_store.max_document_size
     filtered_docs: list[dict[str, Any]] = []
     pre_errors: list[str] = []
@@ -360,12 +325,13 @@ async def reindex_documents(
     folder = req.folder
     clear = req.clear
     task_id = str(uuid.uuid4())
+    rag_state = state.rag_state
 
     async def _run() -> dict[str, Any]:
-        async with _reindex_semaphore:
-            await _cleanup_reindex_status()
-            async with _reindex_lock:
-                _reindex_status[task_id] = {
+        async with rag_state.semaphore:
+            await rag_state.cleanup_status()
+            async with rag_state.lock:
+                rag_state.status[task_id] = {
                     "status": "running",
                     "started_at": time.time(),
                 }
@@ -379,8 +345,8 @@ async def reindex_documents(
                     max_file_size=state.config.vector_store.max_document_size,
                     documents_root=Path(state.config.rag.documents_root),
                 )
-                async with _reindex_lock:
-                    _reindex_status[task_id] = {
+                async with rag_state.lock:
+                    rag_state.status[task_id] = {
                         "status": "completed",
                         "result": result,
                         "finished_at": time.time(),
@@ -388,27 +354,31 @@ async def reindex_documents(
                 return result
             except Exception:
                 _logger.exception("Background reindex failed")
-                async with _reindex_lock:
-                    _reindex_status[task_id] = {
+                async with rag_state.lock:
+                    rag_state.status[task_id] = {
                         "status": "failed",
                         "error": "Internal server error",
                         "finished_at": time.time(),
                     }
                 raise
             finally:
-                _reindex_tasks.pop(task_id, None)
+                rag_state.tasks.pop(task_id, None)
 
     task = asyncio.create_task(_run())
-    _reindex_tasks[task_id] = task
+    rag_state.tasks[task_id] = task
     return {"status": "started", "task_id": task_id}
 
 
 @router.get("/reindex/status/{task_id}", response_model=None)
-async def reindex_status(task_id: str) -> dict[str, Any]:
+async def reindex_status(
+    task_id: str,
+    state: Annotated[InitializedAppState, Depends(get_state)],
+) -> dict[str, Any]:
     """Get status of a background reindex task."""
-    await _cleanup_reindex_status()
-    async with _reindex_lock:
-        if task_id in _reindex_status:
-            info = _reindex_status[task_id]
+    rag_state = state.rag_state
+    await rag_state.cleanup_status()
+    async with rag_state.lock:
+        if task_id in rag_state.status:
+            info = rag_state.status[task_id]
             return {"task_id": task_id, **info}
     return {"task_id": task_id, "status": "unknown"}

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires runtime
@@ -18,13 +19,13 @@ from ai_assistant.core.domain.configs import (
     StorageConfigData,
     VectorStoreConfigData,
 )
+from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.features.chat.manager import ChatManager
 
 if TYPE_CHECKING:
-    from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports import (
         ILLM,
         IChatStorage,
@@ -37,11 +38,64 @@ if TYPE_CHECKING:
 __all__ = [
     "AppState",
     "InitializedAppState",
+    "RAGState",
     "get_state",
     "init_adapters",
 ]
 
 _logger = get_logger("deps")
+
+
+def _to_float(value: object, default: float = 0.0) -> float:
+    """Safely convert a value to float with explicit narrowing."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+@dataclass
+class RAGState:
+    """Explicit per-instance RAG background task state.
+
+    Replaces module-level globals to eliminate shared mutable state
+    across tests and application instances.
+    """
+
+    semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
+    tasks: dict[str, asyncio.Task[dict[str, object]]] = field(default_factory=dict)
+    status: dict[str, dict[str, object]] = field(default_factory=dict)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    STATUS_TTL_SECONDS: int = field(default=3600, repr=False)
+    STATUS_MAX_ENTRIES: int = field(default=1000, repr=False)
+
+    async def cleanup_status(self) -> None:
+        """Remove expired entries and enforce max size cap on status."""
+        import time
+
+        async with self.lock:
+            now = time.time()
+
+            expired: list[str] = []
+            for tid, info in self.status.items():
+                finished_at = info.get("finished_at")
+                started_at = info.get("started_at", 0)
+                last_activity = finished_at if isinstance(finished_at, (int, float)) else started_at
+                last_activity_float = _to_float(last_activity)
+                if now - last_activity_float > self.STATUS_TTL_SECONDS:
+                    expired.append(tid)
+
+            for tid in expired:
+                self.status.pop(tid, None)
+
+            if len(self.status) > self.STATUS_MAX_ENTRIES:
+                sorted_by_age = sorted(
+                    self.status.items(),
+                    key=lambda item: _to_float(item[1].get("started_at", 0)),
+                )
+                excess = len(self.status) - self.STATUS_MAX_ENTRIES
+                for tid, _ in sorted_by_age[:excess]:
+                    self.status.pop(tid, None)
 
 
 @dataclass
@@ -57,6 +111,7 @@ class AppState:
     pipeline: RAGPipeline | None = None
     storage: IChatStorage | None = None
     chat_manager: ChatManager | None = None
+    rag_state: RAGState | None = None
 
 
 @dataclass
@@ -72,6 +127,7 @@ class InitializedAppState:
     chunker: IChunker
     chat_manager: ChatManager
     reranker: IReranker
+    rag_state: RAGState
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +305,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         token_margin_pct=cfg.rag.token_margin_pct,
     )
 
+    state.rag_state = RAGState()
+
     if state.llm is None:
         raise RuntimeError("LLM adapter failed to initialize")
     if state.embedder is None:
@@ -273,6 +331,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         chunker=state.chunker,
         reranker=state.reranker,
         chat_manager=state.chat_manager,
+        rag_state=state.rag_state,
     )
 
 

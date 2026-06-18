@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ai_assistant.core.domain.errors import ConfigurationError
-from ai_assistant.core.domain.pipeline import PipelineConfig
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -14,7 +12,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
 
 
-__all__ = ["PipelineConfig", "RAGPipeline", "ConfigurationError"]
+__all__ = ["RAGPipeline", "ConfigurationError"]
 
 
 class RAGPipeline:
@@ -25,48 +23,41 @@ class RAGPipeline:
     ) -> None:
         self.steps = list(steps)
 
-    async def run(
-        self, data: PipelineData, metadata: dict[str, Any] | None = None
-    ) -> PipelineData:
+    async def run(self, data: PipelineData) -> PipelineData:
         """Execute steps sequentially, passing PipelineData through.
 
         Args:
-            data: Initial pipeline data.
-            metadata: Optional metadata dict merged into data.metadata.
-                Used to inject dependencies (embedder, vector_store, etc.)
-                without coupling steps to AppState.
+            data: Initial pipeline data with dependencies pre-populated
+                via explicit typed fields (embedder, vector_store, etc.).
 
         Raises:
-            ConfigurationError: If required metadata keys are missing for
+            ConfigurationError: If required fields are missing for
                 the configured steps.
         """
-        if metadata:
-            # Validate required keys once at entry, not in each step
-            required_keys = self._required_keys_for_steps()
-            missing = [k for k in required_keys if k not in metadata]
-            if missing:
-                raise ConfigurationError(
-                    f"Missing required metadata keys: {missing}"
-                )
-            data = replace(data, metadata={**data.metadata, **metadata})
+        required_fields = self._required_fields_for_steps()
+        missing = [f for f in required_fields if getattr(data, f) is None]
+        if missing:
+            raise ConfigurationError(
+                f"Missing required PipelineData fields: {missing}"
+            )
         for step in self.steps:
             data = await step(data)
         return data
 
-    def _required_keys_for_steps(self) -> set[str]:
-        """Return required metadata keys based on configured steps."""
+    def _required_fields_for_steps(self) -> set[str]:
+        """Return required PipelineData field names based on configured steps."""
         from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 
-        key_map: dict[str, set[str]] = {
+        field_map: dict[str, set[str]] = {
             "embed_query": {"embedder"},
             "retrieve": {"vector_store"},
             "rerank": {"reranker"},
             "build_context": set(),
-            "generate": {"llm", "pipeline_config"},
+            "generate": {"llm", "pipeline_config", "tokenizer_model"},
             "hyde_query": {"embedder", "llm"},
         }
         required: set[str] = set()
         for step_name, step_func in STEP_REGISTRY.items():
             if any(s is step_func for s in self.steps):
-                required |= key_map.get(step_name, set())
+                required |= field_map.get(step_name, set())
         return required

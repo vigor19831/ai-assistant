@@ -158,11 +158,6 @@ class ChatManager:
         relevance_threshold = ns_cfg.relevance_threshold if ns_cfg else 0.3
         prompt_name = ns_cfg.prompt if ns_cfg else "rag_strict"
 
-        data = PipelineData(
-            query=UserMessage(text=query_text),
-            trace_id=trace_id or "",
-        )
-
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
         pipeline_config = PipelineConfig(
@@ -175,15 +170,17 @@ class ChatManager:
             token_margin_pct=self.token_margin_pct,
         )
 
-        metadata = {
-            "pipeline_config": pipeline_config,
-            "embedder": self.embedder,
-            "vector_store": self.vector_store,
-            "reranker": self.reranker,
-            "tokenizer_model": self.tokenizer_model,
-        }
+        data = PipelineData(
+            query=UserMessage(text=query_text),
+            trace_id=trace_id or "",
+            embedder=self.embedder,
+            vector_store=self.vector_store,
+            reranker=self.reranker,
+            pipeline_config=pipeline_config,
+            tokenizer_model=self.tokenizer_model,
+        )
 
-        data = await self.pipeline.run(data, metadata=metadata)
+        data = await self.pipeline.run(data)
 
         if not data.chunks:
             return query_text, query_text, namespace, ()

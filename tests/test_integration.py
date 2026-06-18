@@ -254,26 +254,26 @@ class TestIntegrationChatRAG:
 
         # Query with [p] prefix (RAG trigger)
         query = UserMessage(text="[p] What is the capital of France?")
-        data = PipelineData(query=query)
 
-        # Act
+        # Act: build PipelineData with explicit typed fields
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
-        metadata = {
-            "embedder": embedder,
-            "vector_store": vector_store,
-            "reranker": reranker,
-            "llm": llm,
-            "tokenizer_model": "gpt-4o",
-            "pipeline_config": PipelineConfig(
+        data = PipelineData(
+            query=query,
+            embedder=embedder,
+            vector_store=vector_store,
+            reranker=reranker,
+            llm=llm,
+            tokenizer_model="gpt-4o",
+            pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="default",
                 relevance_threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_strict",
             ),
-        }
-        result = await pipeline.run(data, metadata=metadata)
+        )
+        result = await pipeline.run(data)
 
         # Assert
         assert result.response is not None
@@ -282,7 +282,8 @@ class TestIntegrationChatRAG:
         assert len(result.chunks) > 0
         # Verify no in-place mutation: original data unchanged
         assert data.query is query
-        assert data.metadata == {}
+        assert data.embedder is embedder
+        assert data.vector_store is vector_store
         assert data.context == ""
 
 
@@ -321,38 +322,39 @@ class TestIntegrationFullRAG:
         ])
 
         query = UserMessage(text="Tell me about Python")
-        data = PipelineData(query=query)
 
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
-        metadata = {
-            "embedder": embedder,
-            "vector_store": vector_store,
-            "reranker": reranker,
-            "llm": llm,
-            "tokenizer_model": "gpt-4o",
-            "pipeline_config": PipelineConfig(
+        data = PipelineData(
+            query=query,
+            embedder=embedder,
+            vector_store=vector_store,
+            reranker=reranker,
+            llm=llm,
+            tokenizer_model="gpt-4o",
+            pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="docs",
                 relevance_threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_strict",
             ),
-        }
+        )
 
         # Act
-        result = await pipeline.run(data, metadata=metadata)
+        result = await pipeline.run(data)
 
         # Assert
         assert result.response is not None
         assert isinstance(result.response, AssistantMessage)
-        assert "query_embedding" in result.metadata
+        assert result.query_embedding is not None
         # Verify hyde produced embedding (not original query embedding)
         assert result.context != ""
         assert len(result.chunks) > 0
         # Verify immutability
         assert data.query is query
-        assert data.metadata == {}
+        assert data.embedder is embedder
+        assert data.vector_store is vector_store
         assert data.context == ""
 
 
@@ -427,26 +429,24 @@ class TestIntegrationAPIInit:
         state.llm.get_context_limit = lambda: 4096
 
         query = UserMessage(text="What is capital of Italy?")
-        data = PipelineData(query=query)
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
-        result = await state.pipeline.run(
-            data,
-            metadata={
-                "embedder": state.embedder,
-                "vector_store": state.vector_store,
-                "reranker": state.reranker,
-                "llm": state.llm,
-                "tokenizer_model": "gpt-4o",
-                "pipeline_config": PipelineConfig(
-                    top_k=3,
-                    namespace="test",
-                    relevance_threshold=0.3,
-                    prompt_version="v1",
-                    prompt_name="rag_default",
-                ),
-            },
+        data = PipelineData(
+            query=query,
+            embedder=state.embedder,
+            vector_store=state.vector_store,
+            reranker=state.reranker,
+            llm=state.llm,
+            tokenizer_model="gpt-4o",
+            pipeline_config=PipelineConfig(
+                top_k=3,
+                namespace="test",
+                relevance_threshold=0.3,
+                prompt_version="v1",
+                prompt_name="rag_default",
+            ),
         )
+        result = await state.pipeline.run(data)
 
         assert result.response is not None
         assert isinstance(result.response, AssistantMessage)
@@ -509,30 +509,29 @@ class TestIntegrationAPIInit:
         state.llm.get_context_limit = lambda: 4096
 
         query = UserMessage(text="Tell me about Go")
-        data = PipelineData(query=query)
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
-        result = await state.pipeline.run(
-            data,
-            metadata={
-                "embedder": state.embedder,
-                "vector_store": state.vector_store,
-                "reranker": state.reranker,
-                "llm": state.llm,
-                "tokenizer_model": "gpt-4o",
-                "pipeline_config": PipelineConfig(
-                    top_k=3,
-                    namespace="test",
-                    relevance_threshold=0.3,
-                    prompt_version="v1",
-                    prompt_name="rag_default",
-                ),
-            },
+        data = PipelineData(
+            query=query,
+            embedder=state.embedder,
+            vector_store=state.vector_store,
+            reranker=state.reranker,
+            llm=state.llm,
+            tokenizer_model="gpt-4o",
+            pipeline_config=PipelineConfig(
+                top_k=3,
+                namespace="test",
+                relevance_threshold=0.3,
+                prompt_version="v1",
+                prompt_name="rag_default",
+            ),
         )
+
+        result = await state.pipeline.run(data)
 
         assert result.response is not None
         assert isinstance(result.response, AssistantMessage)
-        assert "query_embedding" in result.metadata
+        assert result.query_embedding is not None
         assert len(result.chunks) > 0
 
     @pytest.mark.asyncio

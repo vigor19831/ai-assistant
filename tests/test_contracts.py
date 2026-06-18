@@ -740,6 +740,31 @@ class TestAdapterGetattrBan:
             ]
             assert not config_hits, f"getattr on config is drift risk in {rel_path}: {config_hits}"
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestPipelineDataNoMetadataBag (from drift #8)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+def test_pipelinedata_has_no_metadata_bag() -> None:
+    """PipelineData must not have untyped metadata: dict[str, Any] field.
+
+    DRIFT.md #8: replaced with explicit typed fields.
+    """
+    import dataclasses
+
+    from ai_assistant.core.domain.pipeline import PipelineData
+
+    fields = {f.name for f in dataclasses.fields(PipelineData)}
+    assert "metadata" not in fields, (
+        "PipelineData.metadata bag was re-introduced. "
+        "Use explicit fields: embedder, vector_store, reranker, llm, "
+        "pipeline_config, query_embedding, tokenizer_model, "
+        "rerank_filtered_out, rerank_scores"
+    )
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAdapterRegistry (NEW)
 # ═══════════════════════════════════════════════════════════════════════════

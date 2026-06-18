@@ -137,3 +137,14 @@
 
 [+] `ToolSpec.parameters` Any → object | Заменить `dict[str, Any]` на `dict[str, object]` | JSON Schema parameters — nested dicts/lists/primitives, `object` покрывает без потери безопасности. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_smoke.py`
 
+[+] Global mutable state в RAG — `_reindex_semaphore`, `_reindex_tasks` | Глобальные переменные нарушают принцип явного состояния. Требуют переноса в `AppState` или DI. | `src/ai_assistant/features/rag/handlers.py` | `tests/test_rag.py`, `tests/conftest.py`
+
+[+] `PipelineData.metadata` — untyped bag | ⚠️ CORE CHANGE: `dict[str, Any]` создаёт untyped bag. Требуется TypedDict или explicit fields для типобезопасности. Затронет все pipeline steps и тесты. | `src/ai_assistant/core/domain/pipeline.py`, `src/ai_assistant/core/pipeline_steps.py` | `tests/test_contracts.py`, `tests/test_domain.py`, `docs/drift.md`
+
+[+] Кириллица в скриптах — перевести комментарии на английский | Нарушает Output Protocol. Скрипты не production, но правило едино. | `scripts/context_build.py`, `scripts/error_taxonomy_build.py` | `tests/test_smoke.py` (требуется расширение сканирования на `scripts/`)
+
+[+] Хардкод портов в `kill.py` — `8080, 8081, 8000` | Утилита не найдёт процессы, если пользователь изменил порты в `config.yaml`. | `scripts/kill.py` | Ручной тест с нестандартными портами
+
+[+] `SAFE_PATTERNS` vs `.gitignore` — дублирование правил очистки | При добавлении новых артефактов они забываются в одном из мест. | `scripts/clean_cache.py`, `.gitignore` | Ручной аудит, запуск `python scripts/clean_cache.py`
+
+[+] `gpt-4o` fallback — хардкод в `count_tokens` | Захардкожен `model="gpt-4o"`. Нарушает "No bare literals" и "Explicit over implicit". | `src/ai_assistant/core/utils.py` | `tests/test_tokenizer.py`

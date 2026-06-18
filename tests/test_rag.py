@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,7 +61,7 @@ class TestRAGManager:
     async def test_query_namespace_routing(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: namespace is set to 'work'.
         When: RAGManager.query called with namespace='work'.
-        Then: pipeline metadata contains namespace='work'."""
+        Then: PipelineData passed to pipeline contains namespace='work'."""
         from ai_assistant.core.pipeline import RAGPipeline
 
         pipeline = MagicMock(spec=RAGPipeline)
@@ -81,14 +80,17 @@ class TestRAGManager:
         )
         await mgr.query("test", namespace="work")
 
-        metadata = pipeline.run.call_args.kwargs["metadata"]
-        assert metadata["pipeline_config"].namespace == "work"
+        # With explicit typed fields, pipeline.run receives PipelineData directly
+        call_args = pipeline.run.call_args
+        data_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("data")
+        assert data_arg is not None
+        assert data_arg.pipeline_config.namespace == "work"
 
     @pytest.mark.asyncio
     async def test_query_prompt_and_threshold_override(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: custom prompt name, version and relevance threshold.
         When: RAGManager.query called with overrides.
-        Then: pipeline metadata contains overridden values."""
+        Then: PipelineData contains overridden values."""
         from ai_assistant.core.pipeline import RAGPipeline
 
         pipeline = MagicMock(spec=RAGPipeline)
@@ -112,8 +114,10 @@ class TestRAGManager:
             relevance_threshold=0.5,
         )
 
-        metadata = pipeline.run.call_args.kwargs["metadata"]
-        pipeline_config = metadata["pipeline_config"]
+        call_args = pipeline.run.call_args
+        data_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("data")
+        assert data_arg is not None
+        pipeline_config = data_arg.pipeline_config
         assert pipeline_config.prompt_name == "rag_creative"
         assert pipeline_config.prompt_version == "v2"
         assert pipeline_config.relevance_threshold == 0.5
@@ -308,72 +312,61 @@ class TestRAGIndexing:
         assert "personal" in result["results"]
         assert result["results"]["personal"]["indexed"] == 1
 
-    def test_status_polling(self, monkeypatch):
-        """Given: a reindex task was started and recorded in _reindex_status.
-        When: status is polled from the global dict.
+    def test_status_polling(self):
+        """Given: a reindex task was started and recorded in RAGState.
+        When: status is polled from the instance.
         Then: correct status and timestamps are returned."""
-        from ai_assistant.features.rag import handlers as rag_handlers
+        from ai_assistant.api.deps import RAGState
 
+        rag_state = RAGState()
         task_id = "task-123"
-        monkeypatch.setitem(
-            rag_handlers._reindex_status,
-            task_id,
-            {
-                "status": "running",
-                "started_at": time.time(),
-            },
-        )
+        rag_state.status[task_id] = {
+            "status": "running",
+            "started_at": time.time(),
+        }
 
-        status = rag_handlers._reindex_status.get(task_id, {})
+        status = rag_state.status.get(task_id, {})
         assert status["status"] == "running"
         assert "started_at" in status
 
     @pytest.mark.asyncio
-    async def test_ttl_cleanup(self, monkeypatch):
-        """Given: expired and fresh entries in _reindex_status.
-        When: _cleanup_reindex_status is called.
+    async def test_ttl_cleanup(self):
+        """Given: expired and fresh entries in RAGState.status.
+        When: cleanup_status is called.
         Then: expired entries are removed, fresh entries survive."""
-        from ai_assistant.features.rag import handlers as rag_handlers
+        from ai_assistant.api.deps import RAGState
 
+        rag_state = RAGState()
         now = time.time()
-        ttl = rag_handlers._REINDEX_STATUS_TTL_SECONDS
+        ttl = rag_state.STATUS_TTL_SECONDS
 
-        monkeypatch.setitem(
-            rag_handlers._reindex_status,
-            "old",
-            {
-                "status": "completed",
-                "started_at": now - ttl - 100,
-                "finished_at": now - ttl - 50,
-            },
-        )
-        monkeypatch.setitem(
-            rag_handlers._reindex_status,
-            "fresh",
-            {
-                "status": "running",
-                "started_at": now - 10,
-            },
-        )
+        rag_state.status["old"] = {
+            "status": "completed",
+            "started_at": now - ttl - 100,
+            "finished_at": now - ttl - 50,
+        }
+        rag_state.status["fresh"] = {
+            "status": "running",
+            "started_at": now - 10,
+        }
 
-        await rag_handlers._cleanup_reindex_status()
+        await rag_state.cleanup_status()
 
-        assert "old" not in rag_handlers._reindex_status
-        assert "fresh" in rag_handlers._reindex_status
+        assert "old" not in rag_state.status
+        assert "fresh" in rag_state.status
 
 
 # ── Reranker Regression ──
 
 class TestRerankerRegression:
-    """REGRESSION P0.6: reranker must be present in metadata for [p] prefix queries."""
+    """REGRESSION P0.6: reranker must be present in PipelineData for [p] prefix queries."""
 
     @pytest.mark.regression
     @pytest.mark.asyncio
-    async def test_reranker_passed_in_metadata_on_p_prefix(self, mock_state, mock_embedder, mock_vector_store):
+    async def test_reranker_passed_in_pipeline_data_on_p_prefix(self, mock_state, mock_embedder, mock_vector_store):
         """Given: chat message with [p] prefix and working retrieval pipeline.
         When: ChatManager._retrieve_context is called.
-        Then: metadata reaching the rerank step contains the reranker instance."""
-        from dataclasses import replace
+        Then: PipelineData reaching the rerank step contains the reranker instance."""
         from ai_assistant.features.chat.manager import ChatManager
         from ai_assistant.core.pipeline import RAGPipeline
         from ai_assistant.core.domain.pipeline import PipelineData
@@ -381,12 +374,11 @@ class TestRerankerRegression:
         captured = {}
 
         async def fake_embed_query(data: PipelineData) -> PipelineData:
-            """Fake embed_query step — stores embedding in metadata."""
-            new_metadata = {**data.metadata, "query_embedding": [0.1] * 384}
-            return replace(data, metadata=new_metadata)
+            """Fake embed_query step — stores embedding via typed field."""
+            return data.with_query_embedding([0.1] * 384)
 
         async def fake_retrieve(data: PipelineData) -> PipelineData:
-            """Fake retrieve step — reads embedding, returns chunks."""
+            """Fake retrieve step — returns chunks."""
             return data.with_chunks([
                 Chunk(
                     id="c1",
@@ -397,8 +389,8 @@ class TestRerankerRegression:
             ])
 
         async def capture_rerank(data: PipelineData) -> PipelineData:
-            """Capture reranker from metadata and return data unchanged."""
-            captured["reranker"] = data.metadata.get("reranker")
+            """Capture reranker from typed field and return data unchanged."""
+            captured["reranker"] = data.reranker
             return data
 
         pipeline = RAGPipeline([fake_embed_query, fake_retrieve, capture_rerank])
@@ -418,7 +410,7 @@ class TestRerankerRegression:
     @pytest.mark.regression
     @pytest.mark.asyncio
     async def test_reranker_missing_returns_error(self):
-        """Given: PipelineData has chunks but no reranker in metadata.
+        """Given: PipelineData has chunks but no reranker.
         When: rerank pipeline step executes.
         Then: INTERNAL_SERVER_ERROR is added; original chunks preserved."""
         from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
@@ -432,7 +424,7 @@ class TestRerankerRegression:
                     metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
                 )
             ],
-            metadata={},  # reranker intentionally omitted
+            # reranker defaults to None
         )
         result = await rerank(data)
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)

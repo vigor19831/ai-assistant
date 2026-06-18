@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-18 08:19 UTC
+> Auto-generated from source code. Updated: 2026-06-18 14:19 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -25,15 +25,15 @@
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 328 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 162 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 255 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 257 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 259 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 261 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 263 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 265 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 267 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 286 |
-| `api.deps` | `ValueError` | Unknown step: {...} | High | 99 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 311 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 313 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 315 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 317 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 319 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 321 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 323 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 342 |
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 153 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
 | `core.config` | `ValueError` | path must be non-empty | High | 179 |
 | `core.config` | `ValueError` | path must be relative, got: {...} | High | 181 |
@@ -42,30 +42,30 @@
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
 | `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 84 |
 | `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 89 |
-| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 48 |
+| `core.pipeline` | `ConfigurationError` | Missing required PipelineData fields: {...} | High | 40 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
-| `features.rag.handlers` | `HTTPException` | Unknown error | High | 214 |
-| `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
-| `tests.test_api` | `RuntimeError` | boom | High | 1494 |
-| `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 293 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 390 |
+| `features.rag.handlers` | `HTTPException` | Unknown error | High | 179 |
+| `tests.test_api` | `HTTPException` | Unknown error | High | 1430 |
+| `tests.test_api` | `RuntimeError` | boom | High | 1495 |
+| `tests.test_api` | `ValueError` | No storage adapter registered | High | 671 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
-| `tests.test_pipeline` | `AdapterError` | LLM down | High | 541 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 642 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 672 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 694 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 649 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 519 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 621 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 651 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 673 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 628 |
 | `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
-| `tests.test_rag` | `HTTPException` | Unknown error | High | 179 |
+| `tests.test_rag` | `HTTPException` | Unknown error | High | 183 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
 | `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 43 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
@@ -77,11 +77,11 @@
 | `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 87 |
 | `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception( | Medium | 79 |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 91 |
-| `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
+| `adapters.storage_sqlite` | `JSONDecodeError` | _logger.warning("JSON decode failed in storage", extra={"err | Medium | 27 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 93 |
 | `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 307 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 222 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 276 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 85 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 72 |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 114 |
@@ -94,13 +94,13 @@
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
 | `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 120 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 386 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 129 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 172 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 239 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 305 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 345 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 393 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 377 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 128 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 171 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 229 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 295 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 336 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 384 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
@@ -122,20 +122,20 @@
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 283 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 222 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 239 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 285 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 334 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 144 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 244 |
-| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 273 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 305 |
-| `features.rag.handlers` | `Exception` | return { | Medium | 343 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 389 |
-| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 190 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 280 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 219 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 236 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 282 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 331 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 109 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 209 |
+| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 238 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 270 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 308 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 355 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 188 |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
-| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
+| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 694 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
 | `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |

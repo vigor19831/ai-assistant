@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-18 08:19:34 UTC | **Mode:** `rules`
-> **Metrics:** 108 files | 93 Python | 18,284 LOC
+> **Generated:** 2026-06-18 14:19:25 UTC | **Mode:** `rules`
+> **Metrics:** 108 files | 93 Python | 18,339 LOC
 > **Full:** 0 | **Signatures:** 0 | **Listed:** 101
 
 ---
@@ -299,7 +299,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-18 08:19 UTC
+> Auto-generated from source code. Updated: 2026-06-18 14:19 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -325,15 +325,15 @@ These rules themselves change:
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 328 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 162 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 255 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 257 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 259 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 261 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 263 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 265 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 267 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 286 |
-| `api.deps` | `ValueError` | Unknown step: {...} | High | 99 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 311 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 313 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 315 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 317 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 319 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 321 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 323 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 342 |
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 153 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
 | `core.config` | `ValueError` | path must be non-empty | High | 179 |
 | `core.config` | `ValueError` | path must be relative, got: {...} | High | 181 |
@@ -342,30 +342,30 @@ These rules themselves change:
 | `core.io_utils` | `ValueError` | mode must be 'w' or 'wb', got {...} | High | 28 |
 | `core.logger` | `ValueError` | Invalid log level {...}. Use one of: {...} | High | 84 |
 | `core.logger` | `ValueError` | Invalid log format {...}. Use 'text' or 'json'. | High | 89 |
-| `core.pipeline` | `ConfigurationError` | Missing required metadata keys: {...} | High | 48 |
+| `core.pipeline` | `ConfigurationError` | Missing required PipelineData fields: {...} | High | 40 |
 | `core.prompts.__init__` | `ValueError` | Prompt version directory not found: {...} | High | 41 |
 | `core.prompts.__init__` | `ValueError` | prompt version is required | High | 71 |
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
-| `features.rag.handlers` | `HTTPException` | Unknown error | High | 214 |
-| `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
-| `tests.test_api` | `RuntimeError` | boom | High | 1494 |
-| `tests.test_api` | `ValueError` | No storage adapter registered | High | 673 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 293 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 390 |
+| `features.rag.handlers` | `HTTPException` | Unknown error | High | 179 |
+| `tests.test_api` | `HTTPException` | Unknown error | High | 1430 |
+| `tests.test_api` | `RuntimeError` | boom | High | 1495 |
+| `tests.test_api` | `ValueError` | No storage adapter registered | High | 671 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
-| `tests.test_pipeline` | `AdapterError` | LLM down | High | 541 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 642 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 672 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 694 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 649 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 519 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 621 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 651 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 673 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 628 |
 | `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
-| `tests.test_rag` | `HTTPException` | Unknown error | High | 179 |
+| `tests.test_rag` | `HTTPException` | Unknown error | High | 183 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
 | `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 43 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
@@ -377,11 +377,11 @@ These rules themselves change:
 | `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium | 87 |
 | `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception( | Medium | 79 |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium | 91 |
-| `adapters.storage_sqlite` | `JSONDecodeError` | return default | Medium | 24 |
+| `adapters.storage_sqlite` | `JSONDecodeError` | _logger.warning("JSON decode failed in storage", extra={"err | Medium | 27 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 93 |
 | `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 307 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 222 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 276 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 85 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 72 |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 114 |
@@ -394,13 +394,13 @@ These rules themselves change:
 | `core.io_utils` | `TypeError` | Expected bytes for mode={...}, got {...} | Medium | 32 |
 | `core.io_utils` | `TypeError` | Expected str for mode={...}, got {...} | Medium | 36 |
 | `core.logger` | `OSError` | sys.stderr.write(f"Failed to create log file {path}: {exc}\n | Medium | 120 |
-| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 386 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 129 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 172 |
-| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 239 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 305 |
-| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 345 |
-| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 393 |
+| `core.pipeline_steps` | `AdapterError` | _logger.exception("LLM unavailable", extra={"trace_id": data | Medium | 377 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("embed_query failed", extra={"trace_id": d | Medium | 128 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("retrieve failed", extra={"trace_id": data | Medium | 171 |
+| `core.pipeline_steps` | `Exception` | _logger.exception("rerank failed", extra={"trace_id": data.t | Medium | 229 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(current_data.chunks, query_t | Medium | 295 |
+| `core.pipeline_steps` | `Exception` | prompt = _build_fallback_prompt(data.chunks, query_text) | Medium | 336 |
+| `core.pipeline_steps` | `Exception` | _logger.exception( | Medium | 384 |
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
@@ -422,20 +422,20 @@ These rules themselves change:
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 283 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 222 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 239 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 285 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 334 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 144 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 244 |
-| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 273 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 305 |
-| `features.rag.handlers` | `Exception` | return { | Medium | 343 |
-| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 389 |
-| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 190 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 280 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 219 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 236 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 282 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 331 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 109 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 209 |
+| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 238 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium | 270 |
+| `features.rag.handlers` | `Exception` | return { | Medium | 308 |
+| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium | 355 |
+| `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium | 188 |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium | 369 |
-| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 696 |
+| `tests.test_api` | `ImportError` | sqlite3 not available | Medium | 694 |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium | 44 |
 | `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
@@ -462,13 +462,14 @@ These rules themselves change:
 | 5 | Fixed 2026-06-14: `ChunkMetadata` schema drift. `vector_store_faiss.py` and `vector_store_memory.py` serialized `created_at` (not in domain model) and missed `total_chunks` in FAISS `add()`. Introduced `dataclass_from_dict` in `core/utils.py` for strict deserialization. |
 | 6 | Fixed 2026-06-14: Added `get_logger` to `embedder_openai_compatible.py` and `reranker_api.py`. All `AdapterError` wraps now preceded by `logger.exception`. |
 | 7 | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py` | Duplicate HTTP client setup (httpx.AsyncClient, POST, raise_for_status, json parse) | Layer boundaries prevent shared httpx code: core/ is stdlib-only, adapters/ may only import core/*. Extracting to core/ violates stdlib-only rule. Extracting to adapters/_shared violates layer boundaries. | Accept duplication as architectural constraint. Revisit if >3 adapters share pattern. | Low |
-| 8 | `src/ai_assistant/core/pipeline_steps.py` (retrieve, rerank, generate) | `typing.cast("PipelineConfig | None", data.metadata.get("pipeline_config"))` | `PipelineData.metadata: dict[str, Any]` is untyped bag. Steps extract values by string key with no static type guarantee. Mypy requires cast; Ruff TC006 requires quoted type in cast. | Accept cast as temporary measure. Fix by structuring PipelineData metadata (TypedDict or explicit fields) — CORE CHANGE REQUIRED. See proposed fix in docs/ai_rules_proposed.md or core refactor backlog. | Low |
+| 8 | Fixed 2026-06-18: Replaced `metadata: dict[str, Any]` with explicit typed fields in `PipelineData` (embedder, vector_store, reranker, llm, pipeline_config, query_embedding, tokenizer_model, rerank_filtered_out, rerank_scores). All casts and string-key access removed from pipeline steps and tests. |
 | 9 | ~~`src/ai_assistant/core/pipeline_steps.py`~~ (fixed 2026-06-17) | ~~`model: str = "gpt-4o"` default~~ | ~~Default был fallback для тестов/CLI~~ | **Fixed:** убраны все дефолты `"gpt-4o"` из `_estimate_tokens()` и `_truncate_to_fit()`. `tokenizer_model` теперь обязательный ключ в metadata. `ChatManager` всегда передаёт его. Все тесты обновлены. | — |
 | 10 | `src/ai_assistant/core/retry.py` | `max_retries=3, delay=1.0, backoff=2.0` хардкод в `@with_retry` на адаптерах | Resilience policy — не бизнес-логика. Меняется раз в 10 лет. Вынесение в config требует CORE CHANGE (новые поля в `EmbedderConfigData`, `LLMConfigData`, `RerankerConfigData`) + inline-фабрики декораторов (костыль). | Accept as architectural constraint. Пересмотреть при добавлении `IRetryPolicy` порта или embedded-режима с 0 retries. | Low |
 | 11 | `src/ai_assistant/core/prompts/__init__.py` | Jinja2 import в core/ | Prompt rendering — domain logic, Jinja2 — implementation detail. Для 30-летнего горизонта абстракция `IPromptRenderer` предпочтительна, но требует нового порта + адаптера + обновления factory + всех вызовов. | Accept as grandfathered exception. Документировать при добавлении второго движка шаблонов (Mustache, etc.). | Low |
 | 12 | `src/ai_assistant/core/prompts/__init__.py` | `_make_hashable()` без защиты от циклических ссылок | Текущие prompts не содержат self-referencing dataclasses. Защита — YAGNI. | Accept. Добавить при первом `RecursionError` в продакшене. | Low |
 | 13 | `core/domain/documents.py` | `original_path` smuggled through pipeline without contract | No first-class field for source URI propagation | Added `source_uri` to `ChunkMetadata` (CORE CHANGE) | Low |
-
+| 14 | `src/ai_assistant/api/deps.py` (`RAGState.status: dict[str, object]`) | No `Any`/`object` where concrete type is visible (AI Rules Section 9, TYPES). | `RAGState` stores background reindex task status as heterogenous dict to avoid CORE CHANGE in current scope. Values are timestamps (float), strings, and nested dicts. | Introduce `ReindexStatusEntry` dataclass in `core/domain/` and type `RAGState.status` as `dict[str, ReindexStatusEntry]`. Requires updating `handlers.py`, `test_rag.py`, `test_contracts.py`. | Low |
+| 15 | `src/ai_assistant/core/pipeline.py` (`_required_fields_for_steps`) | Upfront validation should cover all inputs; `query_embedding` is produced by previous step, not input. | `retrieve` requires `query_embedding`, but it is produced by `embed_query`/`hyde_query`. Upfront validation fails valid pipelines. Removing it loses early error for `[retrieve]` without embedding step. | Introduce step dependency graph in `_required_fields_for_steps` to distinguish inputs from produced fields. Or split `retrieve` into `retrieve` (requires embedding) and `retrieve_raw` (requires pre-computed). | Low |
 
 
 Rule: Do not add new drift if old pattern can be fixed properly.
@@ -723,6 +724,7 @@ tests/
 - `src/ai_assistant/adapters/storage_sqlite.py`
   - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: StorageConfigData`
+  - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.storage: IChatStorage, ISettingsStorage`
 - `src/ai_assistant/adapters/vector_store_faiss.py`
   - → `ai_assistant.adapters._registry: register`
@@ -770,7 +772,6 @@ tests/
   - → `ai_assistant.core.logger: get_logger`
 - `src/ai_assistant/core/pipeline.py`
   - → `ai_assistant.core.domain.errors: ConfigurationError`
-  - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY`
 - `src/ai_assistant/core/pipeline_steps.py`
@@ -866,7 +867,7 @@ tests/
   - → `ai_assistant.adapters.storage_sqlite: SQLiteStorage`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.adapters.vector_store_memory: MemoryVectorStore`
-  - → `ai_assistant.api.deps: InitializedAppState`
+  - → `ai_assistant.api.deps: InitializedAppState, RAGState`
   - → `ai_assistant.core.config: AppConfig`
   - → `ai_assistant.core.domain.configs: ChunkerConfigData`
   - → `ai_assistant.core.domain.configs: EmbedderConfigData`
@@ -877,7 +878,6 @@ tests/
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.ports.reranker: RerankResult`
   - → `ai_assistant.core: prompts`
-  - → `ai_assistant.features.rag: handlers`
 - `tests/test_adapters.py`
   - → `ai_assistant.adapters._registry: get_registry`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
@@ -904,6 +904,7 @@ tests/
   - → `ai_assistant.adapters.reranker_null: NullReranker`
   - → `ai_assistant.api.admin: _UpdateApiKeyRequest, _UpdateApiKeyResponse, update_api_key`
   - → `ai_assistant.api.deps: AppState, InitializedAppState, _STEP_MAP, _build_step_funcs, get_state, init_adapters`
+  - → `ai_assistant.api.deps: RAGState`
   - → `ai_assistant.api.lifespan: _async_cleanup, _load_config, lifespan`
   - → `ai_assistant.api.middleware: MetricsMiddleware`
   - → `ai_assistant.api.router: _ROOT_TAGS`
@@ -947,6 +948,7 @@ tests/
   - → `ai_assistant.api: deps`
   - → `ai_assistant.api: lifespan`
   - → `ai_assistant.core.domain.messages: AssistantMessage, ToolMessage, UserMessage`
+  - → `ai_assistant.core.domain.pipeline: PipelineData`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.chunker: IChunker`
   - → `ai_assistant.core.ports.closable: IClosable`
@@ -968,13 +970,13 @@ tests/
   - → `ai_assistant.core: prompts`
 - `tests/test_e2e.py`
   - → `ai_assistant.adapters.reranker_null: NullReranker`
+  - → `ai_assistant.api.deps: RAGState`
   - → `ai_assistant.api.security: set_api_key`
   - → `ai_assistant.core.config: NamespaceConfig`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.domain.messages: AssistantMessage`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.features.chat.manager: ChatManager`
-  - → `ai_assistant.features.rag: handlers`
   - → `ai_assistant.main: create_app`
 - `tests/test_integration.py`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
@@ -1031,6 +1033,7 @@ tests/
   - → `ai_assistant.core.ports.reranker: IReranker`
 - `tests/test_rag.py`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
+  - → `ai_assistant.api.deps: RAGState`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.domain.errors: INTERNAL_SERVER_ERROR`
@@ -1045,7 +1048,6 @@ tests/
   - → `ai_assistant.features.rag.indexing: index_folder`
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
   - → `ai_assistant.features.rag.manager: RAGManager`
-  - → `ai_assistant.features.rag: handlers`
 - `tests/test_resilience.py`
   - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
   - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`

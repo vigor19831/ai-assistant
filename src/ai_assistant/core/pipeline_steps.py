@@ -6,7 +6,7 @@ No in-place mutation.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -99,7 +99,7 @@ async def _call_llm(llm: ILLM, messages: list[Message]) -> AssistantMessage:
 async def embed_query(data: PipelineData) -> PipelineData:
     """Embed the user query text.
 
-    Metadata contract:
+    Field contract:
         IN:  embedder (IEmbedder) — required.
         OUT: query_embedding (list[float]) — produced on success.
         DATA: query.text (str) — must be non-empty.
@@ -108,7 +108,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
         EMBEDDER_NOT_PROVIDED, QUERY_TEXT_MISSING, INTERNAL_SERVER_ERROR.
     """
     _logger.debug("embed_query start", extra={"trace_id": data.trace_id})
-    embedder = data.metadata.get("embedder")
+    embedder = data.embedder
     if embedder is None:
         _logger.warning("embed_query: no embedder", extra={"trace_id": data.trace_id})
         return data.add_error(EMBEDDER_NOT_PROVIDED)
@@ -123,9 +123,8 @@ async def embed_query(data: PipelineData) -> PipelineData:
                 extra={"trace_id": data.trace_id},
             )
             return data.add_error(INTERNAL_SERVER_ERROR)
-        new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
         _logger.debug("embed_query done", extra={"trace_id": data.trace_id})
-        return replace(data, metadata=new_metadata)
+        return data.with_query_embedding(embeddings[0])
     except Exception:
         _logger.exception("embed_query failed", extra={"trace_id": data.trace_id})
         return data.add_error(INTERNAL_SERVER_ERROR)
@@ -135,27 +134,27 @@ async def embed_query(data: PipelineData) -> PipelineData:
 async def retrieve(data: PipelineData) -> PipelineData:
     """Retrieve relevant chunks from vector store (namespace-aware).
 
-    Metadata contract:
+    Field contract:
         IN:  vector_store (IVectorStore) — required.
              query_embedding (list[float]) — produced by embed_query.
              pipeline_config (PipelineConfig) — provides top_k, namespace.
-        OUT: chunks (list[Chunk]) — written to PipelineData.chunks.
+        OUT: chunks (tuple[Chunk, ...]) — written to PipelineData.chunks.
              Metric "rag_chunks" recorded.
 
     Errors added on failure:
         VECTOR_STORE_NOT_PROVIDED, QUERY_EMBEDDING_MISSING, INTERNAL_SERVER_ERROR.
     """
     _logger.debug("retrieve start", extra={"trace_id": data.trace_id})
-    vector_store = data.metadata.get("vector_store")
+    vector_store = data.vector_store
     if vector_store is None:
         _logger.warning("retrieve: no vector_store", extra={"trace_id": data.trace_id})
         return data.add_error(VECTOR_STORE_NOT_PROVIDED)
-    embedding = data.metadata.get("query_embedding")
+    embedding = data.query_embedding
     if embedding is None:
         _logger.warning("retrieve: no embedding", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
-        cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+        cfg = data.pipeline_config
         if cfg is None:
             cfg = PipelineConfig()
         top_k = cfg.top_k
@@ -178,12 +177,12 @@ async def retrieve(data: PipelineData) -> PipelineData:
 async def rerank(data: PipelineData) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
-    Metadata contract:
+    Field contract:
         IN:  reranker (IReranker) — required, never None (NullReranker if disabled).
              pipeline_config (PipelineConfig) — provides top_k, relevance_threshold.
         OUT: rerank_filtered_out (bool) — set True if all chunks filtered.
              rerank_scores (list[float]) — set if chunks survive filtering.
-        DATA: chunks (list[Chunk]) — replaced with filtered subset.
+        DATA: chunks (tuple[Chunk, ...]) — replaced with filtered subset.
 
     Errors added on failure:
         INTERNAL_SERVER_ERROR.
@@ -194,7 +193,7 @@ async def rerank(data: PipelineData) -> PipelineData:
     if not data.chunks:
         return replace(data)
 
-    reranker = data.metadata.get("reranker")
+    reranker = data.reranker
     if reranker is None:
         _logger.warning("rerank: no reranker", extra={"trace_id": data.trace_id})
         return data.add_error(INTERNAL_SERVER_ERROR)
@@ -202,7 +201,7 @@ async def rerank(data: PipelineData) -> PipelineData:
     try:
         _raw_query = data.query.text if data.query is not None else None
         query = _raw_query if _raw_query is not None else " "
-        cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+        cfg = data.pipeline_config
         if cfg is None:
             cfg = PipelineConfig()
         top_k = cfg.top_k
@@ -213,27 +212,18 @@ async def rerank(data: PipelineData) -> PipelineData:
         filtered = [r for r in results if r.score >= threshold]
 
         if not filtered:
-            new_metadata = {
-                **data.metadata,
-                "rerank_filtered_out": True,
-            }
             _logger.debug(
                 "rerank: all chunks filtered out", extra={"trace_id": data.trace_id}
             )
-            return replace(data, chunks=(), metadata=new_metadata)
+            return data.with_chunks(()).with_rerank_filtered_out(True)
         else:
-            new_metadata = {
-                **data.metadata,
-                "rerank_scores": [r.score for r in filtered],
-            }
             _logger.debug(
                 "rerank done",
                 extra={"trace_id": data.trace_id, "chunks": len(filtered)},
             )
-            return replace(
-                data,
-                chunks=tuple(r.chunk for r in filtered),
-                metadata=new_metadata,
+            return (
+                data.with_chunks(tuple(r.chunk for r in filtered))
+                .with_rerank_scores([r.score for r in filtered])
             )
 
     except Exception:
@@ -245,8 +235,8 @@ async def rerank(data: PipelineData) -> PipelineData:
 async def build_context(data: PipelineData) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks.
 
-    Metadata contract:
-        DATA: chunks (list[Chunk]) — read; context (str) — produced.
+    Field contract:
+        DATA: chunks (tuple[Chunk, ...]) — read; context (str) — produced.
     """
     _logger.debug(
         "build_context start",
@@ -312,15 +302,16 @@ async def _truncate_to_fit(
 async def generate(data: PipelineData) -> PipelineData:
     """Generate response from context using LLM.
 
-    Metadata contract:
+    Field contract:
         IN:  llm (ILLM) — required.
              pipeline_config (PipelineConfig) — provides prompt_name,
                  prompt_version, token_margin_min, token_margin_pct.
-        DATA: query (UserMessage), context (str), chunks (tuple[Chunk]).
+             tokenizer_model (str) — required for token estimation.
+        DATA: query (UserMessage), context (str), chunks (tuple[Chunk, ...]).
         OUT: response (AssistantMessage).
     """
     _logger.debug("generate start", extra={"trace_id": data.trace_id})
-    llm = data.metadata.get("llm")
+    llm = data.llm
     if llm is None:
         _logger.warning("generate: no llm", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_NOT_PROVIDED)
@@ -329,7 +320,7 @@ async def generate(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_MISSING)
 
     query_text = data.query.text or "  "
-    cfg = cast("PipelineConfig | None", data.metadata.get("pipeline_config"))
+    cfg = data.pipeline_config
     if cfg is None:
         cfg = PipelineConfig()
     prompt_version = cfg.prompt_version
@@ -347,13 +338,13 @@ async def generate(data: PipelineData) -> PipelineData:
 
     max_ctx = llm.get_context_limit()
 
-    tokenizer_model = data.metadata.get("tokenizer_model")
+    tokenizer_model = data.tokenizer_model
     if tokenizer_model is None:
         _logger.error(
-            "tokenizer_model missing in metadata",
+            "tokenizer_model missing in PipelineData",
             extra={"trace_id": data.trace_id},
         )
-        return data.add_error("tokenizer_model missing in metadata")
+        return data.add_error("tokenizer_model missing in PipelineData")
     prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
     margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
     limit = max_ctx - margin
@@ -409,11 +400,11 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     """Hypothetical Document Embedding (HyDE).
 
     Generates a hypothetical answer to the query, embeds it,
-    and stores the embedding in metadata for downstream retrieval.
+    and stores the embedding in PipelineData for downstream retrieval.
     """
     _logger.debug("hyde_query start", extra={"trace_id": data.trace_id})
-    embedder = data.metadata.get("embedder")
-    llm = data.metadata.get("llm")
+    embedder = data.embedder
+    llm = data.llm
     if embedder is None:
         _logger.warning("hyde_query: no embedder", extra={"trace_id": data.trace_id})
         return data.add_error(EMBEDDER_NOT_PROVIDED)
@@ -457,6 +448,5 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         )
         return data.add_error(INTERNAL_SERVER_ERROR)
 
-    new_metadata = {**data.metadata, "query_embedding": embeddings[0]}
     _logger.debug("hyde_query done", extra={"trace_id": data.trace_id})
-    return replace(data, metadata=new_metadata)
+    return data.with_query_embedding(embeddings[0])

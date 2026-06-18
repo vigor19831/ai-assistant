@@ -430,7 +430,7 @@ class TestE2ERAG:
         """Given: reindex task is started.
         When: polling /api/v1/rag/reindex/status/{task_id}.
         Then: eventually reports completed and task is cleaned from memory."""
-        from ai_assistant.features.rag import handlers as handlers_module
+        from ai_assistant.api.deps import RAGState
 
         monkeypatch.setattr(
             mock_state.config.rag, "documents_root", str(tmp_path)
@@ -438,9 +438,7 @@ class TestE2ERAG:
         (tmp_path / "personal").mkdir()
         (tmp_path / "personal" / "test.md").write_text("hello world")
 
-        monkeypatch.setattr(
-            handlers_module, "_reindex_semaphore", asyncio.Semaphore(1)
-        )
+        mock_state.rag_state = RAGState()
 
         resp = client.post(
             "/api/v1/rag/reindex", json={"folder": "personal", "clear": False}
@@ -457,15 +455,17 @@ class TestE2ERAG:
             pytest.fail("Background reindex did not finish in time")
 
         assert status_data["task_id"] == task_id
-        assert task_id not in handlers_module._reindex_tasks
+        assert task_id not in mock_state.rag_state.tasks
 
-    def test_reindex_ttl_cleanup(self, client, monkeypatch):
+    def test_reindex_ttl_cleanup(self, client, mock_state, monkeypatch):
         """Given: a reindex task finishes and TTL passes.
         When: status endpoint is polled after TTL expiry.
         Then: expired task is removed and status returns 'unknown'."""
-        from ai_assistant.features.rag import handlers as handlers_module
+        from ai_assistant.api.deps import RAGState
 
-        monkeypatch.setattr(handlers_module, "_REINDEX_STATUS_TTL_SECONDS", 1)
+        mock_state.rag_state = RAGState()
+        mock_state.rag_state.STATUS_TTL_SECONDS = 1
+
         resp = client.post(
             "/api/v1/rag/reindex", json={"folder": "__nonexistent__"}
         )
