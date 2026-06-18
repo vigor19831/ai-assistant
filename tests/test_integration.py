@@ -534,3 +534,18 @@ class TestIntegrationAPIInit:
         assert isinstance(result.response, AssistantMessage)
         assert "query_embedding" in result.metadata
         assert len(result.chunks) > 0
+
+    @pytest.mark.asyncio
+    async def test_chunk_metadata_original_path_backward_compat(self):
+        """Given: ChunkMetadata without original_path (old data).
+        When: instantiated and serialized.
+        Then: defaults to None, does not break pipeline."""
+        from ai_assistant.core.domain.documents import ChunkMetadata
+
+        meta = ChunkMetadata(source="legacy_doc", index=0, total_chunks=1)
+        assert meta.original_path is None
+
+        meta_with_path = ChunkMetadata(
+            source="new_doc", index=0, total_chunks=1, original_path="/docs/new.md"
+        )
+        assert meta_with_path.original_path == "/docs/new.md"

@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-17 19:17:51 UTC | **Mode:** `compact`
-> **Metrics:** 108 files | 93 Python | 18,070 LOC
+> **Generated:** 2026-06-18 05:06:11 UTC | **Mode:** `compact`
+> **Metrics:** 108 files | 93 Python | 18,219 LOC
 > **Full:** 48 | **Signatures:** 21 | **Listed:** 32
 
 ---
@@ -299,7 +299,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-17 19:17 UTC
+> Auto-generated from source code. Updated: 2026-06-18 05:06 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -348,8 +348,8 @@ These rules themselves change:
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 297 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 394 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 214 |
 | `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
 | `tests.test_api` | `RuntimeError` | boom | High | 1494 |
@@ -422,12 +422,11 @@ These rules themselves change:
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 283 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 222 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 239 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 285 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 334 |
-| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 53 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 284 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 223 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 240 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 286 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 335 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 144 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 244 |
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 273 |
@@ -991,6 +990,7 @@ tests/
   - → `ai_assistant.core.config: AppConfig, EmbedderConfig, LLMConfig`
   - → `ai_assistant.core.domain.configs: ChunkerConfigData, EmbedderConfigData, LLMConfigData, RerankerConfigData, StorageConfigData, VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata, Document`
+  - → `ai_assistant.core.domain.documents: ChunkMetadata`
   - → `ai_assistant.core.domain.messages: AssistantMessage, UserMessage`
   - → `ai_assistant.core.domain.pipeline: PipelineConfig`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
@@ -1405,7 +1405,7 @@ embedder:
   model: embeddinggemma-300m-q8_0
   dim: 768
   timeout: 60.0
-connect_timeout: 5.0  # Таймаут на установку TCP-соединения (None = использовать timeout)
+  connect_timeout: 5.0  # Таймаут на установку TCP-соединения (None = использовать timeout)
   n_gpu_layers: 0        # -1 = все слои на GPU, 0 = только CPU, 10 = 10 слоёв на GPU
   n_batch: 512            # размер батча для обработки
   n_ubatch: 64            # микро-батч
@@ -1432,7 +1432,7 @@ llm:
   frequency_penalty: 0.0
   stop_sequences: []
   timeout: 300.0
-connect_timeout: 5.0  # Таймаут на установку TCP-соединения (None = использовать timeout)
+  connect_timeout: 5.0  # Таймаут на установку TCP-соединения (None = использовать timeout)
   server_context_size: 4096
   # === GPU / Performance ===
   n_gpu_layers: 99        # -1 = все слои на GPU, 0 = только CPU
@@ -2978,6 +2978,7 @@ class ChunkMetadata:
     index: int
     total_chunks: int
     custom: dict[str, Any] = field(default_factory=dict)
+    original_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

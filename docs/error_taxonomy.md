@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-17 19:17 UTC
+> Auto-generated from source code. Updated: 2026-06-18 05:58 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -48,8 +48,8 @@
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 296 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 393 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 297 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 394 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 214 |
 | `tests.test_api` | `HTTPException` | Unknown error | High | 1429 |
 | `tests.test_api` | `RuntimeError` | boom | High | 1494 |
@@ -122,12 +122,11 @@
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 283 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 222 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 239 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 285 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 334 |
-| `features.chat.manager` | `ValueError/IndexError` | continue | Medium | 53 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 284 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 223 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 240 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 286 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 335 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 144 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 244 |
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 273 |

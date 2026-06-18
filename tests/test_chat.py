@@ -931,6 +931,150 @@ class TestChatPrefixes:
         assert prompt == "plain message without prefix"
 
 
+# ── TestChatManagerSources ──
+
+
+class TestChatManagerSources:
+    """Given: chunks with original_path in metadata.
+    When: _append_rag_sources is called.
+    Then: clickable file:/// links are appended when available."""
+
+    @pytest.fixture
+    def manager_for_sources(self):
+        """Given: ChatManager with mocked LLM.
+        When: fixture is requested.
+        Then: manager suitable for source testing is returned."""
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
+        mock_llm.system_message = None
+        return ChatManager(
+            llm=mock_llm,
+            reranker=NullReranker(RerankerConfigData()),
+            storage=None,
+        )
+
+    def test_append_sources_with_original_path(self, manager_for_sources):
+        """Given: chunks with original_path set.
+        When: _append_rag_sources is called.
+        Then: file:/// links are used."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Paris info",
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=0,
+                    total_chunks=1,
+                    original_path="/home/user/docs/france.md",
+                ),
+            ),
+        )
+        answer = "Paris is the capital of France."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert "file:///home/user/docs/france.md" in result
+        assert "Sources:" in result
+
+    def test_append_sources_without_original_path(self, manager_for_sources):
+        """Given: chunks without original_path.
+        When: _append_rag_sources is called.
+        Then: source field is used as fallback."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Berlin info",
+                metadata=ChunkMetadata(source="doc2", index=0, total_chunks=1),
+            ),
+        )
+        answer = "Berlin is the capital of Germany."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert "[1] doc2" in result
+        assert "file://" not in result
+        assert "Sources:" in result
+
+    def test_append_sources_no_info_phrase_skipped(self, manager_for_sources):
+        """Given: answer contains no-info phrase.
+        When: _append_rag_sources is called.
+        Then: sources are not appended."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Unknown info",
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=0,
+                    total_chunks=1,
+                    original_path="/docs/unknown.md",
+                ),
+            ),
+        )
+        answer = "I don't have enough information."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert result == answer
+
+    def test_append_sources_without_citation_markers(self, manager_for_sources):
+        """Given: LLM answer without [N] citation markers but chunks exist.
+        When: _append_rag_sources is called.
+        Then: sources are still appended."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Paris info",
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=0,
+                    total_chunks=1,
+                    original_path="/docs/france.md",
+                ),
+            ),
+        )
+        answer = "Paris is the capital of France."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert "Sources:" in result
+        assert "file:///docs/france.md" in result
+
+    def test_append_sources_multiple_citations(self, manager_for_sources):
+        """Given: multiple chunks with original_path.
+        When: _append_rag_sources is called.
+        Then: all sources are listed with file links."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Info 1",
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=0,
+                    total_chunks=2,
+                    original_path="/docs/a.md",
+                ),
+            ),
+            Chunk(
+                id="c2",
+                text="Info 2",
+                metadata=ChunkMetadata(
+                    source="doc2",
+                    index=1,
+                    total_chunks=2,
+                    original_path="/docs/b.md",
+                ),
+            ),
+        )
+        answer = "Combined info."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert "file:///docs/a.md" in result
+        assert "file:///docs/b.md" in result
+        assert "[1]" in result
+        assert "[2]" in result
+        assert "Sources:" in result
+
+    def test_append_sources_empty_chunks(self, manager_for_sources):
+        """Given: no chunks.
+        When: _append_rag_sources is called.
+        Then: answer returned unchanged."""
+        answer = "Some answer."
+        result = ChatManager._append_rag_sources(answer, ())
+        assert result == answer
+
+
 # ── TestChatHistoryTrimming ──
 
 

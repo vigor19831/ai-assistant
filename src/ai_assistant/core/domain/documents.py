@@ -12,6 +12,7 @@ class ChunkMetadata:
     index: int
     total_chunks: int
     custom: dict[str, Any] = field(default_factory=dict)
+    original_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

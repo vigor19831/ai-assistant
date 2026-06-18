@@ -46,18 +46,19 @@ class ChatManager:
     def _append_rag_sources(answer: str, chunks: tuple[Chunk, ...]) -> str:
         if not chunks or any(ph in answer.lower() for ph in FROZEN_NO_INFO_PHRASES):
             return answer
-        cited: set[int] = set()
-        for m in re.finditer(r"\[(\d+)\]", answer):
-            try:
-                cited.add(int(m.group(1)) - 1)
-            except (ValueError, IndexError):
-                continue
+
+        def _source_link(chunk: Chunk) -> str:
+            if chunk.metadata is None:
+                return "unknown"
+            if chunk.metadata.original_path:
+                return f"file://{chunk.metadata.original_path}"
+            return chunk.metadata.source
+
         src_lines = [
-            f"[{i + 1}] {chunks[i].metadata.source if chunks[i].metadata is not None else 'unknown'}"  # type: ignore[union-attr]
-            for i in sorted(cited)
-            if 0 <= i < len(chunks)
+            f"[{i + 1}] {_source_link(chunk)}"
+            for i, chunk in enumerate(chunks)
         ]
-        return f"{answer}\n\nSources:\n" + "\n".join(src_lines) if src_lines else answer
+        return answer + "\n\nSources:\n" + "\n".join(src_lines)
 
     def __init__(
         self,
@@ -404,6 +405,11 @@ class ChatManager:
                 "chunks_used": len(rag_chunks),
             },
         )
+
+        # Yield sources block so the client sees them in the stream
+        sources_text = self._append_rag_sources("", rag_chunks)
+        if sources_text:
+            yield sources_text
 
         # Save to history after streaming completes
         if self.storage:
