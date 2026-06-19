@@ -7,8 +7,10 @@ Design: Given/When/Then docstrings, one function per test case.
 from __future__ import annotations
 
 import logging
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
+import os
 from unittest import mock
+from unittest.mock import patch
 
 import pytest
 
@@ -112,13 +114,13 @@ class TestPipelineDataFunctional:
 
     def test_with_embedder_returns_new_instance(self) -> None:
         """Given: empty PipelineData.
-        When: with_embedder() is called.
+        When: replace() is called with embedder.
         Then: new instance holds embedder; original is None."""
         class FakeEmbedder:
             pass
         embedder = FakeEmbedder()
         data = PipelineData()
-        data2 = data.with_embedder(embedder)
+        data2 = replace(data, embedder=embedder)
 
         assert data.embedder is None
         assert data2.embedder is embedder
@@ -126,13 +128,13 @@ class TestPipelineDataFunctional:
 
     def test_with_vector_store_returns_new_instance(self) -> None:
         """Given: empty PipelineData.
-        When: with_vector_store() is called.
+        When: replace() is called with vector_store.
         Then: new instance holds vector_store; original is None."""
         class FakeVS:
             pass
         vs = FakeVS()
         data = PipelineData()
-        data2 = data.with_vector_store(vs)
+        data2 = replace(data, vector_store=vs)
 
         assert data.vector_store is None
         assert data2.vector_store is vs
@@ -140,13 +142,13 @@ class TestPipelineDataFunctional:
 
     def test_with_llm_returns_new_instance(self) -> None:
         """Given: empty PipelineData.
-        When: with_llm() is called.
+        When: replace() is called with llm.
         Then: new instance holds llm; original is None."""
         class FakeLLM:
             pass
         llm = FakeLLM()
         data = PipelineData()
-        data2 = data.with_llm(llm)
+        data2 = replace(data, llm=llm)
 
         assert data.llm is None
         assert data2.llm is llm
@@ -727,3 +729,61 @@ def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
 
         prompts_module.get_prompt("dummy", version="v2", x="c")
         assert MockEnv.call_count == 2
+
+
+class TestAtomicWrite:
+    """Given: atomic_write utility for safe file operations.
+    When: called with various modes and content types.
+    Then: correct behavior or appropriate TypeError/ValueError."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_mode_raises_value_error(self, tmp_path: Path) -> None:
+        """Given: invalid mode 'x'.
+        When: atomic_write is called.
+        Then: ValueError is raised."""
+        from ai_assistant.core.io_utils import atomic_write
+
+        target = tmp_path / "out.txt"
+        with pytest.raises(ValueError, match="mode must be 'w' or 'wb'"):
+            await atomic_write(str(target), "text", mode="x")  # type: ignore[arg-type]
+
+    @pytest.mark.asyncio
+    async def test_str_content_with_wb_mode_raises_type_error(self, tmp_path: Path) -> None:
+        """Given: str content with mode='wb'.
+        When: atomic_write is called.
+        Then: TypeError is raised."""
+        from ai_assistant.core.io_utils import atomic_write
+
+        target = tmp_path / "out.bin"
+        with pytest.raises(TypeError, match=r"Expected bytes for mode='wb'"):
+            await atomic_write(str(target), "text", mode="wb")
+
+    @pytest.mark.asyncio
+    async def test_bytes_content_with_w_mode_raises_type_error(self, tmp_path: Path) -> None:
+        """Given: bytes content with mode='w'.
+        When: atomic_write is called.
+        Then: TypeError is raised."""
+        from ai_assistant.core.io_utils import atomic_write
+
+        target = tmp_path / "out.txt"
+        with pytest.raises(TypeError, match=r"Expected str for mode='w'"):
+            await atomic_write(str(target), b"bytes", mode="w")
+
+    @pytest.mark.asyncio
+    async def test_oserror_on_dir_open_is_ignored(self, tmp_path: Path) -> None:
+        """Given: os.open for directory fsync raises OSError (Windows).
+        When: atomic_write completes write.
+        Then: OSError on dir open is silently ignored; file is written."""
+        from ai_assistant.core.io_utils import atomic_write
+
+        target = tmp_path / "out.txt"
+        real_os_open = os.open
+        with patch("ai_assistant.core.io_utils.os.open") as mock_open:
+            def fake_open(path, flags, *args, **kwargs):
+                o_directory = getattr(os, "O_DIRECTORY", 0)
+                if o_directory and (flags & o_directory):
+                    raise OSError("no dir fsync")
+                return real_os_open(path, flags, *args, **kwargs)
+            mock_open.side_effect = fake_open
+            await atomic_write(str(target), "hello", mode="w")
+        assert target.read_text() == "hello"

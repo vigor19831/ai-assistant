@@ -58,6 +58,7 @@ data/
 
 # Logs (all variants)
 *.log
+/*.log
 tests_run_*.log
 
 # User content (never commit)
@@ -71,6 +72,7 @@ src/**/*.egg-info/
 # Runtime / scripts
 scripts/*.pid
 scripts/*.log
+/*.pid
 docs/context_build_*.md
 MagicMock/
 config.yaml

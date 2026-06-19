@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-18 14:19 UTC
+> Auto-generated from source code. Updated: 2026-06-19 10:50 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -48,19 +48,19 @@
 | `core.retry` | `RuntimeError` | last_exception is None after retry loop | High | 64 |
 | `core.utils` | `ValueError` | API key not found in config or env var {...} | High | 40 |
 | `features.chat.handlers` | `HTTPException` | Unknown error | High | 38 |
-| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 293 |
-| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 390 |
+| `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High | 332 |
+| `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High | 429 |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High | 179 |
 | `tests.test_api` | `HTTPException` | Unknown error | High | 1430 |
 | `tests.test_api` | `RuntimeError` | boom | High | 1495 |
 | `tests.test_api` | `ValueError` | No storage adapter registered | High | 671 |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High | 218 |
-| `tests.test_pipeline` | `AdapterError` | LLM down | High | 519 |
-| `tests.test_pipeline` | `RuntimeError` | transient | High | 621 |
-| `tests.test_pipeline` | `RuntimeError` | fail | High | 651 |
-| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 673 |
-| `tests.test_pipeline` | `ValueError` | permanent | High | 628 |
+| `tests.test_pipeline` | `AdapterError` | LLM down | High | 520 |
+| `tests.test_pipeline` | `RuntimeError` | transient | High | 622 |
+| `tests.test_pipeline` | `RuntimeError` | fail | High | 652 |
+| `tests.test_pipeline` | `RuntimeError` | attempt {...} | High | 674 |
+| `tests.test_pipeline` | `ValueError` | permanent | High | 629 |
 | `tests.test_properties` | `ValueError` | Unknown embedder: {...} | High | 41 |
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
@@ -104,9 +104,9 @@
 | `core.retry` | `Exception` | last_exception = e | Medium | 53 |
 | `core.retry` | `_PERMANENT_ERRORS` | raise | Medium | 51 |
 | `core.retry` | `last_exception` | Raised last_exception | Medium | 65 |
-| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 130 |
+| `core.utils` | `AttributeError` | return len(enc.encode(text)) | Medium | 127 |
 | `core.utils` | `Exception` | pass | Medium | 83 |
-| `core.utils` | `Exception` | if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD: | Medium | 133 |
+| `core.utils` | `Exception` | if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD: | Medium | 130 |
 | `core.utils` | `ImportError` | tiktoken = None  # type: ignore[assignment] | Medium | 12 |
 | `core.utils` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium | 17 |
 | `core.utils` | `KeyError` | try: | Medium | 80 |
@@ -122,11 +122,11 @@
 | `features.chat.handlers` | `HTTPException` | raise | Medium | 127 |
 | `features.chat.handlers` | `TimeoutError` | yield ": ping\n\n" | Medium | 79 |
 | `features.chat.handlers` | `item` | Raised item | Medium | 90 |
-| `features.chat.manager` | `AdapterError` | raise | Medium | 280 |
-| `features.chat.manager` | `Exception` | logger.warning( | Medium | 219 |
-| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 236 |
-| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 282 |
-| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 331 |
+| `features.chat.manager` | `AdapterError` | raise | Medium | 319 |
+| `features.chat.manager` | `Exception` | logger.warning( | Medium | 258 |
+| `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium | 275 |
+| `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium | 321 |
+| `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium | 370 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium | 109 |
 | `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium | 209 |
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium | 238 |
@@ -140,6 +140,7 @@
 | `tests.test_retry` | `exc_cls` | permanent | Medium | 264 |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium | 538 |
 | `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium | 66 |
+| `tests.test_domain` | `OSError` | no dir fsync | Low | 785 |
 | `tests.test_logger` | `OSError` | disk full | Low | 214 |
 
 > **Severity:** Critical = startup aborts; High = request fails; Medium = degraded; Low = client error.

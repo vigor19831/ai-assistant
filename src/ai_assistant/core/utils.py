@@ -71,7 +71,7 @@ def _resolve_tokenizer_dir(model: str, local_dir: str) -> Path | None:
 
 
 def get_tokenizer(
-    model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
+    model: str, local_dir: str = "./data/tokenizers"
 ) -> Any | None:
     """Get tokenizer: tiktoken first (OpenAI), then local HF, then None."""
     if tiktoken is not None:
@@ -109,13 +109,10 @@ def _cjk_ratio(text: str) -> float:
 
 
 def count_tokens(
-    text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
+    text: str, model: str, local_dir: str = "./data/tokenizers"
 ) -> int:
     """Count tokens. Fallback to char//4 if no tokenizer available.
     CJK-heavy text (>threshold) falls back to len(text) instead of len(text)//4.
-
-    NOTE: The default model="gpt-4o" is for backward compatibility and tests.
-    Production code MUST pass model explicitly from cfg.chat.tokenizer_model.
     """
     if not text:
         return 0
@@ -137,18 +134,14 @@ def count_tokens(
 
 
 async def async_count_tokens(
-    text: str, model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
+    text: str, model: str, local_dir: str = "./data/tokenizers"
 ) -> int:
-    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool.
-
-    NOTE: The default model="gpt-4o" is for backward compatibility and tests.
-    Production code MUST pass model explicitly from cfg.chat.tokenizer_model.
-    """
+    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool."""
     return await asyncio.to_thread(count_tokens, text, model, local_dir)
 
 
 async def async_get_tokenizer(
-    model: str = "gpt-4o", local_dir: str = "./data/tokenizers"
+    model: str, local_dir: str = "./data/tokenizers"
 ) -> Any | None:
     """Async wrapper for get_tokenizer — offloads CPU-bound tokenizer loading to thread pool."""
     return await asyncio.to_thread(get_tokenizer, model, local_dir)

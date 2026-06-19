@@ -1,0 +1,166 @@
+# Project Structure
+**Generated:** 2026-06-19T14:16:23.354024
+**Root:** `D:\ai`
+
+## Summary
+| Metric | Value |
+|--------|-------|
+| Total files | 124 |
+| Python files | 95 |
+| Python LOC | 22,591 |
+| Total size | 7.9 GB |
+
+```
+├── data
+│   ├── tokenizers
+│   │   ├── gemma-4-e2b-it
+│   │   │   └── tokenizer.json
+│   │   ├── phi-4-mini-reasoning
+│   │   │   └── tokenizer.json
+│   │   └── qwen3.5-4b
+│   │       └── tokenizer.json
+│   └── start.pid
+├── docs
+│   ├── ai_rules.md
+│   ├── drift.md
+│   ├── error_taxonomy.md
+│   ├── future.md
+│   ├── todo.md
+│   └── todo_done.md
+├── scripts
+│   ├── check_all.py
+│   ├── check_llm.py
+│   ├── check_rag.py
+│   ├── clean_cache.py
+│   ├── context_build.py
+│   ├── download_tokenizers.py
+│   ├── error_taxonomy_build.py
+│   ├── index_documents.py
+│   ├── kill.py
+│   ├── open_shell.py
+│   └── structure.py
+├── sources
+│   ├── books
+│   │   └── boooks_test.md
+│   ├── code
+│   │   └── code_test.md
+│   ├── other
+│   │   └── other_test.txt
+│   ├── personal
+│   │   └── personal_test.txt
+│   └── work
+│       └── work_test.txt
+├── src
+│   └── ai_assistant
+│       ├── adapters
+│       │   ├── __init__.py
+│       │   ├── _registry.py
+│       │   ├── chunker_simple.py
+│       │   ├── embedder_mock.py
+│       │   ├── embedder_openai_compatible.py
+│       │   ├── factory.py
+│       │   ├── llm_mock.py
+│       │   ├── llm_openai_compatible.py
+│       │   ├── reranker_api.py
+│       │   ├── reranker_null.py
+│       │   ├── storage_sqlite.py
+│       │   ├── vector_store_faiss.py
+│       │   └── vector_store_memory.py
+│       ├── api
+│       │   ├── __init__.py
+│       │   ├── admin.py
+│       │   ├── deps.py
+│       │   ├── lifespan.py
+│       │   ├── middleware.py
+│       │   ├── router.py
+│       │   ├── security.py
+│       │   └── static.py
+│       ├── core
+│       │   ├── domain
+│       │   │   ├── __init__.py
+│       │   │   ├── configs.py
+│       │   │   ├── documents.py
+│       │   │   ├── errors.py
+│       │   │   ├── messages.py
+│       │   │   └── pipeline.py
+│       │   ├── ports
+│       │   │   ├── __init__.py
+│       │   │   ├── chunker.py
+│       │   │   ├── closable.py
+│       │   │   ├── embedder.py
+│       │   │   ├── initializable.py
+│       │   │   ├── llm.py
+│       │   │   ├── reranker.py
+│       │   │   ├── storage.py
+│       │   │   ├── tools.py
+│       │   │   └── vector_store.py
+│       │   ├── prompts
+│       │   │   ├── v1
+│       │   │   │   ├── rag_creative.j2
+│       │   │   │   ├── rag_default.j2
+│       │   │   │   ├── rag_strict.j2
+│       │   │   │   └── summarize.j2
+│       │   │   └── __init__.py
+│       │   ├── __init__.py
+│       │   ├── config.py
+│       │   ├── constants.py
+│       │   ├── io_utils.py
+│       │   ├── logger.py
+│       │   ├── metrics.py
+│       │   ├── pipeline.py
+│       │   ├── pipeline_steps.py
+│       │   ├── query_parser.py
+│       │   ├── retry.py
+│       │   └── utils.py
+│       ├── features
+│       │   ├── chat
+│       │   │   ├── __init__.py
+│       │   │   ├── handlers.py
+│       │   │   ├── manager.py
+│       │   │   └── schemas.py
+│       │   ├── rag
+│       │   │   ├── __init__.py
+│       │   │   ├── handlers.py
+│       │   │   ├── indexing.py
+│       │   │   ├── manager.py
+│       │   │   └── schemas.py
+│       │   └── __init__.py
+│       ├── __init__.py
+│       └── main.py
+├── tests
+│   ├── config.test.yaml
+│   ├── conftest.py
+│   ├── test_adapters.py
+│   ├── test_api.py
+│   ├── test_chat.py
+│   ├── test_config.py
+│   ├── test_contracts.py
+│   ├── test_domain.py
+│   ├── test_e2e.py
+│   ├── test_integration.py
+│   ├── test_logger.py
+│   ├── test_metrics.py
+│   ├── test_pipeline.py
+│   ├── test_prompts.py
+│   ├── test_properties.py
+│   ├── test_rag.py
+│   ├── test_resilience.py
+│   ├── test_retry.py
+│   ├── test_smoke.py
+│   ├── test_stateful_ports.py
+│   ├── test_static.py
+│   └── test_tokenizer.py
+├── vendor
+│   └── models
+│       ├── embeddinggemma-300m-q8_0.gguf
+│       ├── google_gemma-4-e2b-it-iq4_xs.gguf
+│       ├── microsoft_phi-4-mini-reasoning-iq4_xs.gguf
+│       └── qwen_qwen3.5-4b-iq4_xs.gguf
+├── .gitattributes
+├── .gitignore
+├── LICENSE
+├── README.md
+├── pyproject.toml
+├── run.py
+└── runner.py
+```

@@ -7,6 +7,7 @@ Design: Given/When/Then docstrings, one function per test case.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -106,7 +107,7 @@ class TestEmbedQuery:
         Then: QUERY_TEXT_MISSING error is added."""
         embedder = FakeEmbedder()
         data = PipelineData(query=UserMessage(text=""))
-        data = data.with_embedder(embedder)
+        data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
         assert result.query_embedding is None
@@ -125,7 +126,7 @@ class TestEmbedQuery:
 
         embedder = EmptyEmbedder()
         data = PipelineData(query=UserMessage(text="hello"))
-        data = data.with_embedder(embedder)
+        data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
         assert result.query_embedding is None
@@ -136,7 +137,7 @@ class TestEmbedQuery:
         When: embed_query is called.
         Then: EMBEDDER_NOT_PROVIDED error is added."""
         data = PipelineData(query=UserMessage(text="hello"))
-        data = data.with_embedder(None)
+        data = replace(data, embedder=None)
         result = await embed_query(data)
         assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
 
@@ -147,7 +148,7 @@ class TestEmbedQuery:
         Then: QUERY_TEXT_MISSING error is added."""
         embedder = FakeEmbedder()
         data = PipelineData()
-        data = data.with_embedder(embedder)
+        data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
 

@@ -89,14 +89,14 @@ class TestCountTokens:
         """Given: empty string.
         When: count_tokens is called.
         Then: 0 is returned."""
-        assert count_tokens("") == 0
+        assert count_tokens("", model="gpt-4o") == 0
 
     def test_fallback_char_div4(self, tmp_path: Path) -> None:
         """Given: no tokenizer is available.
         When: count_tokens is called with ASCII text.
         Then: fallback len(text)//4 is used."""
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
-            assert count_tokens("hello world") == 2  # 11 // 4
+            assert count_tokens("hello world", model="gpt-4o") == 2  # 11 // 4
 
     def test_fallback_cjk_high_ratio(self) -> None:
         """Given: CJK-heavy text (>30%) with no tokenizer.
@@ -104,7 +104,7 @@ class TestCountTokens:
         Then: fallback uses len(text) instead of //4."""
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
             text = "这是一个测试"  # 100% CJK
-            assert count_tokens(text) == len(text)
+            assert count_tokens(text, model="gpt-4o") == len(text)
 
     def test_fallback_cjk_low_ratio(self) -> None:
         """Given: low CJK ratio text with no tokenizer.
@@ -112,7 +112,7 @@ class TestCountTokens:
         Then: fallback uses len(text)//4."""
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
             text = "this is a test with one char: 这"  # ~4% CJK
-            assert count_tokens(text) == len(text) // 4
+            assert count_tokens(text, model="gpt-4o") == len(text) // 4
 
     def test_fallback_cjk_exact_threshold(self) -> None:
         """Given: exactly 30% CJK with no tokenizer.
@@ -122,7 +122,7 @@ class TestCountTokens:
             # 3 CJK out of 10 chars = exactly 30%
             text = "abc这def日g中"
             assert len(text) == 10
-            assert count_tokens(text) == 10 // 4  # 2
+            assert count_tokens(text, model="gpt-4o") == 10 // 4  # 2
 
     def test_cjk_ratio_with_emoji(self) -> None:
         """Given: text with CJK characters and emoji.
@@ -131,7 +131,7 @@ class TestCountTokens:
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
             # 2 CJK out of 6 chars (emoji is not CJK) = 33.3%
             text = "你好😀世界"
-            assert count_tokens(text) == len(text)  # >30% CJK
+            assert count_tokens(text, model="gpt-4o") == len(text)  # >30% CJK
 
     def test_count_tokens_with_model_param(self) -> None:
         """Given: model parameter is provided.
@@ -150,7 +150,7 @@ class TestCountTokens:
         Then: returns quickly with approximate count; no crash."""
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
             long_text = "a" * 100_000
-            result = count_tokens(long_text)
+            result = count_tokens(long_text, model="gpt-4o")
             assert result == 100_000 // 4
 
     @pytest.mark.skipif(
@@ -273,7 +273,7 @@ class TestCJKThresholdConstant:
             from ai_assistant.core.utils import _CJK_RATIO_THRESHOLD
             ratio = 3 / 10  # 0.3 exactly
             assert ratio == _CJK_RATIO_THRESHOLD
-            result = count_tokens(text)
+            result = count_tokens(text, model="gpt-4o")
             assert result == 10 // 4  # Uses //4 because ratio is NOT > threshold
 
     def test_threshold_above_uses_len(self) -> None:
@@ -286,7 +286,7 @@ class TestCJKThresholdConstant:
             text = "abc这def日g中日"
             ratio = 4 / 10  # 0.4
             assert ratio > _CJK_RATIO_THRESHOLD
-            result = count_tokens(text)
+            result = count_tokens(text, model="gpt-4o")
             assert result == len(text)  # Uses len because ratio > threshold
 
 
@@ -301,8 +301,8 @@ class TestAsyncTokenizer:
         When: async_count_tokens is called.
         Then: result matches count_tokens."""
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=None):
-            result = await async_count_tokens("hello world")
-            assert result == count_tokens("hello world")
+            result = await async_count_tokens("hello world", model="gpt-4o")
+            assert result == count_tokens("hello world", model="gpt-4o")
 
     @pytest.mark.asyncio
     async def test_async_get_tokenizer(self) -> None:
@@ -326,3 +326,99 @@ class TestAsyncTokenizer:
         with patch("ai_assistant.core.utils.get_tokenizer", return_value=mock_enc):
             result = await async_count_tokens("hello", model="custom", local_dir=".pytest_tmp/tok")
             assert result == 3
+
+
+class TestResolveApiKey:
+    """Given: API key resolution from config or environment.
+    When: resolve_api_key is called.
+    Then: correct key is returned or ValueError is raised."""
+
+    def test_resolve_api_key_from_env(self, monkeypatch) -> None:
+        """Given: env var is set and config value is None.
+        When: resolve_api_key is called.
+        Then: env var value is returned."""
+        from ai_assistant.core.utils import resolve_api_key
+
+        monkeypatch.setenv("TEST_API_KEY", "secret-from-env")
+        result = resolve_api_key(None, "TEST_API_KEY")
+        assert result == "secret-from-env"
+
+    def test_resolve_api_key_missing_raises(self, monkeypatch) -> None:
+        """Given: env var is not set and config value is None.
+        When: resolve_api_key is called.
+        Then: ValueError is raised with descriptive message."""
+        from ai_assistant.core.utils import resolve_api_key
+
+        monkeypatch.delenv("MISSING_KEY", raising=False)
+        with pytest.raises(ValueError, match="API key not found in config or env var MISSING_KEY"):
+            resolve_api_key(None, "MISSING_KEY")
+
+    def test_resolve_api_key_from_config(self) -> None:
+        """Given: config value is provided.
+        When: resolve_api_key is called.
+        Then: config value is returned; env var is ignored."""
+        from ai_assistant.core.utils import resolve_api_key
+
+        result = resolve_api_key("config-secret", "SOME_VAR")
+        assert result == "config-secret"
+
+
+class TestResolveTokenizerDirErrors:
+    """Given: filesystem errors during tokenizer resolution.
+    When: _resolve_tokenizer_dir encounters OSError.
+    Then: None is returned gracefully."""
+
+    def test_permission_error_returns_none(self, tmp_path: Path) -> None:
+        """Given: local_dir exists but iterdir raises PermissionError.
+        When: _resolve_tokenizer_dir is called.
+        Then: None is returned without propagating exception."""
+        with patch("ai_assistant.core.utils.Path.iterdir", side_effect=PermissionError("denied")):
+            result = _resolve_tokenizer_dir("gpt-4o", str(tmp_path))
+            assert result is None
+
+
+class TestGetTokenizerImportErrors:
+    """Given: optional tokenizer libraries are unavailable.
+    When: get_tokenizer is called.
+    Then: None is returned or fallback behavior works."""
+
+    def test_tiktoken_import_error_falls_back_to_tokenizers(self) -> None:
+        """Given: tiktoken is None but tokenizers is available.
+        When: get_tokenizer is called with local tokenizer.
+        Then: tokenizers path is attempted."""
+        from ai_assistant.core import utils as utils_module
+
+        mock_tokenizers = MagicMock()
+        mock_tokenizers.Tokenizer.from_file.return_value = MagicMock()
+
+        with patch.object(utils_module, "tiktoken", None):
+            with patch.object(utils_module, "tokenizers", mock_tokenizers):
+                with patch.object(utils_module, "_resolve_tokenizer_dir", return_value=Path("/fake")):
+                    result = get_tokenizer("gpt-4o", local_dir="/fake")
+                    assert result is not None
+
+    def test_both_libraries_none_returns_none(self) -> None:
+        """Given: both tiktoken and tokenizers are None.
+        When: get_tokenizer is called.
+        Then: None is returned."""
+        from ai_assistant.core import utils as utils_module
+
+        with patch.object(utils_module, "tiktoken", None):
+            with patch.object(utils_module, "tokenizers", None):
+                result = get_tokenizer("gpt-4o")
+                assert result is None
+
+    def test_tokenizers_exception_returns_none(self) -> None:
+        """Given: tokenizers raises Exception during from_file.
+        When: get_tokenizer is called.
+        Then: None is returned due to broad except."""
+        from ai_assistant.core import utils as utils_module
+
+        mock_tokenizers = MagicMock()
+        mock_tokenizers.Tokenizer.from_file.side_effect = RuntimeError("fail")
+
+        with patch.object(utils_module, "tiktoken", None):
+            with patch.object(utils_module, "tokenizers", mock_tokenizers):
+                with patch.object(utils_module, "_resolve_tokenizer_dir", return_value=Path("/fake")):
+                    result = get_tokenizer("gpt-4o", local_dir="/fake")
+                    assert result is None

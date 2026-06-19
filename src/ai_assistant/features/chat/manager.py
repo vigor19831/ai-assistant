@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -46,17 +48,54 @@ class ChatManager:
         if not chunks or any(ph in answer.lower() for ph in FROZEN_NO_INFO_PHRASES):
             return answer
 
+        def _path_to_file_uri(path: str) -> str:
+            """Convert a filesystem path to a proper file URI (RFC 8089)."""
+            # Windows absolute path: C:\dir\file or C:/dir/file
+            if re.match(r"^[A-Za-z]:[/\\]", path):
+                path = path.replace("\\", "/")
+                return f"file:///{path}"
+            # Unix absolute path
+            if path.startswith("/"):
+                return f"file://{path}"
+            # Relative path — not ideal, but handle gracefully
+            return f"file:///{path}"
+
+        def _source_key(chunk: Chunk) -> str:
+            """Return unique key for deduplication: source_uri > original_path > source."""
+            if chunk.metadata is None:
+                return "unknown"
+            return chunk.metadata.source_uri or chunk.metadata.original_path or chunk.metadata.source or "unknown"
+
         def _source_link(chunk: Chunk) -> str:
             if chunk.metadata is None:
                 return "unknown"
-            if chunk.metadata.source_uri:
-                return chunk.metadata.source_uri
-            return chunk.metadata.source
 
-        src_lines = [
-            f"[{i + 1}] {_source_link(chunk)}"
-            for i, chunk in enumerate(chunks)
-        ]
+            md = chunk.metadata
+            display = md.source or "unknown"
+            url = None
+
+            if md.source_uri:
+                # source_uri is already a valid URI; extract filename for display
+                display = md.source_uri.rsplit("/", 1)[-1] or md.source
+                url = md.source_uri
+            elif md.original_path:
+                display = os.path.basename(md.original_path) or md.source
+                url = _path_to_file_uri(md.original_path)
+
+            if url:
+                return f"{display} — {url}"
+            return display
+
+        # Deduplicate by source key while preserving order
+        seen: set[str] = set()
+        unique_lines: list[str] = []
+        for chunk in chunks:
+            key = _source_key(chunk)
+            if key not in seen:
+                seen.add(key)
+                unique_lines.append(_source_link(chunk))
+
+        src_lines = [f"[{i + 1}] {line}" for i, line in enumerate(unique_lines)]
         return answer + "\n\nSources:\n" + "\n".join(src_lines)
 
     def __init__(

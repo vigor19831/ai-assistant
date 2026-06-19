@@ -956,7 +956,7 @@ class TestChatManagerSources:
     def test_append_sources_with_source_uri(self, manager_for_sources):
         """Given: chunks with source_uri set.
         When: _append_rag_sources is called.
-        Then: source_uri is used verbatim."""
+        Then: filename and URI are shown separated by em-dash."""
         chunks = (
             Chunk(
                 id="c1",
@@ -971,7 +971,7 @@ class TestChatManagerSources:
         )
         answer = "Paris is the capital of France."
         result = ChatManager._append_rag_sources(answer, chunks)
-        assert "file:///home/user/docs/france.md" in result
+        assert "[1] france.md — file:///home/user/docs/france.md" in result
         assert "Sources:" in result
 
     def test_append_sources_without_source_uri_fallback_to_source(self, manager_for_sources):
@@ -1014,7 +1014,7 @@ class TestChatManagerSources:
     def test_append_sources_without_citation_markers(self, manager_for_sources):
         """Given: LLM answer without [N] citation markers but chunks exist.
         When: _append_rag_sources is called.
-        Then: sources are still appended."""
+        Then: sources are still appended with filename and URI."""
         chunks = (
             Chunk(
                 id="c1",
@@ -1030,12 +1030,12 @@ class TestChatManagerSources:
         answer = "Paris is the capital of France."
         result = ChatManager._append_rag_sources(answer, chunks)
         assert "Sources:" in result
-        assert "file:///docs/france.md" in result
+        assert "[1] france.md — file:///docs/france.md" in result
 
     def test_append_sources_multiple_citations(self, manager_for_sources):
-        """Given: multiple chunks with source_uri.
+        """Given: multiple chunks with source_uri from different documents.
         When: _append_rag_sources is called.
-        Then: all sources are listed with source_uri links."""
+        Then: all unique sources are listed with filename and URI."""
         chunks = (
             Chunk(
                 id="c1",
@@ -1060,10 +1060,8 @@ class TestChatManagerSources:
         )
         answer = "Combined info."
         result = ChatManager._append_rag_sources(answer, chunks)
-        assert "file:///docs/a.md" in result
-        assert "file:///docs/b.md" in result
-        assert "[1]" in result
-        assert "[2]" in result
+        assert "[1] a.md — file:///docs/a.md" in result
+        assert "[2] b.md — file:///docs/b.md" in result
         assert "Sources:" in result
 
     def test_append_sources_empty_chunks(self, manager_for_sources):
@@ -1077,7 +1075,7 @@ class TestChatManagerSources:
     def test_append_sources_old_index_without_source_uri_fallback(self, manager_for_sources):
         """Given: chunk from old index without source_uri (backward compat).
         When: _append_rag_sources is called.
-        Then: falls back to source field."""
+        Then: falls back to source field as plain text."""
         chunks = (
             Chunk(
                 id="c1",
@@ -1093,6 +1091,71 @@ class TestChatManagerSources:
         answer = "Old answer."
         result = ChatManager._append_rag_sources(answer, chunks)
         assert "[1] legacy_doc" in result
+        assert "Sources:" in result
+
+    def test_append_sources_with_original_path(self, manager_for_sources):
+        """Given: chunk with original_path but no source_uri.
+        When: _append_rag_sources is called.
+        Then: file:// URI is built and shown with filename."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Config info",
+                metadata=ChunkMetadata(
+                    source="config_doc",
+                    index=0,
+                    total_chunks=1,
+                    original_path="/home/user/docs/settings.yaml",
+                ),
+            ),
+        )
+        answer = "Configuration details."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        assert "[1] settings.yaml — file:///home/user/docs/settings.yaml" in result
+        assert "Sources:" in result
+
+    def test_append_sources_deduplicates_same_document(self, manager_for_sources):
+        """Given: multiple chunks from the same document.
+        When: _append_rag_sources is called.
+        Then: only one source line is shown per unique document."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Part 1",
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=0,
+                    total_chunks=3,
+                    source_uri="file:///docs/shared.md",
+                ),
+            ),
+            Chunk(
+                id="c2",
+                text="Part 2",
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=1,
+                    total_chunks=3,
+                    source_uri="file:///docs/shared.md",
+                ),
+            ),
+            Chunk(
+                id="c3",
+                text="Part 3 from other",
+                metadata=ChunkMetadata(
+                    source="doc2",
+                    index=0,
+                    total_chunks=1,
+                    source_uri="file:///docs/other.md",
+                ),
+            ),
+        )
+        answer = "Answer."
+        result = ChatManager._append_rag_sources(answer, chunks)
+        # Should have exactly 2 sources, not 3
+        assert result.count("— file:///docs/") == 2
+        assert "[1] shared.md — file:///docs/shared.md" in result
+        assert "[2] other.md — file:///docs/other.md" in result
         assert "Sources:" in result
 
 

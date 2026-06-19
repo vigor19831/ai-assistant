@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 __all__ = ["PipelineData", "PipelineConfig"]
 
-
 @dataclass(frozen=True, slots=True)
 class PipelineConfig:
     """Typed configuration for RAG pipeline steps.
@@ -33,7 +32,6 @@ class PipelineConfig:
     prompt_version: str = "v1"
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
-
 
 @dataclass(frozen=True, slots=True)
 class PipelineData:
@@ -71,33 +69,9 @@ class PipelineData:
         """Return a new PipelineData with an additional error message."""
         return replace(self, errors=(*self.errors, msg))
 
-    def with_embedder(self, embedder: IEmbedder | None) -> PipelineData:
-        """Return a new PipelineData with updated embedder."""
-        return replace(self, embedder=embedder)
-
-    def with_vector_store(self, vector_store: IVectorStore | None) -> PipelineData:
-        """Return a new PipelineData with updated vector_store."""
-        return replace(self, vector_store=vector_store)
-
-    def with_reranker(self, reranker: IReranker | None) -> PipelineData:
-        """Return a new PipelineData with updated reranker."""
-        return replace(self, reranker=reranker)
-
-    def with_llm(self, llm: ILLM | None) -> PipelineData:
-        """Return a new PipelineData with updated llm."""
-        return replace(self, llm=llm)
-
-    def with_pipeline_config(self, pipeline_config: PipelineConfig | None) -> PipelineData:
-        """Return a new PipelineData with updated pipeline_config."""
-        return replace(self, pipeline_config=pipeline_config)
-
     def with_query_embedding(self, query_embedding: list[float] | None) -> PipelineData:
         """Return a new PipelineData with updated query_embedding."""
         return replace(self, query_embedding=query_embedding)
-
-    def with_tokenizer_model(self, tokenizer_model: str | None) -> PipelineData:
-        """Return a new PipelineData with updated tokenizer_model."""
-        return replace(self, tokenizer_model=tokenizer_model)
 
     def with_rerank_filtered_out(self, rerank_filtered_out: bool | None) -> PipelineData:
         """Return a new PipelineData with updated rerank_filtered_out."""

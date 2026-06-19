@@ -1,83 +1,112 @@
 # AI Assistant
 
-Модульный фреймворк для локальных LLM. Работает offline, поддерживает RAG, совместим с OpenAI API.
+Chat with local LLMs using any OpenAI-compatible server. Fully offline. RAG with document namespaces.
 
-## Возможности
+## Quick Start
 
-- 💬 Чат с памятью и контекстом
-- 📚 RAG: поиск по документам с namespace'ами (`[p]ersonal`, `[w]ork`, `[o]ther`, `[c]ode`, `[b]ooks`)
-- 🔌 Поддержка любых OpenAI-compatible серверов (llama.cpp, Ollama, vLLM)
-- 🧠 Работает полностью offline (mock-режим)
-
-## Быстрый старт
-
-```
-# 1. Установка
-pip install -e ".[faiss]"
-
-# 2. Настройка LLM-сервера
-# Варианты:
-# • llama-server: llama-server.exe -m model.gguf --port 8080
-# • Ollama: ollama serve
-# • vLLM: python -m vllm.entrypoints.openai.api_server --model ...
-
-# 3. Конфиг
-# Отредактируй config.yaml:
-# llm.api_base: http://127.0.0.1:8080/v1
-# llm.model: имя-модели-на-сервере
-
-# 4. Запуск (из корня проекта, .venv активируется автоматически или будут подсказки по установке)
-Кликаем дважды на run.py
-
-
-# Или вручную:
-python scripts/run.py
-python main.py
-uvicorn ai_assistant.main:app --host 0.0.0.0 --port 8000
-
-# 5. UI
-# Подключи любой OpenAI-compatible клиент к http://localhost:8000
-# Рекомендуется: Page Assist (браузерное расширение)
-```
-
-## RAG — поиск по документам
+### 1. Install
 
 ```bash
-# Индексация документов (ПЕРЕСМОТРЕТЬ РАСПОЛОЖЕНИЕ ФАЙЛА)
+pip install -e ".[faiss]"
+```
+
+### 2. Start LLM Server
+
+**Option A — llama.cpp:**
+```bash
+llama-server -m model.gguf --port 8080
+```
+
+**Option B — Ollama:**
+```bash
+ollama serve
+```
+
+**Option C — vLLM:**
+```bash
+python -m vllm.entrypoints.openai.api_server --model your-model-name
+```
+
+### 3. Configure
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Edit `config.yaml`:
+```yaml
+llm:
+  api_base: http://127.0.0.1:8080/v1
+  model: your-model-name
+
+embedder:
+  api_base: http://127.0.0.1:8081/v1
+  model: your-embedder-model
+  dim: 768
+
+vector_store:
+  dim: 768  # Must match embedder.dim
+```
+
+### 4. Run
+
+```bash
+python scripts/run.py
+```
+
+The API is available at `http://localhost:8000`.
+
+### 5. Connect Client
+
+Use any OpenAI-compatible client:
+
+- **Page Assist** (browser extension) — recommended
+- **Continue.dev** (VS Code)
+- **OpenCode** (IDE)
+
+Or call directly:
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "your-model", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+## Document Search (RAG)
+
+### Index Documents
+
+```bash
 python scripts/index_documents.py
 ```
 
-В чате используй префиксы:
+Or via API:
+```bash
+curl -X POST http://localhost:8000/api/v1/rag/index \
+  -H "Authorization: Bearer sk-local-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"documents": [{"id": "doc1", "content": "..."}], "namespace": "work"}'
+```
 
-| Префикс | Namespace |
-|---------|-----------|
-| `[p]` | personal |
-| `[w]` | work |
-| `[o]` | other |
-| `[c]` | code |
-| `[b]` | books |
+### Query with Namespaces
 
-## Рекомендуемые модели
+In chat, use prefixes to search specific document collections:
 
-**LLM:**
+| Prefix | Namespace | Example |
+|--------|-----------|---------|
+| `[p]` | personal | `[p] What did I write about...` |
+| `[w]` | work | `[w] Q3 revenue numbers` |
+| `[c]` | code | `[c] How does auth work` |
+| `[b]` | books | `[b] Summary of chapter 3` |
+| `[o]` | other | `[o] Recipe for pasta` |
 
-- `gemma-3-4b-it` — быстрая, качественная, мультиязычная
-- `qwen2.5-7b-instruct` — хороший баланс скорость/качество
-- `llama-3.2-3b-instruct` — компактная, для слабых GPU
+No prefix = search default namespace.
 
-**Embedder:**
-
-- `nomic-embed-text-v1.5` — размерность 768
-- `mxbai-embed-large-v1` — размерность 1024
-
-> ⚠️ **Важно:** `embedder.dim` в `config.yaml` **должен** совпадать с `vector_store.dim`.
-
-## Требования
+## Requirements
 
 - Python 3.13+
-- 8+ GB RAM (для CPU-режима)
-- GPU опционально (CUDA/Metal/Vulkan)
+- 8+ GB RAM (CPU mode)
+- GPU optional
 
----
+## License
 
-All rights reserved. For personal use only.
+MIT

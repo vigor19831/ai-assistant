@@ -4,6 +4,9 @@
 # TODO
 ===============================================================================
 
+
+
+
 СОВЕРШЕНСТВОВАНИЕ RAG
 [ ] Read-only внешние каталоги | Скрипт `index_external.py` + config поле `rag.external_sources: list[{path, namespace, read_only}]`. Индексирует папки вне проекта, не копирует файлы, не удаляет оригиналы. Зачем: подключить Obsidian, Documents и т.д. без изменения структуры. | `scripts/index_external.py` (новый), `src/ai_assistant/core/config.py` (`RAGConfig` + `ExternalSourceConfig`), `src/ai_assistant/core/domain/documents.py` (`ChunkMetadata.original_path`) | `tests/test_config.py` (проверить парсинг config), `tests/test_rag.py` (проверить read-only guard)
 

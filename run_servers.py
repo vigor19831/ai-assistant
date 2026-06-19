@@ -2,9 +2,9 @@
 """AI Assistant — запуск и остановка серверов.
 
 Usage:
-    python run.py start   # запуск всех серверов (по умолчанию)
-    python run.py stop    # остановка
-    python run.py kill    # аварийное завершение всех процессов
+    python run_servers.py start   # запуск всех серверов (по умолчанию)
+    python run_servers.py stop    # остановка
+    python run_servers.py kill    # аварийное завершение всех процессов
 """
 
 from __future__ import annotations
@@ -35,26 +35,20 @@ def _ensure_venv() -> Path:
 
     pip = VENV / ("Scripts/pip.exe" if os.name == "nt" else "bin/pip")
     print("=" * 60)
-    print("  Виртуальное окружение не найдено!")
+    print("  Virtual environment not found!")
     print()
-    print("  Установите его следующими командами:")
+    print("  Install it with:")
     print()
     print(f"    cd {ROOT}")
     print(f"    {sys.executable} -m venv .venv")
     print(f"    {pip} install -e .")
     print()
-    print("  После установки запустите этот скрипт снова.")
+    print("  Then run this script again.")
     print("=" * 60)
 
     if os.name == "nt" and sys.stdout.isatty():
-        input("\nНажмите Enter для выхода...")
+        input("\nPress Enter to exit...")
     sys.exit(1)
-
-
-# Alias for backward compatibility with tests
-def _check_venv() -> Path:
-    """Alias for _ensure_venv (backward compatibility)."""
-    return _ensure_venv()
 
 
 def _reexec_if_needed() -> None:
@@ -64,7 +58,7 @@ def _reexec_if_needed() -> None:
     target = venv_py.resolve()
 
     if current == target:
-        return  # Already running from venv — continue normally
+        return
 
     cmd = [str(target), str(__file__)] + sys.argv[1:]
     sys.exit(subprocess.call(cmd))
@@ -86,7 +80,7 @@ def _run(cmd: list[str], log: Path | None = None, **kwargs) -> subprocess.Popen:
         "stdin": subprocess.DEVNULL,
     }
     if log:
-        kw["stdout"] = open(log, "a", encoding="utf-8")  # noqa: SIM115  # Popen owns fd
+        kw["stdout"] = open(log, "a", encoding="utf-8")  # noqa: SIM115
     else:
         kw["stdout"] = subprocess.DEVNULL
     if os.name == "nt":
@@ -142,7 +136,7 @@ def _load_config() -> dict:
 
 def _wait_for_stop() -> None:
     """Block until user presses Enter or Ctrl+C."""
-    print("\nСерверы запущены. Нажмите Enter или Ctrl+C для остановки...")
+    print("\nServers running. Press Enter or Ctrl+C to stop...")
     with contextlib.suppress(EOFError, KeyboardInterrupt):
         input()
     print()
@@ -156,7 +150,7 @@ def start() -> int:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
             os.kill(pid, 0)  # Check if process is alive
             print(f"[!] Server already running (PID {pid})")
-            print("    Use: python run.py stop")
+            print("    Use: python run_servers.py stop")
             return 1
         except (ProcessLookupError, ValueError, OSError):
             print("[*] Removed stale PID file")
@@ -181,9 +175,9 @@ def start() -> int:
             ]
             _run(cmd, ROOT / "data" / "server_8080.log")
             if wait_port(8080):
-                print("[+] LLM сервер: http://127.0.0.1:8080")
+                print("[+] LLM server: http://127.0.0.1:8080")
             else:
-                print("[!] LLM сервер не ответил")
+                print("[!] LLM server did not respond")
 
     # ── Embedder server ──
     emb_cfg = cfg.get("embedder", {})
@@ -199,9 +193,9 @@ def start() -> int:
             ]
             _run(cmd, ROOT / "data" / "server_8081.log")
             if wait_port(8081):
-                print("[+] Embedder сервер: http://127.0.0.1:8081")
+                print("[+] Embedder server: http://127.0.0.1:8081")
             else:
-                print("[!] Embedder сервер не ответил")
+                print("[!] Embedder server did not respond")
 
     # ── Uvicorn API ──
     host = cfg.get("host", "0.0.0.0")
@@ -214,16 +208,16 @@ def start() -> int:
     (ROOT / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
 
     if wait_port(port):
-        print(f"[+] API сервер: http://{host}:{port}")
+        print(f"[+] API server: http://{host}:{port}")
     else:
-        print(f"[!] API сервер не ответил на порту {port}")
+        print(f"[!] API server did not respond on port {port}")
 
     _wait_for_stop()
     return stop()
 
 
 def stop() -> int:
-    print("\n[+] Остановка...")
+    print("\n[+] Stopping...")
 
     pid_file = ROOT / "data" / "uvicorn.pid"
     if pid_file.exists():
@@ -260,7 +254,7 @@ def stop() -> int:
         time.sleep(0.3)
         subprocess.run(["pkill", "-9", "-f", "llama-server"], capture_output=True)
 
-    print("[+] Готово.")
+    print("[+] Done.")
     return 0
 
 
@@ -305,14 +299,14 @@ def kill_main() -> int:
     pid_file = ROOT / "data" / "uvicorn.pid"
     pid_file.unlink(missing_ok=True)
 
-    print("\n[+] Готово.")
+    print("\n[+] Done.")
     return 0
 
 
 def _pause_on_error() -> None:
     """Pause before exit on Windows when launched by double-click."""
     if os.name == "nt" and sys.stdout.isatty():
-        input("\nНажмите Enter для выхода...")
+        input("\nPress Enter to exit...")
 
 
 def main() -> int:
@@ -324,8 +318,8 @@ def main() -> int:
             return start()
         if cmd == "stop":
             return stop()
-        print(f"Неизвестная команда: {cmd}")
-        print("Использование: python run.py [start|stop|kill]")
+        print(f"Unknown command: {cmd}")
+        print("Usage: python run_servers.py [start|stop|kill]")
         return 1
     except Exception as exc:
         log_path = ROOT / "data" / "run_error.log"
@@ -334,8 +328,8 @@ def main() -> int:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"Error: {exc}\n")
             f.write(traceback.format_exc())
-        print(f"\n[!] Ошибка: {exc}")
-        print(f"    Подробности: {log_path}")
+        print(f"\n[!] Error: {exc}")
+        print(f"    Details: {log_path}")
         _pause_on_error()
         return 1
 
