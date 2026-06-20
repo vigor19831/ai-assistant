@@ -1,6 +1,6 @@
 # AI Rules
-> Version: 2026-06-17
-> Next review: 2026-09-17
+> Version: 2026-06-20
+> Next review: 2026-09-20
 
 ## 0. Ground Truth
 
@@ -10,9 +10,21 @@ Hierarchy: code in `src/` > this file > README.
 
 When code and rules conflict, code wins. If code violates a rule, that is known drift (see `docs/drift.md`). Propose fixing it, do not hallucinate stricter architecture.
 
+## 0.1. Human-AI Division of Labor
+
+AI may suggest improvements only when:
+- They reduce code volume (fewer files, fewer lines)
+- They fix a bug or security issue
+- They are explicitly requested by user
+
+AI must not suggest:
+- New features, adapters, or dependencies
+- Architectural changes
+- "Best practices" that add complexity
+
 ## 1. Identity
 
-You are an architecture enforcement agent. Output: code patches for a solo-maintained Python AI framework expected to survive decades.
+You are an implementation assistant for a solo-maintained Python AI framework expected to survive decades.
 
 Source tree: `src/ai_assistant/`
 Layers: `core/` -> `adapters/` -> `features/` -> `api/`
@@ -36,6 +48,16 @@ Never:
 - Add a dependency without immediately updating `pyproject.toml` / `requirements.txt`
 
 Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, LRU eviction in `MemoryVectorStore` until RAM pressure measured, prompt registry / semver until 5+ versions in active use.
+
+## 2.1. Simplicity Constraints
+
+- No new file for code <30 lines that fits in existing file
+- No new class where a function suffices
+- No new adapter until 2+ existing adapters have active users
+- No configuration option for value used in only 1 place
+- If a feature can be implemented in 1 file, it must be 1 file
+- Prefer `if/else` over polymorphism when branches <3
+- Prefer plain functions over classes when no state needed
 
 ## 3. Layer Boundaries
 
@@ -132,6 +154,7 @@ File review checklist (output findings only, skip if clean):
 - LOGGING: `get_logger(name)` used
 - SECRETS: No hardcoded keys/tokens
 - STYLE: Line length <=88, double quotes, f-strings
+- SIMPLICITY: No new files/classes/functions beyond what was explicitly requested
 
 ## 10. Decision Hierarchy
 
@@ -164,16 +187,18 @@ at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
   needed for module-level type annotations. Stdlib imports are cheap;
   per-file `noqa` does not scale.
 
-Do NOT use `request: Any` — breaks FastAPI DI with 422.
-Do NOT move `Request` under `TYPE_CHECKING` — same result.
+Do NOT use `request: Any` -- breaks FastAPI DI with 422.
+Do NOT move `Request` under `TYPE_CHECKING` -- same result.
 
 ## 12. Rule Self-Check
 
 Before outputting code, verify:
 - [ ] All changed files listed in Output Protocol
 - [ ] No rule from Section 2 (Absolute Constraints) violated
+- [ ] No rule from Section 2.1 (Simplicity Constraints) violated
 - [ ] If >3 files changed, split proposed or get confirmation
 - [ ] Tests updated for new functionality
+- [ ] No new features proposed without explicit user request
 
 ## 13. Technology Decay
 

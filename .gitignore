@@ -1,4 +1,7 @@
-# Python
+# =============================================================================
+# PYTHON
+# =============================================================================
+
 __pycache__/
 *.py[cod]
 *$py.class
@@ -19,21 +22,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.dist-info/
+pip-wheel-metadata/
 
-# Virtual environments
-venv/
-env/
-ENV/
-.venv
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# Test / coverage artifacts
+# Testing
 .coverage
 htmlcov/
 .pytest_cache/
@@ -42,24 +34,62 @@ tests/.pytest_cache/
 .pytest_tmp/
 .hypothesis/
 
-# Type checker / linter caches
+# Type checking / linting
 .mypy_cache/
 .ruff_cache/
 
-# Data
+# =============================================================================
+# VIRTUAL ENVIRONMENTS
+# =============================================================================
+
+venv/
+env/
+ENV/
+.venv
+
+# =============================================================================
+# IDE
+# =============================================================================
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# OS
+# =============================================================================
+
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# PROJECT: AI Assistant
+# =============================================================================
+
+# Data & indices
 data/
 *.faiss
 *.db
+*.db-journal
+*.db-shm
+*.db-wal
 *.store.json
 
-# Environment
+# Secrets & environment
 .env
 .env.local
 
-# Logs (all variants)
+# Logs
 *.log
 /*.log
 tests_run_*.log
+scripts/*.log
+
+# Runtime
+scripts/*.pid
+/*.pid
 
 # User content (never commit)
 sources/
@@ -69,10 +99,11 @@ vendor/
 src/*.egg-info/
 src/**/*.egg-info/
 
-# Runtime / scripts
-scripts/*.pid
-scripts/*.log
-/*.pid
+# Generated docs
 docs/context_build_*.md
+
+# Test artifacts
 MagicMock/
+
+# Local config with secrets (config.example.yaml is tracked)
 config.yaml

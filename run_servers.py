@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""AI Assistant — запуск и остановка серверов.
+"""AI Assistant — start and stop servers.
 
 Usage:
-    python run_servers.py start   # запуск всех серверов (по умолчанию)
-    python run_servers.py stop    # остановка
-    python run_servers.py kill    # аварийное завершение всех процессов
+    python run_servers.py start   # start all servers (default)
+    python run_servers.py stop    # stop
+    python run_servers.py kill    # emergency kill all processes
 """
 
 from __future__ import annotations
@@ -19,57 +19,33 @@ import sys
 import time
 from pathlib import Path
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# 0. SELF-REEXEC — must be FIRST, before any imports that need venv packages
-# ═══════════════════════════════════════════════════════════════════════════════
-
 ROOT = Path(__file__).parent.resolve()
 VENV = ROOT / ".venv"
 VENV_PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
 def _ensure_venv() -> Path:
-    """Return path to venv python. If venv missing — print instructions and exit."""
     if VENV_PY.exists():
         return VENV_PY
-
     pip = VENV / ("Scripts/pip.exe" if os.name == "nt" else "bin/pip")
-    print("=" * 60)
-    print("  Virtual environment not found!")
-    print()
-    print("  Install it with:")
-    print()
-    print(f"    cd {ROOT}")
-    print(f"    {sys.executable} -m venv .venv")
-    print(f"    {pip} install -e .")
-    print()
-    print("  Then run this script again.")
-    print("=" * 60)
-
+    print("Virtual environment not found!")
+    print(f"  cd {ROOT}")
+    print(f"  {sys.executable} -m venv .venv")
+    print(f"  {pip} install -e .")
     if os.name == "nt" and sys.stdout.isatty():
-        input("\nPress Enter to exit...")
+        input("\nPress Enter...")
     sys.exit(1)
 
 
 def _reexec_if_needed() -> None:
-    """If running from system python, restart self via venv python."""
     venv_py = _ensure_venv()
-    current = Path(sys.executable).resolve()
-    target = venv_py.resolve()
-
-    if current == target:
+    if Path(sys.executable).resolve() == venv_py.resolve():
         return
-
-    cmd = [str(target), str(__file__)] + sys.argv[1:]
+    cmd = [str(venv_py), str(__file__)] + sys.argv[1:]
     sys.exit(subprocess.call(cmd))
 
 
-# Execute immediately — before any third-party imports
 _reexec_if_needed()
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Now we are GUARANTEED to run inside .venv — safe to import anything
-# ═══════════════════════════════════════════════════════════════════════════════
 
 import yaml  # noqa: E402
 
@@ -135,38 +111,39 @@ def _load_config() -> dict:
 
 
 def _wait_for_stop() -> None:
-    """Block until user presses Enter or Ctrl+C."""
-    print("\nServers running. Press Enter or Ctrl+C to stop...")
+    print("\n  > Servers running. Press Enter or Ctrl+C to stop...")
     with contextlib.suppress(EOFError, KeyboardInterrupt):
         input()
     print()
 
 
 def start() -> int:
-    # Clean stale PID file before starting
+    print("\n  Starting servers")
+    print("  " + "-" * 48)
+
     pid_file = ROOT / "data" / "uvicorn.pid"
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
-            os.kill(pid, 0)  # Check if process is alive
-            print(f"[!] Server already running (PID {pid})")
+            os.kill(pid, 0)
+            print(f"  ! Server already running (PID {pid})")
             print("    Use: python run_servers.py stop")
             return 1
         except (ProcessLookupError, ValueError, OSError):
-            print("[*] Removed stale PID file")
+            print("  > Removed stale PID file")
             pid_file.unlink(missing_ok=True)
 
     cfg = _load_config()
     (ROOT / "data").mkdir(exist_ok=True)
-
     py = str(VENV_PY)
 
-    # ── LLM server ──
+    # LLM server
     llm_cfg = cfg.get("llm", {})
     model = _find_model(llm_cfg.get("model", ""))
     if model:
         exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
         if exe:
+            print(f"  > LLM server  model={model.name}")
             cmd = [
                 str(exe), "-m", str(model),
                 "--host", "127.0.0.1", "--port", "8080",
@@ -175,16 +152,21 @@ def start() -> int:
             ]
             _run(cmd, ROOT / "data" / "server_8080.log")
             if wait_port(8080):
-                print("[+] LLM server: http://127.0.0.1:8080")
+                print("  + LLM ready  http://127.0.0.1:8080")
             else:
-                print("[!] LLM server did not respond")
+                print("  ! LLM did not respond")
+        else:
+            print("  ! llama-server not found")
+    else:
+        print("  ! LLM model not found")
 
-    # ── Embedder server ──
+    # Embedder server
     emb_cfg = cfg.get("embedder", {})
     model = _find_model(emb_cfg.get("model", ""))
     if model:
         exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
         if exe:
+            print(f"  > Embedder server  model={model.name}")
             cmd = [
                 str(exe), "-m", str(model),
                 "--host", "127.0.0.1", "--port", "8081",
@@ -193,59 +175,61 @@ def start() -> int:
             ]
             _run(cmd, ROOT / "data" / "server_8081.log")
             if wait_port(8081):
-                print("[+] Embedder server: http://127.0.0.1:8081")
+                print("  + Embedder ready  http://127.0.0.1:8081")
             else:
-                print("[!] Embedder server did not respond")
+                print("  ! Embedder did not respond")
+        else:
+            print("  ! llama-server not found")
+    else:
+        print("  ! Embedder model not found")
 
-    # ── Uvicorn API ──
+    # Uvicorn API
     host = cfg.get("host", "0.0.0.0")
     port = cfg.get("port", 8000)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
 
+    print(f"  > API server  uvicorn {host}:{port}")
     cmd = [py, "-m", "uvicorn", "ai_assistant.main:app", "--host", host, "--port", str(port)]
     proc = _run(cmd, ROOT / "data" / "server_8000.log", env=env, cwd=str(ROOT))
     (ROOT / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
 
     if wait_port(port):
-        print(f"[+] API server: http://{host}:{port}")
+        print(f"  + API ready  http://{host}:{port}")
     else:
-        print(f"[!] API server did not respond on port {port}")
+        print(f"  ! API did not respond on port {port}")
 
     _wait_for_stop()
     return stop()
 
 
 def stop() -> int:
-    print("\n[+] Stopping...")
+    print("\n  Stopping servers")
+    print("  " + "-" * 48)
 
     pid_file = ROOT / "data" / "uvicorn.pid"
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
             try:
-                os.kill(pid, 0)  # Check if process exists
+                os.kill(pid, 0)
                 os.kill(pid, signal.SIGTERM)
                 time.sleep(0.5)
                 try:
                     os.kill(pid, 0)
-                    # Still alive — force kill
                     if hasattr(signal, "SIGKILL"):
                         os.kill(pid, signal.SIGKILL)
                     elif os.name == "nt":
-                        subprocess.run(
-                            ["taskkill", "/F", "/PID", str(pid)],
-                            capture_output=True,
-                        )
+                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
                 except ProcessLookupError:
-                    pass  # Died gracefully
+                    pass
             except ProcessLookupError:
-                pass  # Already dead — just remove file
+                pass
         except (ValueError, OSError):
-            pass  # Bad PID file — remove it
+            pass
         finally:
             pid_file.unlink(missing_ok=True)
-            print("  ✓ PID file removed")
+            print("  + PID file removed")
 
     if os.name == "nt":
         subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True)
@@ -254,25 +238,20 @@ def stop() -> int:
         time.sleep(0.3)
         subprocess.run(["pkill", "-9", "-f", "llama-server"], capture_output=True)
 
-    print("[+] Done.")
+    print("  + Done.")
     return 0
 
 
 def kill_main() -> int:
-    """Emergency kill switch — kills all project processes and frees ports."""
-    print("=" * 50)
-    print("  Emergency Kill Switch")
-    print("=" * 50)
+    print("\n  Emergency Kill Switch")
+    print("  " + "-" * 48)
 
-    # Kill by name
     names = ("llama-server.exe", "llama-server", "uvicorn")
     for name in names:
         if shutil.which("taskkill" if os.name == "nt" else "pkill"):
-            cmd = (["taskkill", "/F", "/IM", name] if os.name == "nt"
-                   else ["pkill", "-f", name])
+            cmd = (["taskkill", "/F", "/IM", name] if os.name == "nt" else ["pkill", "-f", name])
             subprocess.run(cmd, capture_output=True)
 
-    # Kill by port
     for port in (8080, 8081, 8000):
         if os.name == "nt":
             result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
@@ -295,18 +274,14 @@ def kill_main() -> int:
                     except (ValueError, OSError):
                         continue
 
-    # Clean PID file
-    pid_file = ROOT / "data" / "uvicorn.pid"
-    pid_file.unlink(missing_ok=True)
-
-    print("\n[+] Done.")
+    (ROOT / "data" / "uvicorn.pid").unlink(missing_ok=True)
+    print("  + Done.")
     return 0
 
 
 def _pause_on_error() -> None:
-    """Pause before exit on Windows when launched by double-click."""
     if os.name == "nt" and sys.stdout.isatty():
-        input("\nPress Enter to exit...")
+        input("\nPress Enter...")
 
 
 def main() -> int:
@@ -328,7 +303,7 @@ def main() -> int:
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"Error: {exc}\n")
             f.write(traceback.format_exc())
-        print(f"\n[!] Error: {exc}")
+        print(f"\n  ! Error: {exc}")
         print(f"    Details: {log_path}")
         _pause_on_error()
         return 1

@@ -29,12 +29,9 @@ python -m vllm.entrypoints.openai.api_server --model your-model-name
 
 ### 3. Configure
 
-```bash
-cp config.example.yaml config.yaml
+Edit `config.yaml` to match your setup:
 ```
 
-Edit `config.yaml`:
-```yaml
 llm:
   api_base: http://127.0.0.1:8080/v1
   model: your-model-name
@@ -51,7 +48,8 @@ vector_store:
 ### 4. Run
 
 ```bash
-python scripts/run.py
+python run_servers.py
+python run_scripts.py
 ```
 
 The API is available at `http://localhost:8000`.
@@ -107,6 +105,14 @@ No prefix = search default namespace.
 - 8+ GB RAM (CPU mode)
 - GPU optional
 
+## Development
+
+This project is developed by a solo creator with extensive use of AI-assisted programming tools.
+
+The author defines the product vision, architecture, requirements, testing strategy, and development roadmap, while AI tools are used to accelerate implementation, refactoring, documentation, and experimentation.
+
+All design decisions, feature prioritization, and project direction remain under human supervision.
+
 ## License
 
-MIT
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

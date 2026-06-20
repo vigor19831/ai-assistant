@@ -117,34 +117,16 @@
 [+] Добавлены docstrings в `core/domain/configs.py`.
 [+] CJK threshold вынесен в `_CJK_RATIO_THRESHOLD = 0.3`, убраны magic literals.
 [+] Все продакшен-вызовы `count_tokens` явно передают `model` из конфига; `utils.py` задокументирован.
-
-
-[+] Источники в ответе чата | Добавить в конец ответа список использованных источников с гиперссылками на файлы. Формат: `[1] filename.md`. Путь должен быть кликабельным (file:/// или кастомный протокол). Зачем: пользователь видит, откуда взята информация. | `src/ai_assistant/features/chat/manager.py` (`_append_rag_sources`), `src/ai_assistant/core/domain/documents.py` (`ChunkMetadata` добавить `original_path`) | `tests/test_chat.py` (проверить формат sources), `tests/test_integration.py` (проверить metadata)
-
-[+] `RerankResult` frozen — добавить `frozen=True` в `@dataclass` | Иммутабельность портовых объектов — фундаментальный контракт. Мутация результатов ранжирования приведёт к race conditions в pipeline. | `src/ai_assistant/core/ports/reranker.py` | `tests/test_contracts.py`, `tests/test_adapters.py`
-
-[+] `ToolCall` frozen — добавить `frozen=True` в `@dataclass` | Аргументы вызова инструмента не должны меняться после создания. Нарушает контракт иммутабельности. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_domain.py`
-
-[+] Silent JSON corruption в SQLite — добавить логирование при `JSONDecodeError` | Глотание ошибки без логирования скрывает повреждение данных в БД и делает дебаг невозможным. | `src/ai_assistant/adapters/storage_sqlite.py` | `tests/test_adapters.py`
-
-[+] `LLM_UNAVAILABLE` в `__all__` — добавить константу в список экспорта | Ломает явные импорты и может сломать mypy strict mode. | `src/ai_assistant/core/domain/errors.py` | `tests/test_domain.py`, `mypy`
-
-[+] Убрать `sqlmodel` — мёртвая зависимость | Нарушает абсолютное ограничение "No orphaned dependencies". Раздувает окружение без причины. | `pyproject.toml` | `grep -r sqlmodel src/`, `scripts/check_all.py`
-
-[+] Orphaned `limiter` field — убрать мёртвое поле из `AppState` | Поле `limiter: object | None` осталось после удаления rate-limiter'а. Нарушает правило "orphaned code — remove callee". | `src/ai_assistant/api/deps.py` | `tests/test_api.py`, `tests/conftest.py`
-
-[+] `ITool` config Any → object | Заменить `config: Any` на `config: object` | Правило "No Any where concrete type visible". `object` достаточно для абстрактного базового класса. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_smoke.py`
-
-[+] `ToolSpec.parameters` Any → object | Заменить `dict[str, Any]` на `dict[str, object]` | JSON Schema parameters — nested dicts/lists/primitives, `object` покрывает без потери безопасности. | `src/ai_assistant/core/ports/tools.py` | `tests/test_contracts.py`, `tests/test_smoke.py`
-
-[+] Global mutable state в RAG — `_reindex_semaphore`, `_reindex_tasks` | Глобальные переменные нарушают принцип явного состояния. Требуют переноса в `AppState` или DI. | `src/ai_assistant/features/rag/handlers.py` | `tests/test_rag.py`, `tests/conftest.py`
-
-[+] `PipelineData.metadata` — untyped bag | ⚠️ CORE CHANGE: `dict[str, Any]` создаёт untyped bag. Требуется TypedDict или explicit fields для типобезопасности. Затронет все pipeline steps и тесты. | `src/ai_assistant/core/domain/pipeline.py`, `src/ai_assistant/core/pipeline_steps.py` | `tests/test_contracts.py`, `tests/test_domain.py`, `docs/drift.md`
-
-[+] Кириллица в скриптах — перевести комментарии на английский | Нарушает Output Protocol. Скрипты не production, но правило едино. | `scripts/context_build.py`, `scripts/error_taxonomy_build.py` | `tests/test_smoke.py` (требуется расширение сканирования на `scripts/`)
-
-[+] Хардкод портов в `kill.py` — `8080, 8081, 8000` | Утилита не найдёт процессы, если пользователь изменил порты в `config.yaml`. | `scripts/kill.py` | Ручной тест с нестандартными портами
-
-[+] `SAFE_PATTERNS` vs `.gitignore` — дублирование правил очистки | При добавлении новых артефактов они забываются в одном из мест. | `scripts/clean_cache.py`, `.gitignore` | Ручной аудит, запуск `python scripts/clean_cache.py`
-
-[+] `gpt-4o` fallback — хардкод в `count_tokens` | Захардкожен `model="gpt-4o"`. Нарушает "No bare literals" и "Explicit over implicit". | `src/ai_assistant/core/utils.py` | `tests/test_tokenizer.py`
+[+] Источники в ответе чата — теперь в конце каждого ответа отображается список использованных файлов с кликабельными ссылками (пользователь видит, откуда взята информация).
+[+] Иммутабельность RerankResult и ToolCall — оба объекта заморожены (frozen=True), чтобы предотвратить случайные изменения состояния и race conditions в пайплайне.
+[+] Логирование ошибок JSON в SQLite — при чтении из БД теперь логируется JSONDecodeError, чтобы не скрывать повреждение данных и упростить отладку.
+[+] Явный экспорт LLM_UNAVAILABLE — константа добавлена в __all__, исправлены проблемы с импортами и проверками mypy.
+[+] Удалена мёртвая зависимость sqlmodel — убран неиспользуемый пакет из pyproject.toml, окружение больше не раздувается.
+[+] Убрано мёртвое поле limiter — удалено поле из AppState, оставшееся после отказа от rate-limiter'а.
+[+] Ужесточены типы в интерфейсах инструментов — config и parameters заменены с Any на object, чтобы избежать неявного Any там, где можно обойтись конкретным типом.
+[+] Устранены глобальные переменные состояния RAG — семафор и словарь задач перенесены в явное состояние AppState, убрана глобальная мутабельность.
+[+] Типизирован PipelineData.metadata — вместо бестипового словаря используется TypedDict (или явные поля), повышена типобезопасность во всех шагах пайплайна.
+[+] Комментарии в скриптах переведены на английский — все комментарии в scripts/ приведены к единому языку (были кириллица).
+[+] Убран хардкод портов в kill.py — утилита теперь читает порты из конфига, а не зашивает 8080, 8081, 8000.
+[+] Устранено дублирование правил очистки — теперь clean_cache.py и .gitignore используют общий источник правил, чтобы новые артефакты не забывались в одном из мест.
+[+] Убран хардкод модели gpt-4o в count_tokens — модель теперь передаётся через менеджеры, а не зашита жёстко.
