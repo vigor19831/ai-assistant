@@ -30,8 +30,8 @@ python -m vllm.entrypoints.openai.api_server --model your-model-name
 ### 3. Configure
 
 Edit `config.yaml` to match your setup:
-```
 
+```
 llm:
   api_base: http://127.0.0.1:8080/v1
   model: your-model-name

@@ -55,7 +55,11 @@ ENV/
 .vscode/
 *.swp
 *.swo
-*~
+*.sublime-project
+*.sublime-workspace
+*.sublime-settings
+Package Control.last-run
+Package Control.cache/
 
 # =============================================================================
 # OS
@@ -63,6 +67,10 @@ ENV/
 
 .DS_Store
 Thumbs.db
+*~
+.nfs*
+.directory
+.Trash-*
 
 # =============================================================================
 # PROJECT: AI Assistant
@@ -85,10 +93,10 @@ data/
 *.log
 /*.log
 tests_run_*.log
-scripts/*.log
 
 # Runtime
 scripts/*.pid
+scripts/*.log
 /*.pid
 
 # User content (never commit)
@@ -107,3 +115,13 @@ MagicMock/
 
 # Local config with secrets (config.example.yaml is tracked)
 config.yaml
+
+# Internal / AI-only scripts (not needed for users)
+scripts/check_all.py
+scripts/check_llm.py
+scripts/check_rag.py
+scripts/clean_cache.py
+scripts/context_build.py
+scripts/error_taxonomy_build.py
+scripts/open_shell.py
+scripts/structure.py
