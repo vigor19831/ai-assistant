@@ -115,13 +115,3 @@ MagicMock/
 
 # Local config with secrets (config.example.yaml is tracked)
 config.yaml
-
-# Internal / AI-only scripts (not needed for users)
-scripts/check_all.py
-scripts/check_llm.py
-scripts/check_rag.py
-scripts/clean_cache.py
-scripts/context_build.py
-scripts/error_taxonomy_build.py
-scripts/open_shell.py
-scripts/structure.py

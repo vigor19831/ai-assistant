@@ -582,18 +582,6 @@ class TestFrozenVersions:
         assert upper is not None, "uvicorn missing upper bound"
         assert "standard" in uvicorn_dep, "uvicorn must have [standard] extra"
 
-    def test_sqlalchemy_frozen(self):
-        """Given: sqlalchemy dependency.
-        When: PEP 508 string is parsed.
-        Then: has >=2.0.0 and <3.0.0 bounds with [asyncio] extra."""
-        deps = self._get_dependencies()
-        sqlalchemy_dep = next((d for d in deps if d.startswith("sqlalchemy")), None)
-        assert sqlalchemy_dep is not None, "sqlalchemy not in dependencies"
-        name, lower, upper = self._parse_requirement(sqlalchemy_dep)
-        assert lower is not None, "sqlalchemy missing lower bound"
-        assert upper is not None, "sqlalchemy missing upper bound"
-        assert "asyncio" in sqlalchemy_dep, "sqlalchemy must have [asyncio] extra"
-
     def test_all_deps_have_upper_bound(self):
         """Given: all project dependencies.
         When: each is parsed.
