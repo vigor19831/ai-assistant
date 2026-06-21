@@ -519,7 +519,7 @@ class TestChatManager:
         Then: _trim_history is applied, only user message kept."""
         manager_with_storage.max_context_tokens = 50
         with patch.object(
-            manager_with_storage, "_trim_history", return_value=[]
+            manager_with_storage, "_trim_history", new_callable=AsyncMock, return_value=[]
         ):
             messages = await manager_with_storage._build_messages("Hello", "conv-1")
             assert len(messages) == 1
@@ -1167,7 +1167,8 @@ class TestChatHistoryTrimming:
     When: _trim_history is called.
     Then: oldest messages are dropped, budget is respected, order preserved."""
 
-    def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer):
         """Given: history exceeding token budget.
         When: _trim_history is called.
         Then: oldest messages are dropped to fit budget."""
@@ -1178,21 +1179,23 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "Response 2"},
         ]
         user_msg = UserMessage(text="Current question")
-        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         assert len(trimmed) <= len(history)
         if trimmed:
             assert trimmed[-1]["content"] == "Response 2"
 
-    def test_returns_empty_when_budget_too_small(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_budget_too_small(self, manager_with_tokenizer):
         """Given: user message alone exceeds token budget.
         When: _trim_history is called.
         Then: empty history is returned."""
         long_msg = UserMessage(text="x" * 500)
         history = [{"role": "user", "content": "old"}]
-        trimmed = manager_with_tokenizer._trim_history(history, long_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, long_msg)
         assert trimmed == []
 
-    def test_fallback_to_count_based(self, manager_no_tokenizer):
+    @pytest.mark.asyncio
+    async def test_fallback_to_count_based(self, manager_no_tokenizer):
         """Given: no tokenizer available (no context limit).
         When: _trim_history is called.
         Then: simple count-based fallback is used."""
@@ -1204,10 +1207,11 @@ class TestChatHistoryTrimming:
             {"role": "user", "content": "5"},
         ]
         user_msg = UserMessage(text="q")
-        trimmed = manager_no_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_no_tokenizer._trim_history(history, user_msg)
         assert len(trimmed) <= 3
 
-    def test_preserves_chronological_order(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_preserves_chronological_order(self, manager_with_tokenizer):
         """Given: history with multiple messages.
         When: _trim_history is called.
         Then: trimmed history maintains oldest-first order."""
@@ -1217,43 +1221,47 @@ class TestChatHistoryTrimming:
             {"role": "user", "content": "Third"},
         ]
         user_msg = UserMessage(text="q")
-        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         for i in range(len(trimmed) - 1):
             original_idx = history.index(trimmed[i])
             next_idx = history.index(trimmed[i + 1])
             assert original_idx < next_idx
 
-    def test_empty_history(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_empty_history(self, manager_with_tokenizer):
         """Given: empty history list.
         When: _trim_history is called.
         Then: empty list is returned."""
-        trimmed = manager_with_tokenizer._trim_history(
+        trimmed = await manager_with_tokenizer._trim_history(
             [], UserMessage(text="hi")
         )
         assert trimmed == []
 
-    def test_single_message_fits(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_single_message_fits(self, manager_with_tokenizer):
         """Given: single message within budget.
         When: _trim_history is called.
         Then: message is preserved."""
         history = [{"role": "user", "content": "hello"}]
-        trimmed = manager_with_tokenizer._trim_history(
+        trimmed = await manager_with_tokenizer._trim_history(
             history, UserMessage(text="hi")
         )
         assert len(trimmed) == 1
         assert trimmed[0]["content"] == "hello"
 
-    def test_respects_system_message_overhead(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_respects_system_message_overhead(self, manager_with_tokenizer):
         """Given: system message configured on LLM.
         When: _trim_history is called.
         Then: system message tokens are reserved from budget."""
         history = [{"role": "user", "content": "x" * 200}]
-        trimmed = manager_with_tokenizer._trim_history(
+        trimmed = await manager_with_tokenizer._trim_history(
             history, UserMessage(text="q")
         )
         assert len(trimmed) <= 1
 
-    def test_no_llm_config_fallback(self):
+    @pytest.mark.asyncio
+    async def test_no_llm_config_fallback(self):
         """Given: LLM with no context limit.
         When: _trim_history is called with max_context_tokens set.
         Then: falls back to history_limit."""
@@ -1273,10 +1281,11 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "2"},
             {"role": "user", "content": "3"},
         ]
-        trimmed = manager._trim_history(history, UserMessage(text="q"))
+        trimmed = await manager._trim_history(history, UserMessage(text="q"))
         assert len(trimmed) <= 2
 
-    def test_cjk_text_ratio_above_30_percent(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_cjk_text_ratio_above_30_percent(self, manager_with_tokenizer):
         """Given: history with >30% CJK characters.
         When: _trim_history is called.
         Then: CJK text is handled correctly by tokenizer."""
@@ -1286,12 +1295,13 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "Response"},
         ]
         user_msg = UserMessage(text="Query")
-        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         assert isinstance(trimmed, list)
         # CJK text should still be processed; verify no crash
         assert all(isinstance(h, dict) for h in trimmed)
 
-    def test_cjk_text_mixed_with_latin(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_cjk_text_mixed_with_latin(self, manager_with_tokenizer):
         """Given: mixed CJK and Latin text.
         When: _trim_history is called.
         Then: tokenizer handles mixed content correctly."""
@@ -1301,11 +1311,12 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "Response"},
         ]
         user_msg = UserMessage(text="Query")
-        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         assert isinstance(trimmed, list)
         assert all(isinstance(h, dict) for h in trimmed)
 
-    def test_cjk_text_high_ratio_drops_oldest(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_cjk_text_high_ratio_drops_oldest(self, manager_with_tokenizer):
         """Given: multiple CJK messages exceeding budget.
         When: _trim_history is called.
         Then: oldest CJK messages are dropped first."""
@@ -1315,16 +1326,17 @@ class TestChatHistoryTrimming:
             {"role": "user", "content": "第三条消息" * 50},
         ]
         user_msg = UserMessage(text="当前问题")
-        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         assert len(trimmed) <= len(history)
         if len(trimmed) >= 2:
             assert trimmed[-1]["content"] == "第三条消息" * 50
 
-    def test_cjk_user_message_only(self, manager_with_tokenizer):
+    @pytest.mark.asyncio
+    async def test_cjk_user_message_only(self, manager_with_tokenizer):
         """Given: CJK-only user message with small budget.
         When: _trim_history is called.
         Then: history is empty if user message consumes all budget."""
         user_msg = UserMessage(text="这是一个非常长的中文用户问题" * 100)
         history = [{"role": "assistant", "content": "Previous"}]
-        trimmed = manager_with_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         assert trimmed == []

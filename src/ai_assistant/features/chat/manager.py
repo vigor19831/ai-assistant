@@ -19,7 +19,7 @@ from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import parse_rag_query
-from ai_assistant.core.utils import count_tokens
+from ai_assistant.core.utils import async_count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -132,10 +132,10 @@ class ChatManager:
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
 
-    def _count_tokens(self, text: str) -> int:
-        return count_tokens(text, self.tokenizer_model)
+    async def _count_tokens(self, text: str) -> int:
+        return await async_count_tokens(text, self.tokenizer_model)
 
-    def _trim_history(
+    async def _trim_history(
         self,
         history: list[dict[str, Any]],
         user_msg: UserMessage,
@@ -152,9 +152,9 @@ class ChatManager:
                 else history
             )
 
-        user_tokens = self._count_tokens(user_msg.text or "")
+        user_tokens = await self._count_tokens(user_msg.text or "")
         system_message = self.llm.system_message
-        system_tokens = self._count_tokens(
+        system_tokens = await self._count_tokens(
             str(system_message) if system_message else ""
         )
         overhead = 50
@@ -168,7 +168,7 @@ class ChatManager:
         keep: list[dict[str, Any]] = []
         for h in reversed(history):
             text = h.get("content", "")
-            tokens = self._count_tokens(text)
+            tokens = await self._count_tokens(text)
             if total + tokens > available:
                 break
             total += tokens
@@ -254,7 +254,7 @@ class ChatManager:
                     offset=0,
                 )
                 try:
-                    history = self._trim_history(history, user_msg)
+                    history = await self._trim_history(history, user_msg)
                 except Exception as exc:
                     logger.warning(
                         "Token-based trim failed, falling back to count-based",

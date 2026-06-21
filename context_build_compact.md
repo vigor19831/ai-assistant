@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-21 07:24:38 UTC | **Mode:** `compact`
-> **Metrics:** 112 files | 95 Python | 19,030 LOC
-> **Full:** 48 | **Signatures:** 23 | **Listed:** 35
+> **Generated:** 2026-06-21 08:21:47 UTC | **Mode:** `compact`
+> **Metrics:** 113 files | 95 Python | 19,030 LOC
+> **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
 ---
 
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-21 07:24 UTC
+> Auto-generated from source code. Updated: 2026-06-21 08:21 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -688,6 +688,8 @@ tests/
     test_stateful_ports.py
     test_static.py
     test_tokenizer.py
+ui/
+    index.html
 ```
 
 ---
@@ -1249,6 +1251,7 @@ tests/
 - `tests/test_stateful_ports.py`
 - `tests/test_static.py`
 - `tests/test_tokenizer.py`
+- `ui/index.html`
 
 ---
 
@@ -1654,6 +1657,10 @@ logging:
   format: "text"      # "text" or "json"
   max_bytes: 10485760 # 10 MB per log file before rotation
   backup_count: 2     # Keep 2 backup files (app.log.1, app.log.2)
+
+# ── UI ──
+ui:
+  static_path: "../../ui"
 
 ```
 
