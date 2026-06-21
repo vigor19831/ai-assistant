@@ -365,6 +365,7 @@ async def reindex_documents(
                 rag_state.tasks.pop(task_id, None)
 
     task = asyncio.create_task(_run())
+    task.add_done_callback(lambda _: rag_state.tasks.pop(task_id, None))
     rag_state.tasks[task_id] = task
     return {"status": "started", "task_id": task_id}
 

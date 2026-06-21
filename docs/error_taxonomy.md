@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-21 08:21 UTC
+> Auto-generated from source code. Updated: 2026-06-21 19:43 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -25,15 +25,15 @@
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 328 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 162 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 311 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 313 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 315 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 317 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 319 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 321 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 323 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 342 |
-| `api.deps` | `ValueError` | Unknown step: {...} | High | 153 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 318 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 320 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 322 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 324 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 326 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 328 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 330 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 349 |
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 160 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
 | `core.config` | `ValueError` | path must be non-empty | High | 179 |
 | `core.config` | `ValueError` | path must be relative, got: {...} | High | 181 |
@@ -65,7 +65,7 @@
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
-| `tests.test_rag` | `HTTPException` | Unknown error | High | 183 |
+| `tests.test_rag` | `HTTPException` | Unknown error | High | 184 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
 | `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 43 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
@@ -81,7 +81,7 @@
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 93 |
 | `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 307 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 276 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 283 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 85 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 72 |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 114 |

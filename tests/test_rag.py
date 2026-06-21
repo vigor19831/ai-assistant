@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -354,6 +355,39 @@ class TestRAGIndexing:
 
         assert "old" not in rag_state.status
         assert "fresh" in rag_state.status
+
+    @pytest.mark.asyncio
+    async def test_reindex_tasks_cleanup(self, mock_state):
+        """Given: multiple reindex tasks are started and completed.
+        When: tasks finish.
+        Then: tasks dict is cleaned up, no memory leak."""
+        from ai_assistant.features.rag.handlers import reindex_documents
+        from ai_assistant.features.rag.schemas import ReindexRequest
+        from unittest.mock import patch, AsyncMock
+
+        with patch(
+            "ai_assistant.features.rag.handlers.index_folder",
+            new_callable=AsyncMock,
+        ) as mock_index:
+            mock_index.return_value = {
+                "success": True,
+                "results": {"test": {"indexed": 1}},
+            }
+
+            # Start many reindex tasks
+            for _ in range(50):
+                req = ReindexRequest(folder="test", clear=False)
+                await reindex_documents(req, mock_state)
+
+            # Wait for all tasks to complete
+            for _ in range(1000):
+                if not mock_state.rag_state.tasks:
+                    break
+                await asyncio.sleep(0)
+            else:
+                pytest.fail("Tasks were not cleaned up")
+
+            assert len(mock_state.rag_state.tasks) == 0
 
 
 # ── Reranker Regression ──

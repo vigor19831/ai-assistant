@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-21 08:21:47 UTC | **Mode:** `compact`
-> **Metrics:** 113 files | 95 Python | 19,030 LOC
+> **Generated:** 2026-06-21 19:43:36 UTC | **Mode:** `compact`
+> **Metrics:** 113 files | 95 Python | 19,078 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
 ---
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-21 08:21 UTC
+> Auto-generated from source code. Updated: 2026-06-21 19:43 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 
 | Component | Exception | Trigger | Severity | Line |
@@ -370,15 +370,15 @@ These rules themselves change:
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 328 |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High | 162 |
 | `api.admin` | `HTTPException` | Unknown error | High | 49 |
-| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 311 |
-| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 313 |
-| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 315 |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 317 |
-| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 319 |
-| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 321 |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 323 |
-| `api.deps` | `RuntimeError` | State not initialized | High | 342 |
-| `api.deps` | `ValueError` | Unknown step: {...} | High | 153 |
+| `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High | 318 |
+| `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High | 320 |
+| `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High | 322 |
+| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High | 324 |
+| `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High | 326 |
+| `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High | 328 |
+| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High | 330 |
+| `api.deps` | `RuntimeError` | State not initialized | High | 349 |
+| `api.deps` | `ValueError` | Unknown step: {...} | High | 160 |
 | `api.security` | `HTTPException` | Unknown error | High | 63 |
 | `core.config` | `ValueError` | path must be non-empty | High | 179 |
 | `core.config` | `ValueError` | path must be relative, got: {...} | High | 181 |
@@ -410,7 +410,7 @@ These rules themselves change:
 | `tests.test_properties` | `ValueError` | Unknown llm: {...} | High | 60 |
 | `tests.test_properties` | `ValueError` | Unknown reranker: {...} | High | 73 |
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High | 86 |
-| `tests.test_rag` | `HTTPException` | Unknown error | High | 183 |
+| `tests.test_rag` | `HTTPException` | Unknown error | High | 184 |
 | `tests.test_retry` | `exc` | fail #{...} | High | 38 |
 | `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High | 43 |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium | 30 |
@@ -426,7 +426,7 @@ These rules themselves change:
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium | 30 |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium | 93 |
 | `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium | 307 |
-| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 276 |
+| `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium | 283 |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium | 85 |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium | 72 |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium | 114 |
@@ -881,7 +881,7 @@ ui/
   - → `ai_assistant.core.ports: ILLM, IChatStorage, IEmbedder, IReranker, IVectorStore`
   - → `ai_assistant.core.prompts: get_prompt`
   - → `ai_assistant.core.query_parser: parse_rag_query`
-  - → `ai_assistant.core.utils: count_tokens`
+  - → `ai_assistant.core.utils: async_count_tokens`
 - `src/ai_assistant/features/rag/handlers.py`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.api.deps: InitializedAppState, get_state`
@@ -1097,10 +1097,12 @@ ui/
   - → `ai_assistant.core.pipeline: RAGPipeline`
   - → `ai_assistant.core.pipeline_steps: rerank`
   - → `ai_assistant.features.chat.manager: ChatManager`
+  - → `ai_assistant.features.rag.handlers: reindex_documents`
   - → `ai_assistant.features.rag.handlers: router`
   - → `ai_assistant.features.rag.indexing: index_folder`
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
   - → `ai_assistant.features.rag.manager: RAGManager`
+  - → `ai_assistant.features.rag.schemas: ReindexRequest`
 - `tests/test_resilience.py`
   - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
   - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
@@ -1945,6 +1947,13 @@ class RAGState:
                 excess = len(self.status) - self.STATUS_MAX_ENTRIES
                 for tid, _ in sorted_by_age[:excess]:
                     self.status.pop(tid, None)
+
+            # Clean up finished tasks that may have leaked past done-callback/finally
+            finished_tasks = [
+                tid for tid, task in self.tasks.items() if task.done()
+            ]
+            for tid in finished_tasks:
+                self.tasks.pop(tid, None)
 
 
 @dataclass
@@ -5963,6 +5972,7 @@ async def reindex_documents(
                 rag_state.tasks.pop(task_id, None)
 
     task = asyncio.create_task(_run())
+    task.add_done_callback(lambda _: rag_state.tasks.pop(task_id, None))
     rag_state.tasks[task_id] = task
     return {"status": "started", "task_id": task_id}
 
@@ -6481,7 +6491,7 @@ from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import parse_rag_query
-from ai_assistant.core.utils import count_tokens
+from ai_assistant.core.utils import async_count_tokens
 class ChatManager:
     """Universal chat router."""
 

@@ -97,6 +97,13 @@ class RAGState:
                 for tid, _ in sorted_by_age[:excess]:
                     self.status.pop(tid, None)
 
+            # Clean up finished tasks that may have leaked past done-callback/finally
+            finished_tasks = [
+                tid for tid, task in self.tasks.items() if task.done()
+            ]
+            for tid in finished_tasks:
+                self.tasks.pop(tid, None)
+
 
 @dataclass
 class AppState:
