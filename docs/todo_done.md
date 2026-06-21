@@ -130,3 +130,9 @@
 [+] Убран хардкод портов в kill.py — утилита теперь читает порты из конфига, а не зашивает 8080, 8081, 8000.
 [+] Устранено дублирование правил очистки — теперь clean_cache.py и .gitignore используют общий источник правил, чтобы новые артефакты не забывались в одном из мест.
 [+] Убран хардкод модели gpt-4o в count_tokens — модель теперь передаётся через менеджеры, а не зашита жёстко.
+
+[+] Исправить блокировку event loop: `_trim_history` → `async_count_tokens` | `features/chat/manager.py` вызывает синхронный `count_tokens` (CPU-bound tiktoken/HF) из async метода. При большой истории весь сервер зависает на секунды — не отвечает на другие запросы. Заменить на `async_count_tokens` (обёртка `asyncio.to_thread`). | `src/ai_assistant/features/chat/manager.py` | `tests/test_chat.py`, `tests/test_e2e.py`
+
+[+] Добавить очистку завершённых задач в `RAGState.tasks` | Фоновые задачи индексации сохраняются в `tasks` по `task_id`. `asyncio.Task` после завершения остаётся в словаре, держит ссылку на весь стек. При 1000 reindex'ах — утечка памяти, сервер упадёт. Добавить callback удаления в `_run()` или периодическую уборку. | `src/ai_assistant/features/rag/handlers.py` | `tests/test_rag.py`, стресс-тест многократного reindex
+
+[+] Сделать сохранение FAISS-индекса атомарным | При `kill -9` во время `save()` — индекс на диске в inconsistent state. `atomic_write` есть для JSON, но FAISS пишет бинарник напрямую. Использовать временный файл + `os.replace`. | `src/ai_assistant/adapters/vector_store_faiss.py` | `tests/test_adapters.py`, ручной тест аварийного прерывания

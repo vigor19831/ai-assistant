@@ -962,3 +962,99 @@ async def test_faiss_load_both_missing_is_noop(tmp_path: Path) -> None:
     # Should not raise and ns should remain empty
     results = await store.search([0.0] * 384, top_k=5, namespace="default")
     assert results == []
+
+
+# ── FaissVectorStore atomic save tests ────────────────────────────────────
+
+async def test_faiss_save_atomic_replaces_existing(tmp_path: Path) -> None:
+    """Atomic save must replace old index without leaving partial files."""
+    faiss = pytest.importorskip("faiss")
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = FaissVectorStore(config)
+
+    # Add initial chunks
+    chunks1 = [
+        Chunk(id="c1", text="first", embedding=[1.0, 0.0, 0.0]),
+    ]
+    await store.add(chunks1, namespace="test")
+    await store.save(str(tmp_path), namespace="test")
+
+    # Verify files exist
+    index_file = tmp_path / "test.faiss"
+    store_file = tmp_path / "test.store.json"
+    assert index_file.exists()
+    assert store_file.exists()
+
+    # Add more chunks and save again
+    chunks2 = [
+        Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
+    ]
+    await store.add(chunks2, namespace="test")
+    await store.save(str(tmp_path), namespace="test")
+
+    # Verify no temp files left behind
+    temp_files = list(tmp_path.glob("*.tmp"))
+    assert not temp_files, f"Temp files left behind: {temp_files}"
+
+    # Verify data is correct after reload
+    store2 = FaissVectorStore(config)
+    await store2.load(str(tmp_path), namespace="test")
+    results = await store2.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
+    assert len(results) == 2
+    ids = {r.id for r in results}
+    assert ids == {"c1", "c2"}
+
+
+async def test_faiss_atomic_write_faiss_cleans_up_on_failure(tmp_path: Path) -> None:
+    """If _atomic_write_faiss fails, temp file must be cleaned up."""
+    faiss = pytest.importorskip("faiss")
+    from unittest.mock import patch
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = FaissVectorStore(config)
+
+    chunks = [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])]
+    await store.add(chunks, namespace="test")
+
+    target = str(tmp_path / "test.faiss")
+
+    # Force failure by mocking faiss.write_index to raise
+    def _raise(*args, **kwargs):
+        raise OSError("simulated write failure")
+
+    with patch("faiss.write_index", side_effect=_raise):
+        with pytest.raises(OSError, match="simulated write failure"):
+            store._atomic_write_faiss(store._get_ns("test").index, target)
+
+    # No temp files should remain after cleanup
+    temp_files = list(tmp_path.glob("*.tmp"))
+    assert not temp_files, f"Temp files left behind after failure: {temp_files}"
+
+
+async def test_faiss_save_no_temp_files_after_success(tmp_path: Path) -> None:
+    """After successful save, no .tmp files should remain in the directory."""
+    faiss = pytest.importorskip("faiss")
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = FaissVectorStore(config)
+
+    chunks = [
+        Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+        Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+    ]
+    await store.add(chunks, namespace="ns1")
+    await store.add(chunks, namespace="ns2")
+
+    await store.save(str(tmp_path), namespace="ns1")
+    await store.save(str(tmp_path), namespace="ns2")
+
+    # Check for any .tmp files
+    all_tmp = list(tmp_path.rglob("*.tmp"))
+    assert not all_tmp, f"Unexpected .tmp files: {all_tmp}"

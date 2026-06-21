@@ -246,9 +246,23 @@ def build_taxonomy(findings: list[tuple[str, str, str, str, int]]) -> str:
         "## 🧨 ERROR TAXONOMY",
         f"> Auto-generated from source code. Updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC",
         "> **Rule:** Check this table before adding try/except or changing error handling.",
+        "> **Note:** This is heuristic output — verify against source before acting.",
         "",
-        "| Component | Exception | Trigger | Severity | Line |",
-        "|-----------|-----------|---------|----------|------|",
+        "## AI Usage Notes",
+        "> For AI assistants: apply these filters when using this table for analysis.",
+        "",
+        "- **Skip `tests/` entries** for production analysis unless explicitly asked about test coverage.",
+        "- **Merge pairs**: `logger.exception(\"...\")` + `raise AdapterError(\"...\")` in same block = single error flow, count once.",
+        "- **Line numbers are approximate** ±10 lines due to code drift; always verify against current source.",
+        "- **Severity is heuristic** — trust `Critical`, verify `High`, question `Medium/Low` in context:",
+        "  - `Critical` = startup aborts (SystemExit, KeyboardInterrupt) — always real",
+        "  - `High` = request fails (ValueError, HTTPException, AdapterError) — usually real",
+        "  - `Medium` = degraded (OSError, JSONDecodeError) — check if recoverable",
+        "  - `Low` = client error / test artifact — often skip",
+        "- **When in doubt**: prefer reading source over trusting this table.",
+        "",
+        "| Component | Exception | Trigger | Severity |",
+        "|-----------|-----------|---------|----------|",
     ]
 
     # Keep highest severity per (component, exception, trigger)
@@ -272,7 +286,7 @@ def build_taxonomy(findings: list[tuple[str, str, str, str, int]]) -> str:
     for comp, exc_name, trigger, severity, line in sorted_items:
         display_trigger = trigger[:60] + "..." if len(trigger) > 60 else trigger
         lines.append(
-            f"| `{comp}` | `{exc_name}` | {display_trigger} | {severity} | {line} |"
+            f"| `{comp}` | `{exc_name}` | {display_trigger} | {severity} |"
         )
 
     lines.extend([

@@ -11,7 +11,11 @@ raise AdapterError to prevent silent empty-search corruption.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import anyio
@@ -223,28 +227,69 @@ class FaissVectorStore(IVectorStore):
         if remaining:
             await self.add(remaining, namespace=namespace)
 
+    def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
+        """Write FAISS index atomically via temp file + os.replace.
+
+        Uses tempfile.mkstemp in the same directory as target_path
+        to ensure the rename is on the same filesystem.
+        """
+        target = Path(target_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(
+            dir=str(target.parent),
+            suffix=".tmp",
+            prefix=f"{target.stem}_",
+        )
+        try:
+            os.close(fd)
+            faiss.write_index(index, tmp)
+            os.replace(tmp, target)
+            # Persist directory metadata (POSIX)
+            try:
+                dir_fd = os.open(
+                    target.parent,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+            except OSError:
+                pass  # Windows or filesystem without directory fsync support
+            else:
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        except Exception:
+            # Clean up temp file on failure; os.replace already removed it on success
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+
     async def save(self, path: str, namespace: str = "default") -> None:
-        """Persist namespace index + metadata."""
+        """Persist namespace index + metadata atomically.
+
+        Both the FAISS binary index and the JSON metadata store are written
+        via temp-file + atomic rename. If a crash occurs during save(),
+        the previous files remain intact.
+        """
         async with self._lock:
             ns = self._get_ns(namespace)
             if ns.index is None:
                 return
             base = anyio.Path(path)
             await base.mkdir(parents=True, exist_ok=True)
-            index_file = base / f"{namespace}.faiss"
-            store_file = base / f"{namespace}.store.json"
+            index_file = str(base / f"{namespace}.faiss")
+            store_file = str(base / f"{namespace}.store.json")
 
-            # Save FAISS index
-            await asyncio.to_thread(faiss.write_index, ns.index, str(index_file))
+            # Save FAISS index atomically
+            await asyncio.to_thread(self._atomic_write_faiss, ns.index, index_file)
 
-            # Save metadata store
+            # Save metadata store atomically (already atomic via atomic_write)
             store_data = {
                 "dim": self.config.dim,
                 "metric": self.config.metric,
                 "chunks": [_chunk_to_dict(c) for c in ns.chunks.values()],
             }
             await atomic_write(
-                str(store_file), json.dumps(store_data, ensure_ascii=False)
+                store_file, json.dumps(store_data, ensure_ascii=False)
             )
 
     async def load(self, path: str, namespace: str = "default") -> None:
