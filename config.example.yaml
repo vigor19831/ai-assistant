@@ -148,3 +148,7 @@ logging:
   format: "text"
   max_bytes: 10485760
   backup_count: 2
+
+# ── UI ──
+ui:
+  static_path: "../../ui"
