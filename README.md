@@ -169,7 +169,8 @@ ai-assistant/
 │   └── app.log          ← logs
 └── sources/             ← put documents here for RAG
     ├── personal/
-    └── work/
+    ├── work/
+    └──...
 ```
 
 ---
