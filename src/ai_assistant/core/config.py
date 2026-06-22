@@ -16,6 +16,23 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ai_assistant.core.constants import CHAT_NS_PREFIX
+
+
+def _get_chat_namespace(base_namespace: str) -> str:
+    """Derive isolated chat namespace from base namespace.
+
+    Guarantees no collision with user-created namespaces by reserving
+    the CHAT_NS_PREFIX prefix. Raises ValueError if base_namespace
+    already starts with the reserved prefix (indicates misuse).
+    """
+    if base_namespace.startswith(CHAT_NS_PREFIX):
+        raise ValueError(
+            "Namespace '" + base_namespace + "' uses reserved prefix '" + CHAT_NS_PREFIX + "'"
+        )
+    return CHAT_NS_PREFIX + base_namespace
+
+
 __all__ = [
     "AppConfig",
     "ChatConfig",
@@ -24,6 +41,8 @@ __all__ = [
     "EmbedderConfig",
     "LLMConfig",
     "load_config",
+    "CHAT_NS_PREFIX",
+    "_get_chat_namespace",
     "NamespaceConfig",
     "RAGConfig",
     "RerankerConfig",
@@ -168,7 +187,8 @@ class RAGConfig(BaseSettings):
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
     documents_root: str = "sources"
-    chat_exports_root: str = "sources"
+    chat_exports_root: str = "chat_exports"
+    index_chat_exports: bool = False
 
     @field_validator("documents_root", "chat_exports_root")
     @classmethod

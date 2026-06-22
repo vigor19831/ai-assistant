@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-22 10:43:11 UTC | **Mode:** `compact`
-> **Metrics:** 113 files | 95 Python | 19,658 LOC
+> **Generated:** 2026-06-22 11:41:18 UTC | **Mode:** `compact`
+> **Metrics:** 113 files | 95 Python | 19,702 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
 ---
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 10:43 UTC
+> Auto-generated from source code. Updated: 2026-06-22 11:41 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -3299,7 +3299,7 @@ class ChunkMetadata:
     total_chunks: int
     custom: dict[str, Any] = field(default_factory=dict)
     original_path: str | None = None
-    source_uri: str | None = None  # Platform-independent file URI, e.g. file:///path/to/doc.md
+    source_uri: str | None = None  # Relative path from root (documents_root / chat_exports_root), e.g. "personal/notes.md"
 
 
 @dataclass(frozen=True, slots=True)
@@ -6000,7 +6000,7 @@ async def save_chat(
                     "id": file_path.stem,
                     "content": content,
                     "metadata": {
-                        "source": str(file_path),
+                        "source": str(Path(namespace) / filename),
                         "folder": namespace,
                         "type": "chat_export",
                     },

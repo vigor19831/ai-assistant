@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
+from ai_assistant.core.config import _get_chat_namespace
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import parse_rag_query
@@ -255,9 +256,9 @@ async def save_chat(
     exports_root = Path(state.config.rag.chat_exports_root)
     folder = exports_root / namespace
     folder_resolved = await asyncio.to_thread(folder.resolve)
-    docs_resolved = await asyncio.to_thread(exports_root.resolve)
+    exports_root_resolved = await asyncio.to_thread(exports_root.resolve)
 
-    if not folder_resolved.is_relative_to(docs_resolved):
+    if not folder_resolved.is_relative_to(exports_root_resolved):
         raise HTTPException(status_code=400, detail="Invalid namespace")
 
     await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
@@ -271,7 +272,39 @@ async def save_chat(
         _logger.exception("Failed to save file")
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
-    # Index the saved chat
+    # Index the saved chat only if explicitly enabled
+    if not state.config.rag.index_chat_exports:
+        return {
+            "saved": True,
+            "path": str(file_path),
+            "namespace": namespace,
+            "indexed": False,
+            "reason": "index_chat_exports is disabled",
+        }
+
+    # Collision detection: verify no user namespace uses reserved prefix
+    existing_namespaces = await state.vector_store.list_namespaces(
+        state.config.vector_store.index_path
+    )
+    chat_namespace = _get_chat_namespace(namespace)
+    if chat_namespace in existing_namespaces:
+        # Check if it's actually a user-created namespace (not our chat export)
+        # by looking for any non-chat_export type chunks
+        non_chat_chunks = await state.vector_store.list_by_filter(
+            {"type": "document"}, namespace=chat_namespace
+        )
+        if non_chat_chunks:
+            _logger.warning(
+                "Namespace collision detected",
+                extra={"base_namespace": namespace, "chat_namespace": chat_namespace},
+            )
+            return {
+                "saved": True,
+                "path": str(file_path),
+                "namespace": namespace,
+                "indexed": False,
+                "error": "Namespace collision: '" + chat_namespace + "' already exists with documents",
+            }
     try:
         manager = IndexingManager(
             chunker=state.chunker,
@@ -290,18 +323,19 @@ async def save_chat(
                     },
                 }
             ],
-            namespace=namespace,
+            namespace=chat_namespace,
         )
 
         # Auto-save index
         index_path = state.config.vector_store.index_path
         if index_path:
-            await state.vector_store.save(index_path, namespace=namespace)
+            await state.vector_store.save(index_path, namespace=chat_namespace)
 
         return {
             "saved": True,
             "path": str(file_path),
             "namespace": namespace,
+            "chat_namespace": chat_namespace,
             "indexed_count": result.get("indexed_count", 0),
             "chunk_count": result.get("chunk_count", 0),
         }
@@ -336,6 +370,27 @@ async def reindex_documents(
                     "started_at": time.time(),
                 }
             try:
+                # If clearing, also clear associated chat namespaces
+                if clear and folder is not None:
+                    chat_ns = _get_chat_namespace(folder)
+                    try:
+                        all_chat_chunks = await state.vector_store.list_by_filter(
+                            {}, namespace=chat_ns
+                        )
+                        if all_chat_chunks:
+                            await state.vector_store.delete(
+                                [cid for cid, _ in all_chat_chunks], namespace=chat_ns
+                            )
+                            _logger.info(
+                                "Cleared chat namespace during reindex",
+                                extra={"namespace": folder, "chat_namespace": chat_ns},
+                            )
+                    except Exception:
+                        _logger.warning(
+                            "Failed to clear chat namespace during reindex",
+                            extra={"namespace": folder, "chat_namespace": chat_ns},
+                        )
+
                 result = await index_folder(
                     folder=folder,
                     clear=clear,

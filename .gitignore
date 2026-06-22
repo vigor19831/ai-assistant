@@ -108,7 +108,8 @@ src/*.egg-info/
 src/**/*.egg-info/
 
 # Generated docs
-docs/context_build_*.md
+context_build_*.md
+docs/error_taxonomy.md
 
 # Test artifacts
 MagicMock/

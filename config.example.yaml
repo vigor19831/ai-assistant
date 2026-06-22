@@ -111,6 +111,8 @@ rag:
   max_tool_iterations: 5
   token_margin_min: 256
   token_margin_pct: 0.1
+  chat_exports_root: "chat_exports"
+  index_chat_exports: false
 
 # ── Namespaces ──
 namespaces:

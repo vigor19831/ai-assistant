@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 10:43 UTC
+> Auto-generated from source code. Updated: 2026-06-22 13:40 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -53,6 +53,7 @@
 | `api.deps` | `RuntimeError` | State not initialized | High |
 | `api.deps` | `ValueError` | Unknown step: {...} | High |
 | `api.security` | `HTTPException` | Unknown error | High |
+| `core.config` | `ValueError` | Unknown error | High |
 | `core.config` | `ValueError` | path must be non-empty | High |
 | `core.config` | `ValueError` | path must be relative, got: {...} | High |
 | `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High |
@@ -153,11 +154,13 @@
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium |
 | `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium |
 | `features.rag.handlers` | `Exception` | return { | Medium |
+| `features.rag.handlers` | `Exception` | _logger.warning( | Medium |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium |
+| `tests.test_rag` | `TimeoutError` | pass | Medium |
 | `tests.test_retry` | `exc_cls` | permanent | Medium |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium |
 | `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium |

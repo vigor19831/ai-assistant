@@ -31,10 +31,12 @@ def _discover_documents(
     folder: str | None = None,
     max_file_size: int | None = None,
     documents_root: Path | None = None,
+    exclude_roots: list[str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Discover documents in folders. Returns {namespace: [docs]}."""
     result: dict[str, list[dict[str, Any]]] = {}
     root = Path(documents_root) if documents_root is not None else DOCUMENTS_ROOT
+    exclude_set = set(exclude_roots or [])
 
     if folder:
         folders = [root / folder]
@@ -44,6 +46,9 @@ def _discover_documents(
         folders = [d for d in root.iterdir() if d.is_dir()]
 
     for folder_path in folders:
+        if folder_path.name in exclude_set:
+            _logger.info("Skipping excluded folder: %s", folder_path)
+            continue
         namespace = folder_path.name
         docs: list[dict[str, Any]] = []
 
@@ -118,6 +123,7 @@ async def index_folder(
     vector_store: Any,
     max_file_size: int | None = None,
     documents_root: Path | None = None,
+    exclude_roots: list[str] | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -135,7 +141,12 @@ async def index_folder(
     """
     from ai_assistant.features.rag.manager import IndexingManager
 
-    docs_by_ns = _discover_documents(folder, max_file_size=max_file_size, documents_root=documents_root)
+    docs_by_ns = _discover_documents(
+        folder,
+        max_file_size=max_file_size,
+        documents_root=documents_root,
+        exclude_roots=exclude_roots,
+    )
     if not docs_by_ns:
         return {"success": True, "results": {}, "errors": ["No documents found"]}
 

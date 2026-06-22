@@ -13,6 +13,11 @@ __all__ = [
     "observe_histogram",
 ]
 
+# Recommended metric names for features:
+#   ai_assistant_chat_exports_total{namespace, indexed}
+#   ai_assistant_index_source_total{source_type, namespace}
+#   ai_assistant_rag_namespace_queries_total{namespace}
+
 _DEFAULT_BUCKETS = (
     0.005,
     0.01,
