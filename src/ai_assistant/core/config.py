@@ -189,6 +189,7 @@ class SecurityConfig(BaseSettings):
     api_key: str | None = None
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
+    openai_routes_require_auth: bool = False
 
 
 class NamespaceConfig(BaseModel):
@@ -219,7 +220,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1.5.0"
+    config_version: str = "1.6.0"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)

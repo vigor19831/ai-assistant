@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Response
 
 from ai_assistant.api import admin
 from ai_assistant.api.security import require_api_key
+from ai_assistant.core.config import SecurityConfig
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
 
 # Explicit feature handler imports — import errors surface at compile time
@@ -45,22 +46,47 @@ _ROUTERS: list[APIRouter] = [
 ]
 
 
-def assemble_routers() -> list[APIRouter]:
-    """Collect routers from explicitly imported feature handlers + admin."""
+def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
+    """Collect routers from explicitly imported feature handlers + admin.
+
+    Args:
+        security: Security configuration. If *openai_routes_require_auth* is True,
+            OpenAI-compatible routes (chat-oai) will require API key auth.
+    """
     routers = list(_ROUTERS)
 
-    # Wrap each router with API key dependency and apply /api/v1 prefix
-    # OpenAI-compatible routers (tagged with _OAI_TAG) stay at root without wrapping
+    # Determine which root-tagged routers require protection
+    protected_root_tags: set[str] = set()
+    if security is not None and security.openai_routes_require_auth:
+        protected_root_tags.add("chat-oai")
+    # Metrics always stays unprotected
+    always_unprotected: frozenset[str] = frozenset({"metrics"})
+
     wrapped: list[APIRouter] = []
     for router in routers:
         is_root = any(tag in _ROOT_TAGS for tag in router.tags)
-        if is_root:
-            # Root routers keep their original paths, no prefix, no extra wrapper
+        is_always_unprotected = any(
+            tag in always_unprotected for tag in router.tags
+        )
+        is_protected_root = any(
+            tag in protected_root_tags for tag in router.tags
+        )
+
+        if is_always_unprotected:
+            # Metrics always stays unprotected
             wrapped.append(router)
-        else:
-            # Legacy routers get /api/v1 prefix + API key dependency via wrapper
+        elif not is_root:
+            # Legacy routers get /api/v1 prefix + API key dependency
             wrapper = APIRouter(dependencies=[Depends(require_api_key)])
             wrapper.include_router(router, prefix="/api/v1")
             wrapped.append(wrapper)
+        elif is_protected_root:
+            # Root router that needs auth: wrap with dependency, no prefix
+            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            wrapper.include_router(router)
+            wrapped.append(wrapper)
+        else:
+            # Root routers keep their original paths, no prefix, no extra wrapper
+            wrapped.append(router)
 
     return wrapped

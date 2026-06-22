@@ -13,7 +13,7 @@ from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import assemble_routers
-from ai_assistant.core.config import CORSConfig, load_config
+from ai_assistant.core.config import CORSConfig, SecurityConfig, load_config
 
 __all__ = ["create_app"]
 
@@ -59,7 +59,10 @@ def create_app(
     )
     app.add_middleware(MetricsMiddleware)
 
-    for router in assemble_routers():
+    security: SecurityConfig | None = None
+    if state is not None:
+        security = state.config.security
+    for router in assemble_routers(security=security):
         app.include_router(router)
 
     @app.get("/health")

@@ -42,7 +42,7 @@ from ai_assistant.api.security import (
     require_api_key,
     set_api_key,
 )
-from ai_assistant.core.config import AppConfig, RAGStep, load_config
+from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 
@@ -1022,6 +1022,75 @@ class TestAPIRouter:
         """
         # This test file itself would fail collection if imports were broken
         assert assemble_routers is not None
+
+    def test_oai_router_requires_auth_when_configured(self):
+        """Given: security.openai_routes_require_auth is True.
+        When: assemble_routers is called with security config.
+        Then: OAI routers are wrapped with API key dependency.
+        """
+        security = SecurityConfig(openai_routes_require_auth=True)
+        routers = assemble_routers(security=security)
+        routers_with_deps = [r for r in routers if r.dependencies]
+        # 3 legacy wrappers + 1 OAI wrapper = 4 routers with dependencies
+        assert len(routers_with_deps) == 4
+
+    def test_oai_router_stays_unprotected_by_default(self):
+        """Given: no security config passed (backward compat default).
+        When: assemble_routers is called.
+        Then: OAI routers have no dependencies; only legacy routes are protected.
+        """
+        routers = assemble_routers()
+        routers_with_deps = [r for r in routers if r.dependencies]
+        # 3 legacy wrappers only
+        assert len(routers_with_deps) == 3
+
+    def test_metrics_never_requires_auth(self):
+        """Given: security.openai_routes_require_auth is True.
+        When: assemble_routers is called.
+        Then: metrics router remains unprotected.
+        """
+        security = SecurityConfig(openai_routes_require_auth=True)
+        routers = assemble_routers(security=security)
+        for router in routers:
+            for route in router.routes:
+                if hasattr(route, "tags") and "metrics" in route.tags:
+                    # Metrics routes should live in a router without dependencies
+                    assert not router.dependencies, (
+                        "Metrics router must never require auth"
+                    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestSecurityConfig
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSecurityConfig:
+    """Contract tests for the new security config field."""
+
+    def test_openai_routes_require_auth_default_false(self):
+        """Given: SecurityConfig is instantiated with defaults.
+        When: openai_routes_require_auth is inspected.
+        Then: it is False for backward compatibility.
+        """
+        sec = SecurityConfig()
+        assert sec.openai_routes_require_auth is False
+
+    def test_openai_routes_require_auth_from_app_config(self):
+        """Given: AppConfig is instantiated with defaults.
+        When: security sub-config is inspected.
+        Then: openai_routes_require_auth defaults to False.
+        """
+        cfg = AppConfig()
+        assert cfg.security.openai_routes_require_auth is False
+
+    def test_openai_routes_require_auth_can_be_enabled(self):
+        """Given: SecurityConfig is created with openai_routes_require_auth=True.
+        When: the field is read.
+        Then: it is True.
+        """
+        sec = SecurityConfig(openai_routes_require_auth=True)
+        assert sec.openai_routes_require_auth is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════

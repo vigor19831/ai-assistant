@@ -1,5 +1,5 @@
 # AI Context
-> **Generated:** 2026-06-22 06:13:21 UTC | **Mode:** `compact`
+> **Generated:** 2026-06-22 06:29:52 UTC | **Mode:** `compact`
 > **Metrics:** 113 files | 95 Python | 19,223 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 06:13 UTC
+> Auto-generated from source code. Updated: 2026-06-22 06:29 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
