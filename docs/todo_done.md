@@ -130,9 +130,14 @@
 [+] Убран хардкод портов в kill.py — утилита теперь читает порты из конфига, а не зашивает 8080, 8081, 8000.
 [+] Устранено дублирование правил очистки — теперь clean_cache.py и .gitignore используют общий источник правил, чтобы новые артефакты не забывались в одном из мест.
 [+] Убран хардкод модели gpt-4o в count_tokens — модель теперь передаётся через менеджеры, а не зашита жёстко.
-
-[+] Исправить блокировку event loop: `_trim_history` → `async_count_tokens` | `features/chat/manager.py` вызывает синхронный `count_tokens` (CPU-bound tiktoken/HF) из async метода. При большой истории весь сервер зависает на секунды — не отвечает на другие запросы. Заменить на `async_count_tokens` (обёртка `asyncio.to_thread`). | `src/ai_assistant/features/chat/manager.py` | `tests/test_chat.py`, `tests/test_e2e.py`
-
-[+] Добавить очистку завершённых задач в `RAGState.tasks` | Фоновые задачи индексации сохраняются в `tasks` по `task_id`. `asyncio.Task` после завершения остаётся в словаре, держит ссылку на весь стек. При 1000 reindex'ах — утечка памяти, сервер упадёт. Добавить callback удаления в `_run()` или периодическую уборку. | `src/ai_assistant/features/rag/handlers.py` | `tests/test_rag.py`, стресс-тест многократного reindex
-
-[+] Сделать сохранение FAISS-индекса атомарным | При `kill -9` во время `save()` — индекс на диске в inconsistent state. `atomic_write` есть для JSON, но FAISS пишет бинарник напрямую. Использовать временный файл + `os.replace`. | `src/ai_assistant/adapters/vector_store_faiss.py` | `tests/test_adapters.py`, ручной тест аварийного прерывания
+[+] Исправлена блокировка event loop в `_trim_history` — синхронный `count_tokens` заменён на `async_count_tokens` через `asyncio.to_thread`, сервер не зависает при большой истории.
+[+] Добавлена очистка завершённых задач в `RAGState.tasks` — `asyncio.Task` удаляется из словаря по done-callback, устранена утечка памяти при массовых reindex.
+[+] Сделано атомарное сохранение FAISS-индекса — бинарник пишется во временный файл с последующим `os.replace`, при `kill -9` индекс остаётся консистентным.
+[+] Добавлена опциональная авторизация OpenAI-роутов — `security.openai_routes_require_auth: bool` (default: false), `/v1/chat/completions` и `/v1/models` можно закрыть API key без ломки совместимости.
+[+] Admin API защищён флагом `admin_enabled` — endpoint'ы возвращают 404 если не включено явно, риск случайной экспозиции снижен без введения отдельного admin-ключа.
+[+] Улучшена обработка ошибок сохранения индекса при shutdown — retry с экспоненциальным backoff, флаг `shutdown_degraded` для non-zero exit кода при фатальной ошибке.
+[+] Добавлена проверка целостности индекса при старте — сравнение векторов FAISS с метаданными, fail-fast при рассинхронизации вместо молчаливой работы с пустым индексом.
+[+] Устранена утечка абсолютных путей в RAG-индексе — `source_uri` теперь относительный путь от `documents_root`/`chat_exports_root`, инфраструктура не экспонируется в API.
+[+] Разделены корни чат-экспортов и документов — `chat_exports_root` по умолчанию `"chat_exports"`, чаты больше не попадают в RAG-индекс документов.
+[+] Убран хардкод лимита тела запроса — `check_request_size()` использует `config.security.max_body_size`, 10MB не захардкожен.
+[+] Добавлен аудит административных операций — `update_api_key` логирует `SECURITY_AUDIT: api_key_changed` со структурированными полями `security_event`/`actor`/`key_present` в `extra=`.

@@ -63,28 +63,6 @@
 ==============================================================================
 ## TODO ##
 ==============================================================================
-[+] OpenAI-роуты без авторизации | `/v1/chat/completions` и `/v1/models` доступны без API key. Любой клиент (Page Assist, Continue.dev) может использовать сервер, но это означает и любой неавторизованный доступ. Добавить опциональный `require_api_key` через конфиг `security.openai_routes_require_auth: bool` (default: false для backward compat) или документировать риск явно. | `src/ai_assistant/api/router.py`, `src/ai_assistant/core/config.py` , src/ai_assistant/main.py| `tests/test_api.py`
-
-[+] Admin API защищён тем же ключом, что и пользовательский | `POST /admin/api-key` позволяет сменить ключ любому, у кого есть обычный API key. Нет разделения ролей. Либо ввести отдельный `admin_api_key` в `SecurityConfig`, либо убрать admin endpoint из production, либо добавить IP-based restriction. | `src/ai_assistant/api/admin.py`, `src/ai_assistant/api/security.py`, `src/ai_assistant/core/config.py` | `tests/test_api.py`
-
-[+] Потеря данных при shutdown — ошибка сохранения индекса подавляется | В `lifespan.py` `except Exception: logger.exception("Index save failed")` молча глотает ошибку записи на диск. После `kill -9` или OOM индекс может остаться в несогласованном состоянии. Добавить retry с экспоненциальным backoff, и при фатальной ошибке — non-zero exit code или явный статус "degraded". | `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`, ручной тест: `kill -9` → старт → проверить индекс
-
-[+] Повреждённый индекс при старте — молчаливая загрузка | `lifespan.py` логирует ошибку загрузки индекса и продолжает старт. RAG работает с пустым/битым индексом, пользователь не понимает почему ответы пустые. Добавить проверку целостности: сравнить количество векторов в FAISS с количеством записей в метаданных. При несоответствии — fail-fast с clear error message или автоочистка с логированием. | `src/ai_assistant/api/lifespan.py`, `src/ai_assistant/adapters/vector_store_faiss.py`, `src/ai_assistant/adapters/vector_store_memory.py` | `tests/test_adapters.py`
-
-[+] Утечка абсолютных путей в RAG-индексе | `indexing.py` сохраняет `source_uri = Path(abs_path).as_uri()` в `ChunkMetadata`. Это `/home/user/...` или `C:\Users\Admin\...`. Если metadata возвращается в API — утечка инфраструктуры. Заменить на относительный путь от `documents_root` или `chat_exports_root`. | `src/ai_assistant/features/rag/indexing.py`, `src/ai_assistant/core/domain/documents.py` | `tests/test_rag.py`, `tests/test_integration.py`
-
-[+] Чат-экспорты попадают в RAG-индекс документов | `rag.chat_exports_root` и `rag.documents_root` оба по умолчанию `"sources"`. `/save-chat` пишет в ту же папку, откуда `index_documents` читает. Контекст чатов становится источником для RAG — утечка контекста, мусор в ответах. Изменить `chat_exports_root` на `"chat_exports"` по умолчанию. | `src/ai_assistant/core/config.py`, `config.yaml` | `tests/test_rag.py`
-
-[+] Нет ограничения размера входного сообщения LLM — body size захардкожен | `security.py` использует `SECURITY_MAX_BODY = 10_485_760` вместо `config.security.max_body_size`. 10MB JSON может содержать 2.5M токенов — OOM или DDOS. Использовать `config.security.max_body_size` в `check_request_size()`. Дополнительно: добавить проверку длины `content` в `ChatRequest`/`OAIChatCompletionRequest` на уровне Pydantic validator. | `src/ai_assistant/api/security.py`, `src/ai_assistant/features/chat/schemas.py`, `src/ai_assistant/features/rag/schemas.py` | `tests/test_api.py`
-
-[+] Нет аудита административных операций | `admin.py` вызывает `set_api_key()` без логирования security event. После компрометации невозможно установить кто, когда и какой ключ установил. Добавить `logger.warning("Security event: API key changed", extra={"source": "admin_endpoint"})` с явным маркером. | `src/ai_assistant/api/admin.py` | `tests/test_api.py`, ручная проверка логов
-
-
-
-
-
-
-
 
 [ ] Глобальное состояние API-ключа не работает в multiprocess | `_override_api_key` с `threading.Lock()` работает только внутри одного процесса. При `uvicorn --workers 4` или gunicorn каждый worker имеет свой `_override_api_key`. Runtime rotation работает непредсказуемо. Нужно: добавить `logger.warning` при `workers > 1` в `lifespan.py` или документировать ограничение в `docs/drift.md`. | `src/ai_assistant/api/security.py`, `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`
 

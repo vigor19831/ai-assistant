@@ -1,129 +1,144 @@
-# AI Assistant — Example Configuration
-# Copy to config.yaml and edit for your setup.
-# Environment variables with AI_ prefix override these values.
+# AI Assistant — Universal Configuration
+# Works with any OpenAI-compatible API: llama-server, Ollama, vLLM, OpenAI
+# Environment variables with AI_ prefix override values below
 
 # ── Application ──
-app_name: ai-assistant
-debug: false
-host: 0.0.0.0
-port: 8000
-config_version: "1.5.0"
+app_name: ai-assistant          # Internal app identifier (logs, metrics)
+debug: true                     # Enable detailed error traces and hot reload (false for prod)
+host: 0.0.0.0                   # Bind to all interfaces (127.0.0.1 for local-only)
+port: 8000                      # HTTP server port
+config_version: "1.5.0"         # Schema version for migration checks
 
 # ── CORS ──
+# Cross-Origin Resource Sharing — which websites can call the API from browser
 cors:
   allow_origins:
-    - "http://localhost"
+    - "http://localhost"        # Browser extensions (Page Assist, etc.)
     - "http://127.0.0.1"
-  allow_credentials: true
-  allow_methods: ["*"]
-  allow_headers: ["*"]
+  allow_credentials: true       # Allow cookies/auth headers in cross-origin requests
+  allow_methods: ["*"]         # Allow all HTTP methods (GET, POST, etc.)
+  allow_headers: ["*"]         # Allow all request headers
 
 # ── Chat ──
+# Settings for conversation history and context window management
 chat:
-  history_limit: 10
-  max_context_tokens: 4096
-  tokenizer_model: "gpt-4o"
-  tokenizer_local_dir: "./data/tokenizers"
+  history_limit: 10             # Number of recent messages to include in LLM context
+  max_context_tokens: 4096      # Hard cap on tokens sent to LLM (prevents overflow)
+  tokenizer_model: "gpt-4o"     # Model name for token counting (affects context estimation)
+  tokenizer_local_dir: "./data/tokenizers"  # Cached HF tokenizers (offline fallback)
 
 # ── Chunker ──
+# Splits documents into pieces for embedding and search
 chunker:
-  provider: simple
-  chunk_size: 512
-  chunk_overlap: 50
+  provider: simple              # Algorithm: "simple" = fixed-size with overlap
+  chunk_size: 512               # Characters per chunk (balance: granularity vs. coherence)
+  chunk_overlap: 50             # Shared characters between adjacent chunks (preserves context)
 
 # ── Embedder ──
+# Converts text into vectors for semantic search
 embedder:
-  provider: openai_compatible
-  api_base: http://127.0.0.1:8081/v1
-  api_key: null  # Set AI_EMBEDDER_API_KEY env var, or paste key here
-  model: text-embedding-3-small
-  dim: 768
-  timeout: 60.0
-  connect_timeout: 5.0
-  n_gpu_layers: 0
-  n_batch: 512
-  n_ubatch: 64
-  mmap: true
-  mlock: false
+  provider: openai_compatible   # Adapter type: "openai_compatible", "mock" for tests
+  api_base: http://127.0.0.1:8081/v1  # Local embedding server (llama.cpp/Ollama/vLLM)
+  api_key: sk-local-api-key     # Auth key (can be overridden via AI_EMBEDDER_API_KEY env var)
+  model: embeddinggemma-300m-q8_0     # Model identifier on the embedding server
+  dim: 768                      # Vector dimension — MUST match vector_store.dim below
+  timeout: 60.0                 # Max seconds to wait for embedding response
+  connect_timeout: 5.0          # TCP handshake timeout (None = use 'timeout' value)
+  # llama.cpp-specific performance settings:
+  n_gpu_layers: 0               # GPU offload: -1=all, 0=CPU, N=N layers
+  n_batch: 512                  # Max tokens processed simultaneously
+  n_ubatch: 64                  # Micro-batch size (affects VRAM vs. speed tradeoff)
+  mmap: true                    # Memory-map model files (saves RAM, slightly slower)
+  mlock: false                  # Lock model in RAM (prevents swap, requires enough memory)
 
 # ── LLM ──
+# Main language model for chat responses
 llm:
-  provider: openai_compatible
-  api_base: http://127.0.0.1:8080/v1
-  api_key: null  # Set AI_LLM_API_KEY env var, or paste key here
-  model: gemma-4-e2b-it
-  available_models:
+  provider: openai_compatible   # Adapter type for text generation
+  api_base: http://127.0.0.1:8080/v1  # Local LLM server (llama.cpp/Ollama/vLLM)
+  api_key: sk-local-api-key     # Auth key (can be overridden via AI_LLM_API_KEY env var)
+  model: gemma-4-e2b-it         # Default model to use for completions
+  available_models:             # Models advertised in /v1/models endpoint
     - gemma-4-e2b-it
-  max_tokens: 4096
-  temperature: 0.7
-  top_p: 0.95
-  top_k: 40
-  min_p: 0.05
-  repeat_penalty: 1.1
-  presence_penalty: 0.0
-  frequency_penalty: 0.0
-  stop_sequences: []
-  timeout: 300.0
-  connect_timeout: 5.0
-  server_context_size: 4096
-  n_gpu_layers: 99
-  n_batch: 512
-  n_ubatch: 64
-  mmap: true
-  mlock: false
+    - phi-4-mini-reasoning
+    - qwen3.5-4b
+  max_tokens: 4096              # Max tokens to generate per response
+  temperature: 0.7              # Randomness: 0=deterministic, 1=very creative
+  top_p: 0.95                   # Nucleus sampling: consider tokens with cumulative prob ≤95%
+  top_k: 40                     # Limit to top-K most likely tokens (-1 = disabled)
+  min_p: 0.05                   # Minimum token probability relative to top token
+  repeat_penalty: 1.1           # Penalize repeated tokens (>1.0 reduces repetition)
+  presence_penalty: 0.0         # Penalize tokens already in text (-2.0 to 2.0)
+  frequency_penalty: 0.0        # Penalize frequent tokens (-2.0 to 2.0)
+  stop_sequences: []            # Strings that stop generation (e.g., ["User:", "Assistant:"])
+  timeout: 300.0                # Max seconds to wait for LLM response
+  connect_timeout: 5.0          # TCP handshake timeout
+  server_context_size: 4096     # Context window the server claims (used for margin calculations)
+  # llama.cpp-specific performance settings:
+  n_gpu_layers: 99              # GPU offload: -1=all, 0=CPU, 99=almost all (for large GPUs)
+  n_batch: 512                  # Prompt processing batch size
+  n_ubatch: 64                  # Micro-batch size
+  mmap: true                    # Memory-map model (saves RAM)
+  mlock: false                  # Lock in physical RAM
 
 # ── Vector Store ──
+# Where document embeddings are stored for RAG retrieval
 vector_store:
-  provider: faiss
-  index_path: ./data/indices
-  metric: l2
-  dim: 768
-  max_chunks: 100000
-  max_document_size: 10485760
+  provider: faiss               # Backend: "faiss" (file-based) or "memory" (ephemeral)
+  index_path: ./data/indices    # Directory for FAISS index files (*.faiss, *.json)
+  metric: l2                    # Distance metric: "l2" (Euclidean), "cosine", "ip" (inner product)
+  dim: 768                      # Vector dimension — MUST equal embedder.dim above
+  max_chunks: 100000            # Max documents per namespace (FIFO eviction when exceeded)
+  max_document_size: 10485760   # 10 MB — reject documents larger than this (prevents abuse)
 
 # ── Storage ──
+# Persistent storage for chat history and settings
 storage:
-  provider: sqlite
-  db_path: ./data/storage.db
+  provider: sqlite              # Backend: "sqlite" (file-based), extensible for others
+  db_path: ./data/storage.db  # SQLite database file path
 
 # ── Reranker ──
+# Optional second-pass relevance scoring for retrieved chunks
 reranker:
-  provider: null
-  model: rerank-multilingual-v3.0
-  api_base: https://api.cohere.com
-  api_key: null  # Set AI_RERANKER_API_KEY env var, or paste key here
-  timeout: 30.0
-  threshold: 0.3
+  provider: null                # "api" for external reranker, "null" to disable
+  model: rerank-multilingual-v3.0  # Cohere/Jina model name (if provider="api")
+  api_base: https://api.cohere.com  # External reranker endpoint
+  api_key: sk-local-api-key     # Auth for reranker API
+  timeout: 30.0                 # Max seconds to wait for rerank response
+  threshold: 0.3                # Minimum score to keep a chunk (0.0-1.0, higher = stricter)
 
 # ── RAG ──
+# Retrieval-Augmented Generation pipeline configuration
 rag:
-  steps:
-    - embed_query
-    - retrieve
-    - rerank
-    - build_context
-    - generate
-  prompt_version: v1
-  prompt_name: rag_strict
-  top_k: 5
-  default_namespace: "default"
-  relevance_threshold: 0.1
-  max_tool_iterations: 5
-  token_margin_min: 256
-  token_margin_pct: 0.1
-  chat_exports_root: "chat_exports"
-  index_chat_exports: false
+  steps:                        # Pipeline execution order (can reorder or skip steps)
+    - embed_query              # 1. Convert user query to vector
+    - retrieve                 # 2. Find similar chunks in vector store
+    - rerank                   # 3. Re-score chunks by relevance (if reranker enabled)
+    - build_context            # 4. Assemble chunks into prompt context
+    - generate                 # 5. Send to LLM for final answer
+  prompt_version: v1            # Template directory: core/prompts/v1/
+  prompt_name: rag_strict       # Template file without .j2: rag_strict / rag_default / rag_creative
+  top_k: 5                      # Number of chunks to retrieve initially
+  default_namespace: "default"  # Namespace when no [p]/[w]/etc. prefix in query
+  relevance_threshold: 0.1     # Minimum similarity score for chunks (post-reranker)
+  max_tool_iterations: 5        # Max tool-call loops (future feature, currently unused)
+  token_margin_min: 256         # Minimum tokens reserved for LLM response (prevents cutoff)
+  token_margin_pct: 0.1         # 10% of context window reserved for response
+  chat_exports_root: "data/chat_exports"  # Where /save-chat API writes files
+  index_chat_exports: false     # Auto-index saved chats into vector store for RAG search
 
 # ── Namespaces ──
+# Per-collection RAG overrides (personal, work, code, etc.)
+# Prefix in chat triggers namespace: [p] = personal, [w] = work, etc.
 namespaces:
   personal:
-    threshold: 0.1
-    chunk_size: 512
-    prompt: rag_strict
+    threshold: 0.1              # Similarity cutoff for this namespace (lower = more results)
+    chunk_size: 512             # Override global chunker.chunk_size for this namespace
+    prompt: rag_strict          # Override global prompt template
   work:
-    threshold: 0.3
-    chunk_size: 1024
-    prompt: rag_creative
+    threshold: 0.3              # Stricter filtering for work docs (higher quality)
+    chunk_size: 1024            # Larger chunks for long-form work documents
+    prompt: rag_creative        # More creative/expanded answers for work queries
   other:
     threshold: 0.1
     chunk_size: 512
@@ -138,19 +153,22 @@ namespaces:
     prompt: rag_strict
 
 # ── Security ──
+# API protection and request limits
 security:
-  api_key: null  # Set AI_SECURITY_API_KEY env var, or paste key here
-  max_body_size: 10485760
-  allowed_hosts: ["localhost", "127.0.0.1"]
+  api_key: sk-local-api-key     # Bearer token for all /api/v1/* endpoints
+  max_body_size: 10485760       # 10 MB max request body (prevents memory exhaustion)
+  allowed_hosts: ["localhost", "127.0.0.1"]  # Host header validation (empty = allow all)
 
 # ── Logging ──
+# Application log output configuration
 logging:
-  level: "INFO"
-  file: "./data/app.log"
-  format: "text"
-  max_bytes: 10485760
-  backup_count: 2
+  level: "INFO"                 # Verbosity: DEBUG (verbose), INFO, WARNING, ERROR
+  file: "./data/app.log"        # Log file path (None = console only)
+  format: "text"                # "text" (human-readable) or "json" (structured for parsers)
+  max_bytes: 10485760           # 10 MB per log file before rotation
+  backup_count: 2               # Keep 2 rotated files (app.log.1, app.log.2)
 
 # ── UI ──
+# Static files (web interface) serving
 ui:
-  static_path: "../../ui"
+  static_path: "../../ui"       # Path to index.html and assets (relative to api/static.py)

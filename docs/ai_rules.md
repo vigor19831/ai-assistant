@@ -2,6 +2,11 @@
 > Version: 2026-06-20
 > Next review: 2026-09-20
 
+# Project Brief
+Local AI assistant framework. FastAPI + RAG with namespaces.
+Offline-first, OpenAI-compatible LLM/embedder adapters.
+Layers: core (domain/ports) → adapters → features → api.
+
 ## 0. Ground Truth
 
 Only this document and `docs/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.

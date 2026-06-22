@@ -44,7 +44,7 @@ REQUIRED_DOCS = ["ai_rules.md", "error_taxonomy.md", "DRIFT.md", "FUTURE.md"]
 
 # Files that are ALWAYS full in compact mode (except tests/scripts)
 ALWAYS_FULL = {
-    "config.yaml", "pyproject.toml", ".gitignore", "README.md",
+    "config.yaml", "pyproject.toml", ".gitignore",
 }
 
 # Skip
@@ -304,18 +304,18 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
         "",
     ]
 
-    # README
-    readme = root / "README.md"
-    if readme.exists():
-        lines.extend([
-            "## 📋 Project Overview",
-            "```markdown",
-            readme.read_text(encoding="utf-8", errors="replace")[:2000],
-            "```",
-            "",
-            "---",
-            "",
-        ])
+    # README — excluded from AI context (user-facing docs, not code)
+    # readme = root / "README.md"
+    # if readme.exists():
+    #     lines.extend([
+    #         "## 📋 Project Overview",
+    #         "```markdown",
+    #         readme.read_text(encoding="utf-8", errors="replace")[:2000],
+    #         "```",
+    #         "",
+    #         "---",
+    #         "",
+    #     ])
 
     # AI Rules & Error Taxonomy (from doc_files)
     for rel, content in doc_files:
