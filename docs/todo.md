@@ -1,4 +1,4 @@
-Выдай список по одной строке в формате, все задания независимы друг от друга: [ ] Название + Краткая суть | Подробное описание (что, зачем, и ⚠️ CORE CHANGE если критично) | Файлы для правки | Файлы тестов / где проверять.
+Выдай список по одной строке в формате, все задания независимы друг от друга: [ ] Название + Краткая суть | Подробное описание (что, зачем, и ⚠️ CORE CHANGE если критично) | Список файлов для правок, без фантазии | Файлы тестов / где проверять.
 
 ==============================================================================
 # TODO
@@ -7,7 +7,7 @@
 
 [+] Admin API защищён тем же ключом, что и пользовательский | `POST /admin/api-key` позволяет сменить ключ любому, у кого есть обычный API key. Нет разделения ролей. Либо ввести отдельный `admin_api_key` в `SecurityConfig`, либо убрать admin endpoint из production, либо добавить IP-based restriction. | `src/ai_assistant/api/admin.py`, `src/ai_assistant/api/security.py`, `src/ai_assistant/core/config.py` | `tests/test_api.py`
 
-[ ] Потеря данных при shutdown — ошибка сохранения индекса подавляется | В `lifespan.py` `except Exception: logger.exception("Index save failed")` молча глотает ошибку записи на диск. После `kill -9` или OOM индекс может остаться в несогласованном состоянии. Добавить retry с экспоненциальным backoff, и при фатальной ошибке — non-zero exit code или явный статус "degraded". | `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`, ручной тест: `kill -9` → старт → проверить индекс
+[+] Потеря данных при shutdown — ошибка сохранения индекса подавляется | В `lifespan.py` `except Exception: logger.exception("Index save failed")` молча глотает ошибку записи на диск. После `kill -9` или OOM индекс может остаться в несогласованном состоянии. Добавить retry с экспоненциальным backoff, и при фатальной ошибке — non-zero exit code или явный статус "degraded". | `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`, ручной тест: `kill -9` → старт → проверить индекс
 
 [ ] Повреждённый индекс при старте — молчаливая загрузка | `lifespan.py` логирует ошибку загрузки индекса и продолжает старт. RAG работает с пустым/битым индексом, пользователь не понимает почему ответы пустые. Добавить проверку целостности: сравнить количество векторов в FAISS с количеством записей в метаданных. При несоответствии — fail-fast с clear error message или автоочистка с логированием. | `src/ai_assistant/api/lifespan.py`, `src/ai_assistant/adapters/vector_store_faiss.py`, `src/ai_assistant/adapters/vector_store_memory.py` | `tests/test_adapters.py`
 

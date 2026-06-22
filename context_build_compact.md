@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-22 07:54:38 UTC | **Mode:** `compact`
-> **Metrics:** 113 files | 95 Python | 19,309 LOC
+> **Generated:** 2026-06-22 09:04:42 UTC | **Mode:** `compact`
+> **Metrics:** 113 files | 95 Python | 19,373 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
 ---
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 07:54 UTC
+> Auto-generated from source code. Updated: 2026-06-22 09:04 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -533,7 +533,7 @@ These rules themselves change:
 | 13 | `core/domain/documents.py` | `original_path` smuggled through pipeline without contract | No first-class field for source URI propagation | Added `source_uri` to `ChunkMetadata` (CORE CHANGE) | Low |
 | 14 | `src/ai_assistant/api/deps.py` (`RAGState.status: dict[str, object]`) | No `Any`/`object` where concrete type is visible (AI Rules Section 9, TYPES). | `RAGState` stores background reindex task status as heterogenous dict to avoid CORE CHANGE in current scope. Values are timestamps (float), strings, and nested dicts. | Introduce `ReindexStatusEntry` dataclass in `core/domain/` and type `RAGState.status` as `dict[str, ReindexStatusEntry]`. Requires updating `handlers.py`, `test_rag.py`, `test_contracts.py`. | Low |
 | 15 | `src/ai_assistant/core/pipeline.py` (`_required_fields_for_steps`) | Upfront validation should cover all inputs; `query_embedding` is produced by previous step, not input. | `retrieve` requires `query_embedding`, but it is produced by `embed_query`/`hyde_query`. Upfront validation fails valid pipelines. Removing it loses early error for `[retrieve]` without embedding step. | Introduce step dependency graph in `_required_fields_for_steps` to distinguish inputs from produced fields. Or split `retrieve` into `retrieve` (requires embedding) and `retrieve_raw` (requires pre-computed). | Low |
-
+| 16 | `src/ai_assistant/core/config.py` | Admin endpoints unprotected by default | Any client with api_key could mutate runtime security policy | Added `admin_enabled: bool = False` to `SecurityConfig`; admin endpoints return 404 unless explicitly enabled | Low |
 
 Rule: Do not add new drift if old pattern can be fixed properly.
 
@@ -812,7 +812,7 @@ ui/
   - → `ai_assistant.core.ports.vector_store: IVectorStore`
 - `src/ai_assistant/api/admin.py`
   - → `ai_assistant.api.deps: AppState, get_state`
-  - → `ai_assistant.api.security: set_api_key`
+  - → `ai_assistant.api.security: require_api_key, set_api_key`
 - `src/ai_assistant/api/deps.py`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.core.config: AppConfig, RAGStep`
@@ -1820,11 +1820,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ai_assistant.api.deps import AppState, get_state
-from ai_assistant.api.security import set_api_key
+from ai_assistant.api.security import require_api_key, set_api_key
 
 __all__ = ["router"]
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 class _CurrentModelResponse(BaseModel):
@@ -1845,6 +1849,8 @@ class _UpdateApiKeyResponse(BaseModel):
 async def get_current_model(
     state: Annotated[AppState, Depends(get_state)],
 ) -> _CurrentModelResponse:
+    if not state.config.security.admin_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
     cfg = state.config.llm
     return _CurrentModelResponse(
         model=cfg.model,
@@ -1857,6 +1863,8 @@ async def update_api_key(
     req: _UpdateApiKeyRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> _UpdateApiKeyResponse:
+    if not state.config.security.admin_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
     if req.api_key is not None and not req.api_key:
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
     set_api_key(req.api_key)
@@ -2432,8 +2440,9 @@ from ai_assistant.features.rag import handlers as rag_handlers
 
 __all__ = ["assemble_routers"]
 
-# Tags for routers that stay at root (no /api/v1 prefix, no API key).
-_ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics"})
+# Tags for routers that stay at root (no /api/v1 prefix).
+# Admin has its own auth and admin_enabled gate.
+_ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics", "admin"})
 
 # Metrics router — no API key, Prometheus-compatible exposition format
 _metrics_router = APIRouter(tags=["metrics"])
@@ -2850,6 +2859,7 @@ class SecurityConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AI_SECURITY_", extra="forbid")
     api_key: str | None = None
+    admin_enabled: bool = False
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
     openai_routes_require_auth: bool = False
