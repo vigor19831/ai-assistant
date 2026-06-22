@@ -1081,3 +1081,180 @@ async def test_faiss_atomic_write_faiss_cleans_up_on_replace_failure(tmp_path: P
 
     temp_files = list(tmp_path.glob("*.tmp"))
     assert not temp_files, f"Temp files left behind after replace failure: {temp_files}"
+
+
+async def test_faiss_load_ntotal_mismatch_raises(tmp_path: Path) -> None:
+    """If index.ntotal differs from metadata chunk count, load() must raise."""
+    faiss = pytest.importorskip("faiss")
+    import numpy as np
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.errors import AdapterError
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = FaissVectorStore(config)
+
+    # Create FAISS index with 2 vectors
+    index = faiss.IndexFlatL2(3)
+    vectors = np.array(
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32
+    )
+    index.add(vectors)
+    faiss.write_index(index, str(tmp_path / "default.faiss"))
+
+    # Create store.json with only 1 chunk (deliberate mismatch)
+    store_data = {
+        "dim": 3,
+        "metric": "l2",
+        "chunks": [
+            {
+                "id": "c1",
+                "text": "a",
+                "metadata": {
+                    "source": "s1",
+                    "index": 0,
+                    "total_chunks": 1,
+                    "custom": {},
+                },
+            }
+        ],
+    }
+    (tmp_path / "default.store.json").write_text(
+        json.dumps(store_data), encoding="utf-8"
+    )
+
+    with pytest.raises(AdapterError, match="integrity check failed"):
+        await store.load(str(tmp_path), namespace="default")
+
+
+async def test_faiss_load_metric_mismatch_raises(tmp_path: Path) -> None:
+    """If stored metric differs from config, load() must raise."""
+    pytest.importorskip("faiss")
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.errors import VersionMismatchError
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(
+        dim=3, metric="cosine", index_path=str(tmp_path)
+    )
+    store = FaissVectorStore(config)
+
+    # Create index with l2 metric in store.json
+    import faiss
+    index = faiss.IndexFlatL2(3)
+    faiss.write_index(index, str(tmp_path / "default.faiss"))
+
+    store_data = {"dim": 3, "metric": "l2", "chunks": []}
+    (tmp_path / "default.store.json").write_text(
+        json.dumps(store_data), encoding="utf-8"
+    )
+
+    with pytest.raises(VersionMismatchError, match="metric"):
+        await store.load(str(tmp_path), namespace="default")
+
+
+async def test_faiss_delete_persists_to_disk(tmp_path: Path) -> None:
+    """After delete(), index must not resurrect chunks on reload."""
+    pytest.importorskip("faiss")
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = FaissVectorStore(config)
+
+    chunks = [
+        Chunk(id="c1", text="keep", embedding=[1.0, 0.0, 0.0]),
+        Chunk(id="c2", text="delete", embedding=[0.0, 1.0, 0.0]),
+    ]
+    await store.add(chunks, namespace="test")
+    await store.save(str(tmp_path), namespace="test")
+
+    # Delete c2
+    await store.delete(["c2"], namespace="test")
+
+    # Reload from disk and verify c2 is gone
+    store2 = FaissVectorStore(config)
+    await store2.load(str(tmp_path), namespace="test")
+    results = await store2.search(
+        [0.0, 1.0, 0.0], top_k=5, namespace="test"
+    )
+    assert not any(r.id == "c2" for r in results)
+    assert any(r.id == "c1" for r in results)
+
+
+async def test_memory_load_count_mismatch_raises(tmp_path: Path) -> None:
+    """If embeddings/chunks/metadata counts differ, load() must raise."""
+    from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+    from ai_assistant.core.domain.errors import AdapterError
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = MemoryVectorStore(config)
+
+    # Create memory_store.json with mismatched counts
+    store_data = {
+        "dim": 3,
+        "chunks": {
+            "c1": {
+                "id": "c1",
+                "text": "a",
+                "metadata": {
+                    "source": "s1",
+                    "index": 0,
+                    "total_chunks": 1,
+                    "custom": {},
+                },
+            }
+        },
+        "embeddings": {
+            "c1": [1.0, 0.0, 0.0],
+            "c2": [0.0, 1.0, 0.0],  # extra embedding without chunk
+        },
+        "metadata": {
+            "c1": {"source": "s1"},
+        },
+    }
+    p = tmp_path / "default" / "memory_store.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(store_data), encoding="utf-8")
+
+    with pytest.raises(AdapterError, match="integrity check failed"):
+        await store.load(str(tmp_path), namespace="default")
+
+
+async def test_memory_load_dim_mismatch_raises(tmp_path: Path) -> None:
+    """If embedding dim in JSON differs from config, load() must raise."""
+    from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+    from ai_assistant.core.domain.errors import AdapterError
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = MemoryVectorStore(config)
+
+    store_data = {
+        "dim": 3,
+        "chunks": {
+            "c1": {
+                "id": "c1",
+                "text": "a",
+                "metadata": {
+                    "source": "s1",
+                    "index": 0,
+                    "total_chunks": 1,
+                    "custom": {},
+                },
+            }
+        },
+        "embeddings": {
+            "c1": [1.0, 0.0],  # dim 2, expected 3
+        },
+        "metadata": {
+            "c1": {"source": "s1"},
+        },
+    }
+    p = tmp_path / "default" / "memory_store.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(store_data), encoding="utf-8")
+
+    with pytest.raises(AdapterError, match="embedding dim"):
+        await store.load(str(tmp_path), namespace="default")

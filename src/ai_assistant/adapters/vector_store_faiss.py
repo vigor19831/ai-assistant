@@ -208,7 +208,7 @@ class FaissVectorStore(IVectorStore):
         """Delete chunks by ID from a namespace.
 
         FAISS does not support true deletion without rebuilding the index.
-        We rebuild the index from remaining chunks.
+        We rebuild the index from remaining chunks and persist immediately.
         """
         async with self._lock:
             ns = self._get_ns(namespace)
@@ -227,6 +227,8 @@ class FaissVectorStore(IVectorStore):
         if remaining:
             await self.add(remaining, namespace=namespace)
 
+        # Persist deletion so it survives restart
+        await self.save(self.config.index_path, namespace=namespace)
     def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
         """Write FAISS index atomically via temp file + os.replace.
 
@@ -375,6 +377,25 @@ class FaissVectorStore(IVectorStore):
                     f"config dim {self.config.dim}"
                 )
 
+            stored_metric = store_data.get("metric")
+            if (
+                stored_metric is not None
+                and stored_metric.lower() != self.config.metric.lower()
+            ):
+                _logger.error(
+                    "FAISS metric mismatch: stored vs config",
+                    extra={
+                        "stored_metric": stored_metric,
+                        "config_metric": self.config.metric,
+                    },
+                )
+                raise VersionMismatchError(
+                    "Reindex required: stored "
+                    f"metric '{stored_metric}' != "
+                    "config metric "
+                    f"'{self.config.metric}'"
+                )
+
             # Load FAISS index
             ns.index = await asyncio.to_thread(faiss.read_index, str(index_file))
 
@@ -385,6 +406,34 @@ class FaissVectorStore(IVectorStore):
                 chunk = _chunk_from_dict(chunk_data)
                 ns.chunks[ns.next_id] = chunk
                 ns.next_id += 1
+
+            # Integrity check: FAISS vector count must match metadata chunk count
+            ntotal = ns.index.ntotal
+            chunk_count = len(ns.chunks)
+            if ntotal != chunk_count:
+                # Rollback partial state to
+                # prevent stale data on retry
+                ns.index = None
+                ns.chunks.clear()
+                ns.next_id = 0
+                _logger.error(
+                    "FAISS index integrity check failed: "
+                    "vector count does not match "
+                    "metadata chunk count",
+                    extra={
+                        "namespace": namespace,
+                        "ntotal": ntotal,
+                        "chunks": chunk_count,
+                    },
+                )
+                raise AdapterError(
+                    "Index integrity check failed "
+                    f"for namespace '{namespace}': "
+                    f"FAISS has {ntotal} "
+                    "vectors but metadata has "
+                    f"{chunk_count} chunks. Please "
+                    "reindex to restore consistency."
+                )
 
             _logger.info(
                 "FAISS loaded namespace",

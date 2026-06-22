@@ -12,9 +12,12 @@ import numpy as np
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
-from ai_assistant.core.domain.errors import VersionMismatchError
+from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
+
+_logger = get_logger("adapters.vector_store_memory")
 
 __all__ = ["MemoryVectorStore"]
 
@@ -185,13 +188,63 @@ class MemoryVectorStore(IVectorStore):
                 )
                 for cid, c in data.get("chunks", {}).items()
             }
-            ns.embeddings = {
-                cid: np.array(emb, dtype=np.float32)
-                for cid, emb in data.get("embeddings", {}).items()
-            }
+            ns.embeddings = {}
+            for cid, emb in data.get("embeddings", {}).items():
+                arr = np.array(emb, dtype=np.float32)
+                if arr.shape[0] != self.dim:
+                    _logger.error(
+                        "Memory index load failed: "
+                        "embedding dimension mismatch",
+                        extra={
+                            "namespace": namespace,
+                            "chunk_id": cid,
+                            "expected": self.dim,
+                            "got": arr.shape[0],
+                        },
+                    )
+                    raise AdapterError(
+                        "Index load failed for "
+                        f"namespace '{namespace}': "
+                        f"chunk '{cid}' has embedding "
+                        f"dim {arr.shape[0]}, expected "
+                        f"{self.dim}. Please reindex."
+                    )
+                ns.embeddings[cid] = arr
+
             ns.metadata = data.get("metadata", {})
             ns._order.clear()
             ns._order.extend(ns.chunks.keys())
+
+            # Integrity check: all three structures must be consistent
+            emb_count = len(ns.embeddings)
+            chunk_count = len(ns.chunks)
+            meta_count = len(ns.metadata)
+            if emb_count != chunk_count or meta_count != chunk_count:
+                # Rollback partial state to
+                # prevent stale data on retry
+                ns.chunks.clear()
+                ns.embeddings.clear()
+                ns.metadata.clear()
+                ns._order.clear()
+                _logger.error(
+                    "Memory index integrity check "
+                    "failed: counts do not match "
+                    "(embeddings/chunks/metadata)",
+                    extra={
+                        "namespace": namespace,
+                        "embeddings": emb_count,
+                        "chunks": chunk_count,
+                        "metadata": meta_count,
+                    },
+                )
+                raise AdapterError(
+                    "Index integrity check failed "
+                    f"for namespace '{namespace}': "
+                    f"embeddings={emb_count}, "
+                    f"chunks={chunk_count}, "
+                    f"metadata={meta_count}. Please "
+                    "reindex to restore consistency."
+                )
 
     async def list_by_filter(
         self,

@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 09:04 UTC
+> Auto-generated from source code. Updated: 2026-06-22 10:10 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -100,6 +100,7 @@
 | `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium |
+| `api.lifespan` | `Exception` | logger.exception( | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning( | Medium |

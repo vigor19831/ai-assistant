@@ -72,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:
             logger.exception("Index load failed on startup")
+            raise
 
     try:
         yield
