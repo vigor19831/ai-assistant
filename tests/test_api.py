@@ -305,53 +305,82 @@ class TestAPISecurity:
 
     # ── Admin endpoint integration ──
 
-    async def test_admin_update_api_key(self):
-        """Given: admin endpoint receives a new api_key.
-        When: update_api_key is called.
-        Then: set_api_key stores the new key; config is NOT mutated.
+    def _make_admin_state(self, enabled: bool) -> MagicMock:
+        """Helper: create AppState mock with nested security config."""
+        state = MagicMock(spec=AppState)
+        state.config = MagicMock()
+        state.config.security = MagicMock()
+        state.config.security.admin_enabled = enabled
+        return state
+
+    async def test_admin_disabled_returns_404(self):
+        """Given: admin_enabled is False (default).
+        When: any admin endpoint is called.
+        Then: HTTPException 404 is raised.
+        """
+        state = self._make_admin_state(enabled=False)
+        req = _UpdateApiKeyRequest(api_key="new-key")
+        with pytest.raises(HTTPException) as exc_info:
+            await update_api_key(req, state)
+        assert exc_info.value.status_code == 404
+
+    async def test_admin_update_api_key_when_enabled(self):
+        """Given: admin_enabled is True.
+        When: admin endpoint receives a new api_key.
+        Then: set_api_key stores the new key.
         """
         set_api_key(None)
-        state = MagicMock(spec=AppState)
+        state = self._make_admin_state(enabled=True)
         req = _UpdateApiKeyRequest(api_key="new-key")
         resp = await update_api_key(req, state)
         assert resp.updated is True
         assert get_expected_api_key() == "new-key"
 
-    async def test_admin_clear_api_key(self):
-        """Given: admin endpoint receives api_key=None.
-        When: update_api_key is called.
-        Then: override is cleared; config is NOT mutated.
+    async def test_admin_clear_api_key_when_enabled(self):
+        """Given: admin_enabled is True.
+        When: admin endpoint receives api_key=None.
+        Then: override is cleared.
         """
         set_api_key("old-key")
-        state = MagicMock(spec=AppState)
+        state = self._make_admin_state(enabled=True)
         req = _UpdateApiKeyRequest(api_key=None)
         resp = await update_api_key(req, state)
         assert resp.updated is True
         assert get_expected_api_key() is None
 
-    async def test_admin_update_empty_key_rejected(self):
-        """Given: admin endpoint receives empty string api_key.
-        When: update_api_key is called.
+    async def test_admin_update_empty_key_rejected_when_enabled(self):
+        """Given: admin_enabled is True.
+        When: admin endpoint receives empty string api_key.
         Then: HTTPException 400 is raised.
         """
         set_api_key(None)
-        state = MagicMock(spec=AppState)
+        state = self._make_admin_state(enabled=True)
         req = _UpdateApiKeyRequest(api_key="")
         with pytest.raises(HTTPException) as exc_info:
             await update_api_key(req, state)
         assert exc_info.value.status_code == 400
 
-    async def test_admin_update_key_response_structure(self):
-        """Given: a valid key update request.
+    async def test_admin_update_key_response_structure_when_enabled(self):
+        """Given: admin_enabled is True.
         When: update_api_key returns.
         Then: response conforms to _UpdateApiKeyResponse schema.
         """
-        state = MagicMock(spec=AppState)
+        state = self._make_admin_state(enabled=True)
         req = _UpdateApiKeyRequest(api_key="k")
         resp = await update_api_key(req, state)
         assert isinstance(resp, _UpdateApiKeyResponse)
         assert resp.updated is True
         assert resp.source == "runtime_override"
+
+    async def test_admin_current_model_disabled_returns_404(self):
+        """Given: admin_enabled is False.
+        When: get_current_model is called.
+        Then: HTTPException 404 is raised.
+        """
+        state = self._make_admin_state(enabled=False)
+        with pytest.raises(HTTPException) as exc_info:
+            await admin.get_current_model(state)
+        assert exc_info.value.status_code == 404
 
     # ── Thread safety ──
 
@@ -1015,6 +1044,16 @@ class TestAPIRouter:
         assert "rag" in tags
         assert "metrics" in tags
 
+    def test_admin_router_is_root_tagged(self):
+        """Given: admin router is in _ROUTERS.
+        When: its tags are checked against _ROOT_TAGS.
+        Then: it is root-tagged (no /api/v1 prefix, uses own auth).
+        """
+        from ai_assistant.api.router import _ROOT_TAGS
+        admin_routers = [r for r in _ROUTERS if "admin" in r.tags]
+        assert len(admin_routers) == 1
+        assert any(t in _ROOT_TAGS for t in admin_routers[0].tags)
+
     def test_no_deferred_import_errors(self):
         """Given: a missing feature handler would break at runtime.
         When: assemble_routers is imported.
@@ -1041,7 +1080,7 @@ class TestAPIRouter:
         """
         routers = assemble_routers()
         routers_with_deps = [r for r in routers if r.dependencies]
-        # 3 legacy wrappers only
+        # 3 legacy wrappers only (admin has deps on router level)
         assert len(routers_with_deps) == 3
 
     def test_metrics_never_requires_auth(self):

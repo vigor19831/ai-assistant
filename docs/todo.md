@@ -1,11 +1,11 @@
-Выдай список по одной строке в формате, все задания независимы друг от друга: [ ] Название + Краткая суть | Подробное описание (что, зачем, и ⚠️ CORE CHANGE если критично) | Файлы для правки (опционально) | Файлы тестов / где проверять.
+Выдай список по одной строке в формате, все задания независимы друг от друга: [ ] Название + Краткая суть | Подробное описание (что, зачем, и ⚠️ CORE CHANGE если критично) | Файлы для правки | Файлы тестов / где проверять.
 
 ==============================================================================
 # TODO
 =========================================================================
 [+] OpenAI-роуты без авторизации | `/v1/chat/completions` и `/v1/models` доступны без API key. Любой клиент (Page Assist, Continue.dev) может использовать сервер, но это означает и любой неавторизованный доступ. Добавить опциональный `require_api_key` через конфиг `security.openai_routes_require_auth: bool` (default: false для backward compat) или документировать риск явно. | `src/ai_assistant/api/router.py`, `src/ai_assistant/core/config.py` , src/ai_assistant/main.py| `tests/test_api.py`
 
-[ ] Admin API защищён тем же ключом, что и пользовательский | `POST /admin/api-key` позволяет сменить ключ любому, у кого есть обычный API key. Нет разделения ролей. Либо ввести отдельный `admin_api_key` в `SecurityConfig`, либо убрать admin endpoint из production, либо добавить IP-based restriction. | `src/ai_assistant/api/admin.py`, `src/ai_assistant/api/security.py`, `src/ai_assistant/core/config.py` | `tests/test_api.py`
+[+] Admin API защищён тем же ключом, что и пользовательский | `POST /admin/api-key` позволяет сменить ключ любому, у кого есть обычный API key. Нет разделения ролей. Либо ввести отдельный `admin_api_key` в `SecurityConfig`, либо убрать admin endpoint из production, либо добавить IP-based restriction. | `src/ai_assistant/api/admin.py`, `src/ai_assistant/api/security.py`, `src/ai_assistant/core/config.py` | `tests/test_api.py`
 
 [ ] Потеря данных при shutdown — ошибка сохранения индекса подавляется | В `lifespan.py` `except Exception: logger.exception("Index save failed")` молча глотает ошибку записи на диск. После `kill -9` или OOM индекс может остаться в несогласованном состоянии. Добавить retry с экспоненциальным backoff, и при фатальной ошибке — non-zero exit code или явный статус "degraded". | `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`, ручной тест: `kill -9` → старт → проверить индекс
 

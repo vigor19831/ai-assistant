@@ -187,6 +187,7 @@ class SecurityConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AI_SECURITY_", extra="forbid")
     api_key: str | None = None
+    admin_enabled: bool = False
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
     openai_routes_require_auth: bool = False

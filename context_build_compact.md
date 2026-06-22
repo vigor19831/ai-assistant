@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-22 06:29:52 UTC | **Mode:** `compact`
-> **Metrics:** 113 files | 95 Python | 19,223 LOC
+> **Generated:** 2026-06-22 07:54:38 UTC | **Mode:** `compact`
+> **Metrics:** 113 files | 95 Python | 19,309 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
 ---
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 06:29 UTC
+> Auto-generated from source code. Updated: 2026-06-22 07:54 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -834,6 +834,7 @@ ui/
 - `src/ai_assistant/api/router.py`
   - → `ai_assistant.api.security: require_api_key`
   - → `ai_assistant.api: admin`
+  - → `ai_assistant.core.config: SecurityConfig`
   - → `ai_assistant.core.metrics: get_metrics, get_metrics_json`
   - → `ai_assistant.features.chat: handlers`
   - → `ai_assistant.features.rag: handlers`
@@ -924,7 +925,7 @@ ui/
   - → `ai_assistant.api.lifespan: lifespan`
   - → `ai_assistant.api.middleware: MetricsMiddleware`
   - → `ai_assistant.api.router: assemble_routers`
-  - → `ai_assistant.core.config: CORSConfig, load_config`
+  - → `ai_assistant.core.config: CORSConfig, SecurityConfig, load_config`
 - `tests/conftest.py`
   - → `ai_assistant.adapters.chunker_simple: SimpleChunker`
   - → `ai_assistant.adapters.embedder_mock: MockEmbedder`
@@ -981,7 +982,7 @@ ui/
   - → `ai_assistant.api.security: SECURITY_MAX_BODY, bearer_scheme, check_request_size, get_expected_api_key, require_api_key, set_api_key`
   - → `ai_assistant.api.security: set_api_key`
   - → `ai_assistant.api: admin`
-  - → `ai_assistant.core.config: AppConfig, RAGStep, load_config`
+  - → `ai_assistant.core.config: AppConfig, RAGStep, SecurityConfig, load_config`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.pipeline: RAGPipeline`
   - → `ai_assistant.core.pipeline_steps: STEP_REGISTRY`
@@ -2421,6 +2422,7 @@ from fastapi import APIRouter, Depends, Response
 
 from ai_assistant.api import admin
 from ai_assistant.api.security import require_api_key
+from ai_assistant.core.config import SecurityConfig
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
 
 # Explicit feature handler imports — import errors surface at compile time
@@ -2458,23 +2460,48 @@ _ROUTERS: list[APIRouter] = [
 ]
 
 
-def assemble_routers() -> list[APIRouter]:
-    """Collect routers from explicitly imported feature handlers + admin."""
+def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
+    """Collect routers from explicitly imported feature handlers + admin.
+
+    Args:
+        security: Security configuration. If *openai_routes_require_auth* is True,
+            OpenAI-compatible routes (chat-oai) will require API key auth.
+    """
     routers = list(_ROUTERS)
 
-    # Wrap each router with API key dependency and apply /api/v1 prefix
-    # OpenAI-compatible routers (tagged with _OAI_TAG) stay at root without wrapping
+    # Determine which root-tagged routers require protection
+    protected_root_tags: set[str] = set()
+    if security is not None and security.openai_routes_require_auth:
+        protected_root_tags.add("chat-oai")
+    # Metrics always stays unprotected
+    always_unprotected: frozenset[str] = frozenset({"metrics"})
+
     wrapped: list[APIRouter] = []
     for router in routers:
         is_root = any(tag in _ROOT_TAGS for tag in router.tags)
-        if is_root:
-            # Root routers keep their original paths, no prefix, no extra wrapper
+        is_always_unprotected = any(
+            tag in always_unprotected for tag in router.tags
+        )
+        is_protected_root = any(
+            tag in protected_root_tags for tag in router.tags
+        )
+
+        if is_always_unprotected:
+            # Metrics always stays unprotected
             wrapped.append(router)
-        else:
-            # Legacy routers get /api/v1 prefix + API key dependency via wrapper
+        elif not is_root:
+            # Legacy routers get /api/v1 prefix + API key dependency
             wrapper = APIRouter(dependencies=[Depends(require_api_key)])
             wrapper.include_router(router, prefix="/api/v1")
             wrapped.append(wrapper)
+        elif is_protected_root:
+            # Root router that needs auth: wrap with dependency, no prefix
+            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            wrapper.include_router(router)
+            wrapped.append(wrapper)
+        else:
+            # Root routers keep their original paths, no prefix, no extra wrapper
+            wrapped.append(router)
 
     return wrapped
 
@@ -2825,6 +2852,7 @@ class SecurityConfig(BaseSettings):
     api_key: str | None = None
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
+    openai_routes_require_auth: bool = False
 
 
 class NamespaceConfig(BaseModel):
@@ -2855,7 +2883,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1.5.0"
+    config_version: str = "1.6.0"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
@@ -6582,7 +6610,7 @@ from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.lifespan import lifespan as _default_lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import assemble_routers
-from ai_assistant.core.config import CORSConfig, load_config
+from ai_assistant.core.config import CORSConfig, SecurityConfig, load_config
 class _InfoResponse(BaseModel):
 
 def _load_cors_config(state: InitializedAppState | None):

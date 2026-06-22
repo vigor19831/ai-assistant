@@ -539,30 +539,40 @@ class TestE2ERAG:
 @pytest.mark.slow
 @pytest.mark.e2e
 class TestE2EAdmin:
-    """E2E tests for /api/v1/admin/* endpoints."""
+    """E2E tests for /admin/* endpoints."""
 
-    def test_current_model(self, client, mock_state):
-        """Given: LLM model and provider are configured.
-        When: GET /api/v1/admin/current-model.
-        Then: returns both values."""
+    def test_current_model_disabled_by_default(self, client, mock_state):
+        """Given: admin_enabled is False (default).
+        When: GET /admin/current-model.
+        Then: returns 404."""
         mock_state.config.llm.model = "test-model"
         mock_state.config.llm.provider = "test-provider"
-        resp = client.get("/api/v1/admin/current-model")
+        resp = client.get("/admin/current-model")
+        assert resp.status_code == 404
+
+    def test_current_model_when_enabled(self, client, mock_state):
+        """Given: admin_enabled is True.
+        When: GET /admin/current-model.
+        Then: returns both values."""
+        mock_state.config.security.admin_enabled = True
+        mock_state.config.llm.model = "test-model"
+        mock_state.config.llm.provider = "test-provider"
+        resp = client.get("/admin/current-model")
         assert resp.status_code == 200
         data = resp.json()
         assert data["model"] == "test-model"
         assert data["provider"] == "test-provider"
 
-    def test_update_key(self, client, monkeypatch):
-        """Given: a new API key is provided.
-        When: POST /api/v1/admin/api-key.
+    def test_update_key_when_enabled(self, client, mock_state, monkeypatch):
+        """Given: admin_enabled is True and a new API key is provided.
+        When: POST /admin/api-key.
         Then: key is updated with source 'runtime_override'."""
+        mock_state.config.security.admin_enabled = True
         monkeypatch.setattr(
             "ai_assistant.api.security.get_expected_api_key", lambda: "old-key"
         )
-        # Use the current expected key for auth
         resp = client.post(
-            "/api/v1/admin/api-key",
+            "/admin/api-key",
             json={"api_key": "new-secret-key"},
             headers={"Authorization": "Bearer old-key"},
         )
@@ -571,15 +581,26 @@ class TestE2EAdmin:
         assert data["updated"] is True
         assert data["source"] == "runtime_override"
 
-    def test_clear_key(self, client):
-        """Given: admin wants to clear runtime API key.
-        When: POST /api/v1/admin/api-key with null.
+    def test_clear_key_when_enabled(self, client, mock_state):
+        """Given: admin_enabled is True and admin wants to clear runtime API key.
+        When: POST /admin/api-key with null.
         Then: key is cleared and source indicates env/none."""
+        mock_state.config.security.admin_enabled = True
         resp = client.post(
-            "/api/v1/admin/api-key",
+            "/admin/api-key",
             json={"api_key": None},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["updated"] is True
         assert data["source"] == "env_var_or_none"
+
+    def test_update_key_disabled_by_default(self, client):
+        """Given: admin_enabled is False (default).
+        When: POST /admin/api-key.
+        Then: returns 404."""
+        resp = client.post(
+            "/admin/api-key",
+            json={"api_key": "new-secret-key"},
+        )
+        assert resp.status_code == 404

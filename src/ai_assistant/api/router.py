@@ -18,8 +18,9 @@ from ai_assistant.features.rag import handlers as rag_handlers
 
 __all__ = ["assemble_routers"]
 
-# Tags for routers that stay at root (no /api/v1 prefix, no API key).
-_ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics"})
+# Tags for routers that stay at root (no /api/v1 prefix).
+# Admin has its own auth and admin_enabled gate.
+_ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics", "admin"})
 
 # Metrics router — no API key, Prometheus-compatible exposition format
 _metrics_router = APIRouter(tags=["metrics"])

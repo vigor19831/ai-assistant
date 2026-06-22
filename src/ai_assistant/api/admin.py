@@ -8,11 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ai_assistant.api.deps import AppState, get_state
-from ai_assistant.api.security import set_api_key
+from ai_assistant.api.security import require_api_key, set_api_key
 
 __all__ = ["router"]
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 class _CurrentModelResponse(BaseModel):
@@ -33,6 +37,8 @@ class _UpdateApiKeyResponse(BaseModel):
 async def get_current_model(
     state: Annotated[AppState, Depends(get_state)],
 ) -> _CurrentModelResponse:
+    if not state.config.security.admin_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
     cfg = state.config.llm
     return _CurrentModelResponse(
         model=cfg.model,
@@ -45,6 +51,8 @@ async def update_api_key(
     req: _UpdateApiKeyRequest,
     state: Annotated[AppState, Depends(get_state)],
 ) -> _UpdateApiKeyResponse:
+    if not state.config.security.admin_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
     if req.api_key is not None and not req.api_key:
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
     set_api_key(req.api_key)
