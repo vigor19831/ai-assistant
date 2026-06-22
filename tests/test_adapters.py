@@ -1058,3 +1058,26 @@ async def test_faiss_save_no_temp_files_after_success(tmp_path: Path) -> None:
     # Check for any .tmp files
     all_tmp = list(tmp_path.rglob("*.tmp"))
     assert not all_tmp, f"Unexpected .tmp files: {all_tmp}"
+
+
+async def test_faiss_atomic_write_faiss_cleans_up_on_replace_failure(tmp_path: Path) -> None:
+    """If os.replace fails after faiss.write_index, temp file must be cleaned up."""
+    faiss = pytest.importorskip("faiss")
+    from unittest.mock import patch
+    from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+    store = FaissVectorStore(config)
+
+    chunks = [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])]
+    await store.add(chunks, namespace="test")
+
+    target = str(tmp_path / "test.faiss")
+
+    with patch("os.replace", side_effect=OSError("replace failed")):
+        with pytest.raises(OSError, match="replace failed"):
+            store._atomic_write_faiss(store._get_ns("test").index, target)
+
+    temp_files = list(tmp_path.glob("*.tmp"))
+    assert not temp_files, f"Temp files left behind after replace failure: {temp_files}"
