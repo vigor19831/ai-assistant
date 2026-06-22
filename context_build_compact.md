@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-22 10:10:07 UTC | **Mode:** `compact`
-> **Metrics:** 113 files | 95 Python | 19,411 LOC
+> **Generated:** 2026-06-22 10:43:11 UTC | **Mode:** `compact`
+> **Metrics:** 113 files | 95 Python | 19,658 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 36
 
 ---
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 10:10 UTC
+> Auto-generated from source code. Updated: 2026-06-22 10:43 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -381,7 +381,11 @@ These rules themselves change:
 | `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High |
 | `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High |
 | `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High |
+| `adapters.vector_store_faiss` | `AdapterError` | Index integrity check failed for namespace '{...}': FAISS ha... | High |
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High |
+| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored metric '{...}' != config metric '{.... | High |
+| `adapters.vector_store_memory` | `AdapterError` | Index load failed for namespace '{...}': chunk '{...}' has e... | High |
+| `adapters.vector_store_memory` | `AdapterError` | Index integrity check failed for namespace '{...}': embeddin... | High |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High |
 | `api.admin` | `HTTPException` | Unknown error | High |
 | `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High |
@@ -808,8 +812,9 @@ ui/
   - → `ai_assistant.adapters._registry: register`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
-  - → `ai_assistant.core.domain.errors: VersionMismatchError`
+  - → `ai_assistant.core.domain.errors: AdapterError, VersionMismatchError`
   - → `ai_assistant.core.io_utils: atomic_write`
+  - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.ports.vector_store: IVectorStore`
 - `src/ai_assistant/api/admin.py`
   - → `ai_assistant.api.deps: AppState, get_state`
@@ -2306,6 +2311,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         except Exception:
             logger.exception("Index load failed on startup")
+            raise
 
     try:
         yield
@@ -6556,8 +6562,9 @@ import numpy as np
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
-from ai_assistant.core.domain.errors import VersionMismatchError
+from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.io_utils import atomic_write
+from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
 class MemoryVectorStore(IVectorStore):
     """Simple in-memory vector store with multi-namespace support and FIFO eviction.

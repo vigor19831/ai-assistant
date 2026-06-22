@@ -73,8 +73,8 @@ def _discover_documents(
                 continue
 
             rel_source = str(file_path.relative_to(root))
-            abs_path = file_path.absolute()  # NOT resolve() — preserve symlinks
-            source_uri = Path(abs_path).as_uri()
+            # Relative path from documents_root — no absolute path leakage
+            source_uri = file_path.relative_to(root).as_posix()
 
             if len(content) > CHUNK_SIZE:
                 for i, start in enumerate(range(0, len(content), CHUNK_SIZE)):

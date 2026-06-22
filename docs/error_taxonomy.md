@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 10:10 UTC
+> Auto-generated from source code. Updated: 2026-06-22 10:43 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -36,7 +36,11 @@
 | `adapters.vector_store_faiss` | `AdapterError` | Index metadata missing for namespace '{...}': {...} not foun... | High |
 | `adapters.vector_store_faiss` | `AdapterError` | Index file missing for namespace '{...}': {...} not found. P... | High |
 | `adapters.vector_store_faiss` | `AdapterError` | Invalid store.json for namespace '{...}': {...} | High |
+| `adapters.vector_store_faiss` | `AdapterError` | Index integrity check failed for namespace '{...}': FAISS ha... | High |
 | `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High |
+| `adapters.vector_store_faiss` | `VersionMismatchError` | Reindex required: stored metric '{...}' != config metric '{.... | High |
+| `adapters.vector_store_memory` | `AdapterError` | Index load failed for namespace '{...}': chunk '{...}' has e... | High |
+| `adapters.vector_store_memory` | `AdapterError` | Index integrity check failed for namespace '{...}': embeddin... | High |
 | `adapters.vector_store_memory` | `VersionMismatchError` | Reindex required: stored dim {...} != config dim {...} | High |
 | `api.admin` | `HTTPException` | Unknown error | High |
 | `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High |

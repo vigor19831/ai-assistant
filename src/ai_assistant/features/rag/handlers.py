@@ -284,7 +284,7 @@ async def save_chat(
                     "id": file_path.stem,
                     "content": content,
                     "metadata": {
-                        "source": str(file_path),
+                        "source": str(Path(namespace) / filename),
                         "folder": namespace,
                         "type": "chat_export",
                     },

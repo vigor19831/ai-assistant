@@ -392,6 +392,60 @@ class TestRAGIndexing:
 
 # ── Reranker Regression ──
 
+
+    @pytest.mark.asyncio
+    async def test_source_uri_is_relative_not_absolute(self, tmp_path, mock_chunker, mock_embedder, mock_vector_store):
+        """REGRESSION: source_uri must be relative path, not absolute file URI.
+
+        Given: documents in a temp folder.
+        When: index_folder discovers and indexes them.
+        Then: source_uri contains relative path, not absolute file:// URI.
+        """
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        sources = tmp_path / "sources"
+        personal = sources / "personal"
+        personal.mkdir(parents=True)
+        (personal / "notes.md").write_text("# Test note")
+
+        # Capture what the chunker receives
+        captured_docs: list[dict[str, Any]] = []
+        original_chunk = mock_chunker.chunk
+
+        async def capturing_chunk(document: Any) -> list[Any]:
+            captured_docs.append({
+                "id": document.id,
+                "metadata": dict(document.metadata) if hasattr(document, "metadata") else {},
+            })
+            return await original_chunk(document)
+
+        mock_chunker.chunk = capturing_chunk
+        mock_vector_store.config.index_path = None
+
+        result = await index_folder(
+            folder="personal",
+            clear=False,
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+            documents_root=sources,
+        )
+
+        assert result["success"] is True
+        assert len(captured_docs) > 0
+
+        for doc in captured_docs:
+            source_uri = doc.get("metadata", {}).get("source_uri", "")
+            assert not source_uri.startswith("file:///"), (
+                f"source_uri must not be absolute file URI, got: {source_uri}"
+            )
+            assert "/" in source_uri or "\\" not in source_uri, (
+                f"source_uri should use forward slashes (as_posix), got: {source_uri}"
+            )
+            assert "personal" in source_uri, (
+                f"source_uri should contain relative path, got: {source_uri}"
+            )
+
 class TestRerankerRegression:
     """REGRESSION P0.6: reranker must be present in PipelineData for [p] prefix queries."""
 

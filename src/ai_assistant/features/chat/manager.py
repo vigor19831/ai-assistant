@@ -75,7 +75,7 @@ class ChatManager:
             url = None
 
             if md.source_uri:
-                # source_uri is already a valid URI; extract filename for display
+                # source_uri is a relative path; extract filename for display
                 display = md.source_uri.rsplit("/", 1)[-1] or md.source
                 url = md.source_uri
             elif md.original_path:
