@@ -5,9 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
+from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api import admin
-from ai_assistant.api.security import require_api_key
+from ai_assistant.api.security import (
+    SECURITY_MAX_BODY,
+    check_request_size,
+    require_api_key,
+)
 from ai_assistant.core.config import SecurityConfig
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
 
@@ -63,6 +68,13 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
     # Metrics always stays unprotected
     always_unprotected: frozenset[str] = frozenset({"metrics"})
 
+    # Body size limit from config; fallback to module default if no security config
+    _max_body: int = security.max_body_size if security is not None else SECURITY_MAX_BODY
+
+    async def _size_check(request: Request) -> None:
+        """Inject configured max body size into check_request_size."""
+        await check_request_size(request, max_sz=_max_body)
+
     wrapped: list[APIRouter] = []
     for router in routers:
         is_root = any(tag in _ROOT_TAGS for tag in router.tags)
@@ -77,13 +89,19 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
             # Metrics always stays unprotected
             wrapped.append(router)
         elif not is_root:
-            # Legacy routers get /api/v1 prefix + API key dependency
-            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            # Legacy routers get /api/v1 prefix + API key + body size check
+            wrapper = APIRouter(dependencies=[
+                Depends(require_api_key),
+                Depends(_size_check),
+            ])
             wrapper.include_router(router, prefix="/api/v1")
             wrapped.append(wrapper)
         elif is_protected_root:
             # Root router that needs auth: wrap with dependency, no prefix
-            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            wrapper = APIRouter(dependencies=[
+                Depends(require_api_key),
+                Depends(_size_check),
+            ])
             wrapper.include_router(router)
             wrapped.append(wrapper)
         else:

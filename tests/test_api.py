@@ -303,6 +303,24 @@ class TestAPISecurity:
             await check_request_size(mock_request)
         assert exc_info.value.status_code == 400
 
+    async def test_check_request_size_custom_limit_allows(self, mock_request):
+        """Given: custom max_sz larger than content-length.
+        When: check_request_size is called with custom limit.
+        Then: no exception is raised.
+        """
+        mock_request.headers = {"content-length": "1024"}
+        await check_request_size(mock_request, max_sz=2048)
+
+    async def test_check_request_size_custom_limit_rejects(self, mock_request):
+        """Given: custom max_sz smaller than content-length.
+        When: check_request_size is called with custom limit.
+        Then: HTTPException 413 is raised.
+        """
+        mock_request.headers = {"content-length": "2048"}
+        with pytest.raises(HTTPException) as exc_info:
+            await check_request_size(mock_request, max_sz=1024)
+        assert exc_info.value.status_code == 413
+
     # ── Admin endpoint integration ──
 
     def _make_admin_state(self, enabled: bool) -> MagicMock:
@@ -1097,6 +1115,24 @@ class TestAPIRouter:
                     assert not router.dependencies, (
                         "Metrics router must never require auth"
                     )
+
+    def test_assemble_routers_uses_configured_max_body(self):
+        """Given: security config with custom max_body_size.
+        When: assemble_routers creates wrapper routers.
+        Then: body size dependency is present in legacy wrappers.
+        """
+        security = SecurityConfig(max_body_size=2048)
+        routers = assemble_routers(security=security)
+        # Find a legacy wrapper (non-root, non-metrics router)
+        from ai_assistant.api.router import _ROOT_TAGS
+        legacy_wrappers = [
+            r for r in routers
+            if not any(t in _ROOT_TAGS for t in r.tags)
+            and "metrics" not in r.tags
+        ]
+        assert len(legacy_wrappers) > 0
+        for wrapper in legacy_wrappers:
+            assert wrapper.dependencies, "Legacy wrapper must have dependencies"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1,7 +1,7 @@
 # AI Context
-> **Generated:** 2026-06-22 11:41:18 UTC | **Mode:** `compact`
-> **Metrics:** 113 files | 95 Python | 19,702 LOC
-> **Full:** 48 | **Signatures:** 23 | **Listed:** 36
+> **Generated:** 2026-06-22 14:01:03 UTC | **Mode:** `compact`
+> **Metrics:** 114 files | 95 Python | 19,963 LOC
+> **Full:** 48 | **Signatures:** 23 | **Listed:** 37
 
 ---
 
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 11:41 UTC
+> Auto-generated from source code. Updated: 2026-06-22 14:01 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -398,6 +398,7 @@ These rules themselves change:
 | `api.deps` | `RuntimeError` | State not initialized | High |
 | `api.deps` | `ValueError` | Unknown step: {...} | High |
 | `api.security` | `HTTPException` | Unknown error | High |
+| `core.config` | `ValueError` | Unknown error | High |
 | `core.config` | `ValueError` | path must be non-empty | High |
 | `core.config` | `ValueError` | path must be relative, got: {...} | High |
 | `core.config` | `ValueError` | embedder.dim ({...}) must equal vector_store.dim ({...}) | High |
@@ -498,11 +499,13 @@ These rules themselves change:
 | `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium |
 | `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium |
 | `features.rag.handlers` | `Exception` | return { | Medium |
+| `features.rag.handlers` | `Exception` | _logger.warning( | Medium |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium |
+| `tests.test_rag` | `TimeoutError` | pass | Medium |
 | `tests.test_retry` | `exc_cls` | permanent | Medium |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium |
 | `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium |
@@ -592,6 +595,9 @@ Rule: If feature needs core/ change, discuss first. If solvable in adapters/, do
     pyproject.toml
     run_scripts.py
     run_servers.py
+chat_exports/
+    personal/
+        test.md
 docs/
     ai_rules.md
     drift.md
@@ -847,6 +853,8 @@ ui/
   - → `ai_assistant.features.rag: handlers`
 - `src/ai_assistant/api/security.py`
   - → `ai_assistant.core.logger: get_logger`
+- `src/ai_assistant/core/config.py`
+  - → `ai_assistant.core.constants: CHAT_NS_PREFIX`
 - `src/ai_assistant/core/pipeline.py`
   - → `ai_assistant.core.domain.errors: ConfigurationError`
   - → `ai_assistant.core.domain.pipeline: PipelineData`
@@ -910,6 +918,7 @@ ui/
 - `src/ai_assistant/features/rag/handlers.py`
   - → `ai_assistant.adapters.factory: create_adapter`
   - → `ai_assistant.api.deps: InitializedAppState, get_state`
+  - → `ai_assistant.core.config: _get_chat_namespace`
   - → `ai_assistant.core.domain.errors: LLM_UNAVAILABLE`
   - → `ai_assistant.core.logger: get_logger`
   - → `ai_assistant.core.query_parser: parse_rag_query`
@@ -1112,6 +1121,8 @@ ui/
 - `tests/test_rag.py`
   - → `ai_assistant.adapters.vector_store_faiss: FaissVectorStore`
   - → `ai_assistant.api.deps: RAGState`
+  - → `ai_assistant.core.config: CHAT_NS_PREFIX`
+  - → `ai_assistant.core.config: _get_chat_namespace`
   - → `ai_assistant.core.domain.configs: VectorStoreConfigData`
   - → `ai_assistant.core.domain.documents: Chunk, ChunkMetadata`
   - → `ai_assistant.core.domain.errors: INTERNAL_SERVER_ERROR`
@@ -1124,10 +1135,12 @@ ui/
   - → `ai_assistant.features.chat.manager: ChatManager`
   - → `ai_assistant.features.rag.handlers: reindex_documents`
   - → `ai_assistant.features.rag.handlers: router`
+  - → `ai_assistant.features.rag.handlers: save_chat`
   - → `ai_assistant.features.rag.indexing: index_folder`
   - → `ai_assistant.features.rag.manager: IndexingManager, RAGManager`
   - → `ai_assistant.features.rag.manager: RAGManager`
   - → `ai_assistant.features.rag.schemas: ReindexRequest`
+  - → `ai_assistant.features.rag.schemas: SaveChatRequest`
 - `tests/test_resilience.py`
   - → `ai_assistant.adapters.embedder_openai_compatible: OpenAICompatibleEmbedder`
   - → `ai_assistant.adapters.llm_openai_compatible: OpenAICompatibleLLM`
@@ -1245,6 +1258,7 @@ ui/
 ### Listed Only (no content)
 - `LICENSE`
 - `NOTICE`
+- `chat_exports/personal/test.md`
 - `config.example.yaml`
 - `scripts/check_all.py`
 - `scripts/check_llm.py`
@@ -1396,7 +1410,8 @@ src/*.egg-info/
 src/**/*.egg-info/
 
 # Generated docs
-docs/context_build_*.md
+context_build_*.md
+docs/error_taxonomy.md
 
 # Test artifacts
 MagicMock/
@@ -1647,6 +1662,8 @@ rag:
   max_tool_iterations: 5
   token_margin_min: 256
   token_margin_pct: 0.1
+  chat_exports_root: "chat_exports"
+  index_chat_exports: false
 
 # ── Namespaces ──
 namespaces:
@@ -2742,6 +2759,23 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ai_assistant.core.constants import CHAT_NS_PREFIX
+
+
+def _get_chat_namespace(base_namespace: str) -> str:
+    """Derive isolated chat namespace from base namespace.
+
+    Guarantees no collision with user-created namespaces by reserving
+    the CHAT_NS_PREFIX prefix. Raises ValueError if base_namespace
+    already starts with the reserved prefix (indicates misuse).
+    """
+    if base_namespace.startswith(CHAT_NS_PREFIX):
+        raise ValueError(
+            "Namespace '" + base_namespace + "' uses reserved prefix '" + CHAT_NS_PREFIX + "'"
+        )
+    return CHAT_NS_PREFIX + base_namespace
+
+
 __all__ = [
     "AppConfig",
     "ChatConfig",
@@ -2750,6 +2784,8 @@ __all__ = [
     "EmbedderConfig",
     "LLMConfig",
     "load_config",
+    "CHAT_NS_PREFIX",
+    "_get_chat_namespace",
     "NamespaceConfig",
     "RAGConfig",
     "RerankerConfig",
@@ -2894,7 +2930,8 @@ class RAGConfig(BaseSettings):
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
     documents_root: str = "sources"
-    chat_exports_root: str = "sources"
+    chat_exports_root: str = "chat_exports"
+    index_chat_exports: bool = False
 
     @field_validator("documents_root", "chat_exports_root")
     @classmethod
@@ -3056,7 +3093,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["DOCUMENTS_ROOT", "FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
+__all__ = ["CHAT_NS_PREFIX", "DOCUMENTS_ROOT", "FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
 
 RAG_NS_MAP: dict[str, str] = {
     "p": "personal",
@@ -3068,6 +3105,8 @@ RAG_NS_MAP: dict[str, str] = {
 RAG_PREFIX_RE: re.Pattern[str] = re.compile(r"^\[(p|w|o|c|b)\]\s*(.*)", re.IGNORECASE)
 
 DOCUMENTS_ROOT = Path("sources")
+
+CHAT_NS_PREFIX = "chat_"
 
 FROZEN_NO_INFO_PHRASES: frozenset[str] = frozenset(
     {
@@ -3715,6 +3754,11 @@ __all__ = [
     "increment_counter",
     "observe_histogram",
 ]
+
+# Recommended metric names for features:
+#   ai_assistant_chat_exports_total{namespace, indexed}
+#   ai_assistant_index_source_total{source_type, namespace}
+#   ai_assistant_rag_namespace_queries_total{namespace}
 
 _DEFAULT_BUCKETS = (
     0.005,
@@ -5728,6 +5772,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.api.deps import InitializedAppState, get_state
+from ai_assistant.core.config import _get_chat_namespace
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import parse_rag_query
@@ -5971,9 +6016,9 @@ async def save_chat(
     exports_root = Path(state.config.rag.chat_exports_root)
     folder = exports_root / namespace
     folder_resolved = await asyncio.to_thread(folder.resolve)
-    docs_resolved = await asyncio.to_thread(exports_root.resolve)
+    exports_root_resolved = await asyncio.to_thread(exports_root.resolve)
 
-    if not folder_resolved.is_relative_to(docs_resolved):
+    if not folder_resolved.is_relative_to(exports_root_resolved):
         raise HTTPException(status_code=400, detail="Invalid namespace")
 
     await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
@@ -5987,7 +6032,39 @@ async def save_chat(
         _logger.exception("Failed to save file")
         raise HTTPException(status_code=500, detail="Internal server error") from None
 
-    # Index the saved chat
+    # Index the saved chat only if explicitly enabled
+    if not state.config.rag.index_chat_exports:
+        return {
+            "saved": True,
+            "path": str(file_path),
+            "namespace": namespace,
+            "indexed": False,
+            "reason": "index_chat_exports is disabled",
+        }
+
+    # Collision detection: verify no user namespace uses reserved prefix
+    existing_namespaces = await state.vector_store.list_namespaces(
+        state.config.vector_store.index_path
+    )
+    chat_namespace = _get_chat_namespace(namespace)
+    if chat_namespace in existing_namespaces:
+        # Check if it's actually a user-created namespace (not our chat export)
+        # by looking for any non-chat_export type chunks
+        non_chat_chunks = await state.vector_store.list_by_filter(
+            {"type": "document"}, namespace=chat_namespace
+        )
+        if non_chat_chunks:
+            _logger.warning(
+                "Namespace collision detected",
+                extra={"base_namespace": namespace, "chat_namespace": chat_namespace},
+            )
+            return {
+                "saved": True,
+                "path": str(file_path),
+                "namespace": namespace,
+                "indexed": False,
+                "error": "Namespace collision: '" + chat_namespace + "' already exists with documents",
+            }
     try:
         manager = IndexingManager(
             chunker=state.chunker,
@@ -6006,18 +6083,19 @@ async def save_chat(
                     },
                 }
             ],
-            namespace=namespace,
+            namespace=chat_namespace,
         )
 
         # Auto-save index
         index_path = state.config.vector_store.index_path
         if index_path:
-            await state.vector_store.save(index_path, namespace=namespace)
+            await state.vector_store.save(index_path, namespace=chat_namespace)
 
         return {
             "saved": True,
             "path": str(file_path),
             "namespace": namespace,
+            "chat_namespace": chat_namespace,
             "indexed_count": result.get("indexed_count", 0),
             "chunk_count": result.get("chunk_count", 0),
         }
@@ -6052,6 +6130,27 @@ async def reindex_documents(
                     "started_at": time.time(),
                 }
             try:
+                # If clearing, also clear associated chat namespaces
+                if clear and folder is not None:
+                    chat_ns = _get_chat_namespace(folder)
+                    try:
+                        all_chat_chunks = await state.vector_store.list_by_filter(
+                            {}, namespace=chat_ns
+                        )
+                        if all_chat_chunks:
+                            await state.vector_store.delete(
+                                [cid for cid, _ in all_chat_chunks], namespace=chat_ns
+                            )
+                            _logger.info(
+                                "Cleared chat namespace during reindex",
+                                extra={"namespace": folder, "chat_namespace": chat_ns},
+                            )
+                    except Exception:
+                        _logger.warning(
+                            "Failed to clear chat namespace during reindex",
+                            extra={"namespace": folder, "chat_namespace": chat_ns},
+                        )
+
                 result = await index_folder(
                     folder=folder,
                     clear=clear,
@@ -6628,10 +6727,10 @@ from ai_assistant.core.logger import get_logger
 def _read_file(path: Path):
     """Read text file with encoding fallback."""
 
-def _discover_documents(folder: str | None=None, max_file_size: int | None=None, documents_root: Path | None=None):
+def _discover_documents(folder: str | None=None, max_file_size: int | None=None, documents_root: Path | None=None, exclude_roots: list[str] | None=None):
     """Discover documents in folders. Returns {namespace: [docs]}."""
 
-async def index_folder(folder: str | None, clear: bool, chunker: Any, embedder: Any, vector_store: Any, max_file_size: int | None=None, documents_root: Path | None=None):
+async def index_folder(folder: str | None, clear: bool, chunker: Any, embedder: Any, vector_store: Any, max_file_size: int | None=None, documents_root: Path | None=None, exclude_roots: list[str] | None=None):
     """Index documents from disk folders directly into vector store.
 
 Args:

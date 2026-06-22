@@ -53,13 +53,21 @@ def set_api_key(key: str | None) -> None:
         _override_api_key = key
 
 
-async def check_request_size(request: Request) -> None:
+async def check_request_size(
+    request: Request,
+    max_sz: int = SECURITY_MAX_BODY,
+) -> None:
+    """Check Content-Length header against size limit.
+
+    Args:
+        request: Incoming HTTP request.
+        max_sz: Maximum allowed body size in bytes. Defaults to
+            SECURITY_MAX_BODY when called without an explicit limit.
+    """
     cl = request.headers.get("content-length")
-    # Default max body size — can be overridden by caller with AppState
-    max_sz = SECURITY_MAX_BODY
     if cl:
         try:
-            if int(cl) > int(max_sz):
+            if int(cl) > max_sz:
                 raise HTTPException(status_code=413, detail="Payload too large")
         except ValueError:
             raise HTTPException(
