@@ -1,6 +1,6 @@
 # AI Context
-> **Generated:** 2026-06-22 14:01:03 UTC | **Mode:** `compact`
-> **Metrics:** 114 files | 95 Python | 19,963 LOC
+> **Generated:** 2026-06-22 15:03:35 UTC | **Mode:** `compact`
+> **Metrics:** 114 files | 95 Python | 20,019 LOC
 > **Full:** 48 | **Signatures:** 23 | **Listed:** 37
 
 ---
@@ -344,7 +344,7 @@ These rules themselves change:
 > Auto-extracted from: `error_taxonomy.md`
 ```markdown
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-22 14:01 UTC
+> Auto-generated from source code. Updated: 2026-06-22 15:03 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -845,7 +845,7 @@ ui/
 - `src/ai_assistant/api/middleware.py`
   - → `ai_assistant.core: metrics`
 - `src/ai_assistant/api/router.py`
-  - → `ai_assistant.api.security: require_api_key`
+  - → `ai_assistant.api.security: SECURITY_MAX_BODY, check_request_size, require_api_key`
   - → `ai_assistant.api: admin`
   - → `ai_assistant.core.config: SecurityConfig`
   - → `ai_assistant.core.metrics: get_metrics, get_metrics_json`
@@ -2498,9 +2498,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
+from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api import admin
-from ai_assistant.api.security import require_api_key
+from ai_assistant.api.security import (
+    SECURITY_MAX_BODY,
+    check_request_size,
+    require_api_key,
+)
 from ai_assistant.core.config import SecurityConfig
 from ai_assistant.core.metrics import get_metrics, get_metrics_json
 
@@ -2556,6 +2561,13 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
     # Metrics always stays unprotected
     always_unprotected: frozenset[str] = frozenset({"metrics"})
 
+    # Body size limit from config; fallback to module default if no security config
+    _max_body: int = security.max_body_size if security is not None else SECURITY_MAX_BODY
+
+    async def _size_check(request: Request) -> None:
+        """Inject configured max body size into check_request_size."""
+        await check_request_size(request, max_sz=_max_body)
+
     wrapped: list[APIRouter] = []
     for router in routers:
         is_root = any(tag in _ROOT_TAGS for tag in router.tags)
@@ -2570,13 +2582,19 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
             # Metrics always stays unprotected
             wrapped.append(router)
         elif not is_root:
-            # Legacy routers get /api/v1 prefix + API key dependency
-            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            # Legacy routers get /api/v1 prefix + API key + body size check
+            wrapper = APIRouter(dependencies=[
+                Depends(require_api_key),
+                Depends(_size_check),
+            ])
             wrapper.include_router(router, prefix="/api/v1")
             wrapped.append(wrapper)
         elif is_protected_root:
             # Root router that needs auth: wrap with dependency, no prefix
-            wrapper = APIRouter(dependencies=[Depends(require_api_key)])
+            wrapper = APIRouter(dependencies=[
+                Depends(require_api_key),
+                Depends(_size_check),
+            ])
             wrapper.include_router(router)
             wrapped.append(wrapper)
         else:
@@ -2644,13 +2662,21 @@ def set_api_key(key: str | None) -> None:
         _override_api_key = key
 
 
-async def check_request_size(request: Request) -> None:
+async def check_request_size(
+    request: Request,
+    max_sz: int = SECURITY_MAX_BODY,
+) -> None:
+    """Check Content-Length header against size limit.
+
+    Args:
+        request: Incoming HTTP request.
+        max_sz: Maximum allowed body size in bytes. Defaults to
+            SECURITY_MAX_BODY when called without an explicit limit.
+    """
     cl = request.headers.get("content-length")
-    # Default max body size — can be overridden by caller with AppState
-    max_sz = SECURITY_MAX_BODY
     if cl:
         try:
-            if int(cl) > int(max_sz):
+            if int(cl) > max_sz:
                 raise HTTPException(status_code=413, detail="Payload too large")
         except ValueError:
             raise HTTPException(

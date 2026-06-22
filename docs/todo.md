@@ -77,7 +77,7 @@
 
 [+] Нет ограничения размера входного сообщения LLM — body size захардкожен | `security.py` использует `SECURITY_MAX_BODY = 10_485_760` вместо `config.security.max_body_size`. 10MB JSON может содержать 2.5M токенов — OOM или DDOS. Использовать `config.security.max_body_size` в `check_request_size()`. Дополнительно: добавить проверку длины `content` в `ChatRequest`/`OAIChatCompletionRequest` на уровне Pydantic validator. | `src/ai_assistant/api/security.py`, `src/ai_assistant/features/chat/schemas.py`, `src/ai_assistant/features/rag/schemas.py` | `tests/test_api.py`
 
-[ ] Нет аудита административных операций | `admin.py` вызывает `set_api_key()` без логирования security event. После компрометации невозможно установить кто, когда и какой ключ установил. Добавить `logger.warning("Security event: API key changed", extra={"source": "admin_endpoint"})` с явным маркером. | `src/ai_assistant/api/admin.py` | `tests/test_api.py`, ручная проверка логов
+[+] Нет аудита административных операций | `admin.py` вызывает `set_api_key()` без логирования security event. После компрометации невозможно установить кто, когда и какой ключ установил. Добавить `logger.warning("Security event: API key changed", extra={"source": "admin_endpoint"})` с явным маркером. | `src/ai_assistant/api/admin.py` | `tests/test_api.py`, ручная проверка логов
 
 
 

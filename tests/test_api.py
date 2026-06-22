@@ -1666,6 +1666,14 @@ class TestAPIMiddleware:
 class TestAPIAdmin:
     """Contract tests for api/admin.py endpoints."""
 
+    def _make_admin_state(self, enabled: bool) -> MagicMock:
+        """Helper: create AppState mock with nested security config."""
+        state = MagicMock(spec=AppState)
+        state.config = MagicMock()
+        state.config.security = MagicMock()
+        state.config.security.admin_enabled = enabled
+        return state
+
     async def test_current_model_response(self):
         """Given: AppState with LLM config.
         When: get_current_model is called.
@@ -1724,3 +1732,24 @@ class TestAPIAdmin:
         resp = _UpdateApiKeyResponse(updated=True, source="runtime_override")
         assert resp.updated is True
         assert resp.source == "runtime_override"
+
+    async def test_update_api_key_logs_security_audit(self):
+        """Given: admin_enabled is True.
+        When: update_api_key changes the key.
+        Then: SECURITY_AUDIT marker is present in logs.
+        """
+        from ai_assistant.api.admin import _admin_logger, update_api_key
+
+        set_api_key(None)
+        state = self._make_admin_state(enabled=True)
+        req = _UpdateApiKeyRequest(api_key="new-key")
+
+        with patch.object(_admin_logger, "warning") as mock_log:
+            await update_api_key(req, state)
+
+        mock_log.assert_called_once()
+        call_args = mock_log.call_args
+        assert "SECURITY_AUDIT:" in call_args[0][0]
+        assert call_args.kwargs["extra"]["security_event"] == "api_key_changed"
+        assert call_args.kwargs["extra"]["actor"] == "admin_endpoint"
+        assert call_args.kwargs["extra"]["key_present"] is True

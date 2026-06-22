@@ -9,6 +9,9 @@ from pydantic import BaseModel
 
 from ai_assistant.api.deps import AppState, get_state
 from ai_assistant.api.security import require_api_key, set_api_key
+from ai_assistant.core.logger import get_logger
+
+_admin_logger = get_logger("admin")
 
 __all__ = ["router"]
 
@@ -57,4 +60,14 @@ async def update_api_key(
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
     set_api_key(req.api_key)
     source = "runtime_override" if req.api_key is not None else "env_var_or_none"
+    _admin_logger.warning(
+        "SECURITY_AUDIT: api_key_changed actor=admin_endpoint source=%s",
+        source,
+        extra={
+            "security_event": "api_key_changed",
+            "actor": "admin_endpoint",
+            "source": source,
+            "key_present": req.api_key is not None,
+        },
+    )
     return _UpdateApiKeyResponse(updated=True, source=source)
