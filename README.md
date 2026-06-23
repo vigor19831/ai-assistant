@@ -1,6 +1,7 @@
 # AI Assistant
 
 **Solo-maintained. No contributions accepted.**
+This project is developed for personal use by a non-programmer. AI writes the code; I set the direction.
 
 This repository is published as-is.
 I do not review issues, discussions, or pull requests.
@@ -19,7 +20,7 @@ Offline-first, OpenAI-compatible LLM/embedder adapters.
 
 ---
 ### 1. First Time Setup
----
+
 1. **Download:** Click the green **"Code"** button on GitHub → **"Download ZIP"** → extract the ZIP
 
 2. **Open a terminal** in the project folder:
@@ -74,7 +75,6 @@ Then open http://localhost:8000 in your browser.
 
 ---
 ### 3. Daily Use
----
 
 **Servers:**
 
