@@ -142,13 +142,13 @@ class TestEmbedderResilience:
     ) -> None:
         """Given: API times out repeatedly.
         When: embed() is called.
-        Then: raises after exhausting retries.
+        Then: raises AdapterError after exhausting retries.
         """
         with respx.mock:
             respx.post("http://localhost:9999/v1/embeddings").mock(
                 side_effect=httpx.TimeoutException("Connection timed out")
             )
-            with pytest.raises(httpx.TimeoutException):
+            with pytest.raises(AdapterError, match="Embedder HTTP request failed"):
                 await embedder.embed(["hello"])
 
 

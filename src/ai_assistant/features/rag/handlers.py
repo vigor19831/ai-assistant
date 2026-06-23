@@ -207,6 +207,10 @@ async def delete_chunks(
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
+        # Persist deletion
+        index_path = state.config.vector_store.index_path
+        if index_path:
+            await state.vector_store.save(index_path, namespace=namespace)
     except Exception:
         _logger.exception("Delete chunks failed")
         errors.append("Internal server error")
@@ -420,7 +424,6 @@ async def reindex_documents(
                 rag_state.tasks.pop(task_id, None)
 
     task = asyncio.create_task(_run())
-    task.add_done_callback(lambda _: rag_state.tasks.pop(task_id, None))
     rag_state.tasks[task_id] = task
     return {"status": "started", "task_id": task_id}
 

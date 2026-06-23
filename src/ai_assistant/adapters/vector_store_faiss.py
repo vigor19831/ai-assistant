@@ -204,11 +204,46 @@ class FaissVectorStore(IVectorStore):
                     results.append(chunk)
             return results
 
+    def _rebuild_index(
+        self, chunks: list[Chunk]
+    ) -> tuple[Any, dict[int, Chunk], int]:
+        """Rebuild FAISS index and chunk mapping from scratch."""
+        dim = self.config.dim
+        index = self._make_index(dim) if chunks else None
+        chunks_dict: dict[int, Chunk] = {}
+        next_id = 0
+
+        if not chunks or index is None:
+            return index, chunks_dict, next_id
+
+        embeddings: list[list[float]] = []
+        valid_chunks: list[Chunk] = []
+        for chunk in chunks:
+            if chunk.embedding is None:
+                continue
+            if len(chunk.embedding) != dim:
+                continue
+            embeddings.append(chunk.embedding)
+            valid_chunks.append(chunk)
+
+        if embeddings:
+            vectors = np.array(embeddings, dtype=np.float32)
+            if self.config.metric.lower() == "cosine":
+                faiss.normalize_L2(vectors)
+            index.add(vectors)
+
+        for chunk in valid_chunks:
+            chunks_dict[next_id] = chunk
+            next_id += 1
+
+        return index, chunks_dict, next_id
+
     async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
         """Delete chunks by ID from a namespace.
 
         FAISS does not support true deletion without rebuilding the index.
-        We rebuild the index from remaining chunks and persist immediately.
+        The rebuild is atomic under the namespace lock. Caller must save()
+        explicitly to persist the change.
         """
         async with self._lock:
             ns = self._get_ns(namespace)
@@ -218,17 +253,10 @@ class FaissVectorStore(IVectorStore):
             remaining = [
                 chunk for chunk in ns.chunks.values() if chunk.id not in ids_to_remove
             ]
-            ns.chunks.clear()
-            ns.next_id = 0
-            ns.index = None
-            # Release lock before calling add() to avoid deadlock
-            # add() will reacquire the lock
-
-        if remaining:
-            await self.add(remaining, namespace=namespace)
-
-        # Persist deletion so it survives restart
-        await self.save(self.config.index_path, namespace=namespace)
+            new_index, new_chunks, next_id = self._rebuild_index(remaining)
+            ns.index = new_index
+            ns.chunks = new_chunks
+            ns.next_id = next_id
     def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
         """Write FAISS index atomically via temp file + os.replace.
 

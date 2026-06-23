@@ -141,3 +141,9 @@
 [+] Разделены корни чат-экспортов и документов — `chat_exports_root` по умолчанию `"chat_exports"`, чаты больше не попадают в RAG-индекс документов.
 [+] Убран хардкод лимита тела запроса — `check_request_size()` использует `config.security.max_body_size`, 10MB не захардкожен.
 [+] Добавлен аудит административных операций — `update_api_key` логирует `SECURITY_AUDIT: api_key_changed` со структурированными полями `security_event`/`actor`/`key_present` в `extra=`.
+[+] Lazy AsyncClient race | Конкурентные запросы могут создать несколько httpx.AsyncClient, утечка соединений | BUG |⚠️ CRITICAL — утечка ресурсов при нагрузке
+[+] HTTP exceptions not wrapped | httpx.HTTPError прорывается наружу вместо AdapterError, нарушает контракт адаптера | ARCH
+[+] Duplicate task cleanup | finally и done_callback оба удаляют задачу — избыточно, но безопасно | TECHDEBT
+[+] FAISS delete non-atomic | delete() меняет память, потом сохраняет — при краше между ними индекс рассинхронизирован | BUG
+[+] hasattr on credentials | hasattr(credentials, "credentials") — нарушает правило "No hasattr in production", хотя объект не портовый | ARCH
+[+] Timing side-channel on API key | != вместо hmac.compare_digest — теоретически возможен timing attack на ключ | SECURITY

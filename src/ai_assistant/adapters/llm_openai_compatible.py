@@ -43,13 +43,16 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
         self._max_stream_tokens: int = config.max_tokens * 2
-        self._client: httpx.AsyncClient | None = None
+        timeout = (
+            httpx.Timeout(self._timeout, connect=self._connect_timeout)
+            if self._connect_timeout is not None
+            else self._timeout
+        )
+        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
 
     async def shutdown(self) -> None:
         """Close persistent HTTP client."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        await self._client.aclose()
 
     def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert domain Message objects to OpenAI API message dicts."""
@@ -161,16 +164,16 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         stop = [s for s in self.config.stop_sequences if s]
         if stop:
             payload["stop"] = stop
-        if self._client is None:
-            timeout = (
-                httpx.Timeout(self._timeout, connect=self._connect_timeout)
-                if self._connect_timeout is not None
-                else self._timeout
+        try:
+            resp = await self._client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as exc:
+            _logger.exception(
+                "LLM HTTP request failed",
+                extra={"url": url, "error": str(exc)},
             )
-            self._client = httpx.AsyncClient(timeout=timeout)
-        resp = await self._client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+            raise AdapterError(f"LLM HTTP request failed: {exc}") from exc
 
         try:
             choice = data["choices"][0]
@@ -223,56 +226,56 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         stop = [s for s in self.config.stop_sequences if s]
         if stop:
             payload["stop"] = stop
-        if self._client is None:
-            timeout = (
-                httpx.Timeout(self._timeout, connect=self._connect_timeout)
-                if self._connect_timeout is not None
-                else self._timeout
-            )
-            self._client = httpx.AsyncClient(timeout=timeout)
-        async with self._client.stream(
-            "POST", url, headers=headers, json=payload
-        ) as resp:
-            resp.raise_for_status()
-            token_count = 0
-            async for line in resp.aiter_lines():
-                if not line or line.startswith(":"):
-                    continue
-                if not line.startswith("data: "):
-                    _logger.debug(
-                        "Unexpected SSE line",
-                        extra={"line": line},
-                    )
-                    continue
-                chunk = line[6:]
-                if chunk == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(chunk)
-                except json.JSONDecodeError:
-                    continue
-                try:
-                    choices = obj.get("choices", [])
-                    if not choices:
+        try:
+            async with self._client.stream(
+                "POST", url, headers=headers, json=payload
+            ) as resp:
+                resp.raise_for_status()
+                token_count = 0
+                async for line in resp.aiter_lines():
+                    if not line or line.startswith(":"):
                         continue
-                    delta = choices[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        token_count += 1
-                        if token_count > self._max_stream_tokens:
-                            _logger.warning(
-                                "Stream limit (%d) reached",
-                                self._max_stream_tokens,
-                            )
-                            return
-                        yield content
-                    # tool_calls in delta are ignored — see docstring
-                except (KeyError, IndexError, TypeError) as exc:
-                    _logger.warning(
-                        "Malformed SSE",
-                        extra={"obj": str(obj), "error": str(exc)},
-                    )
-                    continue
+                    if not line.startswith("data: "):
+                        _logger.debug(
+                            "Unexpected SSE line",
+                            extra={"line": line},
+                        )
+                        continue
+                    chunk = line[6:]
+                    if chunk == "[DONE]":
+                        break
+                    try:
+                        obj = json.loads(chunk)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        choices = obj.get("choices", [])
+                        if not choices:
+                            continue
+                        delta = choices[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            token_count += 1
+                            if token_count > self._max_stream_tokens:
+                                _logger.warning(
+                                    "Stream limit (%d) reached",
+                                    self._max_stream_tokens,
+                                )
+                                return
+                            yield content
+                        # tool_calls in delta are ignored — see docstring
+                    except (KeyError, IndexError, TypeError) as exc:
+                        _logger.warning(
+                            "Malformed SSE",
+                            extra={"obj": str(obj), "error": str(exc)},
+                        )
+                        continue
+        except httpx.HTTPError as exc:
+            _logger.exception(
+                "LLM stream request failed",
+                extra={"url": url, "error": str(exc)},
+            )
+            raise AdapterError(f"LLM stream request failed: {exc}") from exc
 
     async def stream(
         self,

@@ -85,7 +85,7 @@ async def _stream_with_heartbeat(
                 yield "data: [DONE]\n\n"
                 return
 
-            # noqa: no-isinstance-in-production  # queue sentinel: str | None | Exception
+            # isinstance check for queue sentinel (str | None | Exception)
             if isinstance(item, Exception):
                 raise item
 

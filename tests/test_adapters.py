@@ -11,6 +11,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
+import httpx
 import pytest
 
 from ai_assistant.adapters.chunker_simple import SimpleChunker
@@ -581,6 +582,8 @@ class TestOpenAICompatibleLLM:
             api_base="http://test/v1",
             max_tokens=100,
             temperature=0.5,
+            timeout=300.0,
+            connect_timeout=3.0,
             stop_sequences=["", "end", "stop", ""],
         ))
 
@@ -777,55 +780,27 @@ class TestOpenAICompatibleLLM:
         llm._client = mock_client
         await llm.shutdown()
         mock_client.aclose.assert_awaited_once()
-        assert llm._client is None
 
-    @pytest.mark.asyncio
-    async def test_connect_timeout_used_in_client(self, llm):
+    def test_connect_timeout_used_in_client(self, llm):
         """connect_timeout must be passed to httpx.AsyncClient via Timeout."""
-        from unittest.mock import MagicMock, AsyncMock, patch
-        import httpx
+        timeout = llm._client.timeout
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.connect == 3.0
 
-        llm._connect_timeout = 3.0
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}]
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-            with patch("httpx.AsyncClient.__init__", return_value=None) as mock_init:
-                llm._client = None
-                await llm.complete([UserMessage(text="hi")])
-
-                call_kwargs = mock_init.call_args.kwargs
-                timeout = call_kwargs["timeout"]
-                assert isinstance(timeout, httpx.Timeout)
-                assert timeout.connect == 3.0
-
-    @pytest.mark.asyncio
-    async def test_connect_timeout_none_uses_plain_timeout(self, llm):
+    def test_connect_timeout_none_uses_plain_timeout(self):
         """If connect_timeout is None, use plain float timeout (backward compat)."""
-        from unittest.mock import MagicMock, AsyncMock, patch
         import httpx
 
-        llm._connect_timeout = None
-        llm._timeout = 10.0
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}]
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
-            with patch("httpx.AsyncClient.__init__", return_value=None) as mock_init:
-                llm._client = None
-                await llm.complete([UserMessage(text="hi")])
-
-                call_kwargs = mock_init.call_args.kwargs
-                timeout = call_kwargs["timeout"]
-                assert timeout == 10.0
+        cfg = LLMConfigData(
+            model="test",
+            api_base="http://test",
+            timeout=10.0,
+            connect_timeout=None,
+        )
+        llm = OpenAICompatibleLLM(config=cfg)
+        timeout = llm._client.timeout
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read == 10.0
 
 
 # ── TestFactoryRegistry ──
@@ -1172,7 +1147,8 @@ async def test_faiss_delete_persists_to_disk(tmp_path: Path) -> None:
     # Delete c2
     await store.delete(["c2"], namespace="test")
 
-    # Reload from disk and verify c2 is gone
+    # Persist and reload to verify c2 is gone
+    await store.save(str(tmp_path), namespace="test")
     store2 = FaissVectorStore(config)
     await store2.load(str(tmp_path), namespace="test")
     results = await store2.search(

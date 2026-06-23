@@ -61,13 +61,16 @@ class OpenAICompatibleEmbedder(IEmbedder):
         self._dim: int = config.dim
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
-        self._client: httpx.AsyncClient | None = None
+        timeout = (
+            httpx.Timeout(self._timeout, connect=self._connect_timeout)
+            if self._connect_timeout is not None
+            else self._timeout
+        )
+        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
 
     async def shutdown(self) -> None:
         """Close persistent HTTP client."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        await self._client.aclose()
 
     @property
     def dimension(self) -> int:
@@ -82,13 +85,6 @@ class OpenAICompatibleEmbedder(IEmbedder):
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        if self._client is None:
-            timeout = (
-                httpx.Timeout(self._timeout, connect=self._connect_timeout)
-                if self._connect_timeout is not None
-                else self._timeout
-            )
-            self._client = httpx.AsyncClient(timeout=timeout)
         resp = await self._client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.text
@@ -97,8 +93,7 @@ class OpenAICompatibleEmbedder(IEmbedder):
         """Request embeddings from remote API.
 
         Raises:
-            AdapterError: On dimension mismatch.
-            httpx.HTTPStatusError: On non-2xx response (after retries).
+            AdapterError: On dimension mismatch or HTTP failure.
         """
         if not texts:
             return []
@@ -106,7 +101,14 @@ class OpenAICompatibleEmbedder(IEmbedder):
             "model": self.model,
             "input": texts,
         }
-        resp_text = await self._post_embeddings(payload)
+        try:
+            resp_text = await self._post_embeddings(payload)
+        except httpx.HTTPError as exc:
+            _logger.exception(
+                "Embedder HTTP request failed",
+                extra={"error": str(exc)},
+            )
+            raise AdapterError(f"Embedder HTTP request failed: {exc}") from exc
         embeddings = await asyncio.to_thread(
             _extract_embeddings, resp_text, self._dim, self.model
         )

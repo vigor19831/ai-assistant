@@ -42,6 +42,8 @@ from ai_assistant.api.security import (
     require_api_key,
     set_api_key,
 )
+from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials
 from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
@@ -208,8 +210,7 @@ class TestAPISecurity:
         Then: no exception is raised.
         """
         set_api_key("secret")
-        creds = MagicMock()
-        creds.credentials = "secret"
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="secret")
         await require_api_key(creds)
 
     async def test_require_api_key_not_configured(self):
@@ -218,7 +219,7 @@ class TestAPISecurity:
         Then: HTTPException 401 is raised.
         """
         set_api_key(None)
-        creds = MagicMock()
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="anything")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(creds)
         assert exc_info.value.status_code == 401
@@ -230,8 +231,7 @@ class TestAPISecurity:
         Then: HTTPException 401 is raised.
         """
         set_api_key("secret")
-        creds = MagicMock()
-        creds.credentials = "wrong"
+        creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(creds)
         assert exc_info.value.status_code == 401
@@ -246,16 +246,18 @@ class TestAPISecurity:
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(None)
         assert exc_info.value.status_code == 401
+        assert "missing" in exc_info.value.detail.lower()
 
     async def test_require_api_key_malformed_header(self):
-        """Given: credentials object lacks .credentials attribute.
+        """Given: credentials object is not HTTPAuthorizationCredentials.
         When: require_api_key is called.
         Then: HTTPException 401 is raised."""
         set_api_key("secret")
-        bad_creds = object()  # plain object without .credentials
+        bad_creds = object()  # plain object, not HTTPAuthorizationCredentials
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(bad_creds)
         assert exc_info.value.status_code == 401
+        assert "missing" in exc_info.value.detail.lower()
 
     # ── check_request_size ──
 
