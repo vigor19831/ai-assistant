@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any
 
 import httpx
@@ -53,7 +54,10 @@ class OpenAICompatibleEmbedder(IEmbedder):
         super().__init__(config)
         self.model: str = config.model
         self.api_base: str = config.api_base
-        self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
+        if config.api_key is not None:
+            self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
+        else:
+            self.api_key = os.getenv("AI_EMBEDDER_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
         self._dim: int = config.dim
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
@@ -73,10 +77,11 @@ class OpenAICompatibleEmbedder(IEmbedder):
     async def _post_embeddings(self, payload: dict[str, Any]) -> str:
         """Execute HTTP POST to embeddings endpoint (retryable)."""
         url = f"{self.api_base}/embeddings"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
         }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         if self._client is None:
             timeout = (
                 httpx.Timeout(self._timeout, connect=self._connect_timeout)

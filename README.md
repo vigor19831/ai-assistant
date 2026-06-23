@@ -39,7 +39,7 @@ Offline-first, OpenAI-compatible LLM/embedder adapters.
 > **Note:** If you move the project folder after setup, run `setup.py` again to fix paths.
 
 The script will:
-- Check your Python version (3.11+ required)
+- Check your Python version (3.13+ required)
 - Create a virtual environment (`.venv/`)
 - Install all dependencies
 - Copy `config.example.yaml` to `config.yaml`
@@ -50,18 +50,25 @@ If Python is not installed, the script will open the download page in your brows
 4. **Download models:** Place your GGUF models in `vendor/models/`. Download from [HuggingFace](https://huggingface.co/models) or other sources. Ensure filenames match your `config.yaml` settings.
 
 5. **Edit configuration:** Open `config.yaml` and set:
-   - LLM model filename and path
-   - Embedder model filename and path
-   - API endpoints (if not using local defaults)
+   - LLM: `model` (filename for llama.cpp GGUF, or model name for Ollama/vLLM) and `api_base`
+   - Embedder: `model` and `api_base`
+   - Adjust other settings as needed
 
 6. **Download tokenizers:** Run `download_tokenizers.py` via `run_scripts.py`:
    - **Windows:** double-click `run_scripts.py`, select `download_tokenizers.py`
    - **macOS / Linux:** `python3 run_scripts.py`, select `download_tokenizers.py`
 
+   This downloads tokenizers to `data/tokenizers/` based on your `config.yaml` settings.
+
 ### 2. Start the Server
+
+**If using llama.cpp (local GGUF models):**
 
 - **Windows:** double-click `run_servers.py`
 - **macOS / Linux:** `.venv/bin/python run_servers.py`
+
+**If using Ollama, vLLM, or other external server:**
+Start the server separately according to its documentation, then verify `api_base` in `config.yaml` matches its endpoint.
 
 Then open http://localhost:8000 in your browser.
 
@@ -71,10 +78,12 @@ Then open http://localhost:8000 in your browser.
 
 **Servers:**
 
-`run_servers.py` — starts the LLM and embedder servers. Must be running before using the app.
+`run_servers.py` — starts local llama.cpp LLM and embedder servers. Must be running before using the app (if you use local models).
 
 - **Start:** double-click `run_servers.py` (Windows) or `.venv/bin/python run_servers.py` (macOS/Linux)
 - **Stop:** press `Ctrl+C` or `Enter` in the terminal window
+
+If using Ollama, vLLM, or other external servers — start them separately.
 
 **Helper scripts** (run via `run_scripts.py`):
 
@@ -86,9 +95,9 @@ Then open http://localhost:8000 in your browser.
 
 ## Requirements
 
-- Python 3.11+
-- For local LLM: an OpenAI-compatible server (llama.cpp, Ollama, vLLM)
-- For local embeddings: an OpenAI-compatible embedding server
+- Python 3.13+
+- LLM server: llama.cpp (local GGUF), Ollama, vLLM, or any OpenAI-compatible endpoint
+- Embedder server: any OpenAI-compatible endpoint
 
 ## Configuration
 

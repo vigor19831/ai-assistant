@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-assistant"
-version = "1.0.0"
-description = "Модульный AI-фреймворк с неизменяемым ядром"
-requires-python = ">=3.11"
+version = "1.6.0"
+description = "Modular AI framework with an immutable core"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.110.0,<1.0.0",
     "uvicorn[standard]>=0.29.0,<1.0.0",
@@ -47,7 +47,7 @@ include = ["ai_assistant*"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py313"
 extend-exclude = ["scripts/", "tests/", "vendor/"]
 
 [tool.ruff.lint]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -33,7 +34,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         super().__init__(config)
         self.model: str = config.model
         self.api_base: str = config.api_base
-        self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
+        if config.api_key is not None:
+            self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
+        else:
+            self.api_key = os.getenv("AI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
         self.max_tokens: int = config.max_tokens
         self.temperature: float = config.temperature
         self._timeout: float = config.timeout
@@ -142,10 +146,11 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         temperature: float | None = None,
     ) -> AssistantMessage:
         url = f"{self.api_base}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
         }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         max_tok = max_tokens if max_tokens is not None else self.max_tokens
         payload = {
             "model": self.model,
@@ -202,10 +207,11 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         implemented (FUTURE.md: blocked). Only text content is yielded.
         """
         url = f"{self.api_base}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
+        headers: dict[str, str] = {
             "Content-Type": "application/json",
         }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         max_tok = max_tokens if max_tokens is not None else self.max_tokens
         payload = {
             "model": self.model,
