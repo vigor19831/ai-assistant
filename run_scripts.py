@@ -23,6 +23,12 @@ def get_python(root: Path) -> str:
     return str(root / VENV / PY)
 
 
+# Scripts excluded from the menu (setup, internal tools)
+_EXCLUDED_SCRIPTS = frozenset({
+    "setup.py",
+    "__init__.py",
+})
+
 _DEV_SCRIPTS = frozenset({
     "check_all.py",
     "check_llm.py",
@@ -37,7 +43,10 @@ _DEV_SCRIPTS = frozenset({
 
 def collect(root: Path, subdir: str) -> list[Path]:
     d = root / subdir
-    return sorted(p for p in d.glob("*.py") if p.name != "__init__.py")
+    return sorted(
+        p for p in d.glob("*.py")
+        if p.name not in _EXCLUDED_SCRIPTS
+    )
 
 
 def _sort(files: list[Path]) -> list[Path]:
@@ -115,7 +124,7 @@ def print_menu(scripts, history, last, last_time):
         is_last = (path == last)
         hist = history.get(path, {})
         status = hist.get("status", "")
-        mark = "✓" if status == "ok" else "✗" if status == "fail" else "○"
+        mark = "o" if status == "ok" else "x" if status == "fail" else "-"
         prefix = "* " if is_last else "  "
         server_mark = " [srv]" if name == "index_documents.py" else ""
         name_fmt = (name + server_mark)[:NAME_W]
@@ -133,7 +142,7 @@ def print_menu(scripts, history, last, last_time):
             is_last = (path == last)
             hist = history.get(path, {})
             status = hist.get("status", "")
-            mark = "✓" if status == "ok" else "✗" if status == "fail" else "○"
+            mark = "o" if status == "ok" else "x" if status == "fail" else "-"
             prefix = "* " if is_last else "  "
             name_fmt = name[:NAME_W]
             desc = _get_docstring(path)

@@ -1,184 +1,140 @@
-# AI Assistant — Local AI on Your Machine
+# AI Assistant
 
-> **Chat with AI on your own computer.** No internet needed, no subscriptions, no data leaving your device. Your conversations and documents stay private.
-
----
-
-## What Is This
-
-**AI Assistant** lets you chat with AI and search your own documents (PDFs, notes, books) for answers — all running locally, no cloud involved.
-
-### What Is RAG?
-
-**RAG** (Retrieval-Augmented Generation) means the AI **first searches your documents**, then answers based on what it found. It doesn't make things up — it quotes your files.
-
-**Example:** you upload 50 tax PDFs and ask "What deductions apply in 2024?" The AI finds the relevant pages and gives a precise answer with citations.
+Local AI assistant framework. FastAPI + RAG with namespaces. Offline-first, OpenAI-compatible LLM/embedder adapters.
 
 ---
+### 1. First Time Setup
+---
+1. **Download:** Click the green **"Code"** button on GitHub → **"Download ZIP"** → extract the ZIP
 
-## Why Run It Locally
+2. **Open a terminal** in the project folder:
+   - **Windows:** Click the folder's address bar, type `cmd`, press Enter
+   - **macOS:** Right-click folder → "New Terminal at Folder"
+   - **Linux:** Right-click folder → "Open in Terminal"
 
-| Cloud AI (ChatGPT, Claude) | This Project |
-|---|---|
-| Data goes to someone else's servers | Everything stays on your computer |
-| Monthly subscription | Free — download models once |
-| Needs internet | Works offline |
-| Doesn't know your documents | Searches your files directly |
-| Can "hallucinate" made-up facts | Answers only from your documents |
+3. **Run the setup script:**
+   - **Windows:**
+     ```
+     python scripts/setup.py
+     ```
+   - **macOS / Linux:**
+     ```
+     python3 scripts/setup.py
+     ```
+> **Note:** If you move the project folder after setup, run `setup.py` again to fix paths.
+
+The script will:
+- Check your Python version (3.11+ required)
+- Create a virtual environment (`.venv/`)
+- Install all dependencies
+- Copy `config.example.yaml` to `config.yaml`
+- Create required data folders (`data/`, `sources/`)
+
+If Python is not installed, the script will open the download page in your browser.
+
+4. **Download models:** Place your GGUF models in `vendor/models/`. Download from [HuggingFace](https://huggingface.co/models) or other sources. Ensure filenames match your `config.yaml` settings.
+
+5. **Edit configuration:** Open `config.yaml` and set:
+   - LLM model filename and path
+   - Embedder model filename and path
+   - API endpoints (if not using local defaults)
+
+6. **Download tokenizers:** Run `download_tokenizers.py` via `run_scripts.py`:
+   - **Windows:** double-click `run_scripts.py`, select `download_tokenizers.py`
+   - **macOS / Linux:** `python3 run_scripts.py`, select `download_tokenizers.py`
+
+### 2. Start the Server
+
+- **Windows:** double-click `run_servers.py`
+- **macOS / Linux:** `.venv/bin/python run_servers.py`
+
+Then open http://localhost:8000 in your browser.
 
 ---
-
-## Installation
-
-### 1. Check Python
-
-You need **Python 3.11 or newer**:
-
-```bash
-python3 --version
-# or
-python --version
-```
-
-If the version is too old, [download a newer Python](https://www.python.org/downloads/).
-
-### 2. Create a Virtual Environment
-
-This is an isolated folder for project libraries so they don't clutter your system.
-
-**Linux / macOS:**
-```bash
-cd project-folder
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-**Windows (PowerShell):**
-```powershell
-cd project-folder
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-When you see `(.venv)` at the start of your terminal line, you're good to go.
-
-### 3. Install the Project
-
-```bash
-pip install -e ".[faiss]"
-```
-
-### 4. Copy the Config File
-
-```bash
-cp config.example.yaml config.yaml
-```
-
-Open `config.yaml` in any text editor and adjust it to your setup.
-
+### 3. Daily Use
 ---
 
-## Running the Servers
+**Servers:**
 
-The project needs two servers: an **LLM server** (the AI itself) and an **API server** (this project). You don't need to start them manually — use `run_servers.py`.
+`run_servers.py` — starts the LLM and embedder servers. Must be running before using the app.
 
-```bash
-python run_servers.py start
-```
+- **Start:** double-click `run_servers.py` (Windows) or `.venv/bin/python run_servers.py` (macOS/Linux)
+- **Stop:** press `Ctrl+C` or `Enter` in the terminal window
 
-This starts everything automatically. Verify it's working:
+**Helper scripts** (run via `run_scripts.py`):
 
-```bash
-curl http://localhost:8000/v1/models
-```
+| Script | When to run |
+|--------|-------------|
+| `index_documents.py` | After adding files to `sources/` |
+| `download_tokenizers.py` | After adding a new model |
+| `kill.py` | Emergency shutdown — stops all running servers |
 
-You should see a list of available models.
+## Requirements
 
-### Stop
+- Python 3.11+
+- For local LLM: an OpenAI-compatible server (llama.cpp, Ollama, vLLM)
+- For local embeddings: an OpenAI-compatible embedding server
 
-```bash
-python run_servers.py stop
-```
+## Configuration
 
-### Other Commands
+Edit `config.yaml` to point to your LLM and embedder endpoints. See `config.example.yaml` for all available options.
 
-```bash
-python run_servers.py kill     # Force-kill all processes
-python run_servers.py --help   # Show help
-```
-
----
-
-## Using the Scripts Menu
-
-`run_scripts.py` provides a convenient menu for running useful utilities.
-
-```bash
-python run_scripts.py
-```
-
-This opens a menu with available scripts. The main ones:
-
-| Script | What It Does |
-|---|---|
-| `index_documents.py` | Indexes documents from `sources/` for search |
-| `check_llm.py` | Checks if the LLM server responds |
-| `check_rag.py` | Checks if document search works |
-| `clean_cache.py` | Cleans temporary files |
-| `context_build.py` | Builds context for the AI assistant |
-
-**Example:** index your documents
-```bash
-python run_scripts.py
-# Select: index_documents.py from the menu
-```
-
-Or run directly:
-```bash
-python scripts/index_documents.py
-```
-
----
-
-## Quick Start: Your First Chat
-
-1. Start the servers: `python run_servers.py start`
-2. Open in browser: `http://localhost:8000/ui`
-3. Or via API:
-   ```bash
-   curl http://localhost:8000/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -d '{"model": "llama3.2", "messages": [{"role": "user", "content": "Hello!"}]}'
-   ```
-
----
-
-## Project Layout
+## Project Structure
 
 ```
-ai-assistant/
-├── config.yaml          ← your config (edit this)
-├── config.example.yaml  ← example config
-├── run_servers.py       ← start/stop servers
-├── run_scripts.py       ← scripts menu
-├── scripts/             ← utility scripts
-├── src/                 ← source code
-├── data/                ← your data (indices, chats, logs)
-│   ├── indices/         ← search indexes
-│   ├── storage.db       ← chat history
-│   └── app.log          ← logs
-└── sources/             ← put documents here for RAG
-    ├── personal/
-    ├── work/
-    └──...
+ai-assistant/                          # Project root
+├── .venv/                             # Virtual environment
+├── data/                              # Runtime data
+│   ├── tokenizers/                    # Local HuggingFace tokenizers
+│   ├── indices/                       # FAISS vector indices
+│   ├── storage.db                     # SQLite database
+│   ├── app.log                        # Application logs
+│   └── .run_history.json              # Script run history
+│
+├── docs/                              # Documentation
+│
+├── scripts/                           # Helper scripts
+│   ├── setup.py                       # Project setup (one-time)
+│   ├── check_all.py                   # [dev] Code check
+│   ├── check_llm.py                   # [dev] LLM connection check
+│   ├── check_rag.py                   # [dev] RAG pipeline check
+│   ├── clean_cache.py                 # Cache cleanup
+│   ├── context_build.py               # [dev] AI context build
+│   ├── download_tokenizers.py         # Download tokenizers
+│   ├── error_taxonomy_build.py        # [dev] Error taxonomy
+│   ├── index_documents.py             # Document indexing
+│   ├── kill.py                        # Emergency shutdown
+│   ├── open_shell.py                  # [dev] Open shell with venv
+│   └── structure.py                   # [dev] Structure generation
+│
+├── sources/                           # Document sources for RAG
+│   ├── books/
+│   ├── code/
+│   ├── other/
+│   ├── personal/
+│   └── work/
+│
+├── src/ai_assistant/                  # Application source code
+│
+├── tests/                             # Tests
+│
+├── ui/                                # Web interface
+│   └── index.html
+│
+├── vendor/                            # External models (not in git)
+│   ├── models/
+│   └── llama/
+│
+├── config.example.yaml                # Config template
+├── config.yaml                        # Active config (created by setup)
+├── LICENSE
+├── NOTICE
+├── pyproject.toml                     # Dependencies, settings
+├── README.md                          # This file
+├── run_scripts.py                     # Script runner
+└── run_servers.py                     # Server orchestrator
 ```
-
----
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
-
-## Solo maintenance note
-
-This project is developed by a solo creator with extensive use of AI-assisted programming tools. The author defines the product vision, architecture, requirements, testing strategy, and development roadmap, while AI tools are used to accelerate implementation, refactoring, documentation, and experimentation. All design decisions, feature prioritization, and project direction remain under human supervision.
+Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.

@@ -4,7 +4,7 @@
 
 # ── Application ──
 app_name: ai-assistant          # Internal app identifier (logs, metrics)
-debug: true                     # Enable detailed error traces and hot reload (false for prod)
+debug: false                     # Enable detailed error traces and hot reload (false for prod)
 host: 0.0.0.0                   # Bind to all interfaces (127.0.0.1 for local-only)
 port: 8000                      # HTTP server port
 config_version: "1.5.0"         # Schema version for migration checks
