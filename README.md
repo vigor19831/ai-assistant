@@ -1,6 +1,21 @@
 # AI Assistant
 
-Local AI assistant framework. FastAPI + RAG with namespaces. Offline-first, OpenAI-compatible LLM/embedder adapters.
+**Solo-maintained. No contributions accepted.**
+
+This repository is published as-is.
+I do not review issues, discussions, or pull requests.
+
+---
+
+## What is this
+
+Local AI assistant framework. FastAPI + RAG with namespaces.
+Offline-first, OpenAI-compatible LLM/embedder adapters.
+
+- **LLM**: any OpenAI-compatible server (llama.cpp, Ollama, vLLM, etc.)
+- **Embedder**: any OpenAI-compatible server (nomic-embed-text, etc.)
+- **Vector store**: FAISS (persistent) or memory (ephemeral)
+- **Storage**: SQLite
 
 ---
 ### 1. First Time Setup
