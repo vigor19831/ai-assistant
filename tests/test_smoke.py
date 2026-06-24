@@ -611,7 +611,7 @@ class TestCompileAll:
         src = _src_dir()
         if not src.exists():
             pytest.skip("src directory not found")
-        success = compileall.compile_dir(str(src), quiet=2, force=True)
+        success = compileall.compile_dir(str(src), quiet=2)
         assert success, "compileall detected syntax errors in src/"
 
     def test_compileall_tests(self):
@@ -619,7 +619,7 @@ class TestCompileAll:
         When: compileall.compile_dir is run with quiet=2.
         Then: returns True (no syntax errors)."""
         tests_dir = Path(__file__).parent
-        success = compileall.compile_dir(str(tests_dir), quiet=2, force=True)
+        success = compileall.compile_dir(str(tests_dir), quiet=2)
         assert success, "compileall detected syntax errors in tests/"
 
 
@@ -743,7 +743,8 @@ class TestConfigLoads:
 class TestToolPortContract:
     """Smoke: Tool port contract is implementable."""
 
-    def test_tool_execution(self):
+    @pytest.mark.asyncio
+    async def test_tool_execution(self):
         """Given: ITool implementation.
         When: executed with valid arguments.
         Then: returns ToolResult with correct output."""
@@ -769,10 +770,8 @@ class TestToolPortContract:
                     is_error=False,
                 )
 
-        import asyncio
-
         tool = _AddTool({})
-        result = asyncio.run(tool.execute("call-1", {"a": 2, "b": 3}))
+        result = await tool.execute("call-1", {"a": 2, "b": 3})
         assert not result.is_error
         assert result.output == "5"
 
