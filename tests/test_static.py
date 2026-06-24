@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+import uuid
 
 import pytest
 from fastapi import FastAPI
@@ -74,57 +74,44 @@ def test_mount_static_missing_directory() -> None:
     assert not hasattr(app.state, "static_mounted") or app.state.static_mounted is False
 
 
-def test_mount_static_mounts_at_ui_path() -> None:
+def test_mount_static_mounts_at_ui_path(tmp_path: Path) -> None:
     """StaticFiles is mounted at /ui path."""
     app = FastAPI()
-    ui_dir = Path(__file__).parent / "_test_ui"
-    ui_dir.mkdir(exist_ok=True)
+    ui_dir = tmp_path / f"ui_{uuid.uuid4().hex}"
+    ui_dir.mkdir()
     (ui_dir / "index.html").write_text("<html></html>")
 
-    try:
-        config = _FakeUIConfig(str(ui_dir))
-        mount_static(app, config)
-        assert app.state.static_mounted is True
-        # Verify mount exists by checking routes
-        routes = [r for r in app.routes if hasattr(r, "path")]
-        assert any("/ui" in getattr(r, "path", "") for r in routes)
-    finally:
-        # Cleanup
-        (ui_dir / "index.html").unlink(missing_ok=True)
-        ui_dir.rmdir()
+    config = _FakeUIConfig(str(ui_dir))
+    mount_static(app, config)
+    assert app.state.static_mounted is True
+    # Verify mount exists by checking routes
+    routes = [r for r in app.routes if hasattr(r, "path")]
+    assert any("/ui" in getattr(r, "path", "") for r in routes)
 
 
-def test_mount_static_uses_html_mode() -> None:
+def test_mount_static_uses_html_mode(tmp_path: Path) -> None:
     """StaticFiles is mounted with html=True for SPA support."""
     app = FastAPI()
-    ui_dir = Path(__file__).parent / "_test_ui_html"
-    ui_dir.mkdir(exist_ok=True)
+    ui_dir = tmp_path / f"ui_html_{uuid.uuid4().hex}"
+    ui_dir.mkdir()
     (ui_dir / "index.html").write_text("<html></html>")
 
-    try:
-        config = _FakeUIConfig(str(ui_dir))
-        mount_static(app, config)
-        # The mount is present; html=True is the default for SPA routing
-        assert app.state.static_mounted is True
-    finally:
-        (ui_dir / "index.html").unlink(missing_ok=True)
-        ui_dir.rmdir()
+    config = _FakeUIConfig(str(ui_dir))
+    mount_static(app, config)
+    # The mount is present; html=True is the default for SPA routing
+    assert app.state.static_mounted is True
 
 
-def test_mount_static_idempotent() -> None:
+def test_mount_static_idempotent(tmp_path: Path) -> None:
     """Multiple calls with same app are idempotent (second is no-op)."""
     app = FastAPI()
-    ui_dir = Path(__file__).parent / "_test_ui_idem"
-    ui_dir.mkdir(exist_ok=True)
+    ui_dir = tmp_path / f"ui_idem_{uuid.uuid4().hex}"
+    ui_dir.mkdir()
     (ui_dir / "index.html").write_text("<html></html>")
 
-    try:
-        config = _FakeUIConfig(str(ui_dir))
-        mount_static(app, config)
-        assert app.state.static_mounted is True
-        # Second call should be no-op
-        mount_static(app, config)
-        assert app.state.static_mounted is True
-    finally:
-        (ui_dir / "index.html").unlink(missing_ok=True)
-        ui_dir.rmdir()
+    config = _FakeUIConfig(str(ui_dir))
+    mount_static(app, config)
+    assert app.state.static_mounted is True
+    # Second call should be no-op
+    mount_static(app, config)
+    assert app.state.static_mounted is True
