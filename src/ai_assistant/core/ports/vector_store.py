@@ -47,7 +47,12 @@ class IVectorStore(IClosable, ABC):
 
     @abstractmethod
     async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
-        """Delete chunks by ID from a namespace."""
+        """Delete chunks by ID from a namespace and persist the change.
+
+        Implementations must save the index to disk as part of this
+        operation. If persistence fails, the in-memory state must be
+        rolled back to maintain consistency with disk.
+        """
         ...
 
     @abstractmethod

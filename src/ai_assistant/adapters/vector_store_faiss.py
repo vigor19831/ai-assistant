@@ -239,11 +239,12 @@ class FaissVectorStore(IVectorStore):
         return index, chunks_dict, next_id
 
     async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
-        """Delete chunks by ID from a namespace.
+        """Delete chunks by ID from a namespace and persist atomically.
 
         FAISS does not support true deletion without rebuilding the index.
-        The rebuild is atomic under the namespace lock. Caller must save()
-        explicitly to persist the change.
+        The rebuild is atomic under the namespace lock. The index is saved
+        immediately; if save fails, the in-memory state is rolled back by
+        reloading from disk.
         """
         async with self._lock:
             ns = self._get_ns(namespace)
@@ -257,6 +258,22 @@ class FaissVectorStore(IVectorStore):
             ns.index = new_index
             ns.chunks = new_chunks
             ns.next_id = next_id
+
+        try:
+            await self.save(self.index_path, namespace=namespace)
+        except Exception:
+            _logger.exception(
+                "delete save failed, rolling back",
+                extra={"namespace": namespace},
+            )
+            try:
+                await self.load(self.index_path, namespace=namespace)
+            except Exception:
+                _logger.exception(
+                    "delete rollback failed",
+                    extra={"namespace": namespace},
+                )
+            raise
     def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
         """Write FAISS index atomically via temp file + os.replace.
 

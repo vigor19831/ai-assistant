@@ -113,14 +113,37 @@ class MemoryVectorStore(IVectorStore):
             return [ns.chunks[ids[i]] for i in top_indices]
 
     async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
+        """Delete chunks by ID from a namespace and persist atomically.
+
+        If persistence fails, the in-memory state is rolled back by reloading
+        from disk. No-op if the namespace does not exist in memory.
+        """
         async with self._lock:
-            ns = self._get_ns(namespace)
+            if namespace not in self._namespaces:
+                return
+            ns = self._namespaces[namespace]
             for cid in chunk_ids:
                 ns.chunks.pop(cid, None)
                 ns.embeddings.pop(cid, None)
                 ns.metadata.pop(cid, None)
                 if cid in ns._order:
                     ns._order.remove(cid)
+
+        try:
+            await self.save(self.index_path, namespace=namespace)
+        except Exception:
+            _logger.exception(
+                "delete save failed, rolling back",
+                extra={"namespace": namespace},
+            )
+            try:
+                await self.load(self.index_path, namespace=namespace)
+            except Exception:
+                _logger.exception(
+                    "delete rollback failed",
+                    extra={"namespace": namespace},
+                )
+            raise
 
     async def save(self, path: str, namespace: str = "default") -> None:
         p = Path(path) / namespace

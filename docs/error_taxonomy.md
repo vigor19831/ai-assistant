@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-23 20:14 UTC
+> Auto-generated from source code. Updated: 2026-06-24 07:25 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -25,11 +25,13 @@
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High |
 | `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High |
 | `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Embedder adapter is shutting down | High |
 | `adapters.embedder_openai_compatible` | `AdapterError` | Embedder HTTP request failed: {...} | High |
 | `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High |
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High |
 | `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High |
 | `adapters.factory` | `ValueError` | No {...} adapter registered for '{...}' | High |
+| `adapters.llm_openai_compatible` | `AdapterError` | LLM adapter is shutting down | High |
 | `adapters.llm_openai_compatible` | `AdapterError` | LLM HTTP request failed: {...} | High |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High |
 | `adapters.llm_openai_compatible` | `AdapterError` | LLM stream request failed: {...} | High |
@@ -102,11 +104,13 @@
 | `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception( | Medium |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium |
 | `adapters.storage_sqlite` | `JSONDecodeError` | _logger.warning("JSON decode failed in storage", extra={"err | Medium |
+| `adapters.vector_store_faiss` | `Exception` | _logger.exception( | Medium |
 | `adapters.vector_store_faiss` | `Exception` | with contextlib.suppress(OSError): | Medium |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium |
 | `adapters.vector_store_faiss` | `ImportError` | faiss-cpu is not installed but vector_store.provider='faiss' | Medium |
 | `adapters.vector_store_faiss` | `JSONDecodeError` | _logger.error( | Medium |
 | `adapters.vector_store_faiss` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium |
+| `adapters.vector_store_memory` | `Exception` | _logger.exception( | Medium |
 | `api.deps` | `ValueError/ImportError` | _logger.exception( | Medium |
 | `api.lifespan` | `AttributeError` | logger.warning("No app state found during shutdown") | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Index load failed on startup") | Medium |

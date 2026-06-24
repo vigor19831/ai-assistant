@@ -147,3 +147,6 @@
 [+] FAISS delete non-atomic | delete() меняет память, потом сохраняет — при краше между ними индекс рассинхронизирован | BUG
 [+] hasattr on credentials | hasattr(credentials, "credentials") — нарушает правило "No hasattr in production", хотя объект не портовый | ARCH
 [+] Timing side-channel on API key | != вместо hmac.compare_digest — теоретически возможен timing attack на ключ | SECURITY
+[+] rag_state.tasks race — RAGState.status dict модифицируется без синхронизации, конкурентные reindex-запросы могут потерять задачи или оставить zombie entries.
+[+] close() vs active requests — shutdown() закрывает httpx.AsyncClient, но complete()/stream()/embed() не проверяют состояние клиента перед использованием, возможен race при graceful shutdown.
+[+] lost-update save() — delete() меняет индекс в памяти, но save() не вызывается автоматически; при краше между delete() и явным save() диск содержит stale данные, а память — новые.

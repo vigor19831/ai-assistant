@@ -207,10 +207,6 @@ async def delete_chunks(
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
-        # Persist deletion
-        index_path = state.config.vector_store.index_path
-        if index_path:
-            await state.vector_store.save(index_path, namespace=namespace)
     except Exception:
         _logger.exception("Delete chunks failed")
         errors.append("Internal server error")
