@@ -8,11 +8,11 @@
 ## TODO ##
 ==============================================================================
 
-[ ] Неактуальный `docs/drift.md` — #13, #14, #15 помечены как активные | `#13 source_uri` уже в `ChunkMetadata`, `#14 RAGState.status` уже `dict[str, dict[str, object]]`, `#15 query_embedding` удалён из `_required_fields_for_steps`. Нужно: убрать из активных или пометить `Fixed`. | `docs/drift.md` | Ручная проверка: `git diff docs/drift.md`
+[+] Неактуальный `docs/drift.md` — #13, #14, #15 помечены как активные | `#13 source_uri` уже в `ChunkMetadata`, `#14 RAGState.status` уже `dict[str, dict[str, object]]`, `#15 query_embedding` удалён из `_required_fields_for_steps`. Нужно: убрать из активных или пометить `Fixed`. | `docs/drift.md` | Ручная проверка: `git diff docs/drift.md`
 
-[ ] Неактуальный `docs/future.md` — Prometheus помечен как `research` | `core/metrics.py` уже реализует Prometheus exposition format. Блокер `Needs prometheus_client` устарел. Нужно: обновить статус. | `docs/future.md` | Ручная проверка: `curl localhost:8000/metrics`
+[+] Неактуальный `docs/future.md` — Prometheus помечен как `research` | `core/metrics.py` уже реализует Prometheus exposition format. Блокер `Needs prometheus_client` устарел. Нужно: обновить статус. | `docs/future.md` | Ручная проверка: `curl localhost:8000/metrics`
 
-[ ] `scripts/kill.py` парсит неверный путь к порту | Ищет `data.get("api", {}).get("port")`, но `port` в корне `config.yaml`. Нужно: исправить на `data.get("port", 8000)`. | `scripts/kill.py` | Ручной запуск: `python scripts/kill.py` при нестандартном порту
+[+] `scripts/kill.py` парсит неверный путь к порту | Ищет `data.get("api", {}).get("port")`, но `port` в корне `config.yaml`. Нужно: исправить на `data.get("port", 8000)`. | `scripts/kill.py` | Ручной запуск: `python scripts/kill.py` при нестандартном порту
 
 
 

@@ -187,7 +187,7 @@ class RAGConfig(BaseSettings):
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
     documents_root: str = "sources"
-    chat_exports_root: str = "chat_exports"
+    chat_exports_root: str = "data/chat_exports"
     index_chat_exports: bool = False
 
     @field_validator("documents_root", "chat_exports_root")

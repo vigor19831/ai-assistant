@@ -33,8 +33,8 @@ def _load_project_ports(root: Path) -> tuple[int, ...]:
     try:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         ports: set[int] = set()
-        # API server port
-        api_port = data.get("api", {}).get("port")
+        # API server port (root level in config.yaml)
+        api_port = data.get("port")
         if isinstance(api_port, int):
             ports.add(api_port)
         # LLM server port(s) from api_base

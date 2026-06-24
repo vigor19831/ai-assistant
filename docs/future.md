@@ -12,7 +12,6 @@
 | Web RAG (crawling) | research | No crawler | adapters/crawler_simple.py |
 | Index sync (git/cloud) | research | FAISS is binary/large | scripts/sync_*.py |
 | Plugin system | research | Conflicts with "no magic discovery" | adapters/plugin_loader.py |
-| Prometheus metrics | research | Needs prometheus_client | api/metrics.py |
 | A2A protocol | research | Spec is unstable | adapters/a2a_client.py |
 | Obsidian/Notion RAG | research | Needs parsers + auth | adapters/source_*.py |
 | Quantization routing | research | Needs complexity estimator | adapters/router_quantized.py |
