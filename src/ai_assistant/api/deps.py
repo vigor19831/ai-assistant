@@ -77,6 +77,7 @@ class RAGState:
         """Atomically register a running task."""
         import time
 
+        await self.cleanup_status()
         async with self._lock:
             self._status[task_id] = {
                 "status": "running",

@@ -1,44 +1,12 @@
 ==============================================================================
 ПРОМПТ ДЛЯ ЗАПРОСА БАГОВ:
 ==============================================================================
-Формат вывода — строго одна строка на проблему:
-[ ] Название проблемы (2-5 слов) | Краткая суть (1 предложение, что именно сломано/плохо).
+Ты — архитектор на 30 лет. Найди проблемы, которые сломают проект через 5+ лет, каждый пункт независимый — одна строка, понятен без контекста. Формат вывода:[ ] Название | Последствие | Файл | Проверка |.
+
 
 ==============================================================================
 ## TODO ##
 ==============================================================================
-
-[+] `hasattr()` в `security.py` нарушает правила проекта | Правило Section 2: "Never: `hasattr()` / `isinstance()` on port objects in production code". `credentials` — не port object, но нарушает дух правил. Нужно: заменить `if not credentials or not hasattr(credentials, "credentials"):` на `if credentials is None:` (HTTPAuthorizationCredentials всегда имеет поле `credentials`). | `src/ai_assistant/api/security.py` | `tests/test_api.py`
-
-[+] Мертвая константа `DOCUMENTS_ROOT` | `Path("sources")` в `core/constants.py` нигде не импортируется. В `indexing.py` используется параметр `documents_root`. Нужно: удалить чтобы не путать. | `src/ai_assistant/core/constants.py` | `tests/test_domain.py`, `tests/test_smoke.py`
-
-[+] Глобальное состояние API-ключа не работает в multiprocess | `_override_api_key` с `threading.Lock()` работает только внутри одного процесса. При `uvicorn --workers 4` или gunicorn каждый worker имеет свой `_override_api_key`. Runtime rotation работает непредсказуемо. Нужно: добавить `logger.warning` при `workers > 1` в `lifespan.py` или документировать ограничение в `docs/drift.md`. | `src/ai_assistant/api/security.py`, `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`
-
-
-
-
-[ ] Хардкод `CHUNK_SIZE = 100_000` в `indexing.py` | Один документ может съесть память и вызвать скачки токенов. Не соответствует `config.yaml` (`chunk_size: 512`). Нужно: вынести в `RAGConfig` или использовать `chunker` config. | `src/ai_assistant/features/rag/indexing.py`, `src/ai_assistant/core/config.py` | `tests/test_rag.py`, `tests/test_integration.py`
-
-[ ] Незадокументированный drift: non-stdlib в `core/` | Jinja2 (`core/prompts`), pydantic+yaml (`core/config`), tiktoken+tokenizers (`core/utils`) — все в `core/` при запрете non-stdlib. Только Jinja2 упомянут в drift #11. Нужно: дополнить список grandfathered exceptions. | `docs/drift.md` | Ручная проверка: `grep -c 'Jinja2\|pydantic\|yaml\|tiktoken' src/ai_assistant/core/*.py`
-
-
-
-
-[ ] Кириллица в `rag_strict.j2` — нарушение правила 9 | `"У меня недостаточно информации."` в шаблоне. Правило 9: "No Cyrillic in code/comments/docstrings (domain constants exempt)". Шаблон — не domain constant. Нужно: либо перевести, либо добавить `.j2` в проверку, либо зафиксировать drift. | `src/ai_assistant/core/prompts/v1/rag_strict.j2`, `tests/test_smoke.py`, `docs/drift.md` | `tests/test_smoke.py`
-
-[ ] `RAGState.status` — неограниченный рост памяти | `cleanup_status()` вызывается только в `_run()` reindex. Без периодической уборки — утечка памяти при частых reindex-запросах. Нужно: добавить вызов `cleanup_status()` при каждом новом task или по таймеру. | `src/ai_assistant/features/rag/handlers.py`, `src/ai_assistant/api/deps.py` | `tests/test_rag.py`, мониторинг памяти
-
-
-
-
-
-
-
-
-
-
-
-
 [ ] SQLite без graceful shutdown — возможна потеря WAL | `lifespan.py` вызывает `adapter.shutdown()` для storage, но `SQLiteStorage.shutdown()` не реализован (только `IClosable` default no-op). WAL-файлы (`*.db-wal`, `*.db-shm`) могут остаться несинхронизированными. Нужно: добавить `PRAGMA wal_checkpoint(TRUNCATE)` и `connection.close()` в `shutdown()`. | `src/ai_assistant/adapters/storage_sqlite.py` | `tests/test_stateful_ports.py`
 
 [ ] Нет проверки namespace на path traversal | `save_chat` использует `namespace` для построения пути. Есть `is_relative_to`, но нет валидации самого `namespace` (может быть `../etc`). Нужно: добавить `pattern=r"^[a-z]+$"` как в `SaveChatRequest` для `namespace` в API endpoint. | `src/ai_assistant/features/rag/handlers.py` | `tests/test_rag.py`

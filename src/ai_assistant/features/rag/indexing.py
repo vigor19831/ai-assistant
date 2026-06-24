@@ -13,7 +13,6 @@ _logger = get_logger("rag.indexing")
 
 DOCUMENTS_ROOT = Path("sources")
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
-CHUNK_SIZE = 100_000  # Max chars per document chunk
 
 
 def _read_file(path: Path) -> str:
@@ -81,33 +80,17 @@ def _discover_documents(
             # Relative path from documents_root — no absolute path leakage
             source_uri = file_path.relative_to(root).as_posix()
 
-            if len(content) > CHUNK_SIZE:
-                for i, start in enumerate(range(0, len(content), CHUNK_SIZE)):
-                    chunk = content[start : start + CHUNK_SIZE]
-                    docs.append(
-                        {
-                            "id": f"{file_path.stem}_chunk{i}",
-                            "content": chunk,
-                            "metadata": {
-                                "source": rel_source,
-                                "folder": namespace,
-                                "chunk": i,
-                                "source_uri": source_uri,  # Pass through to chunker
-                            },
-                        }
-                    )
-            else:
-                docs.append(
-                    {
-                        "id": file_path.stem,
-                        "content": content,
-                        "metadata": {
-                            "source": rel_source,
-                            "folder": namespace,
-                            "source_uri": source_uri,  # Pass through to chunker
-                        },
-                    }
-                )
+            docs.append(
+                {
+                    "id": file_path.stem,
+                    "content": content,
+                    "metadata": {
+                        "source": rel_source,
+                        "folder": namespace,
+                        "source_uri": source_uri,  # Pass through to chunker
+                    },
+                }
+            )
 
         if docs:
             result[namespace] = docs

@@ -358,6 +358,54 @@ class TestRAGIndexing:
             assert "fresh" in rag_state._status
 
     @pytest.mark.asyncio
+    async def test_start_task_triggers_cleanup(self):
+        """Given: expired entries exist in RAGState._status.
+        When: start_task is called.
+        Then: expired entries are removed before new task is registered."""
+        from ai_assistant.api.deps import RAGState
+
+        rag_state = RAGState()
+        now = time.time()
+        ttl = rag_state.STATUS_TTL_SECONDS
+
+        async with rag_state._lock:
+            rag_state._status["old"] = {
+                "status": "completed",
+                "started_at": now - ttl - 100,
+                "finished_at": now - ttl - 50,
+            }
+
+        await rag_state.start_task("new-task")
+
+        async with rag_state._lock:
+            assert "old" not in rag_state._status
+            assert "new-task" in rag_state._status
+
+    @pytest.mark.asyncio
+    async def test_get_status_does_not_mutate(self):
+        """Given: expired entries exist in RAGState._status.
+        When: get_status is called.
+        Then: expired entries are NOT removed — get_status is pure read."""
+        from ai_assistant.api.deps import RAGState
+
+        rag_state = RAGState()
+        now = time.time()
+        ttl = rag_state.STATUS_TTL_SECONDS
+
+        async with rag_state._lock:
+            rag_state._status["old"] = {
+                "status": "completed",
+                "started_at": now - ttl - 100,
+                "finished_at": now - ttl - 50,
+            }
+
+        status = await rag_state.get_status("nonexistent")
+        assert status is None
+
+        async with rag_state._lock:
+            assert "old" in rag_state._status
+
+    @pytest.mark.asyncio
     async def test_reindex_tasks_cleanup(self, mock_state):
         """Given: multiple reindex tasks are started and completed.
         When: tasks finish.
