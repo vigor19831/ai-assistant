@@ -153,3 +153,7 @@
 [+] Неактуальный `docs/drift.md` — #13, #14, #15 помечены как активные | `#13 source_uri` уже в `ChunkMetadata`, `#14 RAGState.status` уже `dict[str, dict[str, object]]`, `#15 query_embedding` удалён из `_required_fields_for_steps`.
 [+] Неактуальный `docs/future.md` — Prometheus помечен как `research` | `core/metrics.py` уже реализует Prometheus exposition format. Блокер `Needs prometheus_client` устарел.
 [+] `scripts/kill.py` парсит неверный путь к порту | Ищет `data.get("api", {}).get("port")`, но `port` в корне `config.yaml`.
+[+] `security.py`: `isinstance()` → `credentials is None`. Убран дубль импорта, тест на malformed приведён к реальному DI-поведению. | `src/ai_assistant/api/security.py`, `tests/test_api.py`
+[+] Удалена мёртвая константа `DOCUMENTS_ROOT` и лишний `pathlib.Path`. | `src/ai_assistant/core/constants.py`
+[+] Документировано: `_override_api_key` process-local, не работает в multiprocess. Warning в lifespan при `admin_enabled=True`. | `src/ai_assistant/api/security.py`, `src/ai_assistant/api/lifespan.py`
+[+] `test_rag.py`: `chat_exports_root` из `"chat_exports"` (cwd) → `str(tmp_path / "chat_exports")`. | `tests/test_rag.py`
