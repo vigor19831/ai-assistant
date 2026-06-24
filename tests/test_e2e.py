@@ -426,7 +426,8 @@ class TestE2ERAG:
         assert isinstance(errors, list)
         assert any(e.get("loc") == ["body", "folder"] for e in errors)
 
-    def test_reindex_status_polling(self, client, mock_state, tmp_path, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_reindex_status_polling(self, client, mock_state, tmp_path, monkeypatch):
         """Given: reindex task is started.
         When: polling /api/v1/rag/reindex/status/{task_id}.
         Then: eventually reports completed and task is cleaned from memory."""
@@ -455,11 +456,12 @@ class TestE2ERAG:
             pytest.fail("Background reindex did not finish in time")
 
         assert status_data["task_id"] == task_id
-        import asyncio
+
         async def _check():
             async with mock_state.rag_state._lock:
                 return task_id not in mock_state.rag_state._tasks
-        assert asyncio.run(_check())
+
+        assert await _check()
 
     def test_reindex_ttl_cleanup(self, client, mock_state, monkeypatch):
         """Given: a reindex task finishes and TTL passes.
@@ -470,14 +472,29 @@ class TestE2ERAG:
         mock_state.rag_state = RAGState()
         mock_state.rag_state.STATUS_TTL_SECONDS = 1
 
+        # Deterministic time: start at 0.0
+        fake_now = [0.0]
+        monkeypatch.setattr(time, "time", lambda: fake_now[0])
+
         resp = client.post(
             "/api/v1/rag/reindex", json={"folder": "__nonexistent__"}
         )
         assert resp.status_code == 200
         task_id = resp.json()["task_id"]
 
-        time.sleep(1.5)
+        # Step 1: Wait for task to actually finish (deterministic, no real sleep)
+        for _ in range(100):
+            status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
+            status_data = status_resp.json()
+            if status_data["status"] in ("completed", "failed"):
+                break
+        else:
+            pytest.fail("Background reindex did not finish in time")
 
+        # Step 2: Advance time past TTL (finished_at + TTL + epsilon)
+        fake_now[0] = 3.0
+
+        # Step 3: Cleanup runs on this request, expired entry removed
         status_resp = client.get(f"/api/v1/rag/reindex/status/{task_id}")
         assert status_resp.status_code == 200
         assert status_resp.json()["status"] == "unknown"

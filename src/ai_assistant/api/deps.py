@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -75,8 +76,6 @@ class RAGState:
 
     async def start_task(self, task_id: str) -> None:
         """Atomically register a running task."""
-        import time
-
         await self.cleanup_status()
         async with self._lock:
             self._status[task_id] = {
@@ -91,8 +90,6 @@ class RAGState:
 
     async def complete_task(self, task_id: str, result: dict[str, object]) -> None:
         """Atomically mark task completed and remove from active tasks."""
-        import time
-
         async with self._lock:
             self._status[task_id] = {
                 "status": "completed",
@@ -103,8 +100,6 @@ class RAGState:
 
     async def fail_task(self, task_id: str, error: str) -> None:
         """Atomically mark task failed and remove from active tasks."""
-        import time
-
         async with self._lock:
             self._status[task_id] = {
                 "status": "failed",
@@ -121,8 +116,6 @@ class RAGState:
 
     async def cleanup_status(self) -> None:
         """Remove expired entries and enforce max size cap on status."""
-        import time
-
         async with self._lock:
             now = time.time()
 

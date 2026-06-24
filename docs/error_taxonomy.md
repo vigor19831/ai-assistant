@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-24 18:35 UTC
+> Auto-generated from source code. Updated: 2026-06-24 19:35 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -91,7 +91,6 @@
 | `tests.test_properties` | `ValueError` | Unknown chunker: {...} | High |
 | `tests.test_rag` | `HTTPException` | Unknown error | High |
 | `tests.test_retry` | `exc` | fail #{...} | High |
-| `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High |
 | `adapters.embedder_openai_compatible` | `HTTPError` | _logger.exception( | Medium |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium |
@@ -175,7 +174,7 @@
 | `tests.test_rag` | `TimeoutError` | pass | Medium |
 | `tests.test_retry` | `exc_cls` | permanent | Medium |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium |
-| `tests.test_stateful_ports` | `RuntimeError` | loop = asyncio.new_event_loop() | Medium |
+| `tests.test_stateful_ports` | `OSError` | pass | Medium |
 | `tests.test_adapters` | `OSError` | simulated write failure | Low |
 | `tests.test_domain` | `OSError` | no dir fsync | Low |
 | `tests.test_logger` | `OSError` | disk full | Low |
