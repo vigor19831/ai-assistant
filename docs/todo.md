@@ -52,6 +52,12 @@
 ## TODO ##
 ==============================================================================
 
+[+] rag_state.tasks race — RAGState.status dict модифицируется без синхронизации, конкурентные reindex-запросы могут потерять задачи или оставить zombie entries.
+[+] close() vs active requests — shutdown() закрывает httpx.AsyncClient, но complete()/stream()/embed() не проверяют состояние клиента перед использованием, возможен race при graceful shutdown.
+[ ] lost-update save() — delete() меняет индекс в памяти, но save() не вызывается автоматически; при краше между delete() и явным save() диск содержит stale данные, а память — новые.
+
+
+
 [ ] Глобальное состояние API-ключа не работает в multiprocess | `_override_api_key` с `threading.Lock()` работает только внутри одного процесса. При `uvicorn --workers 4` или gunicorn каждый worker имеет свой `_override_api_key`. Runtime rotation работает непредсказуемо. Нужно: добавить `logger.warning` при `workers > 1` в `lifespan.py` или документировать ограничение в `docs/drift.md`. | `src/ai_assistant/api/security.py`, `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`
 
 [ ] Метрики открыты без авторизации | `/metrics` и `/metrics/json` доступны без API key. Утечка: нагрузка, количество запросов, внутренние характеристики. Нужно: добавить `security.metrics_require_auth: bool` (default: false для backward compat) в `SecurityConfig` и обернуть `_metrics_router` в `router.py` условным `Depends(require_api_key)`. ⚠️ CORE CHANGE: новое поле в `SecurityConfig` требует `config_version` bump + backward compat loader. | `src/ai_assistant/api/router.py`, `src/ai_assistant/core/config.py` | `tests/test_api.py`, `curl localhost:8000/metrics`

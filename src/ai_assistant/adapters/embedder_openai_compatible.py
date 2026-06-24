@@ -67,10 +67,21 @@ class OpenAICompatibleEmbedder(IEmbedder):
             else self._timeout
         )
         self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
+        self._closed: bool = False
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def shutdown(self) -> None:
         """Close persistent HTTP client."""
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
         await self._client.aclose()
+
+    def _check_open(self) -> None:
+        """Raise AdapterError if adapter has been shut down."""
+        if self._closed:
+            raise AdapterError("Embedder adapter is shutting down")
 
     @property
     def dimension(self) -> int:
@@ -79,6 +90,7 @@ class OpenAICompatibleEmbedder(IEmbedder):
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
     async def _post_embeddings(self, payload: dict[str, Any]) -> str:
         """Execute HTTP POST to embeddings endpoint (retryable)."""
+        self._check_open()
         url = f"{self.api_base}/embeddings"
         headers: dict[str, str] = {
             "Content-Type": "application/json",

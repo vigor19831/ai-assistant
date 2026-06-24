@@ -368,11 +368,7 @@ async def reindex_documents(
     async def _run() -> dict[str, Any]:
         async with rag_state.semaphore:
             await rag_state.cleanup_status()
-            async with rag_state.lock:
-                rag_state.status[task_id] = {
-                    "status": "running",
-                    "started_at": time.time(),
-                }
+            await rag_state.start_task(task_id)
             try:
                 # If clearing, also clear associated chat namespaces
                 if clear and folder is not None:
@@ -404,27 +400,15 @@ async def reindex_documents(
                     max_file_size=state.config.vector_store.max_document_size,
                     documents_root=Path(state.config.rag.documents_root),
                 )
-                async with rag_state.lock:
-                    rag_state.status[task_id] = {
-                        "status": "completed",
-                        "result": result,
-                        "finished_at": time.time(),
-                    }
+                await rag_state.complete_task(task_id, result)
                 return result
             except Exception:
                 _logger.exception("Background reindex failed")
-                async with rag_state.lock:
-                    rag_state.status[task_id] = {
-                        "status": "failed",
-                        "error": "Internal server error",
-                        "finished_at": time.time(),
-                    }
+                await rag_state.fail_task(task_id, "Internal server error")
                 raise
-            finally:
-                rag_state.tasks.pop(task_id, None)
 
     task = asyncio.create_task(_run())
-    rag_state.tasks[task_id] = task
+    await rag_state.register_task(task_id, task)
     return {"status": "started", "task_id": task_id}
 
 
@@ -436,8 +420,7 @@ async def reindex_status(
     """Get status of a background reindex task."""
     rag_state = state.rag_state
     await rag_state.cleanup_status()
-    async with rag_state.lock:
-        if task_id in rag_state.status:
-            info = rag_state.status[task_id]
-            return {"task_id": task_id, **info}
+    info = await rag_state.get_status(task_id)
+    if info is not None:
+        return {"task_id": task_id, **info}
     return {"task_id": task_id, "status": "unknown"}

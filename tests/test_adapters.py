@@ -31,7 +31,7 @@ from ai_assistant.core.domain.configs import (
     VectorStoreConfigData,
 )
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
-from ai_assistant.core.domain.errors import VersionMismatchError
+from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.ports.reranker import RerankResult
 
@@ -655,7 +655,6 @@ class TestOpenAICompatibleLLM:
     async def test_complete_raises_adapter_error_on_bad_response(self, llm):
         """Malformed API response must raise AdapterError."""
         from unittest.mock import MagicMock, AsyncMock, patch
-        from ai_assistant.core.domain.errors import AdapterError
 
         mock_response = MagicMock()
         mock_response.json.return_value = {"choices": []}  # missing message
@@ -1234,3 +1233,18 @@ async def test_memory_load_dim_mismatch_raises(tmp_path: Path) -> None:
 
     with pytest.raises(AdapterError, match="embedding dim"):
         await store.load(str(tmp_path), namespace="default")
+
+@pytest.mark.asyncio
+async def test_llm_openai_compatible_shutdown_idempotent():
+    cfg = LLMConfigData(api_base="http://localhost:9999/v1", api_key="x")
+    llm = OpenAICompatibleLLM(cfg)
+    await llm.shutdown()
+    await llm.shutdown()  # no error
+
+@pytest.mark.asyncio
+async def test_llm_openai_compatible_rejects_after_shutdown():
+    cfg = LLMConfigData(api_base="http://localhost:9999/v1", api_key="x")
+    llm = OpenAICompatibleLLM(cfg)
+    await llm.shutdown()
+    with pytest.raises(AdapterError, match="shutting down"):
+        await llm.complete([UserMessage(text="hi")])

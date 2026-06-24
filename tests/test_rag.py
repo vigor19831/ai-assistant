@@ -313,7 +313,8 @@ class TestRAGIndexing:
         assert "personal" in result["results"]
         assert result["results"]["personal"]["indexed"] == 1
 
-    def test_status_polling(self):
+    @pytest.mark.asyncio
+    async def test_status_polling(self):
         """Given: a reindex task was started and recorded in RAGState.
         When: status is polled from the instance.
         Then: correct status and timestamps are returned."""
@@ -321,12 +322,10 @@ class TestRAGIndexing:
 
         rag_state = RAGState()
         task_id = "task-123"
-        rag_state.status[task_id] = {
-            "status": "running",
-            "started_at": time.time(),
-        }
+        await rag_state.start_task(task_id)
 
-        status = rag_state.status.get(task_id, {})
+        status = await rag_state.get_status(task_id)
+        assert status is not None
         assert status["status"] == "running"
         assert "started_at" in status
 
@@ -341,20 +340,22 @@ class TestRAGIndexing:
         now = time.time()
         ttl = rag_state.STATUS_TTL_SECONDS
 
-        rag_state.status["old"] = {
-            "status": "completed",
-            "started_at": now - ttl - 100,
-            "finished_at": now - ttl - 50,
-        }
-        rag_state.status["fresh"] = {
-            "status": "running",
-            "started_at": now - 10,
-        }
+        async with rag_state._lock:
+            rag_state._status["old"] = {
+                "status": "completed",
+                "started_at": now - ttl - 100,
+                "finished_at": now - ttl - 50,
+            }
+            rag_state._status["fresh"] = {
+                "status": "running",
+                "started_at": now - 10,
+            }
 
         await rag_state.cleanup_status()
 
-        assert "old" not in rag_state.status
-        assert "fresh" in rag_state.status
+        async with rag_state._lock:
+            assert "old" not in rag_state._status
+            assert "fresh" in rag_state._status
 
     @pytest.mark.asyncio
     async def test_reindex_tasks_cleanup(self, mock_state):
@@ -381,13 +382,16 @@ class TestRAGIndexing:
 
             # Wait for all tasks to complete
             for _ in range(1000):
-                if not mock_state.rag_state.tasks:
+                async with mock_state.rag_state._lock:
+                    has_tasks = bool(mock_state.rag_state._tasks)
+                if not has_tasks:
                     break
                 await asyncio.sleep(0)
             else:
                 pytest.fail("Tasks were not cleaned up")
 
-            assert len(mock_state.rag_state.tasks) == 0
+            async with mock_state.rag_state._lock:
+                assert len(mock_state.rag_state._tasks) == 0
 
 
 # ── Reranker Regression ──
@@ -643,7 +647,8 @@ class TestChatExportIsolation:
             await asyncio.sleep(0.1)
 
             # Manually trigger the cleanup logic by checking if task exists
-            task = mock_state.rag_state.tasks.get(result.get("task_id", ""))
+            async with mock_state.rag_state._lock:
+                task = mock_state.rag_state._tasks.get(result.get("task_id", ""))
             if task:
                 try:
                     await asyncio.wait_for(task, timeout=1.0)

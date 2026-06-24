@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import TYPE_CHECKING, Any
@@ -49,10 +50,21 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             else self._timeout
         )
         self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
+        self._closed: bool = False
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def shutdown(self) -> None:
         """Close persistent HTTP client."""
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
         await self._client.aclose()
+
+    def _check_open(self) -> None:
+        """Raise AdapterError if adapter has been shut down."""
+        if self._closed:
+            raise AdapterError("LLM adapter is shutting down")
 
     def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert domain Message objects to OpenAI API message dicts."""
@@ -148,6 +160,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AssistantMessage:
+        self._check_open()
         url = f"{self.api_base}/chat/completions"
         headers: dict[str, str] = {
             "Content-Type": "application/json",
@@ -209,6 +222,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         Tool calls in streaming mode are ignored — IToolRegistry is not
         implemented (FUTURE.md: blocked). Only text content is yielded.
         """
+        self._check_open()
         url = f"{self.api_base}/chat/completions"
         headers: dict[str, str] = {
             "Content-Type": "application/json",

@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-23 15:09 UTC
+> Auto-generated from source code. Updated: 2026-06-23 20:14 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -25,11 +25,14 @@
 | `adapters.chunker_simple` | `ValueError` | chunk_overlap ({...}) must be < chunk_size ({...}) | High |
 | `adapters.embedder_openai_compatible` | `AdapterError` | Unexpected response shape from {...}: {...} | High |
 | `adapters.embedder_openai_compatible` | `AdapterError` | Dimension mismatch: expected {...}, got {...} for text[{...}... | High |
+| `adapters.embedder_openai_compatible` | `AdapterError` | Embedder HTTP request failed: {...} | High |
 | `adapters.factory` | `ValueError` | faiss-cpu is not installed but vector_store.provider='faiss' | High |
 | `adapters.factory` | `ValueError` | sqlite3 not available but storage.provider='sqlite' | High |
 | `adapters.factory` | `ValueError` | Unknown adapter port '{...}' | High |
 | `adapters.factory` | `ValueError` | No {...} adapter registered for '{...}' | High |
+| `adapters.llm_openai_compatible` | `AdapterError` | LLM HTTP request failed: {...} | High |
 | `adapters.llm_openai_compatible` | `AdapterError` | Unexpected response shape: {...} | High |
+| `adapters.llm_openai_compatible` | `AdapterError` | LLM stream request failed: {...} | High |
 | `adapters.reranker_api` | `AdapterError` | Unexpected rerank response shape: {...} | High |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS add: expected {...}, got {...} (... | High |
 | `adapters.vector_store_faiss` | `AdapterError` | Dimension mismatch in FAISS search: expected {...}, got {...... | High |
@@ -87,9 +90,11 @@
 | `tests.test_rag` | `HTTPException` | Unknown error | High |
 | `tests.test_retry` | `exc` | fail #{...} | High |
 | `tests.test_stateful_ports` | `RuntimeError` | TMP_DIR not set. Call _set_tmp_dir() first. | High |
+| `adapters.embedder_openai_compatible` | `HTTPError` | _logger.exception( | Medium |
 | `adapters.embedder_openai_compatible` | `KeyError/TypeError` | _logger.exception( | Medium |
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium |
 | `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium |
+| `adapters.llm_openai_compatible` | `HTTPError` | _logger.exception( | Medium |
 | `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium |
 | `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium |
 | `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning( | Medium |
