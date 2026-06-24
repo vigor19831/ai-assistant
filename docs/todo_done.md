@@ -150,3 +150,6 @@
 [+] rag_state.tasks race — RAGState.status dict модифицируется без синхронизации, конкурентные reindex-запросы могут потерять задачи или оставить zombie entries.
 [+] close() vs active requests — shutdown() закрывает httpx.AsyncClient, но complete()/stream()/embed() не проверяют состояние клиента перед использованием, возможен race при graceful shutdown.
 [+] lost-update save() — delete() меняет индекс в памяти, но save() не вызывается автоматически; при краше между delete() и явным save() диск содержит stale данные, а память — новые.
+[+] Неактуальный `docs/drift.md` — #13, #14, #15 помечены как активные | `#13 source_uri` уже в `ChunkMetadata`, `#14 RAGState.status` уже `dict[str, dict[str, object]]`, `#15 query_embedding` удалён из `_required_fields_for_steps`.
+[+] Неактуальный `docs/future.md` — Prometheus помечен как `research` | `core/metrics.py` уже реализует Prometheus exposition format. Блокер `Needs prometheus_client` устарел.
+[+] `scripts/kill.py` парсит неверный путь к порту | Ищет `data.get("api", {}).get("port")`, но `port` в корне `config.yaml`.

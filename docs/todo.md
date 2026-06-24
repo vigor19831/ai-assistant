@@ -8,15 +8,6 @@
 ## TODO ##
 ==============================================================================
 
-[+] Неактуальный `docs/drift.md` — #13, #14, #15 помечены как активные | `#13 source_uri` уже в `ChunkMetadata`, `#14 RAGState.status` уже `dict[str, dict[str, object]]`, `#15 query_embedding` удалён из `_required_fields_for_steps`. Нужно: убрать из активных или пометить `Fixed`. | `docs/drift.md` | Ручная проверка: `git diff docs/drift.md`
-
-[+] Неактуальный `docs/future.md` — Prometheus помечен как `research` | `core/metrics.py` уже реализует Prometheus exposition format. Блокер `Needs prometheus_client` устарел. Нужно: обновить статус. | `docs/future.md` | Ручная проверка: `curl localhost:8000/metrics`
-
-[+] `scripts/kill.py` парсит неверный путь к порту | Ищет `data.get("api", {}).get("port")`, но `port` в корне `config.yaml`. Нужно: исправить на `data.get("port", 8000)`. | `scripts/kill.py` | Ручной запуск: `python scripts/kill.py` при нестандартном порту
-
-
-
-
 [ ] `hasattr()` в `security.py` нарушает правила проекта | Правило Section 2: "Never: `hasattr()` / `isinstance()` on port objects in production code". `credentials` — не port object, но нарушает дух правил. Нужно: заменить `if not credentials or not hasattr(credentials, "credentials"):` на `if credentials is None:` (HTTPAuthorizationCredentials всегда имеет поле `credentials`). | `src/ai_assistant/api/security.py` | `tests/test_api.py`
 
 [ ] Мертвая константа `DOCUMENTS_ROOT` | `Path("sources")` в `core/constants.py` нигде не импортируется. В `indexing.py` используется параметр `documents_root`. Нужно: удалить чтобы не путать. | `src/ai_assistant/core/constants.py` | `tests/test_domain.py`, `tests/test_smoke.py`
