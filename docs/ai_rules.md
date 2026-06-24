@@ -1,5 +1,5 @@
 # AI Rules
-> Version: 2026-06-20
+> Version: 2026-06-24
 > Next review: 2026-09-20
 
 # Project Brief
@@ -161,6 +161,14 @@ File review checklist (output findings only, skip if clean):
 - STYLE: Line length <=88, double quotes, f-strings
 - SIMPLICITY: No new files/classes/functions beyond what was explicitly requested
 
+### Test review checklist (output findings only, skip if clean):
+- ISOLATION: No hardcoded paths, no mutable shared state, no mutable module-level globals
+- ASYNC: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop
+- MOCKS: Port mocks use `spec=` or `autospec=`
+- ENCAPSULATION: No access to `_private` fields in assertions
+- DETERMINISM: No `time.sleep()`, no wall-clock asserts without monkeypatch
+- BEHAVIOR: Asserts state/result, not just mock call counts
+
 ## 10. Decision Hierarchy
 
 Feature conflicts with Absolute Constraint:
@@ -201,6 +209,7 @@ Before outputting code, verify:
 - [ ] All changed files listed in Output Protocol
 - [ ] No rule from Section 2 (Absolute Constraints) violated
 - [ ] No rule from Section 2.1 (Simplicity Constraints) violated
+- [ ] No rule from Section 15 (Test Discipline) violated, if tests are changed
 - [ ] If >3 files changed, split proposed or get confirmation
 - [ ] Tests updated for new functionality
 - [ ] No new features proposed without explicit user request
@@ -220,3 +229,14 @@ These rules themselves change:
 - User approves -> move to this file, bump `rules_version` in header
 - Rejected ideas stay in `proposed.md` with reason for rejection
 - Review rules quarterly or after 5+ violations in one month
+
+## 15. Test Discipline
+
+`tests/` excluded from ruff/mypy, but not from architecture. Tests must survive `pytest -n auto`, `--reverse`, `--random-order`.
+
+- **Isolation**: No hardcoded paths — use `tmp_path`. No mutable shared state between tests.
+- **Async**: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop.
+- **Mocks**: Port mocks must use `spec=` or `autospec=`. See Section 6 for mock adapter location.
+- **Encapsulation**: Tests use public API only. No `obj._private_field` in assertions.
+- **Determinism**: No `time.sleep()`. No wall-clock asserts without monkeypatch.
+- **Behavior**: Assert state/result, not just `assert_called_once()`.
