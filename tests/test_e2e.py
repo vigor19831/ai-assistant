@@ -53,8 +53,7 @@ def client(mock_state):
 
     set_api_key("test-e2e-key")
 
-    app = create_app()
-    app.state.app_state = mock_state
+    app = create_app(state=mock_state)
     return TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
 
 

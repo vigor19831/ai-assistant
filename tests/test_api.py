@@ -79,73 +79,49 @@ def mock_request():
     return req
 
 
-@pytest.fixture
-def make_minimal_config():
-    """Factory fixture — returns a fresh AppConfig for each call.
-
-    Prevents test-to-test pollution when a test mutates the config.
-    """
-    def _factory(**overrides):
-        cfg = AppConfig(
-            llm={
-                "provider": "mock",
-                "max_tokens": 50,
-                "temperature": 0.7,
-                "timeout": 5.0,
-                "stop_sequences": [],
-            },
-            embedder={"provider": "mock", "dim": 384, "timeout": 5.0},
-            vector_store={
-                "provider": "memory",
-                "dim": 384,
-                "metric": "l2",
-                "index_path": "./data/indices/test",
-            },
-            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
-            storage={"provider": "sqlite", "db_path": ":memory:"},
-            reranker={
-                "provider": "dummy",
-                "model": "test",
-                "api_base": "http://test",
-                "timeout": 5.0,
-                "threshold": 0.3,
-            },
-            rag={
-                "steps": ["embed_query", "retrieve", "build_context", "generate"],
-                "prompt_version": "v1",
-                "prompt_name": "rag_default",
-                "top_k": 3,
-                "default_namespace": "test",
-                "relevance_threshold": 0.3,
-            },
-        )
-        for key, val in overrides.items():
-            setattr(cfg, key, val)
-        return cfg
-
-    return _factory
+def _make_minimal_config() -> AppConfig:
+    """Return a fresh AppConfig with test-safe defaults."""
+    return AppConfig(
+        llm={
+            "provider": "mock",
+            "max_tokens": 50,
+            "temperature": 0.7,
+            "timeout": 5.0,
+            "stop_sequences": [],
+        },
+        embedder={"provider": "mock", "dim": 384, "timeout": 5.0},
+        vector_store={
+            "provider": "memory",
+            "dim": 384,
+            "metric": "l2",
+            "index_path": "./data/indices/test",
+        },
+        chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+        storage={"provider": "sqlite", "db_path": ":memory:"},
+        reranker={
+            "provider": "dummy",
+            "model": "test",
+            "api_base": "http://test",
+            "timeout": 5.0,
+            "threshold": 0.3,
+        },
+        rag={
+            "steps": ["embed_query", "retrieve", "build_context", "generate"],
+            "prompt_version": "v1",
+            "prompt_name": "rag_default",
+            "top_k": 3,
+            "default_namespace": "test",
+            "relevance_threshold": 0.3,
+        },
+    )
 
 
 @pytest.fixture
-def minimal_config(make_minimal_config):
-    """Backward-compat: single fresh config instance per test."""
-    return make_minimal_config()
-
-
-@pytest.fixture
-def mock_state(minimal_config):
-    """Return a mock InitializedAppState with minimal config for client tests."""
-    state = MagicMock(spec=InitializedAppState)
-    state.config = minimal_config
-    return state
-
-
-@pytest.fixture
-def client(mock_state):
-    """Return a TestClient with mocked app state."""
+def client(isolated_app_state):
+    """Return a TestClient with mocked app state and isolated paths."""
     from ai_assistant.main import create_app
 
-    app = create_app(state=mock_state)
+    app = create_app(state=isolated_app_state)
     return TestClient(app)
 
 
@@ -550,11 +526,12 @@ class TestAPIDeps:
     # ── init_adapters (mocked factory) ──
 
     @pytest.mark.asyncio
-    async def test_init_adapters_assembles_correctly(self, minimal_config):
+    async def test_init_adapters_assembles_correctly(self):
         """Given: create_adapter is mocked.
         When: init_adapters is called.
         Then: InitializedAppState has all core adapters populated.
         """
+        minimal_config = _make_minimal_config()
         mock_llm = MagicMock()
         mock_embedder = MagicMock()
         mock_vector_store = MagicMock()
@@ -593,11 +570,12 @@ class TestAPIDeps:
         assert result.chat_manager is not None
 
     @pytest.mark.asyncio
-    async def test_init_adapters_pipeline_steps(self, minimal_config):
+    async def test_init_adapters_pipeline_steps(self):
         """Given: create_adapter is mocked.
         When: init_adapters builds the pipeline.
         Then: RAGPipeline has 4 steps matching config order.
         """
+        minimal_config = _make_minimal_config()
         mock_llm = MagicMock()
         mock_embedder = MagicMock()
         mock_vector_store = MagicMock()
@@ -632,11 +610,12 @@ class TestAPIDeps:
             assert callable(step)
 
     @pytest.mark.asyncio
-    async def test_init_adapters_steps_are_callable_not_lambdas(self, minimal_config):
+    async def test_init_adapters_steps_are_callable_not_lambdas(self):
         """Given: create_adapter is mocked.
         When: init_adapters builds the pipeline.
         Then: steps are class instances, not raw lambdas.
         """
+        minimal_config = _make_minimal_config()
         mock_llm = MagicMock()
         mock_embedder = MagicMock()
         mock_vector_store = MagicMock()
@@ -669,14 +648,14 @@ class TestAPIDeps:
             assert getattr(step, "__name__", None) != "<lambda>"
 
     @pytest.mark.asyncio
-    async def test_init_adapters_null_reranker_when_not_configured(self, make_minimal_config):
+    async def test_init_adapters_null_reranker_when_not_configured(self):
         """Given: reranker provider is None in config.
         When: init_adapters is called.
         Then: NullReranker is used.
         """
         from ai_assistant.adapters.reranker_null import NullReranker
 
-        minimal_config = make_minimal_config()
+        minimal_config = _make_minimal_config()
         minimal_config.reranker.provider = None
 
         mock_vector_store = MagicMock()
@@ -702,11 +681,12 @@ class TestAPIDeps:
         assert isinstance(result.reranker, NullReranker)
 
     @pytest.mark.asyncio
-    async def test_init_adapters_storage_raises_runtime_error(self, minimal_config):
+    async def test_init_adapters_storage_raises_runtime_error(self):
         """Given: storage adapter raises ValueError.
         When: init_adapters is called.
         Then: RuntimeError is raised after the catch block.
         """
+        minimal_config = _make_minimal_config()
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -725,11 +705,12 @@ class TestAPIDeps:
                 await init_adapters(minimal_config)
 
     @pytest.mark.asyncio
-    async def test_init_adapters_storage_import_error(self, minimal_config):
+    async def test_init_adapters_storage_import_error(self):
         """Given: storage adapter raises ImportError.
         When: init_adapters is called.
         Then: RuntimeError is raised.
         """
+        minimal_config = _make_minimal_config()
         mock_vector_store = MagicMock()
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -748,11 +729,12 @@ class TestAPIDeps:
                 await init_adapters(minimal_config)
 
     @pytest.mark.asyncio
-    async def test_init_adapters_returns_fresh_state(self, minimal_config):
+    async def test_init_adapters_returns_fresh_state(self):
         """Given: init_adapters is called twice.
         When: comparing results.
         Then: each call returns a distinct InitializedAppState.
         """
+        minimal_config = _make_minimal_config()
         call_count = {"count": 0}
 
         def counting_create_adapter(port: str, name: str, config: Any) -> Any:
@@ -884,12 +866,12 @@ class TestAPIDeps:
             assert STEP_REGISTRY[step_enum.value] is func
 
     @pytest.mark.asyncio
-    async def test_pipeline_with_hyde_step(self, make_minimal_config):
+    async def test_pipeline_with_hyde_step(self):
         """Given: config includes hyde_query step.
         When: init_adapters builds the pipeline.
         Then: 5 steps are present and hyde_query is at index 1.
         """
-        minimal_config = make_minimal_config()
+        minimal_config = _make_minimal_config()
         minimal_config.rag.steps = [
             "embed_query",
             "hyde_query",
@@ -933,30 +915,32 @@ class TestAPIDeps:
 
     # ── _build_step_funcs stop_at ──
 
-    def test_build_step_funcs_stop_at(self, minimal_config):
+    def test_build_step_funcs_stop_at(self):
         """Given: a config with 4 steps and stop_at=GENERATE.
         When: _build_step_funcs is called.
         Then: only 3 steps are returned (stops before GENERATE).
         """
+        minimal_config = _make_minimal_config()
         funcs = _build_step_funcs(minimal_config, stop_at=RAGStep.GENERATE)
         assert len(funcs) == 3
         # Verify the last step is build_context, not generate
         assert funcs[-1] is _STEP_MAP[RAGStep.BUILD_CONTEXT]
 
-    def test_build_step_funcs_no_stop(self, minimal_config):
+    def test_build_step_funcs_no_stop(self):
         """Given: a config with 4 steps and no stop_at.
         When: _build_step_funcs is called.
         Then: all 4 steps are returned.
         """
+        minimal_config = _make_minimal_config()
         funcs = _build_step_funcs(minimal_config)
         assert len(funcs) == 4
 
-    def test_build_step_funcs_unknown_step_raises(self, make_minimal_config):
+    def test_build_step_funcs_unknown_step_raises(self):
         """Given: a config with an unknown step name.
         When: _build_step_funcs is called.
         Then: ValueError is raised.
         """
-        minimal_config = make_minimal_config()
+        minimal_config = _make_minimal_config()
         minimal_config.rag.steps = ["embed_query", "nonexistent_step"]
         with pytest.raises(ValueError, match="Unknown step"):
             _build_step_funcs(minimal_config)
@@ -1190,11 +1174,12 @@ class TestAPILifespan:
         assert config.debug is True
 
     @pytest.mark.asyncio
-    async def test_lifespan_startup_sets_app_state(self, minimal_config):
+    async def test_lifespan_startup_sets_app_state(self):
         """Given: a FastAPI app with lifespan.
         When: startup runs.
         Then: app.state.app_state is populated.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
 
         mock_state = MagicMock()
@@ -1218,11 +1203,12 @@ class TestAPILifespan:
                 assert app.state.app_state is mock_state
 
     @pytest.mark.asyncio
-    async def test_lifespan_shutdown_calls_cleanup(self, minimal_config):
+    async def test_lifespan_shutdown_calls_cleanup(self):
         """Given: lifespan context manager.
         When: shutdown runs (exit from context).
         Then: _async_cleanup is called.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
@@ -1252,11 +1238,12 @@ class TestAPILifespan:
         mock_state.embedder.shutdown.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save(self, minimal_config):
+    async def test_async_cleanup_index_save(self):
         """Given: vector_store has namespaces.
         When: _async_cleanup runs.
         Then: save is called for each namespace with timeout.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock()
@@ -1278,11 +1265,12 @@ class TestAPILifespan:
         assert mock_state.vector_store.save.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save_timeout(self, minimal_config):
+    async def test_async_cleanup_index_save_timeout(self):
         """Given: vector_store.save hangs beyond 10s.
         When: _async_cleanup runs.
         Then: TimeoutError is caught and logged; other namespaces still proceed.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock()
@@ -1306,20 +1294,22 @@ class TestAPILifespan:
         mock_state.vector_store.save.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_no_app_state(self, minimal_config):
+    async def test_async_cleanup_no_app_state(self):
         """Given: app.state has no app_state attribute.
         When: _async_cleanup runs.
         Then: it returns early without error.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         await _async_cleanup(app, minimal_config)
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_adapter_shutdown_order(self, minimal_config):
+    async def test_async_cleanup_adapter_shutdown_order(self):
         """Given: all adapters are present.
         When: _async_cleanup runs.
         Then: shutdown is called on each adapter in defined order.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
@@ -1340,11 +1330,12 @@ class TestAPILifespan:
         mock_state.chunker.shutdown.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_lifespan_mount_static_called(self, minimal_config):
+    async def test_lifespan_mount_static_called(self):
         """Given: lifespan startup.
         When: it runs.
         Then: mount_static is called with app and config.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
@@ -1368,11 +1359,12 @@ class TestAPILifespan:
         mock_mount.assert_called_once_with(app, minimal_config)
 
     @pytest.mark.asyncio
-    async def test_lifespan_setup_logging_called(self, minimal_config):
+    async def test_lifespan_setup_logging_called(self):
         """Given: lifespan startup.
         When: it runs.
         Then: setup_logging is called with correct level.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
@@ -1398,12 +1390,12 @@ class TestAPILifespan:
         assert call_args.kwargs["level"] == "INFO"  # minimal_config.debug is False
 
     @pytest.mark.asyncio
-    async def test_lifespan_sets_api_key_from_config(self, make_minimal_config):
+    async def test_lifespan_sets_api_key_from_config(self):
         """Given: config has api_key and env has none.
         When: lifespan startup runs.
         Then: set_api_key is called with config key.
         """
-        minimal_config = make_minimal_config()
+        minimal_config = _make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
@@ -1428,12 +1420,12 @@ class TestAPILifespan:
         mock_set_key.assert_called_once_with("cfg-secret")
 
     @pytest.mark.asyncio
-    async def test_lifespan_skips_set_api_key_when_env_present(self, make_minimal_config):
+    async def test_lifespan_skips_set_api_key_when_env_present(self):
         """Given: env var already has API key.
         When: lifespan startup runs.
         Then: set_api_key is NOT called.
         """
-        minimal_config = make_minimal_config()
+        minimal_config = _make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
@@ -1458,11 +1450,12 @@ class TestAPILifespan:
         mock_set_key.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_lifespan_index_load_on_startup(self, minimal_config):
+    async def test_lifespan_index_load_on_startup(self):
         """Given: vector_store has persisted namespaces.
         When: lifespan startup runs.
         Then: load is called for each namespace.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock()
@@ -1491,11 +1484,12 @@ class TestAPILifespan:
         )
 
     @pytest.mark.asyncio
-    async def test_lifespan_graceful_shutdown_timeout(self, minimal_config):
+    async def test_lifespan_graceful_shutdown_timeout(self):
         """Given: adapter shutdown hangs.
         When: _async_cleanup runs.
         Then: other adapters still shutdown; no unhandled exception.
         """
+        minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None

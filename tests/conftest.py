@@ -179,13 +179,20 @@ def mock_chunker():
 
 
 
-@pytest.fixture
-def mock_state():
-    """Return a fresh mock InitializedAppState for each test.
+# ---------------------------------------------------------------------------
+# Mock state helpers — centralized to avoid duplication and shadowing
+# ---------------------------------------------------------------------------
+
+
+def build_mock_state() -> MagicMock:
+    """Build a fresh mock InitializedAppState with isolated defaults.
 
     Uses a real AppConfig for schema fields and AsyncMock for adapters.
     This avoids MagicMock(spec=AppConfig) which does not auto-create
     Pydantic fields reliably.
+
+    Returns:
+        MagicMock configured as an InitializedAppState spec.
     """
     from ai_assistant.api.deps import InitializedAppState, RAGState
     from ai_assistant.core.config import AppConfig
@@ -208,6 +215,15 @@ def mock_state():
 
 
 @pytest.fixture
+def mock_state():
+    """Return a fresh mock InitializedAppState for each test.
+
+    Delegates to build_mock_state() for centralized construction.
+    """
+    return build_mock_state()
+
+
+@pytest.fixture
 def make_mock_state():
     """Factory fixture — returns a function that creates fresh mock states.
 
@@ -215,26 +231,26 @@ def make_mock_state():
     (e.g. client) mutates the state and downstream tests must not see
     the mutation.
     """
-    from ai_assistant.api.deps import InitializedAppState, RAGState
-    from ai_assistant.core.config import AppConfig
-
     def _factory():
-        config = AppConfig()
-        state = MagicMock(spec=InitializedAppState)
-        state.config = config
-        state.llm = AsyncMock()
-        state.embedder = AsyncMock()
-        state.vector_store = AsyncMock()
-        state.chunker = AsyncMock()
-        state.storage = AsyncMock()
-        state.reranker = AsyncMock()
-        state.chat_manager = AsyncMock()
-        state.pipeline = MagicMock()
-        state.limiter = MagicMock()
-        state.rag_state = RAGState()
-        return state
+        return build_mock_state()
 
     return _factory
+
+
+@pytest.fixture
+def isolated_app_state(tmp_path):
+    """Return a mock InitializedAppState with isolated temp paths.
+
+    Overrides config paths to use tmp_path so that tests do not pollute
+    the project data/ directory or collide with each other.
+    """
+    state = build_mock_state()
+    # Isolate paths to tmp_path for filesystem safety
+    state.config.vector_store.index_path = str(tmp_path / "indices")
+    state.config.rag.documents_root = str(tmp_path / "documents")
+    state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+    state.config.storage.db_path = str(tmp_path / "storage.db")
+    return state
 
 
 @pytest.fixture(autouse=True)
