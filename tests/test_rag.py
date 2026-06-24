@@ -487,7 +487,7 @@ class TestChatExportIsolation:
     """Chat exports must not pollute regular RAG namespaces."""
 
     @pytest.mark.asyncio
-    async def test_chat_export_not_indexed_by_default(self, mock_state):
+    async def test_chat_export_not_indexed_by_default(self, mock_state, tmp_path):
         """Given: index_chat_exports is False (default).
         When: save_chat handler processes a request.
         Then: vector_store.add is never called — chat stays on disk only."""
@@ -495,7 +495,7 @@ class TestChatExportIsolation:
         from ai_assistant.features.rag.schemas import SaveChatRequest
 
         mock_state.config.rag.index_chat_exports = False
-        mock_state.config.rag.chat_exports_root = "chat_exports"
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
 
         req = SaveChatRequest(
             content="test chat content",
@@ -511,7 +511,7 @@ class TestChatExportIsolation:
         mock_state.vector_store.add.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_chat_export_indexed_to_isolated_namespace(self, mock_state, mock_chunker, mock_embedder, mock_vector_store):
+    async def test_chat_export_indexed_to_isolated_namespace(self, mock_state, mock_chunker, mock_embedder, mock_vector_store, tmp_path):
         """Given: index_chat_exports is True.
         When: save_chat handler processes a request.
         Then: response contains chat_namespace='chat_personal'."""
@@ -520,7 +520,7 @@ class TestChatExportIsolation:
         from unittest.mock import patch, AsyncMock
 
         mock_state.config.rag.index_chat_exports = True
-        mock_state.config.rag.chat_exports_root = "chat_exports"
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
 
         # Patch IndexingManager to avoid real chunking/embedding
         with patch(
@@ -589,7 +589,7 @@ class TestChatExportIsolation:
         assert len(chat_results) == 0
 
     @pytest.mark.asyncio
-    async def test_namespace_collision_detected(self, mock_state):
+    async def test_namespace_collision_detected(self, mock_state, tmp_path):
         """Given: user namespace 'chat_personal' already exists with documents.
         When: save_chat called with namespace='personal'.
         Then: collision detected, chat NOT indexed, error returned."""
@@ -597,7 +597,7 @@ class TestChatExportIsolation:
         from ai_assistant.features.rag.schemas import SaveChatRequest
 
         mock_state.config.rag.index_chat_exports = True
-        mock_state.config.rag.chat_exports_root = "chat_exports"
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default", "personal", "chat_personal"])
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("doc-1", {"type": "document"})])
 
@@ -614,7 +614,7 @@ class TestChatExportIsolation:
         assert "collision" in result.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_reindex_clears_chat_namespace(self, mock_state):
+    async def test_reindex_clears_chat_namespace(self, mock_state, tmp_path):
         """Given: chat exports indexed in 'chat_personal'.
         When: reindex called with clear=True, folder='personal'.
         Then: 'chat_personal' namespace is also cleared."""
@@ -623,6 +623,7 @@ class TestChatExportIsolation:
         from unittest.mock import patch, AsyncMock
 
         mock_state.config.rag.index_chat_exports = True
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[
             ("chat-1", {"type": "chat_export"}),
             ("chat-2", {"type": "chat_export"}),

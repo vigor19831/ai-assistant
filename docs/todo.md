@@ -8,11 +8,11 @@
 ## TODO ##
 ==============================================================================
 
-[ ] `hasattr()` в `security.py` нарушает правила проекта | Правило Section 2: "Never: `hasattr()` / `isinstance()` on port objects in production code". `credentials` — не port object, но нарушает дух правил. Нужно: заменить `if not credentials or not hasattr(credentials, "credentials"):` на `if credentials is None:` (HTTPAuthorizationCredentials всегда имеет поле `credentials`). | `src/ai_assistant/api/security.py` | `tests/test_api.py`
+[+] `hasattr()` в `security.py` нарушает правила проекта | Правило Section 2: "Never: `hasattr()` / `isinstance()` on port objects in production code". `credentials` — не port object, но нарушает дух правил. Нужно: заменить `if not credentials or not hasattr(credentials, "credentials"):` на `if credentials is None:` (HTTPAuthorizationCredentials всегда имеет поле `credentials`). | `src/ai_assistant/api/security.py` | `tests/test_api.py`
 
-[ ] Мертвая константа `DOCUMENTS_ROOT` | `Path("sources")` в `core/constants.py` нигде не импортируется. В `indexing.py` используется параметр `documents_root`. Нужно: удалить чтобы не путать. | `src/ai_assistant/core/constants.py` | `tests/test_domain.py`, `tests/test_smoke.py`
+[+] Мертвая константа `DOCUMENTS_ROOT` | `Path("sources")` в `core/constants.py` нигде не импортируется. В `indexing.py` используется параметр `documents_root`. Нужно: удалить чтобы не путать. | `src/ai_assistant/core/constants.py` | `tests/test_domain.py`, `tests/test_smoke.py`
 
-[ ] Глобальное состояние API-ключа не работает в multiprocess | `_override_api_key` с `threading.Lock()` работает только внутри одного процесса. При `uvicorn --workers 4` или gunicorn каждый worker имеет свой `_override_api_key`. Runtime rotation работает непредсказуемо. Нужно: добавить `logger.warning` при `workers > 1` в `lifespan.py` или документировать ограничение в `docs/drift.md`. | `src/ai_assistant/api/security.py`, `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`
+[+] Глобальное состояние API-ключа не работает в multiprocess | `_override_api_key` с `threading.Lock()` работает только внутри одного процесса. При `uvicorn --workers 4` или gunicorn каждый worker имеет свой `_override_api_key`. Runtime rotation работает непредсказуемо. Нужно: добавить `logger.warning` при `workers > 1` в `lifespan.py` или документировать ограничение в `docs/drift.md`. | `src/ai_assistant/api/security.py`, `src/ai_assistant/api/lifespan.py` | `tests/test_api.py`
 
 
 

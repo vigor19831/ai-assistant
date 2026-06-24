@@ -102,6 +102,7 @@ scripts/*.log
 # User content (never commit)
 sources/
 vendor/
+chat_exports/
 
 # src-layout build artifacts
 src/*.egg-info/

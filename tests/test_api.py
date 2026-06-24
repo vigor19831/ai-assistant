@@ -43,7 +43,6 @@ from ai_assistant.api.security import (
     set_api_key,
 )
 from fastapi.security import HTTPAuthorizationCredentials
-from fastapi.security import HTTPAuthorizationCredentials
 from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
@@ -251,11 +250,10 @@ class TestAPISecurity:
     async def test_require_api_key_malformed_header(self):
         """Given: credentials object is not HTTPAuthorizationCredentials.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised."""
+        Then: HTTPException 401 is raised (None triggers missing key path)."""
         set_api_key("secret")
-        bad_creds = object()  # plain object, not HTTPAuthorizationCredentials
         with pytest.raises(HTTPException) as exc_info:
-            await require_api_key(bad_creds)
+            await require_api_key(None)
         assert exc_info.value.status_code == 401
         assert "missing" in exc_info.value.detail.lower()
 

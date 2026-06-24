@@ -56,6 +56,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if config.security.api_key and get_expected_api_key() is None:
         set_api_key(config.security.api_key)
 
+    if config.security.admin_enabled:
+        logger.warning(
+            "Admin endpoints enabled. Runtime API key rotation via "
+            "/admin/api-key is process-local and will not propagate across "
+            "multiple uvicorn/gunicorn workers. Use AI_SECURITY_API_KEY "
+            "env var for consistent key distribution in multiprocess mode."
+        )
+
     state = await init_adapters(config)
     app.state.app_state = state
 

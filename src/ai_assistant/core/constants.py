@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-__all__ = ["CHAT_NS_PREFIX", "DOCUMENTS_ROOT", "FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
+__all__ = ["CHAT_NS_PREFIX", "FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
 
 RAG_NS_MAP: dict[str, str] = {
     "p": "personal",
@@ -15,8 +14,6 @@ RAG_NS_MAP: dict[str, str] = {
     "b": "books",
 }
 RAG_PREFIX_RE: re.Pattern[str] = re.compile(r"^\[(p|w|o|c|b)\]\s*(.*)", re.IGNORECASE)
-
-DOCUMENTS_ROOT = Path("sources")
 
 CHAT_NS_PREFIX = "chat_"
 

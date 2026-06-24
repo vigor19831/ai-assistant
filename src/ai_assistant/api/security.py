@@ -29,7 +29,10 @@ _logger = get_logger("security")
 SECURITY_MAX_BODY = 10_485_760
 bearer_scheme = HTTPBearer(auto_error=False)
 
-# Mutable state for rare runtime key rotation (admin endpoint)
+# Mutable state for rare runtime key rotation (admin endpoint).
+# WARNING: this is process-local. Runtime rotation does NOT propagate
+# across uvicorn/gunicorn workers. Use env var AI_SECURITY_API_KEY
+# for consistent key distribution in multiprocess deployments.
 _override_api_key: str | None = None
 _lock = threading.Lock()
 
@@ -85,7 +88,7 @@ async def require_api_key(
     expected = get_expected_api_key()
     if not expected:
         raise HTTPException(status_code=401, detail="API key not configured")
-    if not isinstance(credentials, HTTPAuthorizationCredentials):
+    if credentials is None:
         raise HTTPException(status_code=401, detail="Missing API key")
     if not hmac.compare_digest(credentials.credentials, expected):
         raise HTTPException(status_code=401, detail="Invalid API key")
