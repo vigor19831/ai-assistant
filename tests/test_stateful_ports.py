@@ -262,7 +262,8 @@ TestChatStorageStateful = ChatStorageStateMachine.TestCase
 @pytest.mark.asyncio
 async def test_sqlite_storage_shutdown_wal_checkpoint() -> None:
     """shutdown() must flush WAL and not leave orphaned *.db-wal/*.db-shm."""
-    tmp_db = _get_tmp_dir() / "shutdown_test.db"
+    import uuid
+    tmp_db = _get_tmp_dir() / f"shutdown_test_{uuid.uuid4().hex}.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
     await storage.init_db()
 
@@ -287,7 +288,8 @@ async def test_sqlite_storage_shutdown_wal_checkpoint() -> None:
 @pytest.mark.asyncio
 async def test_sqlite_storage_shutdown_idempotent() -> None:
     """shutdown() must be safe to call multiple times."""
-    tmp_db = _get_tmp_dir() / "idempotent_test.db"
+    import uuid
+    tmp_db = _get_tmp_dir() / f"idempotent_test_{uuid.uuid4().hex}.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
     await storage.init_db()
 

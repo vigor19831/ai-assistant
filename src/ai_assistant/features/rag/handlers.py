@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 from pathlib import Path
@@ -249,6 +250,10 @@ async def save_chat(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> dict[str, Any]:
     namespace = req.namespace
+    if not re.match(r"^[a-z]+$", namespace):
+        raise HTTPException(
+            status_code=400, detail="Invalid namespace: must be lowercase letters only"
+        )
     filename = req.filename
     content = req.content
 

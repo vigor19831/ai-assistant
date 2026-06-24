@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import UserMessage
@@ -155,7 +156,6 @@ class TestRAGManager:
         """Given: pipeline returns LLM_UNAVAILABLE error.
         When: query_rag handler processes the result.
         Then: HTTPException with status 503 is raised."""
-        from fastapi import HTTPException
         from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
         from ai_assistant.core.pipeline import RAGPipeline
 
@@ -533,6 +533,26 @@ class TestChatNamespaceHelper:
 
 class TestChatExportIsolation:
     """Chat exports must not pollute regular RAG namespaces."""
+
+    @pytest.mark.asyncio
+    async def test_save_chat_rejects_invalid_namespace(self, mock_state, tmp_path):
+        """Given: namespace contains path traversal or invalid chars.
+        When: save_chat handler processes the request.
+        Then: HTTPException 400 is raised before any filesystem access."""
+        from ai_assistant.features.rag.handlers import save_chat
+        from ai_assistant.features.rag.schemas import SaveChatRequest
+
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+
+        invalid_namespaces = ["../etc", "foo/bar", "Foo", "123", "chat_"]
+        for ns in invalid_namespaces:
+            req = SaveChatRequest.model_construct(
+                content="test", namespace=ns, filename="test.md"
+            )
+            with pytest.raises(HTTPException) as exc_info:
+                await save_chat(req, mock_state)
+            assert exc_info.value.status_code == 400
+            assert "invalid namespace" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
     async def test_chat_export_not_indexed_by_default(self, mock_state, tmp_path):

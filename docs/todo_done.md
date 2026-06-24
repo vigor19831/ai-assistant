@@ -161,3 +161,5 @@
 [+] Незадокументированный drift: non-stdlib в `core/` | Jinja2 (`core/prompts`), pydantic+yaml (`core/config`), tiktoken+tokenizers (`core/utils`) — все в `core/` при запрете non-stdlib. Только Jinja2 в drift #11. Нужно: дополнить список grandfathered exceptions. | `docs/drift.md` | `grep -c 'Jinja2\|pydantic\|yaml\|tiktoken' src/ai_assistant/core/*.py`
 [+] Кириллица в `rag_strict.j2` — переведена на английский | `"У меня недостаточно информации."` → `"I do not have enough information."` | `src/ai_assistant/core/prompts/v1/rag_strict.j2` | `tests/test_smoke.py`
 [+] `RAGState._status` — неограниченный рост памяти | `cleanup_status()` добавлен в `start_task()` (write-операция, side effect приемлем). `get_status()` остаётся чистым read. Решает утечку при частых reindex без костылей в read-пути. | `src/ai_assistant/api/deps.py` | `tests/test_rag.py`
+[+] SQLite: реализован graceful shutdown (PRAGMA wal_checkpoint + close) для защиты от потери WAL.
+[+] RAG: добавлена валидация namespace (regex `^[a-z]+$`) для защиты от path traversal.

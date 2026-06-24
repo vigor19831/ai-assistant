@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-24 12:05 UTC
+> Auto-generated from source code. Updated: 2026-06-24 14:10 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -103,7 +103,10 @@
 | `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium |
 | `adapters.reranker_api` | `KeyError/TypeError` | _logger.exception( | Medium |
 | `adapters.reranker_api` | `KeyError/TypeError/ValueError` | continue | Medium |
+| `adapters.storage_sqlite` | `Exception` | _logger.exception("Unexpected error during WAL checkpoint",  | Medium |
+| `adapters.storage_sqlite` | `Exception` | _logger.exception("Failed to close SQLite connection during  | Medium |
 | `adapters.storage_sqlite` | `JSONDecodeError` | _logger.warning("JSON decode failed in storage", extra={"err | Medium |
+| `adapters.storage_sqlite` | `OperationalError` | _logger.warning( | Medium |
 | `adapters.vector_store_faiss` | `Exception` | _logger.exception( | Medium |
 | `adapters.vector_store_faiss` | `Exception` | with contextlib.suppress(OSError): | Medium |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium |
