@@ -138,5 +138,30 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
             await conn.commit()
 
     async def shutdown(self) -> None:
-        """No-op shutdown — SQLite connections are per-operation."""
-        pass
+        """Flush WAL to disk and truncate WAL files for clean shutdown.
+
+        Opens a dedicated connection to run PRAGMA wal_checkpoint(TRUNCATE),
+        ensuring all WAL content is merged into the main database file and
+        *.db-wal / *.db-shm are removed.  Errors are logged but not raised
+        so that shutdown degradation is visible without aborting the
+        lifespan cleanup sequence.
+        """
+        conn: aiosqlite.Connection | None = None
+        try:
+            conn = await aiosqlite.connect(self.db_path)
+            await conn.execute("PRAGMA busy_timeout=5000")
+            await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            _logger.info("WAL checkpoint completed", extra={"db_path": self.db_path})
+        except sqlite3.OperationalError as exc:
+            _logger.warning(
+                "WAL checkpoint failed (database may be locked by another process)",
+                extra={"db_path": self.db_path, "error": str(exc)},
+            )
+        except Exception:
+            _logger.exception("Unexpected error during WAL checkpoint", extra={"db_path": self.db_path})
+        finally:
+            if conn is not None:
+                try:
+                    await conn.close()
+                except Exception:
+                    _logger.exception("Failed to close SQLite connection during shutdown")

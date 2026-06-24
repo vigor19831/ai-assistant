@@ -10,6 +10,7 @@ NOTE: Uses tmp_path fixture via _TMP_DIR global to avoid polluting project root.
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ import pytest
 from hypothesis import settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, rule, precondition, invariant
 
+from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.core.domain.configs import VectorStoreConfigData, StorageConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.ports.vector_store import IVectorStore
@@ -251,6 +253,46 @@ class ChatStorageStateMachine(RuleBasedStateMachine):
 
 
 TestChatStorageStateful = ChatStorageStateMachine.TestCase
+
+
+# ---------------------------------------------------------------------------
+# SQLiteStorage shutdown tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sqlite_storage_shutdown_wal_checkpoint() -> None:
+    """shutdown() must flush WAL and not leave orphaned *.db-wal/*.db-shm."""
+    tmp_db = _get_tmp_dir() / "shutdown_test.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
+    await storage.init_db()
+
+    # Write data to ensure WAL has content
+    await storage.save_message("conv-1", {"role": "user", "content": "hello"})
+
+    # Call shutdown — must not raise
+    await storage.shutdown()
+
+    # After TRUNCATE checkpoint, WAL should be empty or removed
+    wal_path = str(tmp_db) + "-wal"
+    if os.path.exists(wal_path):
+        assert os.path.getsize(wal_path) == 0, f"WAL file not truncated: {wal_path}"
+
+    # Verify data is still readable after shutdown
+    storage2 = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
+    history = await storage2.get_history("conv-1")
+    assert len(history) == 1
+    assert history[0]["content"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_storage_shutdown_idempotent() -> None:
+    """shutdown() must be safe to call multiple times."""
+    tmp_db = _get_tmp_dir() / "idempotent_test.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
+    await storage.init_db()
+
+    await storage.shutdown()
+    await storage.shutdown()  # must not raise
 
 
 # ---------------------------------------------------------------------------
