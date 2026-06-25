@@ -299,7 +299,7 @@ class TestRAGIndexing:
         (personal / "notes.md").write_text("# Hello\nThis is a test note.")
 
         # Prevent auto-save from triggering on mock config
-        mock_vector_store.config.index_path = None
+        mock_vector_store.config.index_path = str(tmp_path / "indices")
 
         result = await index_folder(
             folder="personal",
@@ -453,8 +453,6 @@ class TestRAGIndexing:
         When: index_folder discovers and indexes them.
         Then: source_uri contains relative path, not absolute file:// URI.
         """
-        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
-
         sources = tmp_path / "sources"
         personal = sources / "personal"
         personal.mkdir(parents=True)
@@ -472,7 +470,7 @@ class TestRAGIndexing:
             return await original_chunk(document)
 
         mock_chunker.chunk = capturing_chunk
-        mock_vector_store.config.index_path = None
+        mock_vector_store.config.index_path = str(tmp_path / "indices")
 
         result = await index_folder(
             folder="personal",
