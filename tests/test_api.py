@@ -44,6 +44,14 @@ from ai_assistant.api.security import (
 )
 from fastapi.security import HTTPAuthorizationCredentials
 from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
+from ai_assistant.core.ports.chunker import IChunker
+from ai_assistant.core.ports.embedder import IEmbedder
+from ai_assistant.core.ports.llm import ILLM
+from ai_assistant.core.ports.reranker import IReranker
+from ai_assistant.core.ports.storage import IChatStorage
+from ai_assistant.core.ports.vector_store import IVectorStore
+from ai_assistant.features.chat.manager import ChatManager
+
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 
@@ -532,13 +540,13 @@ class TestAPIDeps:
         Then: InitializedAppState has all core adapters populated.
         """
         minimal_config = _make_minimal_config()
-        mock_llm = MagicMock()
-        mock_embedder = MagicMock()
-        mock_vector_store = MagicMock()
-        mock_chunker = MagicMock()
-        mock_storage = MagicMock()
+        mock_llm = MagicMock(spec=ILLM)
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_vector_store = MagicMock(spec=IVectorStore)
+        mock_chunker = MagicMock(spec=IChunker)
+        mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
-        mock_reranker = MagicMock()
+        mock_reranker = MagicMock(spec=IReranker)
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
@@ -552,7 +560,18 @@ class TestAPIDeps:
                 ("storage", "sqlite"): mock_storage,
                 ("reranker", "dummy"): mock_reranker,
             }
-            return mapping.get((port, name), MagicMock())
+            result = mapping.get((port, name))
+            if result is not None:
+                return result
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -576,12 +595,12 @@ class TestAPIDeps:
         Then: RAGPipeline has 4 steps matching config order.
         """
         minimal_config = _make_minimal_config()
-        mock_llm = MagicMock()
-        mock_embedder = MagicMock()
-        mock_vector_store = MagicMock()
-        mock_chunker = MagicMock()
-        mock_reranker = MagicMock()
-        mock_storage = MagicMock()
+        mock_llm = MagicMock(spec=ILLM)
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_vector_store = MagicMock(spec=IVectorStore)
+        mock_chunker = MagicMock(spec=IChunker)
+        mock_reranker = MagicMock(spec=IReranker)
+        mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
@@ -596,7 +615,18 @@ class TestAPIDeps:
                 ("reranker", "dummy"): mock_reranker,
                 ("storage", "sqlite"): mock_storage,
             }
-            return mapping.get((port, name), MagicMock())
+            result = mapping.get((port, name))
+            if result is not None:
+                return result
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -616,12 +646,12 @@ class TestAPIDeps:
         Then: steps are class instances, not raw lambdas.
         """
         minimal_config = _make_minimal_config()
-        mock_llm = MagicMock()
-        mock_embedder = MagicMock()
-        mock_vector_store = MagicMock()
-        mock_chunker = MagicMock()
-        mock_reranker = MagicMock()
-        mock_storage = MagicMock()
+        mock_llm = MagicMock(spec=ILLM)
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_vector_store = MagicMock(spec=IVectorStore)
+        mock_chunker = MagicMock(spec=IChunker)
+        mock_reranker = MagicMock(spec=IReranker)
+        mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
@@ -636,7 +666,18 @@ class TestAPIDeps:
                 ("reranker", "dummy"): mock_reranker,
                 ("storage", "sqlite"): mock_storage,
             }
-            return mapping.get((port, name), MagicMock())
+            result = mapping.get((port, name))
+            if result is not None:
+                return result
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -658,10 +699,10 @@ class TestAPIDeps:
         minimal_config = _make_minimal_config()
         minimal_config.reranker.provider = None
 
-        mock_vector_store = MagicMock()
+        mock_vector_store = MagicMock(spec=IVectorStore)
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
-        mock_storage = MagicMock()
+        mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
 
         def fake_create_adapter(port: str, name: str, config: Any) -> Any:
@@ -671,7 +712,15 @@ class TestAPIDeps:
                 return mock_storage
             if port == "reranker" and name == "null":
                 return NullReranker(None)
-            return MagicMock()
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -687,7 +736,7 @@ class TestAPIDeps:
         Then: RuntimeError is raised after the catch block.
         """
         minimal_config = _make_minimal_config()
-        mock_vector_store = MagicMock()
+        mock_vector_store = MagicMock(spec=IVectorStore)
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
@@ -696,7 +745,15 @@ class TestAPIDeps:
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ValueError("No storage adapter registered")
-            return MagicMock()
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -711,7 +768,7 @@ class TestAPIDeps:
         Then: RuntimeError is raised.
         """
         minimal_config = _make_minimal_config()
-        mock_vector_store = MagicMock()
+        mock_vector_store = MagicMock(spec=IVectorStore)
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
@@ -720,7 +777,15 @@ class TestAPIDeps:
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ImportError("sqlite3 not available")
-            return MagicMock()
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -739,7 +804,7 @@ class TestAPIDeps:
 
         def counting_create_adapter(port: str, name: str, config: Any) -> Any:
             call_count["count"] += 1
-            m = MagicMock()
+            m = MagicMock(spec=IVectorStore if port == "vector_store" else IChatStorage if port == "storage" else ILLM)
             if port == "vector_store":
                 m.list_namespaces = AsyncMock(return_value=[])
                 m.load = AsyncMock(return_value=None)
@@ -788,14 +853,14 @@ class TestAPIDeps:
         app = FastAPI()
         mock_state = InitializedAppState(
             config=AppConfig(),
-            llm=MagicMock(),
-            embedder=MagicMock(),
-            vector_store=MagicMock(),
-            pipeline=MagicMock(),
-            storage=MagicMock(),
-            chunker=MagicMock(),
-            chat_manager=MagicMock(),
-            reranker=MagicMock(),
+            llm=MagicMock(spec=ILLM),
+            embedder=MagicMock(spec=IEmbedder),
+            vector_store=MagicMock(spec=IVectorStore),
+            pipeline=MagicMock(spec=RAGPipeline),
+            storage=MagicMock(spec=IChatStorage),
+            chunker=MagicMock(spec=IChunker),
+            chat_manager=MagicMock(spec=ChatManager),
+            reranker=MagicMock(spec=IReranker),
             rag_state=RAGState(),
         )
         app.state.app_state = mock_state
@@ -879,12 +944,12 @@ class TestAPIDeps:
             "build_context",
             "generate",
         ]
-        mock_llm = MagicMock()
-        mock_embedder = MagicMock()
-        mock_vector_store = MagicMock()
-        mock_chunker = MagicMock()
-        mock_reranker = MagicMock()
-        mock_storage = MagicMock()
+        mock_llm = MagicMock(spec=ILLM)
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_vector_store = MagicMock(spec=IVectorStore)
+        mock_chunker = MagicMock(spec=IChunker)
+        mock_reranker = MagicMock(spec=IReranker)
+        mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
 
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
@@ -899,7 +964,18 @@ class TestAPIDeps:
                 ("reranker", "dummy"): mock_reranker,
                 ("storage", "sqlite"): mock_storage,
             }
-            return mapping.get((port, name), MagicMock())
+            result = mapping.get((port, name))
+            if result is not None:
+                return result
+            port_specs = {
+                "llm": ILLM,
+                "embedder": IEmbedder,
+                "vector_store": IVectorStore,
+                "chunker": IChunker,
+                "storage": IChatStorage,
+                "reranker": IReranker,
+            }
+            return MagicMock(spec=port_specs.get(port))
 
         with patch(
             "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
@@ -1183,7 +1259,12 @@ class TestAPILifespan:
         app = FastAPI()
 
         mock_state = MagicMock()
-        mock_state.vector_store = None  # skip index load
+        mock_state.vector_store = None
+        mock_state.llm = MagicMock(spec=ILLM)
+        mock_state.embedder = MagicMock(spec=IEmbedder)
+        mock_state.storage = MagicMock(spec=IChatStorage)
+        mock_state.reranker = MagicMock(spec=IReranker)
+        mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1246,12 +1327,13 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
-        mock_state.vector_store = MagicMock()
+        mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(
             return_value=["ns1", "ns2"]
         )
         mock_state.vector_store.save = AsyncMock()
+
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
         mock_state.storage = AsyncMock()
@@ -1273,7 +1355,7 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
-        mock_state.vector_store = MagicMock()
+        mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
 
@@ -1339,6 +1421,11 @@ class TestAPILifespan:
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
+        mock_state.llm = MagicMock(spec=ILLM)
+        mock_state.embedder = MagicMock(spec=IEmbedder)
+        mock_state.storage = MagicMock(spec=IChatStorage)
+        mock_state.reranker = MagicMock(spec=IReranker)
+        mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1368,6 +1455,11 @@ class TestAPILifespan:
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
+        mock_state.llm = MagicMock(spec=ILLM)
+        mock_state.embedder = MagicMock(spec=IEmbedder)
+        mock_state.storage = MagicMock(spec=IChatStorage)
+        mock_state.reranker = MagicMock(spec=IReranker)
+        mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1400,6 +1492,11 @@ class TestAPILifespan:
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
+        mock_state.llm = MagicMock(spec=ILLM)
+        mock_state.embedder = MagicMock(spec=IEmbedder)
+        mock_state.storage = MagicMock(spec=IChatStorage)
+        mock_state.reranker = MagicMock(spec=IReranker)
+        mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1430,6 +1527,11 @@ class TestAPILifespan:
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
+        mock_state.llm = MagicMock(spec=ILLM)
+        mock_state.embedder = MagicMock(spec=IEmbedder)
+        mock_state.storage = MagicMock(spec=IChatStorage)
+        mock_state.reranker = MagicMock(spec=IReranker)
+        mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1458,10 +1560,15 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
-        mock_state.vector_store = MagicMock()
+        mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["docs"])
         mock_state.vector_store.load = AsyncMock()
+        mock_state.llm = MagicMock(spec=ILLM)
+        mock_state.embedder = MagicMock(spec=IEmbedder)
+        mock_state.storage = MagicMock(spec=IChatStorage)
+        mock_state.reranker = MagicMock(spec=IReranker)
+        mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +16,11 @@ from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline_steps import rerank
+from ai_assistant.core.ports.chunker import IChunker
+from ai_assistant.core.ports.embedder import IEmbedder
+from ai_assistant.core.ports.llm import ILLM
+from ai_assistant.core.ports.reranker import IReranker
+from ai_assistant.core.ports.vector_store import IVectorStore
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 
@@ -48,10 +54,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=pipeline,
-            llm=mock_llm,
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         result = await mgr.query("What is the capital of France?")
         assert result["answer"] == "Paris"
@@ -75,10 +81,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=pipeline,
-            llm=mock_llm,
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         await mgr.query("test", namespace="work")
 
@@ -104,10 +110,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=pipeline,
-            llm=mock_llm,
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         await mgr.query(
             "test",
@@ -140,10 +146,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=pipeline,
-            llm=mock_llm,
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         result = await mgr.query("obscure topic")
         assert result["answer"] == "I don't have enough information."
@@ -168,10 +174,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=pipeline,
-            llm=mock_llm,
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         result = await mgr.query("anything")
         assert any(LLM_UNAVAILABLE in e for e in result["errors"])
@@ -198,10 +204,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=MagicMock(),
-            llm=MagicMock(),
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=MagicMock(),
-            reranker=MagicMock(),
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         health = await mgr.health()
         assert health["status"] == "ok"
@@ -218,10 +224,10 @@ class TestRAGManager:
 
         mgr = RAGManager(
             pipeline=MagicMock(),
-            llm=MagicMock(),
+            llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
-            embedder=MagicMock(),
-            reranker=MagicMock(),
+            embedder=MagicMock(spec=IEmbedder),
+            reranker=MagicMock(spec=IReranker),
         )
         health = await mgr.health()
         assert health["status"] == "empty"
