@@ -1257,7 +1257,6 @@ class TestAPILifespan:
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
-
         mock_state = MagicMock()
         mock_state.vector_store = None
         mock_state.llm = MagicMock(spec=ILLM)
@@ -1287,17 +1286,48 @@ class TestAPILifespan:
     async def test_lifespan_shutdown_calls_cleanup(self):
         """Given: lifespan context manager.
         When: shutdown runs (exit from context).
-        Then: _async_cleanup is called.
+        Then: all adapters are shut down and app state is cleaned.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
+
+        # Track shutdown state for each adapter
+        shutdown_called = {
+            "llm": False,
+            "embedder": False,
+            "storage": False,
+            "reranker": False,
+            "chunker": False,
+        }
+
         mock_state = MagicMock()
         mock_state.vector_store = None
+
+        async def mark_llm_shutdown():
+            shutdown_called["llm"] = True
+
+        async def mark_embedder_shutdown():
+            shutdown_called["embedder"] = True
+
+        async def mark_storage_shutdown():
+            shutdown_called["storage"] = True
+
+        async def mark_reranker_shutdown():
+            shutdown_called["reranker"] = True
+
+        async def mark_chunker_shutdown():
+            shutdown_called["chunker"] = True
+
         mock_state.llm = AsyncMock()
+        mock_state.llm.shutdown = AsyncMock(side_effect=mark_llm_shutdown)
         mock_state.embedder = AsyncMock()
+        mock_state.embedder.shutdown = AsyncMock(side_effect=mark_embedder_shutdown)
         mock_state.storage = AsyncMock()
+        mock_state.storage.shutdown = AsyncMock(side_effect=mark_storage_shutdown)
         mock_state.reranker = AsyncMock()
+        mock_state.reranker.shutdown = AsyncMock(side_effect=mark_reranker_shutdown)
         mock_state.chunker = AsyncMock()
+        mock_state.chunker.shutdown = AsyncMock(side_effect=mark_chunker_shutdown)
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1315,24 +1345,35 @@ class TestAPILifespan:
             async with lifespan(app):
                 pass
 
-        mock_state.llm.shutdown.assert_awaited_once()
-        mock_state.embedder.shutdown.assert_awaited_once()
+        # Assert on state, not just call counts
+        assert shutdown_called["llm"] is True
+        assert shutdown_called["embedder"] is True
+        assert shutdown_called["storage"] is True
+        assert shutdown_called["reranker"] is True
+        assert shutdown_called["chunker"] is True
 
     @pytest.mark.asyncio
     async def test_async_cleanup_index_save(self):
         """Given: vector_store has namespaces.
         When: _async_cleanup runs.
-        Then: save is called for each namespace with timeout.
+        Then: all namespaces are saved and state reflects completion.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
+
+        # Track save state
+        saved_namespaces: list[str] = []
+
+        async def track_save(path: str, namespace: str) -> None:
+            saved_namespaces.append(namespace)
+
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(
             return_value=["ns1", "ns2"]
         )
-        mock_state.vector_store.save = AsyncMock()
+        mock_state.vector_store.save = AsyncMock(side_effect=track_save)
 
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
@@ -1344,24 +1385,29 @@ class TestAPILifespan:
 
         await _async_cleanup(app, minimal_config)
 
-        assert mock_state.vector_store.save.await_count == 2
+        # Assert on state — which namespaces were actually saved
+        assert saved_namespaces == ["ns1", "ns2"]
+        assert len(saved_namespaces) == 2
 
     @pytest.mark.asyncio
     async def test_async_cleanup_index_save_timeout(self):
         """Given: vector_store.save hangs beyond 10s.
         When: _async_cleanup runs.
-        Then: TimeoutError is caught and logged; other namespaces still proceed.
+        Then: TimeoutError is caught and logged; save attempt is recorded.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
+
+        save_attempted = {"count": 0}
+
+        async def slow_save(*args, **kwargs):
+            save_attempted["count"] += 1
+            await asyncio.sleep(20)
+
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
-
-        async def slow_save(*args, **kwargs):
-            await asyncio.sleep(20)
-
         mock_state.vector_store.save = AsyncMock(side_effect=slow_save)
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
@@ -1373,7 +1419,8 @@ class TestAPILifespan:
 
         await _async_cleanup(app, minimal_config)
         # Should not raise; timeout is handled
-        mock_state.vector_store.save.assert_awaited_once()
+        # Assert on state — save was attempted even though it timed out
+        assert save_attempted["count"] == 1
 
     @pytest.mark.asyncio
     async def test_async_cleanup_no_app_state(self):
@@ -1393,23 +1440,49 @@ class TestAPILifespan:
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
+
+        # Track shutdown order via state
+        shutdown_order: list[str] = []
+
+        async def track_llm():
+            shutdown_order.append("llm")
+
+        async def track_embedder():
+            shutdown_order.append("embedder")
+
+        async def track_storage():
+            shutdown_order.append("storage")
+
+        async def track_reranker():
+            shutdown_order.append("reranker")
+
+        async def track_chunker():
+            shutdown_order.append("chunker")
+
         mock_state = MagicMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
+        mock_state.llm.shutdown = AsyncMock(side_effect=track_llm)
         mock_state.embedder = AsyncMock()
+        mock_state.embedder.shutdown = AsyncMock(side_effect=track_embedder)
         mock_state.storage = AsyncMock()
+        mock_state.storage.shutdown = AsyncMock(side_effect=track_storage)
         mock_state.reranker = AsyncMock()
+        mock_state.reranker.shutdown = AsyncMock(side_effect=track_reranker)
         mock_state.chunker = AsyncMock()
+        mock_state.chunker.shutdown = AsyncMock(side_effect=track_chunker)
 
         app.state.app_state = mock_state
 
         await _async_cleanup(app, minimal_config)
 
-        mock_state.llm.shutdown.assert_awaited_once()
-        mock_state.embedder.shutdown.assert_awaited_once()
-        mock_state.storage.shutdown.assert_awaited_once()
-        mock_state.reranker.shutdown.assert_awaited_once()
-        mock_state.chunker.shutdown.assert_awaited_once()
+        # Assert on shutdown order state
+        assert "llm" in shutdown_order
+        assert "embedder" in shutdown_order
+        assert "storage" in shutdown_order
+        assert "reranker" in shutdown_order
+        assert "chunker" in shutdown_order
+        assert len(shutdown_order) == 5
 
     @pytest.mark.asyncio
     async def test_lifespan_mount_static_called(self):
@@ -1427,6 +1500,11 @@ class TestAPILifespan:
         mock_state.reranker = MagicMock(spec=IReranker)
         mock_state.chunker = MagicMock(spec=IChunker)
 
+        mount_calls: list[tuple[Any, ...]] = []
+
+        def track_mount(app_arg, config_arg):
+            mount_calls.append((app_arg, config_arg))
+
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
         ), patch(
@@ -1440,10 +1518,14 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.lifespan.set_api_key"
         ):
+            mock_mount.side_effect = track_mount
             async with lifespan(app):
                 pass
 
-        mock_mount.assert_called_once_with(app, minimal_config)
+        # Assert on state — correct args were passed
+        assert len(mount_calls) == 1
+        assert mount_calls[0][0] is app
+        assert mount_calls[0][1] is minimal_config
 
     @pytest.mark.asyncio
     async def test_lifespan_setup_logging_called(self):
@@ -1461,6 +1543,11 @@ class TestAPILifespan:
         mock_state.reranker = MagicMock(spec=IReranker)
         mock_state.chunker = MagicMock(spec=IChunker)
 
+        setup_calls: list[dict[str, Any]] = []
+
+        def track_setup(*args, **kwargs):
+            setup_calls.append(kwargs)
+
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
         ), patch(
@@ -1474,18 +1561,19 @@ class TestAPILifespan:
         ), patch(
             "ai_assistant.api.lifespan.set_api_key"
         ):
+            mock_setup.side_effect = track_setup
             async with lifespan(app):
                 pass
 
-        mock_setup.assert_called_once()
-        call_args = mock_setup.call_args
-        assert call_args.kwargs["level"] == "INFO"  # minimal_config.debug is False
+        # Assert on state — correct logging level was configured
+        assert len(setup_calls) == 1
+        assert setup_calls[0]["level"] == "INFO"  # minimal_config.debug is False
 
     @pytest.mark.asyncio
     async def test_lifespan_sets_api_key_from_config(self):
         """Given: config has api_key and env has none.
         When: lifespan startup runs.
-        Then: set_api_key is called with config key.
+        Then: API key is set to config value and security state reflects it.
         """
         minimal_config = _make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
@@ -1508,30 +1596,27 @@ class TestAPILifespan:
             "ai_assistant.api.lifespan.setup_logging"
         ), patch(
             "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
-        ) as mock_set_key:
+        ):
             async with lifespan(app):
-                pass
-
-        mock_set_key.assert_called_once_with("cfg-secret")
+                # Assert on security state during lifespan
+                assert get_expected_api_key() == "cfg-secret"
 
     @pytest.mark.asyncio
     async def test_lifespan_skips_set_api_key_when_env_present(self):
         """Given: env var already has API key.
         When: lifespan startup runs.
-        Then: set_api_key is NOT called.
+        Then: set_api_key is NOT called because env var takes precedence.
         """
         minimal_config = _make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
         mock_state.vector_store = None
-        mock_state.llm = MagicMock(spec=ILLM)
-        mock_state.embedder = MagicMock(spec=IEmbedder)
-        mock_state.storage = MagicMock(spec=IChatStorage)
-        mock_state.reranker = MagicMock(spec=IReranker)
-        mock_state.chunker = MagicMock(spec=IChunker)
+        mock_state.llm = AsyncMock()
+        mock_state.embedder = AsyncMock()
+        mock_state.storage = AsyncMock()
+        mock_state.reranker = AsyncMock()
+        mock_state.chunker = AsyncMock()
 
         with patch(
             "ai_assistant.api.lifespan._load_config", return_value=minimal_config
@@ -1555,15 +1640,21 @@ class TestAPILifespan:
     async def test_lifespan_index_load_on_startup(self):
         """Given: vector_store has persisted namespaces.
         When: lifespan startup runs.
-        Then: load is called for each namespace.
+        Then: namespaces are loaded and state reflects loaded indices.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
+
+        loaded_namespaces: list[str] = []
+
+        async def track_load(path: str, namespace: str) -> None:
+            loaded_namespaces.append(namespace)
+
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["docs"])
-        mock_state.vector_store.load = AsyncMock()
+        mock_state.vector_store.load = AsyncMock(side_effect=track_load)
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
         mock_state.storage = MagicMock(spec=IChatStorage)
@@ -1586,27 +1677,32 @@ class TestAPILifespan:
             async with lifespan(app):
                 pass
 
-        mock_state.vector_store.load.assert_awaited_once_with(
-            "./data/indices", namespace="docs"
-        )
+        # Assert on state — correct namespace was loaded
+        assert loaded_namespaces == ["docs"]
 
     @pytest.mark.asyncio
     async def test_lifespan_graceful_shutdown_timeout(self):
         """Given: adapter shutdown hangs.
         When: _async_cleanup runs.
-        Then: other adapters still shutdown; no unhandled exception.
+        Then: other adapters still shutdown; timeout is handled gracefully.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
-        mock_state = MagicMock()
-        mock_state.vector_store = None
+
+        shutdown_completed = {"embedder": False}
 
         async def hanging_shutdown():
             await asyncio.sleep(999)
 
+        async def embedder_shutdown():
+            shutdown_completed["embedder"] = True
+
+        mock_state = MagicMock()
+        mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=hanging_shutdown)
         mock_state.embedder = AsyncMock()
+        mock_state.embedder.shutdown = AsyncMock(side_effect=embedder_shutdown)
         mock_state.storage = AsyncMock()
         mock_state.reranker = AsyncMock()
         mock_state.chunker = AsyncMock()
@@ -1616,8 +1712,8 @@ class TestAPILifespan:
         # Should complete without hanging forever (5s per adapter + margin)
         await asyncio.wait_for(_async_cleanup(app, minimal_config), timeout=10.0)
 
-        # embedder should still have been called despite llm hanging
-        mock_state.embedder.shutdown.assert_awaited_once()
+        # Assert on state — embedder completed despite llm hanging
+        assert shutdown_completed["embedder"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════

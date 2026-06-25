@@ -147,6 +147,21 @@ class RAGState:
             for tid in finished_tasks:
                 self._tasks.pop(tid, None)
 
+    async def has_task(self, task_id: str) -> bool:
+        """Return True if an active task with the given ID exists."""
+        async with self._lock:
+            return task_id in self._tasks
+
+    async def active_task_count(self) -> int:
+        """Return the number of active (unfinished) tasks."""
+        async with self._lock:
+            return len(self._tasks)
+
+    async def get_task(self, task_id: str) -> asyncio.Task[dict[str, object]] | None:
+        """Return the active task for the given ID, or None."""
+        async with self._lock:
+            return self._tasks.get(task_id)
+
 
 @dataclass
 class AppState:

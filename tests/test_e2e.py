@@ -456,11 +456,7 @@ class TestE2ERAG:
 
         assert status_data["task_id"] == task_id
 
-        async def _check():
-            async with mock_state.rag_state._lock:
-                return task_id not in mock_state.rag_state._tasks
-
-        assert await _check()
+        assert not await mock_state.rag_state.has_task(task_id)
 
     def test_reindex_ttl_cleanup(self, client, mock_state, monkeypatch):
         """Given: a reindex task finishes and TTL passes.

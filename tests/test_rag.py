@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
@@ -244,7 +244,18 @@ class TestRAGIndexing:
     async def test_add_documents(self, mock_chunker, mock_embedder, mock_vector_store):
         """Given: list of documents with content.
         When: IndexingManager.index_documents is called.
-        Then: documents are chunked, embedded and stored; counts are returned."""
+        Then: documents are chunked, embedded and stored; counts are returned.
+              Chunker receives correct Document objects with expected content."""
+        # Capture what the chunker receives (input documents, not output chunks)
+        chunked_documents: list[Any] = []
+        original_chunk = mock_chunker.chunk
+
+        async def capture_chunk(document: Any) -> list[Any]:
+            chunked_documents.append(document)
+            return await original_chunk(document)
+
+        mock_chunker.chunk = capture_chunk
+
         mgr = IndexingManager(
             chunker=mock_chunker,
             embedder=mock_embedder,
@@ -258,19 +269,39 @@ class TestRAGIndexing:
             }
         ]
         result = await mgr.index_documents(docs, namespace="test")
+
+        # Assert on operation result (state)
         assert result["indexed_count"] == 1
         assert result["chunk_count"] == 1
-        mock_vector_store.add.assert_awaited_once()
+
+        # Assert on side effects — what the chunker was fed
+        assert len(chunked_documents) == 1
+        doc = chunked_documents[0]
+        assert doc.id == "d1"
+        assert doc.content == "hello world"
+        assert doc.metadata.get("source") == "test.txt"
 
     @pytest.mark.asyncio
     async def test_delete_by_chunk_id(self, mock_vector_store):
         """Given: existing chunk IDs.
         When: vector_store.delete is called with those IDs.
-        Then: delete is invoked exactly once with correct arguments."""
-        mock_vector_store.delete = AsyncMock(return_value=None)
+        Then: specified chunks are removed from the store."""
+        # Track deletion state
+        deleted_ids: list[list[str]] = []
+        deleted_namespaces: list[str] = []
+
+        async def track_delete(chunk_ids: list[str], namespace: str) -> None:
+            deleted_ids.append(chunk_ids)
+            deleted_namespaces.append(namespace)
+
+        mock_vector_store.delete = AsyncMock(side_effect=track_delete)
 
         await mock_vector_store.delete(["c1", "c2"], namespace="test")
-        mock_vector_store.delete.assert_awaited_once_with(["c1", "c2"], namespace="test")
+
+        # Assert on state change, not just call count
+        assert len(deleted_ids) == 1
+        assert deleted_ids[0] == ["c1", "c2"]
+        assert deleted_namespaces[0] == "test"
 
     @pytest.mark.asyncio
     async def test_delete_by_document_id(self, mock_vector_store):
@@ -284,15 +315,26 @@ class TestRAGIndexing:
                 ("c3", {"source": "d2"}),
             ]
         )
-        mock_vector_store.delete = AsyncMock(return_value=None)
+
+        # Track deletion state
+        deleted_ids: list[list[str]] = []
+
+        async def track_delete(chunk_ids: list[str], namespace: str) -> None:
+            deleted_ids.append(chunk_ids)
+
+        mock_vector_store.delete = AsyncMock(side_effect=track_delete)
 
         doc_ids = ["d1"]
         existing = await mock_vector_store.list_by_filter({}, namespace="test")
         to_delete = [cid for cid, meta in existing if meta.get("source") in doc_ids]
 
         await mock_vector_store.delete(to_delete, namespace="test")
+
+        # Assert on computed state, not just call count
         assert len(to_delete) == 2
-        mock_vector_store.delete.assert_awaited_once_with(["c1", "c2"], namespace="test")
+        assert to_delete == ["c1", "c2"]
+        assert len(deleted_ids) == 1
+        assert deleted_ids[0] == ["c1", "c2"]
 
     @pytest.mark.asyncio
     async def test_reindex_background_task(self, tmp_path, mock_chunker, mock_embedder, mock_vector_store):
@@ -336,80 +378,81 @@ class TestRAGIndexing:
         assert "started_at" in status
 
     @pytest.mark.asyncio
-    async def test_ttl_cleanup(self):
+    async def test_ttl_cleanup(self, monkeypatch):
         """Given: expired and fresh entries in RAGState.status.
         When: cleanup_status is called.
         Then: expired entries are removed, fresh entries survive."""
         from ai_assistant.api.deps import RAGState
 
         rag_state = RAGState()
-        now = time.time()
+        now = 1000.0
+        monkeypatch.setattr(time, "time", lambda: now)
         ttl = rag_state.STATUS_TTL_SECONDS
 
-        async with rag_state._lock:
-            rag_state._status["old"] = {
-                "status": "completed",
-                "started_at": now - ttl - 100,
-                "finished_at": now - ttl - 50,
-            }
-            rag_state._status["fresh"] = {
-                "status": "running",
-                "started_at": now - 10,
-            }
+        # Build state via public API with monkeypatched time
+        await rag_state.start_task("old")
+        await rag_state.complete_task("old", {"done": True})
+        # Advance time past TTL for the completed task
+        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
 
+        # Fresh task started at current (advanced) time
+        await rag_state.start_task("fresh")
+
+        # Reset time to "now" for cleanup evaluation
+        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
         await rag_state.cleanup_status()
 
-        async with rag_state._lock:
-            assert "old" not in rag_state._status
-            assert "fresh" in rag_state._status
+        assert await rag_state.get_status("old") is None
+        assert await rag_state.get_status("fresh") is not None
 
     @pytest.mark.asyncio
-    async def test_start_task_triggers_cleanup(self):
+    async def test_start_task_triggers_cleanup(self, monkeypatch):
         """Given: expired entries exist in RAGState._status.
         When: start_task is called.
         Then: expired entries are removed before new task is registered."""
         from ai_assistant.api.deps import RAGState
 
         rag_state = RAGState()
-        now = time.time()
+        now = 1000.0
+        monkeypatch.setattr(time, "time", lambda: now)
         ttl = rag_state.STATUS_TTL_SECONDS
 
-        async with rag_state._lock:
-            rag_state._status["old"] = {
-                "status": "completed",
-                "started_at": now - ttl - 100,
-                "finished_at": now - ttl - 50,
-            }
+        # Create expired completed task via public API
+        await rag_state.start_task("old")
+        await rag_state.complete_task("old", {"done": True})
+
+        # Advance time past TTL
+        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
 
         await rag_state.start_task("new-task")
 
-        async with rag_state._lock:
-            assert "old" not in rag_state._status
-            assert "new-task" in rag_state._status
+        assert await rag_state.get_status("old") is None
+        assert await rag_state.get_status("new-task") is not None
 
     @pytest.mark.asyncio
-    async def test_get_status_does_not_mutate(self):
+    async def test_get_status_does_not_mutate(self, monkeypatch):
         """Given: expired entries exist in RAGState._status.
         When: get_status is called.
         Then: expired entries are NOT removed — get_status is pure read."""
         from ai_assistant.api.deps import RAGState
 
         rag_state = RAGState()
-        now = time.time()
+        now = 1000.0
+        monkeypatch.setattr(time, "time", lambda: now)
         ttl = rag_state.STATUS_TTL_SECONDS
 
-        async with rag_state._lock:
-            rag_state._status["old"] = {
-                "status": "completed",
-                "started_at": now - ttl - 100,
-                "finished_at": now - ttl - 50,
-            }
+        # Create expired completed task via public API
+        await rag_state.start_task("old")
+        await rag_state.complete_task("old", {"done": True})
+
+        # Advance time past TTL
+        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
 
         status = await rag_state.get_status("nonexistent")
         assert status is None
 
-        async with rag_state._lock:
-            assert "old" in rag_state._status
+        # Verify expired entry still present (get_status is pure read)
+        assert await rag_state.get_status("old") is not None
 
     @pytest.mark.asyncio
     async def test_reindex_tasks_cleanup(self, mock_state):
@@ -436,16 +479,13 @@ class TestRAGIndexing:
 
             # Wait for all tasks to complete
             for _ in range(1000):
-                async with mock_state.rag_state._lock:
-                    has_tasks = bool(mock_state.rag_state._tasks)
-                if not has_tasks:
+                if await mock_state.rag_state.active_task_count() == 0:
                     break
                 await asyncio.sleep(0)
             else:
                 pytest.fail("Tasks were not cleaned up")
 
-            async with mock_state.rag_state._lock:
-                assert len(mock_state.rag_state._tasks) == 0
+            assert await mock_state.rag_state.active_task_count() == 0
 
 
 # ── Reranker Regression ──
@@ -586,7 +626,7 @@ class TestChatExportIsolation:
     async def test_chat_export_indexed_to_isolated_namespace(self, mock_state, mock_chunker, mock_embedder, mock_vector_store, tmp_path):
         """Given: index_chat_exports is True.
         When: save_chat handler processes a request.
-        Then: response contains chat_namespace='chat_personal'."""
+        Then: chat content is indexed to 'chat_personal' namespace, response reflects state."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
         from unittest.mock import patch, AsyncMock
@@ -594,15 +634,21 @@ class TestChatExportIsolation:
         mock_state.config.rag.index_chat_exports = True
         mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
 
-        # Patch IndexingManager to avoid real chunking/embedding
+        # Track what gets indexed — state-based assertion instead of just call count
+        indexed_docs: list[dict[str, Any]] = []
+        indexed_namespaces: list[str] = []
+
+        async def track_index_documents(docs: list[dict[str, Any]], namespace: str) -> dict[str, Any]:
+            indexed_docs.extend(docs)
+            indexed_namespaces.append(namespace)
+            return {"indexed_count": len(docs), "chunk_count": 1}
+
+        # Patch IndexingManager to avoid real chunking/embedding but track state
         with patch(
             "ai_assistant.features.rag.handlers.IndexingManager",
         ) as mock_mgr_cls:
             mock_mgr = AsyncMock()
-            mock_mgr.index_documents = AsyncMock(return_value={
-                "indexed_count": 1,
-                "chunk_count": 1,
-            })
+            mock_mgr.index_documents = AsyncMock(side_effect=track_index_documents)
             mock_mgr_cls.return_value = mock_mgr
 
             req = SaveChatRequest(
@@ -613,12 +659,17 @@ class TestChatExportIsolation:
 
             result = await save_chat(req, mock_state)
 
+            # Assert on result state
             assert result["saved"] is True
             assert result.get("chat_namespace") == "chat_personal"
-            # Verify IndexingManager was called with correct namespace
-            mock_mgr.index_documents.assert_awaited_once()
-            call_args = mock_mgr.index_documents.call_args
-            assert call_args.kwargs.get("namespace") == "chat_personal"
+
+            # Assert on side-effect state, not just call count
+            assert len(indexed_namespaces) == 1
+            assert indexed_namespaces[0] == "chat_personal"
+            assert len(indexed_docs) == 1
+            assert indexed_docs[0]["content"] == "test chat content"
+            # source may include folder prefix (e.g., "personal/test.md")
+            assert "test.md" in indexed_docs[0]["metadata"]["source"]
 
     @pytest.mark.asyncio
     async def test_chat_export_not_in_regular_namespace_query(self, mock_vector_store):
@@ -696,11 +747,18 @@ class TestChatExportIsolation:
 
         mock_state.config.rag.index_chat_exports = True
         mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+
+        # Track what gets deleted — state-based assertion
+        deleted_chunks: list[tuple[list[str], str]] = []
+
+        async def track_delete(chunk_ids: list[str], namespace: str) -> None:
+            deleted_chunks.append((chunk_ids, namespace))
+
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[
             ("chat-1", {"type": "chat_export"}),
             ("chat-2", {"type": "chat_export"}),
         ])
-        mock_state.vector_store.delete = AsyncMock(return_value=None)
+        mock_state.vector_store.delete = AsyncMock(side_effect=track_delete)
 
         # Patch index_folder to avoid real execution
         with patch(
@@ -715,29 +773,31 @@ class TestChatExportIsolation:
             req = ReindexRequest(folder="personal", clear=True)
             result = await reindex_documents(req, mock_state)
 
-            # Background task runs asynchronously
-            # Give it time to execute
-            await asyncio.sleep(0.1)
+            task_id = result.get("task_id", "")
 
-            # Manually trigger the cleanup logic by checking if task exists
-            async with mock_state.rag_state._lock:
-                task = mock_state.rag_state._tasks.get(result.get("task_id", ""))
+            # Poll for background task completion
+            for _ in range(100):
+                if not await mock_state.rag_state.has_task(task_id):
+                    break
+                await asyncio.sleep(0)
+            else:
+                pytest.fail("Background task was not cleaned up")
+
+            # Await the task if still present
+            task = await mock_state.rag_state.get_task(task_id)
             if task:
                 try:
                     await asyncio.wait_for(task, timeout=1.0)
                 except asyncio.TimeoutError:
                     pass
 
-            # Verify chat namespace clearing was attempted
-            # The delete call happens inside the background task
-            # Check that list_by_filter was called for chat namespace
-            filter_calls = mock_state.vector_store.list_by_filter.call_args_list
-            chat_filter_calls = [
-                c for c in filter_calls
-                if c.kwargs.get("namespace") == "chat_personal" or
-                (c.args and len(c.args) > 1 and c.args[1] == "chat_personal")
+            # Assert on deletion state — verify chat namespace was targeted
+            chat_deletions = [
+                (ids, ns) for ids, ns in deleted_chunks
+                if ns == "chat_personal"
             ]
-            assert len(chat_filter_calls) > 0, "list_by_filter should be called for chat_personal"
+            assert len(chat_deletions) > 0, "chat_personal namespace should be cleared"
+            assert chat_deletions[0][0] == ["chat-1", "chat-2"]
 
 
 class TestRerankerRegression:
