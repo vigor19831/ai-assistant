@@ -24,39 +24,6 @@ from ai_assistant.core.logger import get_logger
 logger = get_logger(__name__)
 
 
-# ── Fixtures ──
-
-
-@pytest.fixture
-def client(mock_state):
-    """Return a TestClient with mock state and auth header.
-
-    Uses the function-scoped mock_state fixture so that each test gets a
-    fresh state and mutations inside the test body affect the same object
-    that the app uses.
-    """
-    from ai_assistant.main import create_app
-    from ai_assistant.api.security import set_api_key
-
-    # Chat manager must return real objects for ChatResponse validation
-    from ai_assistant.core.domain.messages import AssistantMessage
-
-    mock_state.chat_manager.chat = AsyncMock(
-        return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
-    )
-
-    async def fake_stream(*args, **kwargs):
-        yield "Hello"
-        yield "!"
-
-    mock_state.chat_manager.stream_chat = fake_stream
-
-    set_api_key("test-e2e-key")
-
-    app = create_app(state=mock_state)
-    return TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
-
-
 # ── Health & Info ──
 
 @pytest.mark.slow
@@ -644,6 +611,8 @@ class TestE2ERAG:
         """Given: vector_store.search raises Exception during query.
         When: POST /api/v1/rag/query.
         Then: pipeline catches it, returns 200 with INTERNAL_SERVER_ERROR in errors."""
+        from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
+
         mock_state.vector_store.search = AsyncMock(side_effect=Exception("Vector store down"))
 
         resp = client.post(
@@ -652,12 +621,23 @@ class TestE2ERAG:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "Internal server error" in data.get("errors", [])
+        assert any(INTERNAL_SERVER_ERROR in e for e in data.get("errors", []))
 
     def test_rag_query_reranker_error_returns_200_with_errors(self, client, mock_state):
         """Given: reranker.rerank raises Exception during query.
         When: POST /api/v1/rag/query.
         Then: pipeline catches it, returns 200 with INTERNAL_SERVER_ERROR in errors."""
+        from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
+
+        # retrieve must return non-empty chunks so rerank step actually calls reranker.rerank
+        mock_state.vector_store.search = AsyncMock(return_value=[
+            Chunk(
+                id="c1",
+                text="test chunk",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+            )
+        ])
         mock_state.reranker.rerank = AsyncMock(side_effect=Exception("Reranker down"))
 
         resp = client.post(
@@ -666,7 +646,7 @@ class TestE2ERAG:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "Internal server error" in data.get("errors", [])
+        assert any(INTERNAL_SERVER_ERROR in e for e in data.get("errors", []))
 
     def test_query_empty_result_handling(self, client, mock_state):
         """Given: query yields no relevant chunks.

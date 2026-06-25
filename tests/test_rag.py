@@ -20,7 +20,7 @@ from ai_assistant.core.pipeline_steps import rerank
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
-from ai_assistant.core.ports.reranker import IReranker
+from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.ports.vector_store import IVectorStore
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
@@ -48,7 +48,7 @@ class TestRAGManager:
             )
         ])
         mock_reranker.rerank = AsyncMock(return_value=[
-            MagicMock(chunk=Chunk(
+            RerankResult(chunk=Chunk(
                 id="c1",
                 text="Paris is the capital of France.",
                 embedding=[0.1] * 384,
@@ -109,7 +109,7 @@ class TestRAGManager:
             )
         ])
         mock_reranker.rerank = AsyncMock(return_value=[
-            MagicMock(chunk=Chunk(
+            RerankResult(chunk=Chunk(
                 id="c1",
                 text="test chunk",
                 embedding=[0.1] * 384,
@@ -177,7 +177,7 @@ class TestRAGManager:
             )
         ])
         mock_reranker.rerank = AsyncMock(return_value=[
-            MagicMock(chunk=Chunk(
+            RerankResult(chunk=Chunk(
                 id="c1",
                 text="test chunk",
                 embedding=[0.1] * 384,
@@ -595,7 +595,7 @@ class TestChatExportIsolation:
     @pytest.mark.asyncio
     async def test_save_chat_rejects_invalid_namespace(self, mock_state, tmp_path):
         """Given: namespace contains path traversal or invalid chars.
-        When: save_chat handler processes the request.
+        When: saveChat handler processes the request.
         Then: HTTPException 400 is raised before any filesystem access."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
@@ -615,7 +615,7 @@ class TestChatExportIsolation:
     @pytest.mark.asyncio
     async def test_chat_export_not_indexed_by_default(self, mock_state, tmp_path):
         """Given: index_chat_exports is False (default).
-        When: save_chat handler processes a request.
+        When: saveChat handler processes a request.
         Then: vector_store.add is never called — chat stays on disk only."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
@@ -639,7 +639,7 @@ class TestChatExportIsolation:
     @pytest.mark.asyncio
     async def test_chat_export_indexed_to_isolated_namespace(self, mock_state, mock_chunker, mock_embedder, mock_vector_store, tmp_path):
         """Given: index_chat_exports is True.
-        When: save_chat handler processes a request.
+        When: saveChat handler processes a request.
         Then: chat content is indexed to 'chat_personal' namespace, response reflects state."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
@@ -728,7 +728,7 @@ class TestChatExportIsolation:
     @pytest.mark.asyncio
     async def test_namespace_collision_detected(self, mock_state, tmp_path):
         """Given: user namespace 'chat_personal' already exists with documents.
-        When: save_chat called with namespace='personal'.
+        When: saveChat called with namespace='personal'.
         Then: collision detected, chat NOT indexed, error returned."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest

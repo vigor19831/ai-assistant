@@ -192,15 +192,18 @@ def build_mock_state() -> MagicMock:
     This avoids MagicMock(spec=AppConfig) which does not auto-create
     Pydantic fields reliably.
 
-    Returns:
-        MagicMock configured as an InitializedAppState spec.
+    All RAG pipeline ports are pre-configured so that real pipeline steps
+    can execute without unawaited coroutine warnings or missing return values.
     """
     from ai_assistant.api.deps import InitializedAppState, RAGState
     from ai_assistant.core.config import AppConfig
+    from ai_assistant.core.domain.messages import AssistantMessage
+    from ai_assistant.core.ports.reranker import RerankResult
 
     config = AppConfig()  # real config with all defaults
     state = MagicMock(spec=InitializedAppState)
     state.config = config  # real AppConfig, not MagicMock(spec=AppConfig)
+
     # Adapter fields — AsyncMock for test isolation
     state.llm = AsyncMock()
     state.embedder = AsyncMock()
@@ -211,6 +214,33 @@ def build_mock_state() -> MagicMock:
     state.chat_manager = AsyncMock()
     state.limiter = MagicMock()
     state.rag_state = RAGState()
+
+    # ── RAG pipeline port defaults ──
+    # Real pipeline steps (embed_query, retrieve, rerank, build_context, generate)
+    # need these configured. Without defaults, AsyncMock returns AsyncMock()
+    # which causes: unawaited coroutine warnings, empty embedding checks,
+    # or missing context_limit calls.
+    state.embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+    state.embedder.dimension = 384
+
+    state.llm.complete = AsyncMock(
+        return_value=AssistantMessage(text="", metadata={})
+    )
+    state.llm.get_context_limit = MagicMock(return_value=8192)
+
+    async def _rerank(query, chunks, top_k=None):
+        return [RerankResult(chunk=c, score=1.0) for c in chunks]
+
+    state.reranker.rerank = AsyncMock(side_effect=_rerank)
+
+    state.vector_store.search = AsyncMock(return_value=[])
+    state.vector_store.add = AsyncMock(return_value=None)
+    state.vector_store.delete = AsyncMock(return_value=None)
+    state.vector_store.list_namespaces = AsyncMock(return_value=[])
+    state.vector_store.list_by_filter = AsyncMock(return_value=[])
+    state.vector_store.save = AsyncMock(return_value=None)
+    state.vector_store.load = AsyncMock(return_value=None)
+
     return state
 
 
