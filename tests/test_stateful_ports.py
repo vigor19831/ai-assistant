@@ -204,15 +204,25 @@ class ChatStorageStateMachine(RuleBasedStateMachine):
     )
     @precondition(lambda self: self._storage is not None)
     def get_history(self, conv_id: str, limit: int, offset: int) -> None:
-        """Get history and verify invariants."""
+        """Get history and verify invariants.
+
+        get_history returns the most recent messages in chronological order.
+        offset=0 means the most recent 'limit' messages.
+        """
         history = _run_async(
             self._storage.get_history(conv_id, limit=limit, offset=offset)
         )
         expected = self._expected.get(conv_id, [])
 
         assert len(history) <= limit
-        if offset < len(expected):
-            expected_slice = expected[offset:offset + limit]
+        # Calculate expected slice: most recent messages, paginated
+        # offset=0 → last 'limit' messages
+        # offset=N → skip N most recent, then take 'limit'
+        total = len(expected)
+        if offset < total:
+            start = max(0, total - limit - offset)
+            end = total - offset
+            expected_slice = expected[start:end]
             for i, msg in enumerate(history):
                 assert msg["role"] == expected_slice[i]["role"]
                 assert msg["content"] == expected_slice[i]["content"]

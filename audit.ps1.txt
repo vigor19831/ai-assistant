@@ -1,0 +1,39 @@
+# audit.ps1
+$issues = @()
+
+function Check-Pattern($path, $pattern, $description, $shouldBeEmpty=$true) {
+    $results = Get-ChildItem -Path $path -Recurse -Filter "*.py" | 
+        Select-String -Pattern $pattern | 
+        Where-Object { $_.FileName -notmatch "__pycache__" }
+    
+    if ($shouldBeEmpty -and $results) {
+        $issues += "[FAIL] $description"
+        $results | ForEach-Object { $issues += "  $($_.FileName):$($_.LineNumber) $($_.Line.Trim())" }
+    } elseif (-not $shouldBeEmpty -and -not $results) {
+        $issues += "[WARN] $description - nothing found"
+    } else {
+        Write-Host "[OK] $description" -ForegroundColor Green
+    }
+}
+
+Write-Host "`n=== Layer Boundaries ===" -ForegroundColor Cyan
+Check-Pattern "src\ai_assistant\core\*.py" "^from ai_assistant" "core/ imports only stdlib"
+Check-Pattern "src\ai_assistant\adapters\*.py" "^from ai_assistant\.(features|api)" "adapters/ no cross-layer imports"
+
+Write-Host "`n=== Absolute Constraints ===" -ForegroundColor Cyan
+Check-Pattern "src\ai_assistant\core\ports\*.py" "\*\*kwargs" "No **kwargs in ports"
+Check-Pattern "src\ai_assistant\features\*.py" "hasattr|isinstance" "No hasattr/isinstance on ports"
+Check-Pattern "src\ai_assistant\core\domain\*.py" "pydantic|BaseModel" "No Pydantic in core/domain"
+Check-Pattern "src\ai_assistant\" "print\(|logging\.basicConfig" "No print/basicConfig"
+
+Write-Host "`n=== PipelineData Immutability ===" -ForegroundColor Cyan
+$withMethods = Get-Content "src\ai_assistant\core\domain\pipeline.py" | Select-String "def with_"
+if ($withMethods) { Write-Host "[OK] PipelineData has with_* methods" -ForegroundColor Green }
+
+Write-Host "`n=== Results ===" -ForegroundColor Cyan
+if ($issues) {
+    Write-Host "`nISSUES FOUND:" -ForegroundColor Red
+    $issues | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+} else {
+    Write-Host "`nALL CHECKS PASSED" -ForegroundColor Green
+}
