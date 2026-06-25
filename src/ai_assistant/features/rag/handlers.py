@@ -43,7 +43,6 @@ def _get_rag_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> RAGManager:
     return RAGManager(
-        pipeline=state.pipeline,
         llm=state.llm,
         vector_store=state.vector_store,
         embedder=state.embedder,

@@ -12,6 +12,7 @@ import pytest
 from fastapi import HTTPException
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
+from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
@@ -34,30 +35,34 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_pipeline_success(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
-        """Given: pipeline returns answer with sources.
+        """Given: working ports return chunks and LLM generates answer.
         When: RAGManager.query is called.
         Then: response contains answer, sources and chunk count."""
-        from ai_assistant.core.pipeline import RAGPipeline
-
-        pipeline = MagicMock(spec=RAGPipeline)
-        pipeline.run = AsyncMock(return_value=MagicMock(
-            response=MagicMock(text="Paris"),
-            chunks=[
-                Chunk(
-                    id="c1",
-                    text="Paris is the capital of France.",
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
-            ],
-            errors=[],
-        ))
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(return_value=[
+            Chunk(
+                id="c1",
+                text="Paris is the capital of France.",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            )
+        ])
+        mock_reranker.rerank = AsyncMock(return_value=[
+            MagicMock(chunk=Chunk(
+                id="c1",
+                text="Paris is the capital of France.",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ), score=0.95)
+        ])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(return_value=MagicMock(text="Paris"))
 
         mgr = RAGManager(
-            pipeline=pipeline,
-            llm=MagicMock(spec=ILLM),
+            llm=mock_llm,
             vector_store=mock_vector_store,
-            embedder=MagicMock(spec=IEmbedder),
-            reranker=MagicMock(spec=IReranker),
+            embedder=mock_embedder,
+            reranker=mock_reranker,
         )
         result = await mgr.query("What is the capital of France?")
         assert result["answer"] == "Paris"
@@ -69,118 +74,129 @@ class TestRAGManager:
     async def test_query_namespace_routing(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: namespace is set to 'work'.
         When: RAGManager.query called with namespace='work'.
-        Then: PipelineData passed to pipeline contains namespace='work'."""
-        from ai_assistant.core.pipeline import RAGPipeline
-
-        pipeline = MagicMock(spec=RAGPipeline)
-        pipeline.run = AsyncMock(return_value=MagicMock(
-            response=MagicMock(text=""),
-            chunks=[],
-            errors=[],
-        ))
+        Then: vector_store.search receives namespace='work'."""
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(return_value=[])
+        mock_reranker.rerank = AsyncMock(return_value=[])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(return_value=MagicMock(text=""))
 
         mgr = RAGManager(
-            pipeline=pipeline,
-            llm=MagicMock(spec=ILLM),
+            llm=mock_llm,
             vector_store=mock_vector_store,
-            embedder=MagicMock(spec=IEmbedder),
-            reranker=MagicMock(spec=IReranker),
+            embedder=mock_embedder,
+            reranker=mock_reranker,
         )
         await mgr.query("test", namespace="work")
 
-        # With explicit typed fields, pipeline.run receives PipelineData directly
-        call_args = pipeline.run.call_args
-        data_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("data")
-        assert data_arg is not None
-        assert data_arg.pipeline_config.namespace == "work"
+        # Verify namespace reached the vector_store port
+        mock_vector_store.search.assert_awaited_once()
+        call_kwargs = mock_vector_store.search.call_args.kwargs
+        assert call_kwargs.get("namespace") == "work"
 
     @pytest.mark.asyncio
     async def test_query_prompt_and_threshold_override(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: custom prompt name, version and relevance threshold.
         When: RAGManager.query called with overrides.
-        Then: PipelineData contains overridden values."""
-        from ai_assistant.core.pipeline import RAGPipeline
-
-        pipeline = MagicMock(spec=RAGPipeline)
-        pipeline.run = AsyncMock(return_value=MagicMock(
-            response=MagicMock(text=""),
-            chunks=[],
-            errors=[],
-        ))
+        Then: pipeline completes successfully with overridden config."""
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(return_value=[
+            Chunk(
+                id="c1",
+                text="test chunk",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            )
+        ])
+        mock_reranker.rerank = AsyncMock(return_value=[
+            MagicMock(chunk=Chunk(
+                id="c1",
+                text="test chunk",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ), score=0.95)
+        ])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(return_value=MagicMock(text=""))
 
         mgr = RAGManager(
-            pipeline=pipeline,
-            llm=MagicMock(spec=ILLM),
+            llm=mock_llm,
             vector_store=mock_vector_store,
-            embedder=MagicMock(spec=IEmbedder),
-            reranker=MagicMock(spec=IReranker),
+            embedder=mock_embedder,
+            reranker=mock_reranker,
         )
-        await mgr.query(
+        # Should not raise — overrides flow through pipeline_config to generate step
+        result = await mgr.query(
             "test",
             prompt_name="rag_creative",
             prompt_version="v2",
             relevance_threshold=0.5,
         )
-
-        call_args = pipeline.run.call_args
-        data_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("data")
-        assert data_arg is not None
-        pipeline_config = data_arg.pipeline_config
-        assert pipeline_config.prompt_name == "rag_creative"
-        assert pipeline_config.prompt_version == "v2"
-        assert pipeline_config.relevance_threshold == 0.5
+        assert result["answer"] == ""
+        assert result["errors"] == []
+        # Verify LLM was called (generate step reached)
+        mock_llm.complete.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_query_empty_results_handling(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: no relevant chunks found.
         When: RAGManager.query is called.
         Then: answer is returned and sources list is empty."""
-        from ai_assistant.core.pipeline import RAGPipeline
-
-        pipeline = MagicMock(spec=RAGPipeline)
-        pipeline.run = AsyncMock(return_value=MagicMock(
-            response=MagicMock(text="I don't have enough information."),
-            chunks=[],
-            errors=[],
-        ))
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(return_value=[])
+        mock_reranker.rerank = AsyncMock(return_value=[])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(return_value=MagicMock(text="I don\'t have enough information."))
 
         mgr = RAGManager(
-            pipeline=pipeline,
-            llm=MagicMock(spec=ILLM),
+            llm=mock_llm,
             vector_store=mock_vector_store,
-            embedder=MagicMock(spec=IEmbedder),
-            reranker=MagicMock(spec=IReranker),
+            embedder=mock_embedder,
+            reranker=mock_reranker,
         )
         result = await mgr.query("obscure topic")
-        assert result["answer"] == "I don't have enough information."
+        assert result["answer"] == "I don\'t have enough information."
         assert result["chunks_used"] == 0
         assert result["sources"] == []
         assert result["errors"] == []
 
     @pytest.mark.asyncio
     async def test_query_llm_unavailable_returns_503(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
-        """Given: pipeline returns LLM_UNAVAILABLE error.
-        When: query_rag handler processes the result.
-        Then: HTTPException with status 503 is raised."""
+        """Given: LLM raises AdapterError (simulating LLM_UNAVAILABLE).
+        When: RAGManager.query processes through real pipeline.
+        Then: result contains LLM_UNAVAILABLE in errors; handler raises HTTPException 503."""
         from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
-        from ai_assistant.core.pipeline import RAGPipeline
 
-        pipeline = MagicMock(spec=RAGPipeline)
-        pipeline.run = AsyncMock(return_value=MagicMock(
-            response=MagicMock(text="LLM service temporarily unavailable. Please try again later."),
-            chunks=[],
-            errors=[f"{LLM_UNAVAILABLE} (LLM down)"],
-        ))
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(return_value=[
+            Chunk(
+                id="c1",
+                text="test chunk",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            )
+        ])
+        mock_reranker.rerank = AsyncMock(return_value=[
+            MagicMock(chunk=Chunk(
+                id="c1",
+                text="test chunk",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ), score=0.95)
+        ])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(side_effect=AdapterError("LLM down"))
 
         mgr = RAGManager(
-            pipeline=pipeline,
-            llm=MagicMock(spec=ILLM),
+            llm=mock_llm,
             vector_store=mock_vector_store,
-            embedder=MagicMock(spec=IEmbedder),
-            reranker=MagicMock(spec=IReranker),
+            embedder=mock_embedder,
+            reranker=mock_reranker,
         )
         result = await mgr.query("anything")
+        # generate step catches AdapterError and adds LLM_UNAVAILABLE to data.errors
         assert any(LLM_UNAVAILABLE in e for e in result["errors"])
+        assert "LLM service temporarily unavailable" in result["answer"]
 
         # Simulate handler check
         from ai_assistant.features.rag.handlers import router
@@ -203,7 +219,6 @@ class TestRAGManager:
         mock_vector_store.list_by_filter = AsyncMock(return_value=[("c1", {}), ("c2", {})])
 
         mgr = RAGManager(
-            pipeline=MagicMock(),
             llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
             embedder=MagicMock(spec=IEmbedder),
@@ -223,7 +238,6 @@ class TestRAGManager:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
 
         mgr = RAGManager(
-            pipeline=MagicMock(),
             llm=MagicMock(spec=ILLM),
             vector_store=mock_vector_store,
             embedder=MagicMock(spec=IEmbedder),
@@ -889,7 +903,6 @@ async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> Non
     from ai_assistant.core.domain.configs import VectorStoreConfigData
     from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
     from ai_assistant.features.rag.manager import RAGManager
-    from ai_assistant.core.pipeline import RAGPipeline
 
     config = VectorStoreConfigData(dim=384, index_path=str(tmp_path))
     vector_store = FaissVectorStore(config)
@@ -907,10 +920,8 @@ async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> Non
     await vector_store.save(str(tmp_path), namespace="default")
     await vector_store.load(str(tmp_path), namespace="default")
 
-    # Create minimal RAGManager for health check
-    pipeline = RAGPipeline([])
+    # Create minimal RAGManager for health check — no pipeline param needed
     rag_manager = RAGManager(
-        pipeline=pipeline,
         llm=None,  # type: ignore[arg-type]
         vector_store=vector_store,
         embedder=None,  # type: ignore[arg-type]

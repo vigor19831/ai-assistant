@@ -11,9 +11,16 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.pipeline import RAGPipeline
+from ai_assistant.core.pipeline_steps import (
+    build_context,
+    embed_query,
+    generate,
+    rerank,
+    retrieve,
+)
 
 if TYPE_CHECKING:
-    from ai_assistant.core.pipeline import RAGPipeline
     from ai_assistant.core.ports import ILLM, IEmbedder, IReranker, IVectorStore
 
 _logger = get_logger("rag.manager")
@@ -95,7 +102,6 @@ class RAGManager:
 
     def __init__(
         self,
-        pipeline: RAGPipeline,
         llm: ILLM,
         vector_store: IVectorStore,
         embedder: IEmbedder,
@@ -104,7 +110,15 @@ class RAGManager:
         token_margin_pct: float = 0.1,
         tokenizer_model: str = "gpt-4o",
     ) -> None:
-        self.pipeline = pipeline
+        self.pipeline = RAGPipeline(
+            steps=[
+                embed_query,
+                retrieve,
+                rerank,
+                build_context,
+                generate,
+            ]
+        )
         self.llm = llm
         self.vector_store = vector_store
         self.embedder = embedder
@@ -144,7 +158,16 @@ class RAGManager:
             pipeline_config=pipeline_config,
             tokenizer_model=self.tokenizer_model,
         )
-        result = await self.pipeline.run(data)
+        try:
+            result = await self.pipeline.run(data)
+        except Exception:
+            _logger.exception("RAG pipeline failed")
+            return {
+                "answer": "",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": ["Internal server error"],
+            }
         duration_ms = int((time.perf_counter() - start) * 1000)
         _logger.info(
             "RAG pipeline completed",
@@ -170,12 +193,7 @@ class RAGManager:
         }
 
     async def health(self) -> dict[str, Any]:
-        """Return RAG health status.
-
-        Uses vector_store.index_path (port contract) instead of
-        vector_store.config.index_path to avoid breaking custom adapters
-        that do not store config as a public attribute.
-        """
+        """Return RAG health status."""
         index_path = self.vector_store.index_path
         index_loaded = False
         chunk_count = 0

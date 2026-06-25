@@ -4,7 +4,6 @@ Given: API layer components (security, deps, router, lifespan, middleware, admin
 When: tests run in a single flat tests/ folder
 Then: all contracts, boundaries, and error paths are verified.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.testclient import TestClient
@@ -42,8 +42,9 @@ from ai_assistant.api.security import (
     require_api_key,
     set_api_key,
 )
-from fastapi.security import HTTPAuthorizationCredentials
 from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
+from ai_assistant.core.logger import get_logger
+from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
@@ -51,9 +52,6 @@ from ai_assistant.core.ports.reranker import IReranker
 from ai_assistant.core.ports.storage import IChatStorage
 from ai_assistant.core.ports.vector_store import IVectorStore
 from ai_assistant.features.chat.manager import ChatManager
-
-from ai_assistant.core.logger import get_logger
-from ai_assistant.core.pipeline import RAGPipeline
 
 logger = get_logger(__name__)
 
@@ -1714,6 +1712,67 @@ class TestAPILifespan:
 
         # Assert on state — embedder completed despite llm hanging
         assert shutdown_completed["embedder"] is True
+
+    # ── FAULT-INJECTION TESTS ──
+
+    @pytest.mark.asyncio
+    async def test_async_cleanup_adapter_shutdown_exception(self):
+        """Given: adapter shutdown raises Exception.
+        When: _async_cleanup runs.
+        Then: other adapters still shutdown; exception is caught and logged.
+        """
+        minimal_config = _make_minimal_config()
+        app = FastAPI()
+
+        shutdown_completed = {"embedder": False}
+
+        async def failing_shutdown():
+            raise RuntimeError("shutdown boom")
+
+        async def embedder_shutdown():
+            shutdown_completed["embedder"] = True
+
+        mock_state = MagicMock()
+        mock_state.vector_store = None
+        mock_state.llm = AsyncMock()
+        mock_state.llm.shutdown = AsyncMock(side_effect=failing_shutdown)
+        mock_state.embedder = AsyncMock()
+        mock_state.embedder.shutdown = AsyncMock(side_effect=embedder_shutdown)
+        mock_state.storage = AsyncMock()
+        mock_state.reranker = AsyncMock()
+        mock_state.chunker = AsyncMock()
+
+        app.state.app_state = mock_state
+
+        await _async_cleanup(app, minimal_config)
+
+        assert shutdown_completed["embedder"] is True
+
+    @pytest.mark.asyncio
+    async def test_async_cleanup_index_save_exception_sets_degraded(self):
+        """Given: vector_store.save raises Exception.
+        When: _async_cleanup runs.
+        Then: app.state.shutdown_degraded is set to True.
+        """
+        minimal_config = _make_minimal_config()
+        app = FastAPI()
+
+        mock_state = MagicMock()
+        mock_state.vector_store = MagicMock(spec=IVectorStore)
+        mock_state.vector_store.index_path = "./data/indices"
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
+        mock_state.vector_store.save = AsyncMock(side_effect=RuntimeError("disk full"))
+        mock_state.llm = AsyncMock()
+        mock_state.embedder = AsyncMock()
+        mock_state.storage = AsyncMock()
+        mock_state.reranker = AsyncMock()
+        mock_state.chunker = AsyncMock()
+
+        app.state.app_state = mock_state
+
+        await _async_cleanup(app, minimal_config)
+
+        assert getattr(app.state, "shutdown_degraded", False) is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════

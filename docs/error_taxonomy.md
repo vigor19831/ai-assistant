@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-25 07:16 UTC
+> Auto-generated from source code. Updated: 2026-06-25 07:43 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 

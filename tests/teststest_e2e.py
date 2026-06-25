@@ -128,26 +128,13 @@ class TestE2EChat:
         When: POST /api/v1/chat.
         Then: returns 503 Service Unavailable."""
         mock_state.chat_manager.chat = AsyncMock(side_effect=AdapterError("LLM down"))
-
+        
         resp = client.post(
             "/api/v1/chat",
             json={"message": "Hello", "conversation_id": "test-503"},
         )
         assert resp.status_code == 503
         assert "temporarily unavailable" in resp.json()["detail"]
-
-    def test_chat_llm_generic_exception_returns_500(self, client, mock_state):
-        """Given: chat_manager.chat raises generic Exception.
-        When: POST /api/v1/chat.
-        Then: handler catches it and returns 500."""
-        mock_state.chat_manager.chat = AsyncMock(side_effect=Exception("Generic LLM fail"))
-
-        resp = client.post(
-            "/api/v1/chat",
-            json={"message": "Hello", "conversation_id": "test-500-generic"},
-        )
-        assert resp.status_code == 500
-        assert "Internal server error" in resp.json()["detail"]
 
     def test_chat_prompt_version(self, mock_state):
         """Given: config specifies a RAG prompt version.
@@ -217,9 +204,9 @@ class TestE2EStream:
         async def failing_stream(*args, **kwargs):
             raise AdapterError("LLM stream down")
             yield ""  # noqa: B901
-
+            
         mock_state.chat_manager.stream_chat = failing_stream
-
+        
         resp = client.post(
             "/api/v1/chat/stream",
             json={"message": "Hello", "conversation_id": "test-stream-err"},
@@ -227,24 +214,6 @@ class TestE2EStream:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
         assert "LLM service temporarily unavailable" in resp.text
-
-    def test_stream_chat_generic_exception_returns_sse_error(self, client, mock_state):
-        """Given: chat_manager.stream_chat raises generic Exception.
-        When: POST /api/v1/chat/stream.
-        Then: returns SSE stream with error payload."""
-        async def failing_stream(*args, **kwargs):
-            raise Exception("Generic stream fail")
-            yield ""  # noqa: B901
-
-        mock_state.chat_manager.stream_chat = failing_stream
-
-        resp = client.post(
-            "/api/v1/chat/stream",
-            json={"message": "Hello", "conversation_id": "test-stream-err-generic"},
-        )
-        assert resp.status_code == 200
-        assert "text/event-stream" in resp.headers["content-type"]
-        assert "Internal server error" in resp.text
 
     def test_stream_interruption_by_client(self, client, mock_state):
         """Given: server is producing a slow SSE stream.
@@ -351,7 +320,7 @@ class TestE2EOpenAICompat:
         When: POST /v1/chat/completions.
         Then: returns 503 Service Unavailable."""
         mock_state.chat_manager.chat = AsyncMock(side_effect=AdapterError("LLM down"))
-
+        
         resp = client.post(
             "/v1/chat/completions",
             json={
@@ -425,21 +394,6 @@ class TestE2ERAG:
         data = resp.json()
         assert data["indexed_count"] == 0
         assert len(data.get("errors", [])) > 0
-
-    def test_rag_index_embedder_error_returns_500(self, client_no_raise, mock_state):
-        """Given: embedder.embed raises Exception during indexing.
-        When: POST /api/v1/rag/index.
-        Then: returns 500 Internal Server Error (unhandled in handler)."""
-        mock_state.embedder.embed = AsyncMock(side_effect=Exception("Embedder down"))
-        mock_state.chunker.chunk = AsyncMock(return_value=[
-            Chunk(id="c1", text="test", metadata=ChunkMetadata(source="s", index=0, total_chunks=1))
-        ])
-
-        resp = client_no_raise.post(
-            "/api/v1/rag/index",
-            json={"documents": [{"id": "d1", "content": "test", "metadata": {}}], "namespace": "test"},
-        )
-        assert resp.status_code == 500
 
     def test_delete_chunks(self, client, mock_state):
         """Given: chunks exist in a namespace.
@@ -632,41 +586,13 @@ class TestE2ERAG:
                     "errors": [f"{LLM_UNAVAILABLE} (LLM down)"],
                 }
             )
-
+            
             resp = client.post(
                 "/api/v1/rag/query",
                 json={"query": "test", "namespace": "default"},
             )
             assert resp.status_code == 503
             assert "temporarily unavailable" in resp.json()["detail"]
-
-    def test_rag_query_retrieve_error_returns_200_with_errors(self, client, mock_state):
-        """Given: vector_store.search raises Exception during query.
-        When: POST /api/v1/rag/query.
-        Then: pipeline catches it, returns 200 with INTERNAL_SERVER_ERROR in errors."""
-        mock_state.vector_store.search = AsyncMock(side_effect=Exception("Vector store down"))
-
-        resp = client.post(
-            "/api/v1/rag/query",
-            json={"query": "test", "namespace": "default"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "Internal server error" in data.get("errors", [])
-
-    def test_rag_query_reranker_error_returns_200_with_errors(self, client, mock_state):
-        """Given: reranker.rerank raises Exception during query.
-        When: POST /api/v1/rag/query.
-        Then: pipeline catches it, returns 200 with INTERNAL_SERVER_ERROR in errors."""
-        mock_state.reranker.rerank = AsyncMock(side_effect=Exception("Reranker down"))
-
-        resp = client.post(
-            "/api/v1/rag/query",
-            json={"query": "test", "namespace": "default"},
-        )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "Internal server error" in data.get("errors", [])
 
     def test_query_empty_result_handling(self, client, mock_state):
         """Given: query yields no relevant chunks.

@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.testclient import TestClient
 
 # ── Logging ──
 logger = logging.getLogger(__name__)
@@ -208,7 +209,6 @@ def build_mock_state() -> MagicMock:
     state.storage = AsyncMock()
     state.reranker = AsyncMock()
     state.chat_manager = AsyncMock()
-    state.pipeline = MagicMock()
     state.limiter = MagicMock()
     state.rag_state = RAGState()
     return state
@@ -262,6 +262,65 @@ def _reset_rag_globals():
     Kept as autouse sentinel to document the architectural change.
     """
     yield
+
+
+# ---------------------------------------------------------------------------
+# TestClient fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def client(mock_state):
+    """Return a TestClient with mock state and auth header.
+
+    Uses the function-scoped mock_state fixture so that each test gets a
+    fresh state and mutations inside the test body affect the same object
+    that the app uses.
+    """
+    from ai_assistant.main import create_app
+    from ai_assistant.api.security import set_api_key
+    from ai_assistant.core.domain.messages import AssistantMessage
+
+    mock_state.chat_manager.chat = AsyncMock(
+        return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
+    )
+
+    async def fake_stream(*args, **kwargs):
+        yield "Hello"
+        yield "!"
+
+    mock_state.chat_manager.stream_chat = fake_stream
+
+    set_api_key("test-e2e-key")
+
+    app = create_app(state=mock_state)
+    return TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+
+
+@pytest.fixture
+def client_no_raise(mock_state):
+    """Return a TestClient that returns HTTP errors instead of throwing exceptions.
+
+    Use this fixture for tests that expect 500 status codes.
+    """
+    from ai_assistant.main import create_app
+    from ai_assistant.api.security import set_api_key
+    from ai_assistant.core.domain.messages import AssistantMessage
+
+    mock_state.chat_manager.chat = AsyncMock(
+        return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
+    )
+
+    async def fake_stream(*args, **kwargs):
+        yield "Hello"
+        yield "!"
+
+    mock_state.chat_manager.stream_chat = fake_stream
+
+    set_api_key("test-e2e-key")
+
+    app = create_app(state=mock_state)
+    return TestClient(app, raise_server_exceptions=False, headers={"Authorization": "Bearer test-e2e-key"})
 
 
 # ---------------------------------------------------------------------------
