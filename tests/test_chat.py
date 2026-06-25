@@ -20,8 +20,6 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.pipeline import RAGPipeline
-from ai_assistant.core.pipeline_steps import build_context, embed_query, retrieve
 from ai_assistant.features.chat.manager import ChatManager
 
 logger = get_logger(__name__)
@@ -61,7 +59,6 @@ def chat_manager_with_rag():
     Then: ChatManager with embedder, vector_store, pipeline, and namespaces is returned."""
     embedder = MockEmbedder(EmbedderConfigData(dim=3))
     store = MemoryVectorStore(VectorStoreConfigData(dim=3))
-    pipeline = RAGPipeline([embed_query, retrieve, build_context])
     namespaces = {
         "personal": NamespaceConfig(
             threshold=0.1, chunk_size=512, prompt="rag_strict"
@@ -85,7 +82,6 @@ def chat_manager_with_rag():
         vector_store=store,
         reranker=NullReranker(RerankerConfigData()),
         storage=None,
-        pipeline=pipeline,
         namespaces=namespaces,
     )
 
@@ -395,7 +391,6 @@ class TestChatManager:
         Then: global defaults (rag_strict, 0.3) are used."""
         embedder = MockEmbedder(EmbedderConfigData(dim=3))
         store = MemoryVectorStore(VectorStoreConfigData(dim=3))
-        pipeline = RAGPipeline([embed_query, retrieve, build_context])
         mock_llm = MagicMock()
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
@@ -405,7 +400,6 @@ class TestChatManager:
             vector_store=store,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            pipeline=pipeline,
             namespaces={},
         )
         chunk = Chunk(
@@ -749,22 +743,24 @@ class TestChatPrefixes:
         mock_llm = MagicMock()
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
-        return ChatManager(
+        mgr = ChatManager(
             llm=mock_llm,
             embedder=None,
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            pipeline=MagicMock(),
             namespaces={},
         )
+        # Inject mock pipeline for prefix testing — pipeline is a private detail
+        mgr._pipeline = MagicMock()
+        return mgr
 
     @pytest.mark.asyncio
     async def test_prefix_p_personal(self, prefix_manager):
         """Given: [p] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context("[p] test")
@@ -777,7 +773,7 @@ class TestChatPrefixes:
         """Given: [w] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="deadline"))
         )
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
@@ -792,7 +788,7 @@ class TestChatPrefixes:
         """Given: [o] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="recipe"))
         )
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
@@ -807,7 +803,7 @@ class TestChatPrefixes:
         """Given: [c] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="config"))
         )
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
@@ -822,7 +818,7 @@ class TestChatPrefixes:
         """Given: [b] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="report"))
         )
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
@@ -837,7 +833,7 @@ class TestChatPrefixes:
         """Given: uppercase [P] prefix.
         When: _retrieve_context is called.
         Then: same behavior as lowercase [p]."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
@@ -854,7 +850,7 @@ class TestChatPrefixes:
         """Given: uppercase [W] prefix.
         When: _retrieve_context is called.
         Then: same behavior as lowercase [w]."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
@@ -871,7 +867,7 @@ class TestChatPrefixes:
         """Given: uppercase [C] prefix.
         When: _retrieve_context is called.
         Then: same behavior as lowercase [c]."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
@@ -888,7 +884,7 @@ class TestChatPrefixes:
         """Given: uppercase [B] prefix.
         When: _retrieve_context is called.
         Then: same behavior as lowercase [b]."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
@@ -905,7 +901,7 @@ class TestChatPrefixes:
         """Given: all supported prefixes.
         When: _retrieve_context is called for each.
         Then: prefix is stripped, only query remains."""
-        prefix_manager.pipeline.run = AsyncMock(
+        prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="query text"))
         )
         for prefix in ["p", "w", "o", "c", "b"]:

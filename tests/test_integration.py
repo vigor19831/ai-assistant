@@ -417,8 +417,6 @@ class TestIntegrationAPIInit:
         assert state.chunker is not None
         assert state.storage is not None
         assert state.reranker is not None
-        assert state.pipeline is not None
-        assert len(state.pipeline.steps) == 4
 
         # Functional test: index and run pipeline
         chunks = [
@@ -430,6 +428,10 @@ class TestIntegrationAPIInit:
 
         query = UserMessage(text="What is capital of Italy?")
         from ai_assistant.core.domain.pipeline import PipelineConfig
+        from ai_assistant.core.pipeline import RAGPipeline
+        from ai_assistant.core.pipeline_steps import embed_query, retrieve, rerank, build_context, generate
+
+        pipeline = RAGPipeline([embed_query, retrieve, rerank, build_context, generate])
 
         data = PipelineData(
             query=query,
@@ -446,7 +448,7 @@ class TestIntegrationAPIInit:
                 prompt_name="rag_default",
             ),
         )
-        result = await state.pipeline.run(data)
+        result = await pipeline.run(data)
 
         assert result.response is not None
         assert isinstance(result.response, AssistantMessage)
@@ -498,7 +500,6 @@ class TestIntegrationAPIInit:
         state = await init_adapters(config)
 
         assert isinstance(state, InitializedAppState)
-        assert len(state.pipeline.steps) == 4
 
         # Index
         chunks = [
@@ -510,6 +511,10 @@ class TestIntegrationAPIInit:
 
         query = UserMessage(text="Tell me about Go")
         from ai_assistant.core.domain.pipeline import PipelineConfig
+        from ai_assistant.core.pipeline import RAGPipeline
+        from ai_assistant.core.pipeline_steps import hyde_query, retrieve, rerank, build_context, generate
+
+        pipeline = RAGPipeline([hyde_query, retrieve, rerank, build_context, generate])
 
         data = PipelineData(
             query=query,
@@ -527,7 +532,7 @@ class TestIntegrationAPIInit:
             ),
         )
 
-        result = await state.pipeline.run(data)
+        result = await pipeline.run(data)
 
         assert result.response is not None
         assert isinstance(result.response, AssistantMessage)

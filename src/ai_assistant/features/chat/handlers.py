@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.logger import get_logger
+from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.chat.schemas import (
     ChatRequest,
     ChatResponse,
@@ -39,6 +40,27 @@ def _raise_llm_unavailable(exc: AdapterError) -> None:
         status_code=503,
         detail="LLM service temporarily unavailable. Please try again later.",
     ) from exc
+
+
+def _get_chat_manager(
+    state: Annotated[InitializedAppState, Depends(get_state)],
+) -> ChatManager:
+    """Create ChatManager from state adapters — pipeline is built internally."""
+    return ChatManager(
+        llm=state.llm,
+        reranker=state.reranker,
+        storage=state.storage,
+        history_limit=state.config.chat.history_limit,
+        max_context_tokens=state.config.chat.max_context_tokens,
+        tokenizer_model=state.config.chat.tokenizer_model,
+        embedder=state.embedder,
+        vector_store=state.vector_store,
+        namespaces=state.config.namespaces,
+        prompt_version=state.config.rag.prompt_version,
+        top_k=state.config.rag.top_k,
+        token_margin_min=state.config.rag.token_margin_min,
+        token_margin_pct=state.config.rag.token_margin_pct,
+    )
 
 
 _logger = get_logger("chat.handlers")
@@ -104,7 +126,7 @@ async def _stream_with_heartbeat(
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    state: Annotated[InitializedAppState, Depends(get_state)],
+    manager: Annotated[ChatManager, Depends(_get_chat_manager)],
 ) -> ChatResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -113,7 +135,7 @@ async def chat(
         extra={"trace_id": trace_id, "conversation_id": conv_id},
     )
     try:
-        response = await state.chat_manager.chat(
+        response = await manager.chat(
             message=req.message,
             conversation_id=conv_id,
             metadata={**req.metadata, "trace_id": trace_id},
@@ -143,7 +165,7 @@ async def chat(
 @router.post("/chat/stream", response_model=None)
 async def chat_stream(
     req: ChatRequest,
-    state: Annotated[InitializedAppState, Depends(get_state)],
+    manager: Annotated[ChatManager, Depends(_get_chat_manager)],
 ) -> StreamingResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -154,7 +176,7 @@ async def chat_stream(
 
     async def _llm_stream() -> AsyncIterator[str]:
         try:
-            async for chunk in state.chat_manager.stream_chat(
+            async for chunk in manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
                 metadata={**req.metadata, "trace_id": trace_id},
@@ -205,6 +227,7 @@ async def list_models(
 @router_oai.post("/v1/chat/completions", response_model=None)
 async def openai_chat_completions(
     req: OAIChatCompletionRequest,
+    manager: Annotated[ChatManager, Depends(_get_chat_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
     last_user_msg = ""
@@ -231,7 +254,7 @@ async def openai_chat_completions(
 
         async def _llm_stream() -> AsyncIterator[str]:
             try:
-                async for chunk in state.chat_manager.stream_chat(
+                async for chunk in manager.stream_chat(
                     message=last_user_msg,
                     conversation_id=conv_id,
                     metadata={"trace_id": trace_id},
@@ -275,7 +298,7 @@ async def openai_chat_completions(
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     try:
-        response = await state.chat_manager.chat(
+        response = await manager.chat(
             message=last_user_msg,
             conversation_id=conv_id,
             metadata={"trace_id": trace_id},

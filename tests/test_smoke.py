@@ -230,17 +230,6 @@ class TestImportsNoCycles:
 class TestModuleLevelImports:
     """Smoke: key classes are imported at module level (no deferred imports)."""
 
-    def test_chat_manager_in_deps(self):
-        """Given: api/deps.py.
-        When: checking module attributes.
-        Then: ChatManager is available at module level."""
-        from ai_assistant.api import deps
-
-        assert hasattr(deps, "ChatManager"), (
-            "ChatManager is not imported at top-level in deps.py — "
-            "deferred import detected"
-        )
-
     def test_mount_static_in_api_layer(self):
         """Given: api.static module.
         When: checking for mount_static.

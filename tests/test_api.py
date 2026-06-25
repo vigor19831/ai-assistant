@@ -26,8 +26,6 @@ from ai_assistant.api.admin import _UpdateApiKeyRequest, _UpdateApiKeyResponse, 
 from ai_assistant.api.deps import (
     AppState,
     InitializedAppState,
-    _STEP_MAP,
-    _build_step_funcs,
     get_state,
     init_adapters,
 )
@@ -44,14 +42,12 @@ from ai_assistant.api.security import (
 )
 from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker
 from ai_assistant.core.ports.storage import IChatStorage
 from ai_assistant.core.ports.vector_store import IVectorStore
-from ai_assistant.features.chat.manager import ChatManager
 
 logger = get_logger(__name__)
 
@@ -510,9 +506,7 @@ class TestAPIDeps:
             "llm",
             "chunker",
             "reranker",
-            "pipeline",
             "storage",
-            "chat_manager",
         ):
             assert hasattr(state, attr), f"AppState missing {attr}"
 
@@ -526,8 +520,6 @@ class TestAPIDeps:
         assert state.config is cfg
         assert state.embedder is None
         assert state.vector_store is None
-        assert state.pipeline is None
-        assert state.chat_manager is None
 
     # ── init_adapters (mocked factory) ──
 
@@ -584,107 +576,8 @@ class TestAPIDeps:
         assert result.chunker is mock_chunker
         assert result.storage is mock_storage
         assert result.reranker is mock_reranker
-        assert result.chat_manager is not None
 
-    @pytest.mark.asyncio
-    async def test_init_adapters_pipeline_steps(self):
-        """Given: create_adapter is mocked.
-        When: init_adapters builds the pipeline.
-        Then: RAGPipeline has 4 steps matching config order.
-        """
-        minimal_config = _make_minimal_config()
-        mock_llm = MagicMock(spec=ILLM)
-        mock_embedder = MagicMock(spec=IEmbedder)
-        mock_vector_store = MagicMock(spec=IVectorStore)
-        mock_chunker = MagicMock(spec=IChunker)
-        mock_reranker = MagicMock(spec=IReranker)
-        mock_storage = MagicMock(spec=IChatStorage)
-        mock_storage.init_db = AsyncMock()
 
-        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
-        mock_vector_store.load = AsyncMock(return_value=None)
-
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
-            mapping = {
-                ("llm", "mock"): mock_llm,
-                ("embedder", "mock"): mock_embedder,
-                ("vector_store", "memory"): mock_vector_store,
-                ("chunker", "simple"): mock_chunker,
-                ("reranker", "dummy"): mock_reranker,
-                ("storage", "sqlite"): mock_storage,
-            }
-            result = mapping.get((port, name))
-            if result is not None:
-                return result
-            port_specs = {
-                "llm": ILLM,
-                "embedder": IEmbedder,
-                "vector_store": IVectorStore,
-                "chunker": IChunker,
-                "storage": IChatStorage,
-                "reranker": IReranker,
-            }
-            return MagicMock(spec=port_specs.get(port))
-
-        with patch(
-            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
-        ):
-            result = await init_adapters(minimal_config)
-
-        assert result.pipeline is not None
-        assert isinstance(result.pipeline, RAGPipeline)
-        assert len(result.pipeline.steps) == 4
-        for step in result.pipeline.steps:
-            assert callable(step)
-
-    @pytest.mark.asyncio
-    async def test_init_adapters_steps_are_callable_not_lambdas(self):
-        """Given: create_adapter is mocked.
-        When: init_adapters builds the pipeline.
-        Then: steps are class instances, not raw lambdas.
-        """
-        minimal_config = _make_minimal_config()
-        mock_llm = MagicMock(spec=ILLM)
-        mock_embedder = MagicMock(spec=IEmbedder)
-        mock_vector_store = MagicMock(spec=IVectorStore)
-        mock_chunker = MagicMock(spec=IChunker)
-        mock_reranker = MagicMock(spec=IReranker)
-        mock_storage = MagicMock(spec=IChatStorage)
-        mock_storage.init_db = AsyncMock()
-
-        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
-        mock_vector_store.load = AsyncMock(return_value=None)
-
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
-            mapping = {
-                ("llm", "mock"): mock_llm,
-                ("embedder", "mock"): mock_embedder,
-                ("vector_store", "memory"): mock_vector_store,
-                ("chunker", "simple"): mock_chunker,
-                ("reranker", "dummy"): mock_reranker,
-                ("storage", "sqlite"): mock_storage,
-            }
-            result = mapping.get((port, name))
-            if result is not None:
-                return result
-            port_specs = {
-                "llm": ILLM,
-                "embedder": IEmbedder,
-                "vector_store": IVectorStore,
-                "chunker": IChunker,
-                "storage": IChatStorage,
-                "reranker": IReranker,
-            }
-            return MagicMock(spec=port_specs.get(port))
-
-        with patch(
-            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
-        ):
-            result = await init_adapters(minimal_config)
-
-        for step in result.pipeline.steps:
-            assert callable(step)
-            assert getattr(step, "__name__", None) != "<lambda>"
 
     @pytest.mark.asyncio
     async def test_init_adapters_null_reranker_when_not_configured(self):
@@ -854,10 +747,8 @@ class TestAPIDeps:
             llm=MagicMock(spec=ILLM),
             embedder=MagicMock(spec=IEmbedder),
             vector_store=MagicMock(spec=IVectorStore),
-            pipeline=MagicMock(spec=RAGPipeline),
             storage=MagicMock(spec=IChatStorage),
             chunker=MagicMock(spec=IChunker),
-            chat_manager=MagicMock(spec=ChatManager),
             reranker=MagicMock(spec=IReranker),
             rag_state=RAGState(),
         )
@@ -896,130 +787,8 @@ class TestAPIDeps:
 
     # ── Step registry ──
 
-    def test_step_map_contains_all_standard_steps(self):
-        """Given: _STEP_MAP is populated from STEP_REGISTRY.
-        When: standard steps are checked.
-        Then: all expected RAGStep members are present.
-        """
-        for member in (
-            RAGStep.EMBED_QUERY,
-            RAGStep.RETRIEVE,
-            RAGStep.RERANK,
-            RAGStep.BUILD_CONTEXT,
-            RAGStep.GENERATE,
-        ):
-            assert member in _STEP_MAP
 
-    def test_step_map_contains_hyde(self):
-        """Given: hyde_query is a registered step.
-        When: _STEP_MAP is inspected.
-        Then: HYDE_QUERY is present.
-        """
-        assert RAGStep.HYDE_QUERY in _STEP_MAP
 
-    def test_step_map_is_dynamic_from_registry(self):
-        """Given: _STEP_MAP is built from STEP_REGISTRY.
-        When: keys and values are compared.
-        Then: all keys are RAGStep enums and values match STEP_REGISTRY.
-        """
-        from ai_assistant.core.pipeline_steps import STEP_REGISTRY
-
-        assert all(isinstance(k, RAGStep) for k in _STEP_MAP.keys())
-        for step_enum, func in _STEP_MAP.items():
-            assert STEP_REGISTRY[step_enum.value] is func
-
-    @pytest.mark.asyncio
-    async def test_pipeline_with_hyde_step(self):
-        """Given: config includes hyde_query step.
-        When: init_adapters builds the pipeline.
-        Then: 5 steps are present and hyde_query is at index 1.
-        """
-        minimal_config = _make_minimal_config()
-        minimal_config.rag.steps = [
-            "embed_query",
-            "hyde_query",
-            "retrieve",
-            "build_context",
-            "generate",
-        ]
-        mock_llm = MagicMock(spec=ILLM)
-        mock_embedder = MagicMock(spec=IEmbedder)
-        mock_vector_store = MagicMock(spec=IVectorStore)
-        mock_chunker = MagicMock(spec=IChunker)
-        mock_reranker = MagicMock(spec=IReranker)
-        mock_storage = MagicMock(spec=IChatStorage)
-        mock_storage.init_db = AsyncMock()
-
-        mock_vector_store.list_namespaces = AsyncMock(return_value=[])
-        mock_vector_store.load = AsyncMock(return_value=None)
-
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
-            mapping = {
-                ("llm", "mock"): mock_llm,
-                ("embedder", "mock"): mock_embedder,
-                ("vector_store", "memory"): mock_vector_store,
-                ("chunker", "simple"): mock_chunker,
-                ("reranker", "dummy"): mock_reranker,
-                ("storage", "sqlite"): mock_storage,
-            }
-            result = mapping.get((port, name))
-            if result is not None:
-                return result
-            port_specs = {
-                "llm": ILLM,
-                "embedder": IEmbedder,
-                "vector_store": IVectorStore,
-                "chunker": IChunker,
-                "storage": IChatStorage,
-                "reranker": IReranker,
-            }
-            return MagicMock(spec=port_specs.get(port))
-
-        with patch(
-            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
-        ):
-            result = await init_adapters(minimal_config)
-
-        assert len(result.pipeline.steps) == 5
-        step = result.pipeline.steps[1]
-        step_name = getattr(step, "__name__", None)
-        if step_name is None and hasattr(step, "func"):
-            step_name = getattr(step.func, "__name__", None)
-        assert step_name == "hyde_query"
-
-    # ── _build_step_funcs stop_at ──
-
-    def test_build_step_funcs_stop_at(self):
-        """Given: a config with 4 steps and stop_at=GENERATE.
-        When: _build_step_funcs is called.
-        Then: only 3 steps are returned (stops before GENERATE).
-        """
-        minimal_config = _make_minimal_config()
-        funcs = _build_step_funcs(minimal_config, stop_at=RAGStep.GENERATE)
-        assert len(funcs) == 3
-        # Verify the last step is build_context, not generate
-        assert funcs[-1] is _STEP_MAP[RAGStep.BUILD_CONTEXT]
-
-    def test_build_step_funcs_no_stop(self):
-        """Given: a config with 4 steps and no stop_at.
-        When: _build_step_funcs is called.
-        Then: all 4 steps are returned.
-        """
-        minimal_config = _make_minimal_config()
-        funcs = _build_step_funcs(minimal_config)
-        assert len(funcs) == 4
-
-    def test_build_step_funcs_unknown_step_raises(self):
-        """Given: a config with an unknown step name.
-        When: _build_step_funcs is called.
-        Then: ValueError is raised.
-        """
-        minimal_config = _make_minimal_config()
-        minimal_config.rag.steps = ["embed_query", "nonexistent_step"]
-        with pytest.raises(ValueError, match="Unknown step"):
-            _build_step_funcs(minimal_config)
-
-    # ── Cyclic dependencies guard ──
 
     def test_no_cyclic_imports_between_api_modules(self):
         """Given: api submodules are imported.

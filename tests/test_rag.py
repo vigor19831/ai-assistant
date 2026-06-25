@@ -819,52 +819,6 @@ class TestRerankerRegression:
 
     @pytest.mark.regression
     @pytest.mark.asyncio
-    async def test_reranker_passed_in_pipeline_data_on_p_prefix(self, mock_state, mock_embedder, mock_vector_store):
-        """Given: chat message with [p] prefix and working retrieval pipeline.
-        When: ChatManager._retrieve_context is called.
-        Then: PipelineData reaching the rerank step contains the reranker instance."""
-        from ai_assistant.features.chat.manager import ChatManager
-        from ai_assistant.core.pipeline import RAGPipeline
-        from ai_assistant.core.domain.pipeline import PipelineData
-
-        captured = {}
-
-        async def fake_embed_query(data: PipelineData) -> PipelineData:
-            """Fake embed_query step — stores embedding via typed field."""
-            return data.with_query_embedding([0.1] * 384)
-
-        async def fake_retrieve(data: PipelineData) -> PipelineData:
-            """Fake retrieve step — returns chunks."""
-            return data.with_chunks([
-                Chunk(
-                    id="c1",
-                    text="test chunk",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
-                )
-            ])
-
-        async def capture_rerank(data: PipelineData) -> PipelineData:
-            """Capture reranker from typed field and return data unchanged."""
-            captured["reranker"] = data.reranker
-            return data
-
-        pipeline = RAGPipeline([fake_embed_query, fake_retrieve, capture_rerank])
-
-        mgr = ChatManager(
-            llm=mock_state.llm,
-            embedder=mock_embedder,
-            vector_store=mock_vector_store,
-            reranker=mock_state.reranker,
-            pipeline=pipeline,
-        )
-
-        await mgr._retrieve_context("[p] test query")
-
-        assert captured.get("reranker") is mock_state.reranker
-
-    @pytest.mark.regression
-    @pytest.mark.asyncio
     async def test_reranker_missing_returns_error(self):
         """Given: PipelineData has chunks but no reranker.
         When: rerank pipeline step executes.

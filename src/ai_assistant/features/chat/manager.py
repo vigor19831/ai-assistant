@@ -7,6 +7,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 
+from ai_assistant.core.config import RAGStep
 from ai_assistant.core.constants import (
     FROZEN_NO_INFO_PHRASES,
 )
@@ -17,6 +18,8 @@ from ai_assistant.core.domain.messages import (
 )
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.pipeline import RAGPipeline
+from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.utils import async_count_tokens
@@ -25,7 +28,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from ai_assistant.core.domain.documents import Chunk
-    from ai_assistant.core.pipeline import RAGPipeline
     from ai_assistant.core.ports import (
         ILLM,
         IChatStorage,
@@ -38,6 +40,31 @@ if TYPE_CHECKING:
 __all__ = ["ChatManager"]
 
 logger = get_logger("chat")
+
+
+# ---------------------------------------------------------------------------
+# Pipeline step functions — moved from deps.py to where they are used
+# ---------------------------------------------------------------------------
+
+_STEP_MAP: dict[RAGStep, Any] = {
+    RAGStep(k): v for k, v in STEP_REGISTRY.items() if k in {m.value for m in RAGStep}
+}
+
+
+def _build_step_funcs(
+    cfg: Any,
+    stop_at: RAGStep | None = None,
+) -> list[Any]:
+    """Build pipeline step functions. Stops before *stop_at* if provided."""
+    step_funcs: list[Any] = []
+    for step in cfg.rag.steps:
+        if stop_at is not None and step == stop_at:
+            break
+        func = _STEP_MAP.get(step)
+        if func is None:
+            raise ValueError(f"Unknown step: {step}")
+        step_funcs.append(func)
+    return step_funcs
 
 
 class ChatManager:
@@ -109,12 +136,12 @@ class ChatManager:
         tokenizer_model: str = "gpt-4o",
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
-        pipeline: RAGPipeline | None = None,
         namespaces: dict[str, Any] | None = None,
         prompt_version: str = "v1",
         top_k: int = 5,
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
+        rag_steps: list[RAGStep] | None = None,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
@@ -125,12 +152,43 @@ class ChatManager:
         self.tokenizer_model = tokenizer_model
         self.embedder = embedder
         self.vector_store = vector_store
-        self.pipeline = pipeline
         self.namespaces = namespaces or {}
         self.prompt_version = prompt_version
         self.top_k = top_k
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
+
+        # Build pipeline internally — ChatManager owns its pipeline
+        self._pipeline = self._build_pipeline(rag_steps)
+
+    def _build_pipeline(self, rag_steps: list[RAGStep] | None = None) -> RAGPipeline | None:
+        """Build the RAG pipeline for retrieval. Returns None if no steps configured."""
+        if self.embedder is None or self.vector_store is None:
+            return None
+
+        if rag_steps is None:
+            # Default retrieval pipeline: embed_query -> retrieve -> rerank -> build_context
+            default_steps = [
+                RAGStep.EMBED_QUERY,
+                RAGStep.RETRIEVE,
+                RAGStep.RERANK,
+                RAGStep.BUILD_CONTEXT,
+            ]
+            step_funcs = []
+            for step in default_steps:
+                func = _STEP_MAP.get(step)
+                if func is not None:
+                    step_funcs.append(func)
+            return RAGPipeline(step_funcs) if step_funcs else None
+
+        step_funcs = []
+        for step in rag_steps:
+            if step == RAGStep.GENERATE:
+                break  # ChatManager does its own generation via LLM
+            func = _STEP_MAP.get(step)
+            if func is not None:
+                step_funcs.append(func)
+        return RAGPipeline(step_funcs) if step_funcs else None
 
     async def _count_tokens(self, text: str) -> int:
         return await async_count_tokens(text, self.tokenizer_model)
@@ -185,7 +243,7 @@ class ChatManager:
         If RAG is not triggered or no results are found, returns the original
         message unchanged with empty chunks.
         """
-        if not self.pipeline:
+        if not self._pipeline:
             return message, message, "default", ()
 
         query_text, namespace = parse_rag_query(message)
@@ -219,7 +277,7 @@ class ChatManager:
             tokenizer_model=self.tokenizer_model,
         )
 
-        data = await self.pipeline.run(data)
+        data = await self._pipeline.run(data)
 
         if not data.chunks:
             return query_text, query_text, namespace, ()
@@ -298,7 +356,7 @@ class ChatManager:
 
         # Graceful degradation: RAG requested but infrastructure unavailable
         _clean, _ns = parse_rag_query(message)
-        if _ns != "default" and not self.pipeline:
+        if _ns != "default" and not self._pipeline:
             return AssistantMessage(
                 text="Document search (RAG) temporarily unavailable."
             )
@@ -393,7 +451,7 @@ class ChatManager:
 
         # Graceful degradation: RAG requested but infrastructure unavailable
         _clean, _ns = parse_rag_query(message)
-        if _ns != "default" and not self.pipeline:
+        if _ns != "default" and not self._pipeline:
             yield "Document search (RAG) temporarily unavailable."
             return
 

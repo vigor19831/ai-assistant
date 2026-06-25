@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-25 07:43 UTC
+> Auto-generated from source code. Updated: 2026-06-25 14:04 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -51,12 +51,9 @@
 | `api.deps` | `RuntimeError` | LLM adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High |
-| `api.deps` | `RuntimeError` | Pipeline failed to initialize | High |
 | `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High |
-| `api.deps` | `RuntimeError` | Chat manager failed to initialize | High |
 | `api.deps` | `RuntimeError` | State not initialized | High |
-| `api.deps` | `ValueError` | Unknown step: {...} | High |
 | `api.security` | `HTTPException` | Unknown error | High |
 | `core.config` | `ValueError` | Unknown error | High |
 | `core.config` | `ValueError` | path must be non-empty | High |
@@ -74,10 +71,14 @@
 | `features.chat.handlers` | `HTTPException` | Unknown error | High |
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High |
+| `features.chat.manager` | `ValueError` | Unknown step: {...} | High |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High |
 | `tests.test_api` | `HTTPException` | Unknown error | High |
+| `tests.test_api` | `RuntimeError` | shutdown boom | High |
 | `tests.test_api` | `RuntimeError` | boom | High |
 | `tests.test_api` | `ValueError` | No storage adapter registered | High |
+| `tests.test_e2e` | `AdapterError` | LLM stream down | High |
+| `tests.test_e2e` | `Exception` | Generic stream fail | High |
 | `tests.test_e2e` | `ValueError` | Error with "quotes" and 
  newlines | High |
 | `tests.test_pipeline` | `AdapterError` | LLM down | High |
@@ -167,6 +168,7 @@
 | `features.rag.handlers` | `Exception` | return { | Medium |
 | `features.rag.handlers` | `Exception` | _logger.warning( | Medium |
 | `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium |
+| `features.rag.manager` | `Exception` | _logger.exception("RAG pipeline failed") | Medium |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium |
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium |

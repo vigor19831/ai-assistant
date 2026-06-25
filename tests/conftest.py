@@ -211,8 +211,6 @@ def build_mock_state() -> MagicMock:
     state.chunker = AsyncMock()
     state.storage = AsyncMock()
     state.reranker = AsyncMock()
-    state.chat_manager = AsyncMock()
-    state.limiter = MagicMock()
     state.rag_state = RAGState()
 
     # ── RAG pipeline port defaults ──
@@ -299,6 +297,27 @@ def _reset_rag_globals():
 # ---------------------------------------------------------------------------
 
 
+def _build_chat_manager_mock() -> MagicMock:
+    """Build a mock ChatManager for TestClient fixtures.
+
+    ChatManager is no longer in AppState; it is created per-request via
+    Depends. We patch the dependency function to return this mock.
+    """
+    from ai_assistant.core.domain.messages import AssistantMessage
+
+    mgr = MagicMock()
+    mgr.chat = AsyncMock(
+        return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
+    )
+
+    async def fake_stream(*args, **kwargs):
+        yield "Hello"
+        yield "!"
+
+    mgr.stream_chat = fake_stream
+    return mgr
+
+
 @pytest.fixture
 def client(mock_state):
     """Return a TestClient with mock state and auth header.
@@ -309,21 +328,16 @@ def client(mock_state):
     """
     from ai_assistant.main import create_app
     from ai_assistant.api.security import set_api_key
-    from ai_assistant.core.domain.messages import AssistantMessage
-
-    mock_state.chat_manager.chat = AsyncMock(
-        return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
-    )
-
-    async def fake_stream(*args, **kwargs):
-        yield "Hello"
-        yield "!"
-
-    mock_state.chat_manager.stream_chat = fake_stream
+    from ai_assistant.features.chat.handlers import _get_chat_manager
 
     set_api_key("test-e2e-key")
 
     app = create_app(state=mock_state)
+
+    # Override the ChatManager dependency to use our mock
+    chat_mgr_mock = _build_chat_manager_mock()
+    app.dependency_overrides[_get_chat_manager] = lambda: chat_mgr_mock
+
     return TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
 
 
@@ -335,21 +349,16 @@ def client_no_raise(mock_state):
     """
     from ai_assistant.main import create_app
     from ai_assistant.api.security import set_api_key
-    from ai_assistant.core.domain.messages import AssistantMessage
-
-    mock_state.chat_manager.chat = AsyncMock(
-        return_value=AssistantMessage(text="Hello!", metadata={"tokens": 2})
-    )
-
-    async def fake_stream(*args, **kwargs):
-        yield "Hello"
-        yield "!"
-
-    mock_state.chat_manager.stream_chat = fake_stream
+    from ai_assistant.features.chat.handlers import _get_chat_manager
 
     set_api_key("test-e2e-key")
 
     app = create_app(state=mock_state)
+
+    # Override the ChatManager dependency to use our mock
+    chat_mgr_mock = _build_chat_manager_mock()
+    app.dependency_overrides[_get_chat_manager] = lambda: chat_mgr_mock
+
     return TestClient(app, raise_server_exceptions=False, headers={"Authorization": "Bearer test-e2e-key"})
 
 
@@ -413,10 +422,11 @@ def llm_adapter(request):
 @pytest.fixture(params=["memory", "faiss"])
 def vector_store_adapter(request, tmp_path):
     """Factory: yield concrete IVectorStore for parametrized contract tests."""
-    from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
     from ai_assistant.core.domain.configs import VectorStoreConfigData
 
     if request.param == "memory":
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
         return MemoryVectorStore(
             VectorStoreConfigData(
                 provider="memory",

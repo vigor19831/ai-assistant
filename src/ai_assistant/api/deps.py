@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires runtime
 
 from ai_assistant.adapters.factory import create_adapter
-from ai_assistant.core.config import AppConfig, RAGStep
+from ai_assistant.core.config import AppConfig
 from ai_assistant.core.domain.configs import (
     ChunkerConfigData,
     EmbedderConfigData,
@@ -20,11 +19,7 @@ from ai_assistant.core.domain.configs import (
     StorageConfigData,
     VectorStoreConfigData,
 )
-from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.pipeline import RAGPipeline
-from ai_assistant.core.pipeline_steps import STEP_REGISTRY
-from ai_assistant.features.chat.manager import ChatManager
 
 if TYPE_CHECKING:
     from ai_assistant.core.ports import (
@@ -173,9 +168,7 @@ class AppState:
     vector_store: IVectorStore | None = None
     chunker: IChunker | None = None
     reranker: IReranker | None = None
-    pipeline: RAGPipeline | None = None
     storage: IChatStorage | None = None
-    chat_manager: ChatManager | None = None
     rag_state: RAGState | None = None
 
 
@@ -187,37 +180,10 @@ class InitializedAppState:
     llm: ILLM
     embedder: IEmbedder
     vector_store: IVectorStore
-    pipeline: RAGPipeline
     storage: IChatStorage
     chunker: IChunker
-    chat_manager: ChatManager
     reranker: IReranker
     rag_state: RAGState
-
-
-# ---------------------------------------------------------------------------
-# Explicit step map — replaces mutable @step registry
-# ---------------------------------------------------------------------------
-
-_STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
-    RAGStep(k): v for k, v in STEP_REGISTRY.items() if k in {m.value for m in RAGStep}
-}
-
-
-def _build_step_funcs(
-    cfg: AppConfig,
-    stop_at: RAGStep | None = None,
-) -> list[Callable[[PipelineData], Awaitable[PipelineData]]]:
-    """Build pipeline step functions. Stops before *stop_at* if provided."""
-    step_funcs: list[Callable[[PipelineData], Awaitable[PipelineData]]] = []
-    for step in cfg.rag.steps:
-        if stop_at is not None and step == stop_at:
-            break
-        func = _STEP_MAP.get(step)
-        if func is None:
-            raise ValueError(f"Unknown step: {step}")
-        step_funcs.append(func)
-    return step_funcs
 
 
 # ---------------------------------------------------------------------------
@@ -347,29 +313,6 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     if state.storage is not None:
         await state.storage.init_db()
 
-    step_funcs = _build_step_funcs(cfg)
-    state.pipeline = RAGPipeline(step_funcs)
-
-    retrieval_funcs = _build_step_funcs(cfg, stop_at=RAGStep.GENERATE)
-    retrieval_pipeline = RAGPipeline(retrieval_funcs) if retrieval_funcs else None
-
-    state.chat_manager = ChatManager(
-        llm=state.llm,
-        storage=state.storage,
-        history_limit=cfg.chat.history_limit,
-        max_context_tokens=cfg.chat.max_context_tokens,
-        tokenizer_model=cfg.chat.tokenizer_model,
-        embedder=state.embedder,
-        vector_store=state.vector_store,
-        reranker=state.reranker,
-        pipeline=retrieval_pipeline,
-        namespaces=cfg.namespaces,
-        prompt_version=cfg.rag.prompt_version,
-        top_k=cfg.rag.top_k,
-        token_margin_min=cfg.rag.token_margin_min,
-        token_margin_pct=cfg.rag.token_margin_pct,
-    )
-
     state.rag_state = RAGState()
 
     if state.llm is None:
@@ -378,24 +321,18 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         raise RuntimeError("Embedder adapter failed to initialize")
     if state.vector_store is None:
         raise RuntimeError("Vector store adapter failed to initialize")
-    if state.pipeline is None:
-        raise RuntimeError("Pipeline failed to initialize")
     if state.storage is None:
         raise RuntimeError("Storage adapter failed to initialize")
     if state.chunker is None:
         raise RuntimeError("Chunker adapter failed to initialize")
-    if state.chat_manager is None:
-        raise RuntimeError("Chat manager failed to initialize")
     return InitializedAppState(
         config=cfg,
         llm=state.llm,
         embedder=state.embedder,
         vector_store=state.vector_store,
-        pipeline=state.pipeline,
         storage=state.storage,
         chunker=state.chunker,
         reranker=state.reranker,
-        chat_manager=state.chat_manager,
         rag_state=state.rag_state,
     )
 
