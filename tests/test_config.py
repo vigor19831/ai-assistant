@@ -76,6 +76,29 @@ class TestConfigMigration:
         assert cfg.security.api_key == "secret"
         assert "rate_limit" not in cfg.security.model_dump()
 
+    def test_migrate_missing_config_version(self):
+        """Given: config without config_version key.
+        When: AppConfig is loaded.
+        Then: config_version is set to "0" for migration tracking."""
+        raw = {
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.config_version == "0"
+
+    def test_explicit_config_version_preserved(self):
+        """Given: config with explicit config_version.
+        When: AppConfig is loaded.
+        Then: explicit value is preserved."""
+        raw = {
+            "config_version": "2",
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**raw)
+        assert cfg.config_version == "2"
+
 
 class TestConfigValidation:
     """Given: config with various valid and invalid states.

@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-25 14:04 UTC
+> Auto-generated from source code. Updated: 2026-06-25 19:33 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -97,7 +97,7 @@
 | `adapters.factory` | `ImportError` | raise ValueError( | Medium |
 | `adapters.llm_openai_compatible` | `AttributeError` | _logger.warning( | Medium |
 | `adapters.llm_openai_compatible` | `HTTPError` | _logger.exception( | Medium |
-| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | raise AdapterError(f"Unexpected response shape: {exc}") from | Medium |
+| `adapters.llm_openai_compatible` | `IndexError/KeyError/TypeError` | _logger.exception("Unexpected LLM response shape", extra={"r | Medium |
 | `adapters.llm_openai_compatible` | `JSONDecodeError` | continue | Medium |
 | `adapters.llm_openai_compatible` | `KeyError/IndexError/TypeError` | _logger.warning( | Medium |
 | `adapters.llm_openai_compatible` | `TypeError` | return [] | Medium |

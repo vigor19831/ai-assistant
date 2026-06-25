@@ -129,54 +129,59 @@ class MemoryVectorStore(IVectorStore):
                 if cid in ns._order:
                     ns._order.remove(cid)
 
-        try:
-            await self.save(self.index_path, namespace=namespace)
-        except Exception:
-            _logger.exception(
-                "delete save failed, rolling back",
-                extra={"namespace": namespace},
-            )
             try:
-                await self.load(self.index_path, namespace=namespace)
+                await self._save_unlocked(self.index_path, namespace=namespace)
             except Exception:
                 _logger.exception(
-                    "delete rollback failed",
+                    "delete save failed, rolling back",
                     extra={"namespace": namespace},
                 )
-            raise
+                try:
+                    await self._load_unlocked(self.index_path, namespace=namespace)
+                except Exception:
+                    _logger.exception(
+                        "delete rollback failed",
+                        extra={"namespace": namespace},
+                    )
+                raise
 
-    async def save(self, path: str, namespace: str = "default") -> None:
+    async def _save_unlocked(self, path: str, namespace: str = "default") -> None:
+        """Internal save without lock — caller must hold self._lock."""
         p = Path(path) / namespace
         p.parent.mkdir(parents=True, exist_ok=True)
-        async with self._lock:
-            ns = self._get_ns(namespace)
-            data = {
-                "dim": ns.dim,
-                "chunks": {
-                    cid: {
-                        "id": c.id,
-                        "text": c.text,
-                        "metadata": (
-                            {
-                                "source": c.metadata.source,
-                                "index": c.metadata.index,
-                                "total_chunks": c.metadata.total_chunks,
-                                "custom": c.metadata.custom,
-                                "original_path": c.metadata.original_path,
-                                "source_uri": c.metadata.source_uri,
-                            }
-                            if c.metadata
-                            else None
-                        ),
-                    }
-                    for cid, c in ns.chunks.items()
-                },
-                "embeddings": {cid: emb.tolist() for cid, emb in ns.embeddings.items()},
-                "metadata": ns.metadata,
-            }
+        ns = self._get_ns(namespace)
+        data = {
+            "dim": ns.dim,
+            "chunks": {
+                cid: {
+                    "id": c.id,
+                    "text": c.text,
+                    "metadata": (
+                        {
+                            "source": c.metadata.source,
+                            "index": c.metadata.index,
+                            "total_chunks": c.metadata.total_chunks,
+                            "custom": c.metadata.custom,
+                            "original_path": c.metadata.original_path,
+                            "source_uri": c.metadata.source_uri,
+                        }
+                        if c.metadata
+                        else None
+                    ),
+                }
+                for cid, c in ns.chunks.items()
+            },
+            "embeddings": {cid: emb.tolist() for cid, emb in ns.embeddings.items()},
+            "metadata": ns.metadata,
+        }
         await atomic_write(p / "memory_store.json", json.dumps(data, indent=2))
 
-    async def load(self, path: str, namespace: str = "default") -> None:
+    async def save(self, path: str, namespace: str = "default") -> None:
+        async with self._lock:
+            await self._save_unlocked(path, namespace=namespace)
+
+    async def _load_unlocked(self, path: str, namespace: str = "default") -> None:
+        """Internal load without lock — caller must hold self._lock."""
         p = Path(path) / namespace / "memory_store.json"
         if not await asyncio.to_thread(p.exists):
             return
@@ -189,85 +194,88 @@ class MemoryVectorStore(IVectorStore):
                 f"Reindex required: stored dim {stored_dim} != config dim {self.dim}"
             )
 
-        async with self._lock:
-            ns = self._get_ns(namespace)
-            ns.dim = data.get("dim", self.dim)
-            ns.chunks = {
-                cid: Chunk(
-                    id=c["id"],
-                    text=c["text"],
-                    metadata=(
-                        ChunkMetadata(
-                            source=meta.get("source", ""),
-                            index=meta.get("index", 0),
-                            total_chunks=meta.get("total_chunks", 0),
-                            custom=meta.get("custom", {}),
-                            original_path=meta.get("original_path"),
-                            source_uri=meta.get("source_uri"),  # backward compat
-                        )
-                        if (meta := c.get("metadata"))
-                        else None
-                    ),
-                )
-                for cid, c in data.get("chunks", {}).items()
-            }
-            ns.embeddings = {}
-            for cid, emb in data.get("embeddings", {}).items():
-                arr = np.array(emb, dtype=np.float32)
-                if arr.shape[0] != self.dim:
-                    _logger.error(
-                        "Memory index load failed: "
-                        "embedding dimension mismatch",
-                        extra={
-                            "namespace": namespace,
-                            "chunk_id": cid,
-                            "expected": self.dim,
-                            "got": arr.shape[0],
-                        },
+        ns = self._get_ns(namespace)
+        ns.dim = data.get("dim", self.dim)
+        ns.chunks = {
+            cid: Chunk(
+                id=c["id"],
+                text=c["text"],
+                metadata=(
+                    ChunkMetadata(
+                        source=meta.get("source", ""),
+                        index=meta.get("index", 0),
+                        total_chunks=meta.get("total_chunks", 0),
+                        custom=meta.get("custom", {}),
+                        original_path=meta.get("original_path"),
+                        source_uri=meta.get("source_uri"),  # backward compat
                     )
-                    raise AdapterError(
-                        "Index load failed for "
-                        f"namespace '{namespace}': "
-                        f"chunk '{cid}' has embedding "
-                        f"dim {arr.shape[0]}, expected "
-                        f"{self.dim}. Please reindex."
-                    )
-                ns.embeddings[cid] = arr
-
-            ns.metadata = data.get("metadata", {})
-            ns._order.clear()
-            ns._order.extend(ns.chunks.keys())
-
-            # Integrity check: all three structures must be consistent
-            emb_count = len(ns.embeddings)
-            chunk_count = len(ns.chunks)
-            meta_count = len(ns.metadata)
-            if emb_count != chunk_count or meta_count != chunk_count:
-                # Rollback partial state to
-                # prevent stale data on retry
-                ns.chunks.clear()
-                ns.embeddings.clear()
-                ns.metadata.clear()
-                ns._order.clear()
+                    if (meta := c.get("metadata"))
+                    else None
+                ),
+            )
+            for cid, c in data.get("chunks", {}).items()
+        }
+        ns.embeddings = {}
+        for cid, emb in data.get("embeddings", {}).items():
+            arr = np.array(emb, dtype=np.float32)
+            if arr.shape[0] != self.dim:
                 _logger.error(
-                    "Memory index integrity check "
-                    "failed: counts do not match "
-                    "(embeddings/chunks/metadata)",
+                    "Memory index load failed: "
+                    "embedding dimension mismatch",
                     extra={
                         "namespace": namespace,
-                        "embeddings": emb_count,
-                        "chunks": chunk_count,
-                        "metadata": meta_count,
+                        "chunk_id": cid,
+                        "expected": self.dim,
+                        "got": arr.shape[0],
                     },
                 )
                 raise AdapterError(
-                    "Index integrity check failed "
-                    f"for namespace '{namespace}': "
-                    f"embeddings={emb_count}, "
-                    f"chunks={chunk_count}, "
-                    f"metadata={meta_count}. Please "
-                    "reindex to restore consistency."
+                    "Index load failed for "
+                    f"namespace '{namespace}': "
+                    f"chunk '{cid}' has embedding "
+                    f"dim {arr.shape[0]}, expected "
+                    f"{self.dim}. Please reindex."
                 )
+            ns.embeddings[cid] = arr
+
+        ns.metadata = data.get("metadata", {})
+        ns._order.clear()
+        ns._order.extend(ns.chunks.keys())
+
+        # Integrity check: all three structures must be consistent
+        emb_count = len(ns.embeddings)
+        chunk_count = len(ns.chunks)
+        meta_count = len(ns.metadata)
+        if emb_count != chunk_count or meta_count != chunk_count:
+            # Rollback partial state to
+            # prevent stale data on retry
+            ns.chunks.clear()
+            ns.embeddings.clear()
+            ns.metadata.clear()
+            ns._order.clear()
+            _logger.error(
+                "Memory index integrity check "
+                "failed: counts do not match "
+                "(embeddings/chunks/metadata)",
+                extra={
+                    "namespace": namespace,
+                    "embeddings": emb_count,
+                    "chunks": chunk_count,
+                    "metadata": meta_count,
+                },
+            )
+            raise AdapterError(
+                "Index integrity check failed "
+                f"for namespace '{namespace}': "
+                f"embeddings={emb_count}, "
+                f"chunks={chunk_count}, "
+                f"metadata={meta_count}. Please "
+                "reindex to restore consistency."
+            )
+
+    async def load(self, path: str, namespace: str = "default") -> None:
+        async with self._lock:
+            await self._load_unlocked(path, namespace=namespace)
 
     async def list_by_filter(
         self,

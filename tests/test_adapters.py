@@ -6,6 +6,7 @@ Covers: MockLLM, MockEmbedder, MemoryVectorStore, NullReranker,
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from contextlib import closing
@@ -284,6 +285,38 @@ class TestMemoryVectorStore:
         await store.shutdown()
         results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
         assert len(results) == 0
+
+    @pytest.mark.asyncio
+    async def test_concurrent_add_and_search(self):
+        """Given: multiple coroutines add and search simultaneously.
+        When: asyncio.gather runs them concurrently.
+        Then: no race condition; all adds are visible and search returns consistent results."""
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3, max_chunks=100))
+
+        async def add_chunk(i: int):
+            await store.add(
+                [Chunk(id=f"c{i}", text=f"chunk {i}", embedding=[1.0, 0.0, 0.0])],
+                namespace="concurrent",
+            )
+
+        async def search_during_add():
+            # Run multiple searches while adds are in progress
+            results = []
+            for _ in range(10):
+                r = await store.search([1.0, 0.0, 0.0], top_k=50, namespace="concurrent")
+                results.append(len(r))
+            return results
+
+        # Launch 20 adders and 5 searchers concurrently
+        adders = [add_chunk(i) for i in range(20)]
+        searchers = [search_during_add() for _ in range(5)]
+        await asyncio.gather(*adders, *searchers)
+
+        # Final state: all 20 chunks must be present
+        final = await store.search([1.0, 0.0, 0.0], top_k=50, namespace="concurrent")
+        assert len(final) == 20
+        ids = {c.id for c in final}
+        assert ids == {f"c{i}" for i in range(20)}
 
 
 # ── TestNullReranker ──

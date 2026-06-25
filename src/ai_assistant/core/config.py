@@ -241,7 +241,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1.6.0"
+    config_version: str = "1"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
@@ -268,6 +268,20 @@ class AppConfig(BaseSettings):
             "books": NamespaceConfig(),
         }
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_config_version(cls, v: Any) -> Any:
+        """Backward-compatible loader: set config_version to "0" if absent.
+
+        Allows future model_validators to branch on config_version when
+        applying breaking migrations.
+        """
+        if type(v) is not dict:
+            return v
+        if "config_version" not in v:
+            v = {**v, "config_version": "0"}
+        return v
 
     @field_validator("rag", mode="before")
     @classmethod

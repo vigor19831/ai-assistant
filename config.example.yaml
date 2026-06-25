@@ -13,7 +13,7 @@ app_name: ai-assistant
 debug: false                    # true = detailed errors, hot reload; false for daily use
 host: 0.0.0.0                   # 0.0.0.0 = all interfaces; 127.0.0.1 for local-only
 port: 8000
-config_version: "1.6.0"         # Internal schema version. Do not change.
+config_version: "1"             # Schema version for future migrations.
 
 # ── CORS ──
 # Which browser extensions / web UIs can talk to this API.
