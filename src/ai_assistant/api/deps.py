@@ -35,6 +35,7 @@ __all__ = [
     "AppState",
     "InitializedAppState",
     "RAGState",
+    "get_chunker_for_config",
     "get_state",
     "init_adapters",
 ]
@@ -343,3 +344,15 @@ def get_state(request: Request) -> InitializedAppState:
     if app_state is None:
         raise RuntimeError("State not initialized")
     return app_state
+
+
+def get_chunker_for_config(state: InitializedAppState, chunk_size: int | None = None) -> IChunker:
+    """Return chunker, creating a new one if namespace requires different chunk_size.
+
+    This factory lives in api.deps (not features/) because only api/ may
+    import from adapters/. Features receive the chunker via AppState.
+    """
+    if chunk_size is None or chunk_size == state.config.chunker.chunk_size:
+        return state.chunker
+    cfg = state.config.chunker.model_copy(update={"chunk_size": chunk_size})
+    return create_adapter("chunker", cfg.provider, _chunker_data(state.config))

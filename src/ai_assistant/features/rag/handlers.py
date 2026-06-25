@@ -11,8 +11,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ai_assistant.adapters.factory import create_adapter
-from ai_assistant.api.deps import InitializedAppState, get_state
+from ai_assistant.api.deps import (
+    InitializedAppState,
+    get_chunker_for_config,
+    get_state,
+)
 from ai_assistant.core.config import _get_chat_namespace
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
@@ -63,11 +66,7 @@ async def index_documents(
     ns_cfg = state.config.namespaces.get(namespace)
 
     # -- Per-namespace chunker override (only if size differs from base) --
-    chunker = state.chunker
-    if ns_cfg is not None and ns_cfg.chunk_size != state.config.chunker.chunk_size:
-        base_cfg = state.config.chunker
-        ns_chunker_cfg = base_cfg.model_copy(update={"chunk_size": ns_cfg.chunk_size})
-        chunker = create_adapter("chunker", base_cfg.provider, ns_chunker_cfg)
+    chunker = get_chunker_for_config(state, ns_cfg.chunk_size if ns_cfg else None)
 
     manager = IndexingManager(
         chunker=chunker,

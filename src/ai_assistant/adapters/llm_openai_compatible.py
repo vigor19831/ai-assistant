@@ -192,6 +192,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             choice = data["choices"][0]
             msg = choice.get("message", {})
         except (IndexError, KeyError, TypeError) as exc:
+            _logger.exception("Unexpected LLM response shape", extra={"response_preview": str(data)[:200]})
             raise AdapterError(f"Unexpected response shape: {exc}") from exc
 
         tool_calls = self._parse_tool_calls(msg.get("tool_calls"))

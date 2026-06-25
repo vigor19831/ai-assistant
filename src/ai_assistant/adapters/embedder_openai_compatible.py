@@ -37,6 +37,14 @@ def _extract_embeddings(
 
     for i, emb in enumerate(embeddings):
         if len(emb) != expected_dim:
+            _logger.error(
+                "Dimension mismatch",
+                extra={
+                    "expected": expected_dim,
+                    "got": len(emb),
+                    "index": i,
+                },
+            )
             raise AdapterError(
                 f"Dimension mismatch: expected {expected_dim}, "
                 f"got {len(emb)} for text[{i}] "
