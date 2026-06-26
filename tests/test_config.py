@@ -451,6 +451,13 @@ class TestResourceLimits:
         assert cfg.token_margin_min == 256
         assert cfg.token_margin_pct == 0.1
 
+    def test_rag_config_default_relevance_threshold(self):
+        """Given: no env overrides.
+        When: RAGConfig is instantiated.
+        Then: relevance_threshold defaults to 0.1 (matches config.yaml)."""
+        cfg = RAGConfig()
+        assert cfg.relevance_threshold == 0.1
+
     def test_rag_config_token_margin_override(self, monkeypatch):
         """Given: AI_RAG_TOKEN_MARGIN_MIN and AI_RAG_TOKEN_MARGIN_PCT env vars.
         When: RAGConfig is instantiated.

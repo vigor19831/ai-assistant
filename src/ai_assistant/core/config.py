@@ -189,7 +189,7 @@ class RAGConfig(BaseSettings):
     prompt_name: str = "rag_strict"
     top_k: int = 5
     default_namespace: str = "default"
-    relevance_threshold: float = 0.3
+    relevance_threshold: float = 0.1
     max_tool_iterations: int = 5
     token_margin_min: int = 256
     token_margin_pct: float = 0.1

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.llm import ILLM, Message
+    from ai_assistant.core.ports.reranker import IReranker, RerankResult
     from ai_assistant.core.ports.tokenizer import ITokenizer
     from ai_assistant.core.ports.vector_store import IVectorStore
 
@@ -96,6 +97,14 @@ async def _call_search(
 async def _call_llm(llm: ILLM, messages: list[Message]) -> AssistantMessage:
     """Call LLM with retry."""
     return await llm.complete(messages)
+
+
+@with_retry(max_retries=3, delay=1.0, backoff=2.0)
+async def _call_rerank(
+    reranker: IReranker, query: str, chunks: tuple[Chunk, ...], top_k: int
+) -> list[RerankResult]:
+    """Rerank chunks with retry."""
+    return await reranker.rerank(query, list(chunks), top_k=top_k)
 
 
 @step("embed_query")
@@ -210,7 +219,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         top_k = cfg.top_k
         threshold = cfg.relevance_threshold
 
-        results = await reranker.rerank(query, data.chunks, top_k=top_k)
+        results = await _call_rerank(reranker, query, data.chunks, top_k=top_k)
 
         filtered = [r for r in results if r.score >= threshold]
 
@@ -341,6 +350,15 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt = _build_fallback_prompt(data.chunks, query_text)
 
     max_ctx = llm.get_context_limit()
+    if max_ctx is None:
+        error_msg = "generate: LLM context limit unknown"
+        _logger.error(error_msg, extra={"trace_id": data.trace_id})
+        return data.add_error(error_msg).with_response(
+            AssistantMessage(
+                text="Sorry, the model's context limit is not configured. "
+                "Please set server_context_size in the LLM configuration."
+            )
+        )
 
     tokenizer_model = data.tokenizer_model
     if tokenizer_model is None:

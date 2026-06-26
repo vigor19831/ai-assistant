@@ -34,6 +34,12 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         finally:
             duration = time.perf_counter() - start
             status = str(response.status_code) if response is not None else "500"
+            # Collapse dynamic path segments to the route pattern to prevent
+            # Prometheus cardinality explosion (e.g. /reindex/status/abc-123
+            # becomes /reindex/status/{task_id}).
+            route = request.scope.get("route")
+            if route is not None:
+                path = getattr(route, "path", path)
             metrics.increment_counter(
                 "ai_assistant_requests_total",
                 labels={"method": method, "path": path, "status": status},

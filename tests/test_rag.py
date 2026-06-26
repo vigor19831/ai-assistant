@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -24,8 +25,25 @@ from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.ports.vector_store import IVectorStore
+from ai_assistant.features.rag.handlers import (
+    delete_chunks,
+    index_documents,
+    list_namespaces,
+    query_rag,
+    rag_health,
+    reindex_documents,
+    reindex_status,
+    save_chat,
+)
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
+from ai_assistant.features.rag.schemas import (
+    DeleteRequest,
+    IndexRequest,
+    QueryRequest,
+    ReindexRequest,
+    SaveChatRequest,
+)
 
 _logger = get_logger(__name__)
 
@@ -848,6 +866,273 @@ class TestRerankerRegression:
         # chunks are preserved (not mutated) so downstream can inspect or ignore
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
+
+
+# ── TraceId in RAG handlers ───────────────────────────────────────────────
+
+
+def _assert_all_logs_have_trace_id(caplog: pytest.LogCaptureFixture) -> None:
+    """Assert every log record from rag.handlers has a trace_id in extra."""
+    rag_records = [r for r in caplog.records if r.name == "ai_assistant.rag.handlers"]
+    assert rag_records, "Expected at least one log record from rag.handlers"
+    for record in rag_records:
+        assert hasattr(record, "trace_id"), (
+            f"Log record '{record.getMessage()}' missing trace_id"
+        )
+        assert record.trace_id is not None, (
+            f"Log record '{record.getMessage()}' has None trace_id"
+        )
+        assert len(record.trace_id) == 32, (
+            f"Log record '{record.getMessage()}' has invalid trace_id length"
+        )
+
+
+class TestRAGHandlersTraceId:
+    """All _logger calls in RAG handlers must include extra={"trace_id": ...}."""
+
+    @pytest.mark.asyncio
+    async def test_index_documents_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.save = AsyncMock()
+
+        with patch(
+            "ai_assistant.features.rag.handlers.IndexingManager"
+        ) as MockMgr:
+            mock_mgr = MagicMock()
+            mock_mgr.index_documents = AsyncMock(
+                return_value={"indexed_count": 1, "chunk_count": 2}
+            )
+            MockMgr.return_value = mock_mgr
+
+            req = IndexRequest(
+                documents=[{"id": "doc1", "content": "hello", "metadata": {}}],
+                namespace="default",
+            )
+            resp = await index_documents(req, mock_state)
+
+        assert resp.indexed_count == 1
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_index_documents_all_filtered_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.config.vector_store.max_document_size = 1
+
+        req = IndexRequest(
+            documents=[{"id": "doc1", "content": "hello world", "metadata": {}}],
+            namespace="default",
+        )
+        resp = await index_documents(req, mock_state)
+
+        assert resp.indexed_count == 0
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_index_documents_auto_save_error_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.save = AsyncMock(side_effect=RuntimeError("disk full"))
+
+        with patch(
+            "ai_assistant.features.rag.handlers.IndexingManager"
+        ) as MockMgr:
+            mock_mgr = MagicMock()
+            mock_mgr.index_documents = AsyncMock(
+                return_value={"indexed_count": 1, "chunk_count": 2}
+            )
+            MockMgr.return_value = mock_mgr
+
+            req = IndexRequest(
+                documents=[{"id": "doc1", "content": "hello", "metadata": {}}],
+                namespace="default",
+            )
+            resp = await index_documents(req, mock_state)
+
+        assert "Internal server error" in resp.errors
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_query_rag_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+
+        mock_manager = MagicMock()
+        mock_manager.query = AsyncMock(
+            return_value={
+                "answer": "answer",
+                "sources": [],
+                "chunks_used": 1,
+                "errors": [],
+            }
+        )
+
+        req = QueryRequest(query="test", namespace="default")
+        resp = await query_rag(req, mock_manager, mock_state)
+
+        assert resp.answer == "answer"
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_query_rag_llm_unavailable_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+
+        mock_manager = MagicMock()
+        mock_manager.query = AsyncMock(
+            return_value={
+                "answer": "",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": ["generate: LLM unavailable (connection timeout)"],
+            }
+        )
+
+        req = QueryRequest(query="test", namespace="default")
+        with pytest.raises(HTTPException) as exc_info:
+            await query_rag(req, mock_manager, mock_state)
+
+        assert exc_info.value.status_code == 503
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.delete = AsyncMock()
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[])
+
+        req = DeleteRequest(chunk_ids=["c1"], namespace="default")
+        resp = await delete_chunks(req, mock_state)
+
+        assert resp.deleted_chunks == 1
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks_error_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.delete = AsyncMock(side_effect=RuntimeError("boom"))
+
+        req = DeleteRequest(chunk_ids=["c1"], namespace="default")
+        resp = await delete_chunks(req, mock_state)
+
+        assert resp.errors == ["Internal server error"]
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_rag_health_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+
+        mock_manager = MagicMock()
+        mock_manager.health = AsyncMock(
+            return_value={"status": "ok", "index_loaded": True, "chunk_count": 5}
+        )
+
+        resp = await rag_health(mock_manager, mock_state)
+
+        assert resp.status == "ok"
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_list_namespaces_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1", "ns2"])
+
+        resp = await list_namespaces(mock_state)
+
+        assert resp.namespaces == ["ns1", "ns2"]
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_list_namespaces_error_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.list_namespaces = AsyncMock(side_effect=RuntimeError("boom"))
+
+        resp = await list_namespaces(mock_state)
+
+        assert resp.namespaces == ["default"]
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_save_chat_logs_trace_id(self, caplog, mock_state, tmp_path):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=[])
+
+        req = SaveChatRequest(content="hello", namespace="test", filename="chat.md")
+        resp = await save_chat(req, mock_state)
+
+        assert resp["saved"] is True
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_save_chat_invalid_namespace_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+
+        req = SaveChatRequest.model_construct(
+            content="hello", namespace="INVALID", filename="chat.md"
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await save_chat(req, mock_state)
+
+        assert exc_info.value.status_code == 400
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_save_chat_indexing_enabled_logs_trace_id(self, caplog, mock_state, tmp_path):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.config.rag.index_chat_exports = True
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=[])
+        mock_state.vector_store.save = AsyncMock()
+
+        with patch("ai_assistant.features.rag.handlers.IndexingManager") as MockMgr:
+            mock_mgr = MagicMock()
+            mock_mgr.index_documents = AsyncMock(
+                return_value={"indexed_count": 1, "chunk_count": 2}
+            )
+            MockMgr.return_value = mock_mgr
+
+            req = SaveChatRequest(content="hello", namespace="test", filename="chat.md")
+            resp = await save_chat(req, mock_state)
+
+        assert resp["saved"] is True
+        assert "indexed_count" in resp
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_reindex_documents_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[])
+        mock_state.vector_store.delete = AsyncMock()
+
+        with patch(
+            "ai_assistant.features.rag.handlers.index_folder",
+            new=AsyncMock(return_value={"indexed": 1}),
+        ):
+            req = ReindexRequest(folder="test", clear=False)
+            resp = await reindex_documents(req, mock_state)
+
+        assert resp["status"] == "started"
+        assert "task_id" in resp
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_reindex_status_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.rag_state.get_status = AsyncMock(
+            return_value={"status": "completed", "started_at": 0.0}
+        )
+
+        resp = await reindex_status("task-123", mock_state)
+
+        assert resp["status"] == "completed"
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
+    async def test_reindex_status_unknown_logs_trace_id(self, caplog, mock_state):
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.rag_state.get_status = AsyncMock(return_value=None)
+
+        resp = await reindex_status("task-123", mock_state)
+
+        assert resp["status"] == "unknown"
+        _assert_all_logs_have_trace_id(caplog)
 
 
 

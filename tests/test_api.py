@@ -32,6 +32,7 @@ from ai_assistant.api.deps import (
 from ai_assistant.api.lifespan import _async_cleanup, _load_config, lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import _ROUTERS, assemble_routers
+from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.api.security import (
     SECURITY_MAX_BODY,
     bearer_scheme,
@@ -787,6 +788,45 @@ class TestAPIDeps:
         request = Request(scope)
         with pytest.raises(RuntimeError, match="State not initialized"):
             get_state(request)
+
+    def test_get_chunker_for_config_respects_chunk_size(self):
+        """Given: namespace requires different chunk_size than base config.
+        When: get_chunker_for_config is called with chunk_size override.
+        Then: created chunker has the overridden chunk_size.
+        """
+        from ai_assistant.api.deps import get_chunker_for_config
+        from ai_assistant.core.domain.configs import ChunkerConfigData
+        from ai_assistant.core.ports.tokenizer import ITokenizer
+
+        cfg = AppConfig(
+            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+        )
+        mock_state = InitializedAppState(
+            config=cfg,
+            llm=MagicMock(spec=ILLM),
+            embedder=MagicMock(spec=IEmbedder),
+            vector_store=MagicMock(spec=IVectorStore),
+            storage=MagicMock(spec=IChatStorage),
+            chunker=SimpleChunker(
+                ChunkerConfigData(chunk_size=512, chunk_overlap=50)
+            ),
+            tokenizer=MagicMock(spec=ITokenizer),
+            reranker=MagicMock(spec=IReranker),
+            rag_state=MagicMock(),
+        )
+
+        # Override to 1024 — must create new chunker, not return base
+        chunker = get_chunker_for_config(mock_state, chunk_size=1024)
+        assert chunker.config.chunk_size == 1024
+        assert chunker.config.chunk_overlap == 50  # preserved from base
+
+        # Same as base — must return existing instance
+        same_chunker = get_chunker_for_config(mock_state, chunk_size=512)
+        assert same_chunker is mock_state.chunker
+
+        # None — also returns existing
+        default_chunker = get_chunker_for_config(mock_state, chunk_size=None)
+        assert default_chunker is mock_state.chunker
 
     # ── Step registry ──
 
@@ -1698,6 +1738,37 @@ class TestAPIMiddleware:
         )
         headers = {k.lower(): v for k, v in resp.headers.items()}
         assert "access-control-allow-origin" not in headers
+
+    def test_metrics_middleware_uses_route_pattern_not_raw_path(self):
+        """Given: MetricsMiddleware is installed on routes with path params.
+        When: a request with a dynamic path segment is processed.
+        Then: the recorded metric path is the route pattern, not the raw URL.
+        """
+        from ai_assistant.core import metrics
+
+        app = FastAPI()
+        app.add_middleware(MetricsMiddleware)
+
+        @app.get("/reindex/status/{task_id}")
+        async def _handler(task_id: str) -> dict[str, str]:
+            return {"task_id": task_id}
+
+        with patch.object(metrics, "increment_counter") as mock_counter, patch.object(
+            metrics, "observe_histogram"
+        ) as mock_histogram:
+            client = TestClient(app)
+            resp = client.get("/reindex/status/abc-123")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"task_id": "abc-123"}
+
+        counter_call = mock_counter.call_args
+        assert counter_call is not None
+        assert counter_call.kwargs["labels"]["path"] == "/reindex/status/{task_id}"
+
+        hist_call = mock_histogram.call_args
+        assert hist_call is not None
+        assert hist_call.kwargs["labels"]["path"] == "/reindex/status/{task_id}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

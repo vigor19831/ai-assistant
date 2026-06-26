@@ -390,4 +390,11 @@ def get_chunker_for_config(state: InitializedAppState, chunk_size: int | None = 
     if chunk_size is None or chunk_size == state.config.chunker.chunk_size:
         return state.chunker
     cfg = state.config.chunker.model_copy(update={"chunk_size": chunk_size})
-    return create_adapter("chunker", cfg.provider, _chunker_data(state.config))
+    return create_adapter(
+        "chunker",
+        cfg.provider,
+        ChunkerConfigData(
+            chunk_size=cfg.chunk_size,
+            chunk_overlap=cfg.chunk_overlap,
+        ),
+    )

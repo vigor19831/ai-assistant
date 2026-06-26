@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
-from ai_assistant.core.domain.documents import Chunk
+from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
@@ -33,7 +33,7 @@ from ai_assistant.core.pipeline_steps import (
     rerank,
     retrieve,
 )
-from ai_assistant.core.ports.reranker import RerankResult
+from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.retry import with_retry
 
 logger = logging.getLogger(__name__)
@@ -365,6 +365,52 @@ class TestRerank:
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
 
+    @pytest.mark.asyncio
+    async def test_rerank_retry_recover(self) -> None:
+        """Given: reranker raises on first call, succeeds on second.
+        When: rerank is called.
+        Then: pipeline retries and completes successfully."""
+        mock_reranker = AsyncMock(spec=IReranker)
+        call_count = 0
+
+        async def _side_effect(*args: object, **kwargs: object) -> list[RerankResult]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise Exception("network error")
+            return [
+                RerankResult(
+                    chunk=Chunk(
+                        id="c1",
+                        text="test chunk",
+                        metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                    ),
+                    score=0.9,
+                )
+            ]
+
+        mock_reranker.rerank.side_effect = _side_effect
+
+        data = PipelineData(
+            query=UserMessage(text="test"),
+            chunks=(
+                Chunk(
+                    id="c1",
+                    text="test chunk",
+                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                ),
+            ),
+            pipeline_config=PipelineConfig(top_k=5, relevance_threshold=0.1),
+            reranker=mock_reranker,
+        )
+
+        result = await rerank(data)
+
+        assert call_count == 2
+        assert len(result.chunks) == 1
+        assert result.errors == ()
+        assert result.rerank_scores == [0.9]
+
 
 # ———————————————————————————————————————
 # TestGenerate
@@ -550,6 +596,37 @@ class TestGenerate:
         assert any(LLM_UNAVAILABLE in e for e in result.errors)
         assert result.response is not None
         assert "temporarily unavailable" in (result.response.text or "")
+
+    @pytest.mark.asyncio
+    async def test_none_context_limit(self) -> None:
+        """Given: llm.get_context_limit() returns None.
+        When: generate is called.
+        Then: error response without exception; no TypeError."""
+        class NoLimitLLM:
+            async def complete(self, messages, max_tokens=None, temperature=None):
+                return AssistantMessage(text="should not reach")
+
+            def get_context_limit(self) -> int | None:
+                return None
+
+        llm = NoLimitLLM()
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=[Chunk(id="c1", text="context")],
+            pipeline_config=PipelineConfig(
+                prompt_version="v1",
+                prompt_name="rag_default",
+                token_margin_min=256,
+                token_margin_pct=0.1,
+            ),
+            llm=llm,
+            tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await generate(data)
+        assert any("context limit unknown" in e for e in result.errors)
+        assert result.response is not None
+        assert "context limit" in result.response.text.lower()
 
 
 # ———————————————————————————————————————
