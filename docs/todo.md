@@ -6,18 +6,26 @@
 ==============================================================================
 ## TODO ##
 =============================================================================
-Заменить dict[str, dict[str, object]] в RAGState на typed dataclass.
+Задача 1: Graceful shutdown crash — storage и chunker не IClosable
+Проблема: lifespan.py вызывает adapter.shutdown() на всех адаптерах, но SQLiteStorage (IChatStorage) и SimpleChunker (IChunker) не наследуют IClosable. При реальном shutdown — AttributeError.
+Что делать: Добавить IClosable в IChatStorage и IChunker, реализовать shutdown() в адаптерах, обновить тесты.
 
-Создать:
-- src/ai_assistant/core/domain/reindex_status.py — ReindexStatusEntry dataclass
+Задача 2: Typed RAGState._status — ReindexStatusEntry dataclass
+Проблема: RAGState._status: dict[str, dict[str, object]] — нетипизированный object внутри (drift #14).
+Что делать: Создать ReindexStatusEntry dataclass в core/domain/, типизировать RAGState, обновить методы, обновить тесты. JSON API остаётся dict для совместимости.
 
-Изменить:
-- src/ai_assistant/api/deps.py — RAGState._status: dict[str, ReindexStatusEntry]
-- Методы RAGState: start_task, complete_task, fail_task, get_status, cleanup_status
+Задача 3: ChatManager всё ещё использует deprecated async_count_tokens
+Проблема: drift #20 заявлен как fixed, но features/chat/manager.py:202 вызывает async_count_tokens вместо self.tokenizer.count(). 40 deprecation warnings в тестах.
+Что делать: Заменить вызов на asyncio.to_thread(self.tokenizer.count, ...), убедиться что tokenizer всегда передаётся в PipelineData.
 
-Обновить:
-- src/ai_assistant/features/rag/handlers.py — использование get_status
-- tests/test_rag.py — все обращения к status["status"] → status.status
-- tests/test_stateful_ports.py — типизация expected
+Задача 4: Input validation — пустой messages в OpenAI endpoint
+Проблема: OAIChatCompletionRequest не валидирует messages на минимальную длину. OpenAI-compatible endpoint принимает {"messages": []} и падает с 500 вместо 422.
+Что делать: Добавить Pydantic validator в OAIChatCompletionRequest на len(messages) >= 1.
 
-Не менять API endpoints (возвращаемый JSON остаётся dict для совместимости).
+Задача 5: Проверить auto-save индексов
+Проблема: Нет — нужно убедиться что текущая реализация достаточна.
+Что делать: Аудит lifespan.py — сохраняются ли индексы при SIGTERM/SIGINT, есть ли race condition при одновременном save() и add(), нужен ли периодический auto-save (не только при shutdown).
+
+Задача 6: Проверить graceful degradation при недоступном LLM
+Проблема: Нет — нужно убедиться что текущая реализация работает.
+Что делать: Проверить таймауты, retry, fallback сообщения. Убедиться что AdapterError мапится в 503, а не 500. Проверить что streaming endpoint тоже возвращает понятную ошибку, а не обрывает соединение.

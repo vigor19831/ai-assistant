@@ -717,6 +717,36 @@ def test_ichatstorage_is_initializable() -> None:
     assert issubclass(IChatStorage, IInitializable)
     assert callable(getattr(IChatStorage, "init_db", None))
 
+
+@pytest.mark.slow
+@pytest.mark.contract
+def test_ichatstorage_is_closable() -> None:
+    """IChatStorage must inherit IClosable so lifespan can call shutdown().
+
+    SQLiteStorage already implements shutdown() with WAL checkpoint;
+    this makes the contract explicit.
+    """
+    from ai_assistant.core.ports.closable import IClosable
+    from ai_assistant.core.ports.storage import IChatStorage
+
+    assert issubclass(IChatStorage, IClosable)
+    assert callable(getattr(IChatStorage, "shutdown", None))
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+def test_ichunker_is_closable() -> None:
+    """IChunker must inherit IClosable so lifespan can call shutdown().
+
+    SimpleChunker already implements shutdown() as no-op;
+    this makes the contract explicit.
+    """
+    from ai_assistant.core.ports.chunker import IChunker
+    from ai_assistant.core.ports.closable import IClosable
+
+    assert issubclass(IChunker, IClosable)
+    assert callable(getattr(IChunker, "shutdown", None))
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAdapterGetattrBan
 # ═══════════════════════════════════════════════════════════════════════════

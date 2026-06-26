@@ -6,12 +6,13 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from ai_assistant.core.domain.configs import StorageConfigData
+from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.initializable import IInitializable
 
 __all__ = ["IChatStorage", "ISettingsStorage"]
 
 
-class IChatStorage(IInitializable, ABC):
+class IChatStorage(IInitializable, IClosable, ABC):
     """Chat history persistence."""
 
     def __init__(self, config: StorageConfigData) -> None:
