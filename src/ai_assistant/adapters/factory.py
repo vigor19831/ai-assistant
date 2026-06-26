@@ -9,6 +9,9 @@ from __future__ import annotations
 from typing import Any
 
 from ai_assistant.adapters._registry import get_registry, register
+from ai_assistant.adapters.char_fallback_tokenizer import (
+    CharFallbackTokenizer,  # noqa: F401
+)
 
 # Eager imports to trigger @register side-effects.
 # Each adapter module self-registers via @register on import.
@@ -24,6 +27,7 @@ from ai_assistant.adapters.llm_openai_compatible import (  # noqa: F401
 from ai_assistant.adapters.reranker_api import APIReranker  # noqa: F401
 from ai_assistant.adapters.reranker_null import NullReranker  # noqa: F401
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage  # noqa: F401
+from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer  # noqa: F401
 from ai_assistant.adapters.vector_store_faiss import FaissVectorStore  # noqa: F401
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore  # noqa: F401
 

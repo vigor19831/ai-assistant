@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
-
+from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.domain.documents import Chunk
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -25,7 +25,6 @@ from ai_assistant.core.domain.errors import (
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
-from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.core.pipeline_steps import (
     build_context,
     embed_query,
@@ -34,6 +33,7 @@ from ai_assistant.core.pipeline_steps import (
     rerank,
     retrieve,
 )
+from ai_assistant.core.ports.reranker import RerankResult
 from ai_assistant.core.retry import with_retry
 
 logger = logging.getLogger(__name__)
@@ -393,11 +393,12 @@ class TestGenerate:
             ),
             llm=llm,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
 
         # Mock _estimate_tokens to return exactly the limit
         # Production calls pass model explicitly from metadata
-        async def mock_estimate(text, model="gpt-4o"):
+        async def mock_estimate(text, model="gpt-4o", tokenizer=None):
             # limit = 4096 - max(256, int(4096 * 0.1)) = 3686
             return 3686
 
@@ -412,15 +413,18 @@ class TestGenerate:
 
     @pytest.mark.asyncio
     async def test_max_ctx_adapter_provides_valid_limit(self) -> None:
-        """Given: llm.get_context_limit() returns valid limit (adapter fallback).
+        """Given: llm.get_context_limit() returns valid limit.
         When: generate is called.
-        Then: pipeline uses adapter limit directly; no pipeline fallback needed."""
+        Then: LLM.complete is called successfully; no errors."""
+        captured_messages: list = []
+
         class ValidLimitLLM:
             async def complete(self, messages, max_tokens=None, temperature=None):
+                captured_messages.extend(messages)
                 return AssistantMessage(text="fallback")
 
             def get_context_limit(self) -> int | None:
-                return 4096  # Adapter provides valid fallback
+                return 4096
 
         llm = ValidLimitLLM()
         data = PipelineData(
@@ -434,10 +438,13 @@ class TestGenerate:
             ),
             llm=llm,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
         assert result.response is not None
         assert result.response.text == "fallback"
+        assert not result.errors
+        assert len(captured_messages) == 1
 
     @pytest.mark.asyncio
     async def test_metadata_passed_to_llm(self) -> None:
@@ -466,8 +473,9 @@ class TestGenerate:
             ),
             llm=llm,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        result = await generate(data)
+        _result = await generate(data)
         assert len(captured_messages) == 1
         assert captured_messages[0].text  # prompt text is non-empty
 
@@ -486,6 +494,7 @@ class TestGenerate:
             ),
             llm=None,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)
@@ -504,6 +513,7 @@ class TestGenerate:
             ),
             llm=FakeLLM(),
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
         assert any(QUERY_MISSING in e for e in result.errors)
@@ -513,7 +523,7 @@ class TestGenerate:
         """Given: LLM raises AdapterError.
         When: generate is called.
         Then: PipelineData returned with error and fallback response."""
-        from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
+        from ai_assistant.core.domain.errors import LLM_UNAVAILABLE, AdapterError
 
         class FailingLLM:
             async def complete(self, messages, max_tokens=None, temperature=None):
@@ -534,6 +544,7 @@ class TestGenerate:
             ),
             llm=llm,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
         assert any(LLM_UNAVAILABLE in e for e in result.errors)

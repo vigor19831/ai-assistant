@@ -36,6 +36,7 @@ def _get_chat_namespace(base_namespace: str) -> str:
 __all__ = [
     "AppConfig",
     "ChatConfig",
+    "TokenizerConfig",
     "ChunkerConfig",
     "CORSConfig",
     "EmbedderConfig",
@@ -73,6 +74,12 @@ class ChatConfig(BaseSettings):
     max_context_tokens: int | None = None
     tokenizer_model: str = "gpt-4o"
     tokenizer_local_dir: str = "./data/tokenizers"
+
+
+class TokenizerConfig(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AI_TOKENIZER_", extra="forbid")
+    provider: str = "tiktoken"
+    local_dir: str = "./data/tokenizers"
 
 
 class ChunkerConfig(BaseSettings):
@@ -246,6 +253,7 @@ class AppConfig(BaseSettings):
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     chat: ChatConfig = Field(default_factory=ChatConfig)
+    tokenizer: TokenizerConfig = Field(default_factory=TokenizerConfig)
     chunker: ChunkerConfig = Field(default_factory=ChunkerConfig)
     embedder: EmbedderConfig = Field(default_factory=EmbedderConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)

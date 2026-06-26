@@ -422,3 +422,130 @@ class TestGetTokenizerImportErrors:
                 with patch.object(utils_module, "_resolve_tokenizer_dir", return_value=Path("/fake")):
                     result = get_tokenizer("gpt-4o", local_dir="/fake")
                     assert result is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ITokenizer port tests (NEW)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestITokenizerPort:
+    """Given: ITokenizer port contract.
+    When: concrete implementations are instantiated.
+    Then: count() returns non-negative int and respects the contract."""
+
+    def test_tiktoken_tokenizer_empty(self) -> None:
+        """Given: empty text.
+        When: TiktokenTokenizer.count is called.
+        Then: 0 is returned."""
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = TiktokenTokenizer(TokenizerConfigData())
+        assert tok.count("", "gpt-4o") == 0
+
+    def test_char_fallback_tokenizer_empty(self) -> None:
+        """Given: empty text.
+        When: CharFallbackTokenizer.count is called.
+        Then: 0 is returned."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = CharFallbackTokenizer(TokenizerConfigData())
+        assert tok.count("", "any") == 0
+
+    def test_char_fallback_ascii(self) -> None:
+        """Given: ASCII text.
+        When: CharFallbackTokenizer.count is called.
+        Then: len(text) // 4 is returned."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = CharFallbackTokenizer(TokenizerConfigData())
+        assert tok.count("hello world", "any") == 11 // 4  # 2
+
+    def test_char_fallback_cjk_high(self) -> None:
+        """Given: CJK-heavy text.
+        When: CharFallbackTokenizer.count is called.
+        Then: len(text) is returned."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = CharFallbackTokenizer(TokenizerConfigData())
+        text = "这是一个测试"
+        assert tok.count(text, "any") == len(text)
+
+    def test_char_fallback_cjk_low(self) -> None:
+        """Given: low CJK ratio text.
+        When: CharFallbackTokenizer.count is called.
+        Then: len(text) // 4 is returned."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = CharFallbackTokenizer(TokenizerConfigData())
+        text = "this is a test with one char: 这"
+        assert tok.count(text, "any") == len(text) // 4
+
+    def test_tiktoken_fallback_when_no_libs(self) -> None:
+        """Given: no tokenizer libraries available.
+        When: TiktokenTokenizer.count is called.
+        Then: falls back to char heuristic."""
+        from unittest.mock import patch
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = TiktokenTokenizer(TokenizerConfigData())
+        with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
+            with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None):
+                assert tok.count("hello world", "gpt-4o") == 11 // 4
+
+    def test_tiktoken_with_mock_encoder(self) -> None:
+        """Given: mock encoder returning 5 tokens.
+        When: TiktokenTokenizer.count is called.
+        Then: 5 is returned."""
+        from unittest.mock import MagicMock, patch
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = TiktokenTokenizer(TokenizerConfigData())
+        mock_enc = MagicMock()
+        mock_enc.encode.return_value = [1, 2, 3, 4, 5]
+        with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken") as mock_tiktoken:
+            mock_tiktoken.encoding_for_model.return_value = mock_enc
+            assert tok.count("hello", "gpt-4o") == 5
+
+    def test_itokenizer_is_abstract(self) -> None:
+        """Given: ITokenizer port.
+        When: inspected.
+        Then: it is abstract and count is abstractmethod."""
+        import inspect
+        from ai_assistant.core.ports.tokenizer import ITokenizer
+
+        assert inspect.isabstract(ITokenizer)
+        assert getattr(ITokenizer.count, "__isabstractmethod__", False)
+
+
+class TestTokenizerAdapterRegistry:
+    """Given: adapter registry.
+    When: tokenizer adapters are inspected.
+    Then: both are registered."""
+
+    def test_tiktoken_registered(self) -> None:
+        """Given: registry loaded.
+        When: tokenizer port is inspected.
+        Then: TiktokenTokenizer is registered under 'tiktoken'."""
+        from ai_assistant.adapters._registry import get_registry
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+
+        registry = get_registry()
+        assert registry["tokenizer"]["tiktoken"] is TiktokenTokenizer
+
+    def test_char_fallback_registered(self) -> None:
+        """Given: registry loaded.
+        When: tokenizer port is inspected.
+        Then: CharFallbackTokenizer is registered under 'char_fallback'."""
+        from ai_assistant.adapters._registry import get_registry
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+
+        registry = get_registry()
+        assert registry["tokenizer"]["char_fallback"] is CharFallbackTokenizer

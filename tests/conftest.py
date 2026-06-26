@@ -195,8 +195,10 @@ def build_mock_state() -> MagicMock:
     All RAG pipeline ports are pre-configured so that real pipeline steps
     can execute without unawaited coroutine warnings or missing return values.
     """
+    from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
     from ai_assistant.api.deps import InitializedAppState, RAGState
     from ai_assistant.core.config import AppConfig
+    from ai_assistant.core.domain.configs import TokenizerConfigData
     from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.core.ports.reranker import RerankResult
 
@@ -211,6 +213,7 @@ def build_mock_state() -> MagicMock:
     state.chunker = AsyncMock()
     state.storage = AsyncMock()
     state.reranker = AsyncMock()
+    state.tokenizer = CharFallbackTokenizer(TokenizerConfigData())
     state.rag_state = RAGState()
 
     # ── RAG pipeline port defaults ──

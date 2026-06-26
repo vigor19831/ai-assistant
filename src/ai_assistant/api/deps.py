@@ -17,9 +17,11 @@ from ai_assistant.core.domain.configs import (
     LLMConfigData,
     RerankerConfigData,
     StorageConfigData,
+    TokenizerConfigData,
     VectorStoreConfigData,
 )
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.ports.tokenizer import ITokenizer
 
 if TYPE_CHECKING:
     from ai_assistant.core.ports import (
@@ -168,6 +170,7 @@ class AppState:
     embedder: IEmbedder | None = None
     vector_store: IVectorStore | None = None
     chunker: IChunker | None = None
+    tokenizer: ITokenizer | None = None
     reranker: IReranker | None = None
     storage: IChatStorage | None = None
     rag_state: RAGState | None = None
@@ -183,6 +186,7 @@ class InitializedAppState:
     vector_store: IVectorStore
     storage: IChatStorage
     chunker: IChunker
+    tokenizer: ITokenizer
     reranker: IReranker
     rag_state: RAGState
 
@@ -190,6 +194,14 @@ class InitializedAppState:
 # ---------------------------------------------------------------------------
 # Config conversion — Pydantic -> dataclass for port contracts
 # ---------------------------------------------------------------------------
+
+
+def _tokenizer_data(cfg: AppConfig) -> TokenizerConfigData:
+    c = cfg.tokenizer
+    return TokenizerConfigData(
+        provider=c.provider,
+        local_dir=c.local_dir,
+    )
 
 
 def _chunker_data(cfg: AppConfig) -> ChunkerConfigData:
@@ -284,6 +296,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     state = AppState(config=config)
     cfg = config
 
+    state.tokenizer = create_adapter("tokenizer", cfg.tokenizer.provider, _tokenizer_data(cfg))
     state.chunker = create_adapter("chunker", cfg.chunker.provider, _chunker_data(cfg))
     state.embedder = create_adapter(
         "embedder", cfg.embedder.provider, _embedder_data(cfg)
@@ -324,6 +337,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         raise RuntimeError("Vector store adapter failed to initialize")
     if state.storage is None:
         raise RuntimeError("Storage adapter failed to initialize")
+    if state.tokenizer is None:
+        raise RuntimeError("Tokenizer adapter failed to initialize")
     if state.chunker is None:
         raise RuntimeError("Chunker adapter failed to initialize")
     return InitializedAppState(
@@ -333,6 +348,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         vector_store=state.vector_store,
         storage=state.storage,
         chunker=state.chunker,
+        tokenizer=state.tokenizer,
         reranker=state.reranker,
         rag_state=state.rag_state,
     )

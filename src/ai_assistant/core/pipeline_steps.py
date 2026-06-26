@@ -1,10 +1,12 @@
-"""RAG pipeline steps with namespace and rerank support.
+"""
+RAG pipeline steps with namespace and rerank support.
 All steps return new PipelineData instances via dataclasses.replace().
 No in-place mutation.
 """
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -23,6 +25,7 @@ from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineConfig
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
+from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.retry import with_retry
 from ai_assistant.core.utils import async_count_tokens
@@ -34,6 +37,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.llm import ILLM, Message
+    from ai_assistant.core.ports.tokenizer import ITokenizer
     from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__: list[str] = [
@@ -68,7 +72,10 @@ def step(
     return decorator
 
 
-async def _estimate_tokens(text: str, model: str) -> int:
+async def _estimate_tokens(text: str, model: str, tokenizer: ITokenizer | None = None) -> int:
+    if tokenizer is not None:
+        return await asyncio.to_thread(tokenizer.count, text, model)
+    # Deprecated fallback — remove when utils.py wrappers are dropped
     return await async_count_tokens(text, model)
 
 
@@ -267,6 +274,7 @@ async def _truncate_to_fit(
     query_text: str,
     limit: int,
     model: str,
+    tokenizer: ITokenizer | None = None,
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -294,7 +302,7 @@ async def _truncate_to_fit(
             )
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
-        prompt_tokens = await _estimate_tokens(prompt, model=model)
+        prompt_tokens = await _estimate_tokens(prompt, model=model, tokenizer=tokenizer)
     return current_data, prompt
 
 
@@ -345,16 +353,16 @@ async def generate(data: PipelineData) -> PipelineData:
             extra={"trace_id": data.trace_id},
         )
         return data.add_error("tokenizer_model missing in PipelineData")
-    prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
+    prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model, tokenizer=data.tokenizer)
     margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
     limit = max_ctx - margin
 
     if prompt_tokens > limit:
         data, prompt = await _truncate_to_fit(
             data, prompt, prompt_name, prompt_version, query_text, limit,
-            model=tokenizer_model,
+            model=tokenizer_model, tokenizer=data.tokenizer,
         )
-        prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model)
+        prompt_tokens = await _estimate_tokens(prompt, model=tokenizer_model, tokenizer=data.tokenizer)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens)  "

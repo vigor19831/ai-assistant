@@ -156,3 +156,16 @@ class RerankerConfigData:
     api_key: str | None = None
     timeout: float = 30.0
     threshold: float = 0.3
+
+
+@dataclass(frozen=True, slots=True)
+class TokenizerConfigData:
+    """Configuration for tokenizer adapters.
+
+    Attributes:
+        provider: Adapter identifier ("tiktoken", "char_fallback").
+        local_dir: Directory containing local HF tokenizer.json files.
+    """
+
+    provider: str = "tiktoken"
+    local_dir: str = "./data/tokenizers"

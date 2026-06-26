@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -20,6 +21,7 @@ from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.core.utils import async_count_tokens
@@ -125,6 +127,8 @@ class ChatManager:
         src_lines = [f"[{i + 1}] {line}" for i, line in enumerate(unique_lines)]
         return answer + "\n\nSources:\n" + "\n".join(src_lines)
 
+    tokenizer: ITokenizer | None = None
+
     def __init__(
         self,
         llm: ILLM,
@@ -141,6 +145,7 @@ class ChatManager:
         top_k: int = 5,
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
+        tokenizer: ITokenizer | None = None,
         rag_steps: list[RAGStep] | None = None,
     ) -> None:
         self.llm = llm
@@ -191,6 +196,9 @@ class ChatManager:
         return RAGPipeline(step_funcs) if step_funcs else None
 
     async def _count_tokens(self, text: str) -> int:
+        if self.tokenizer is not None:
+            return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer_model)
+        # Deprecated fallback — remove when utils.py wrappers are dropped
         return await async_count_tokens(text, self.tokenizer_model)
 
     async def _trim_history(
@@ -275,6 +283,7 @@ class ChatManager:
             reranker=self.reranker,
             pipeline_config=pipeline_config,
             tokenizer_model=self.tokenizer_model,
+            tokenizer=self.tokenizer,
         )
 
         data = await self._pipeline.run(data)

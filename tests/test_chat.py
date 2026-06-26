@@ -20,6 +20,8 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
+from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.features.chat.manager import ChatManager
 
 logger = get_logger(__name__)
@@ -83,6 +85,7 @@ def chat_manager_with_rag():
         reranker=NullReranker(RerankerConfigData()),
         storage=None,
         namespaces=namespaces,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
@@ -103,6 +106,7 @@ def manager_no_rag():
         vector_store=None,
         reranker=NullReranker(RerankerConfigData()),
         storage=None,
+        tokenizer=None,
     )
 
 
@@ -127,6 +131,7 @@ def manager_with_storage():
         storage=mock_storage,
         history_limit=10,
         max_context_tokens=None,
+        tokenizer=None,
     )
 
 
@@ -145,6 +150,7 @@ def manager_with_tokenizer():
         tokenizer_model="gpt-4o",
         history_limit=10,
         storage=None,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
@@ -162,6 +168,7 @@ def manager_no_tokenizer():
         max_context_tokens=None,
         history_limit=3,
         storage=None,
+        tokenizer=None,
     )
 
 
@@ -750,6 +757,7 @@ class TestChatPrefixes:
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
             namespaces={},
+            tokenizer=None,
         )
         # Inject mock pipeline for prefix testing — pipeline is a private detail
         mgr._pipeline = MagicMock()
@@ -947,6 +955,7 @@ class TestChatManagerSources:
             llm=mock_llm,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
+            tokenizer=None,
         )
 
     def test_append_sources_with_source_uri(self, manager_for_sources):

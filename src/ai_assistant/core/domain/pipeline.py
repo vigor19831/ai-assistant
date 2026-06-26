@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .ports.embedder import IEmbedder
     from .ports.llm import ILLM
     from .ports.reranker import IReranker
+    from .ports.tokenizer import ITokenizer
     from .ports.vector_store import IVectorStore
 
 __all__ = ["PipelineData", "PipelineConfig"]
@@ -50,6 +51,7 @@ class PipelineData:
     pipeline_config: PipelineConfig | None = None
     query_embedding: list[float] | None = None
     tokenizer_model: str | None = None
+    tokenizer: ITokenizer | None = None
     rerank_filtered_out: bool | None = None
     rerank_scores: list[float] | None = None
 
@@ -72,6 +74,10 @@ class PipelineData:
     def with_query_embedding(self, query_embedding: list[float] | None) -> PipelineData:
         """Return a new PipelineData with updated query_embedding."""
         return replace(self, query_embedding=query_embedding)
+
+    def with_tokenizer(self, tokenizer: ITokenizer | None) -> PipelineData:
+        """Return a new PipelineData with updated tokenizer."""
+        return replace(self, tokenizer=tokenizer)
 
     def with_rerank_filtered_out(self, rerank_filtered_out: bool | None) -> PipelineData:
         """Return a new PipelineData with updated rerank_filtered_out."""

@@ -60,6 +60,7 @@ def _get_chat_manager(
         top_k=state.config.rag.top_k,
         token_margin_min=state.config.rag.token_margin_min,
         token_margin_pct=state.config.rag.token_margin_pct,
+        tokenizer=state.tokenizer,
     )
 
 

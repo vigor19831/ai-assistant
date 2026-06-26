@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-25 19:33 UTC
+> Auto-generated from source code. Updated: 2026-06-26 04:45 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -52,6 +52,7 @@
 | `api.deps` | `RuntimeError` | Embedder adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | Vector store adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | Storage adapter failed to initialize | High |
+| `api.deps` | `RuntimeError` | Tokenizer adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | Chunker adapter failed to initialize | High |
 | `api.deps` | `RuntimeError` | State not initialized | High |
 | `api.security` | `HTTPException` | Unknown error | High |
@@ -107,6 +108,13 @@
 | `adapters.storage_sqlite` | `Exception` | _logger.exception("Failed to close SQLite connection during  | Medium |
 | `adapters.storage_sqlite` | `JSONDecodeError` | _logger.warning("JSON decode failed in storage", extra={"err | Medium |
 | `adapters.storage_sqlite` | `OperationalError` | _logger.warning( | Medium |
+| `adapters.tiktoken_tokenizer` | `AttributeError` | return len(enc.encode(text)) | Medium |
+| `adapters.tiktoken_tokenizer` | `Exception` | pass | Medium |
+| `adapters.tiktoken_tokenizer` | `Exception` | if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD: | Medium |
+| `adapters.tiktoken_tokenizer` | `ImportError` | tiktoken = None  # type: ignore[assignment] | Medium |
+| `adapters.tiktoken_tokenizer` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium |
+| `adapters.tiktoken_tokenizer` | `KeyError` | try: | Medium |
+| `adapters.tiktoken_tokenizer` | `OSError` | return None | Medium |
 | `adapters.vector_store_faiss` | `Exception` | _logger.exception( | Medium |
 | `adapters.vector_store_faiss` | `Exception` | with contextlib.suppress(OSError): | Medium |
 | `adapters.vector_store_faiss` | `ImportError` | faiss = None  # type: ignore[assignment, no-redef] | Medium |

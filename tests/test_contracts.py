@@ -14,7 +14,6 @@ import inspect
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -348,6 +347,7 @@ class TestPortAbstractMethods:
             IEmbedder,
             ILLM,
             IReranker,
+            ITokenizer,
             IVectorStore,
         )
         return {
@@ -358,6 +358,7 @@ class TestPortAbstractMethods:
             "IChatStorage": IChatStorage,
             "IChunker": IChunker,
             "IClosable": IClosable,
+            "ITokenizer": ITokenizer,
         }
 
     def test_all_ports_are_abstract(self):
@@ -451,6 +452,19 @@ class TestPortAbstractMethods:
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "chunk" in abstract_methods, "IChunker.chunk must be abstract"
+
+    def test_itokenizer_has_count_abstract(self):
+        """Given: ITokenizer port.
+        When: abstract methods are inspected.
+        Then: count() is abstract."""
+        from ai_assistant.core.ports.tokenizer import ITokenizer
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(ITokenizer, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "count" in abstract_methods, "ITokenizer.count must be abstract"
 
     def test_iclosable_has_shutdown_abstract(self):
         """Given: IClosable port.
@@ -790,7 +804,7 @@ class TestAdapterRegistry:
         When: registry is inspected.
         Then: all 6 expected ports have registered adapters."""
         registry = self._get_registry()
-        expected_ports = {"llm", "embedder", "vector_store", "chunker", "storage", "reranker"}
+        expected_ports = {"llm", "embedder", "vector_store", "chunker", "storage", "reranker", "tokenizer"}
         missing = expected_ports - registry.keys()
         assert not missing, f"Missing ports in registry: {missing}"
 
@@ -876,6 +890,31 @@ class TestAdapterRegistry:
         assert registry["reranker"]["api"] is APIReranker
 
     def test_reranker_null_registered(self):
+        """Given: registry loaded.
+        When: reranker port is inspected.
+        Then: NullReranker is registered under 'null'."""
+        from ai_assistant.adapters.reranker_null import NullReranker
+
+        registry = self._get_registry()
+        assert registry["reranker"]["null"] is NullReranker
+
+    def test_tokenizer_tiktoken_registered(self):
+        """Given: registry loaded.
+        When: tokenizer port is inspected.
+        Then: TiktokenTokenizer is registered under 'tiktoken'."""
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+
+        registry = self._get_registry()
+        assert registry["tokenizer"]["tiktoken"] is TiktokenTokenizer
+
+    def test_tokenizer_char_fallback_registered(self):
+        """Given: registry loaded.
+        When: tokenizer port is inspected.
+        Then: CharFallbackTokenizer is registered under 'char_fallback'."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+
+        registry = self._get_registry()
+        assert registry["tokenizer"]["char_fallback"] is CharFallbackTokenizer
         """Given: registry loaded.
         When: reranker port is inspected.
         Then: NullReranker is registered under 'null'."""

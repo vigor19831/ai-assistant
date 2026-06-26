@@ -742,6 +742,8 @@ class TestAPIDeps:
         from ai_assistant.api.deps import RAGState
 
         app = FastAPI()
+        from ai_assistant.core.ports.tokenizer import ITokenizer
+
         mock_state = InitializedAppState(
             config=AppConfig(),
             llm=MagicMock(spec=ILLM),
@@ -749,6 +751,7 @@ class TestAPIDeps:
             vector_store=MagicMock(spec=IVectorStore),
             storage=MagicMock(spec=IChatStorage),
             chunker=MagicMock(spec=IChunker),
+            tokenizer=MagicMock(spec=ITokenizer),
             reranker=MagicMock(spec=IReranker),
             rag_state=RAGState(),
         )

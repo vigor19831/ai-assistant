@@ -38,6 +38,8 @@ from ai_assistant.core.domain.configs import (
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
+from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import (
@@ -265,6 +267,7 @@ class TestIntegrationChatRAG:
             reranker=reranker,
             llm=llm,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
             pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="default",
@@ -332,6 +335,7 @@ class TestIntegrationFullRAG:
             reranker=reranker,
             llm=llm,
             tokenizer_model="gpt-4o",
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
             pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="docs",
@@ -417,6 +421,7 @@ class TestIntegrationAPIInit:
         assert state.chunker is not None
         assert state.storage is not None
         assert state.reranker is not None
+        assert state.tokenizer is not None
 
         # Functional test: index and run pipeline
         chunks = [
@@ -500,6 +505,7 @@ class TestIntegrationAPIInit:
         state = await init_adapters(config)
 
         assert isinstance(state, InitializedAppState)
+        assert state.tokenizer is not None
 
         # Index
         chunks = [

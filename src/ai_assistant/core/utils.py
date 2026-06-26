@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +20,7 @@ except ImportError:
 
 __all__ = [
     "async_count_tokens",
-    "async_get_tokenizer",
     "count_tokens",
-    "get_tokenizer",
     "resolve_api_key",
 ]
 
@@ -73,7 +72,17 @@ def _resolve_tokenizer_dir(model: str, local_dir: str) -> Path | None:
 def get_tokenizer(
     model: str, local_dir: str = "./data/tokenizers"
 ) -> Any | None:
-    """Get tokenizer: tiktoken first (OpenAI), then local HF, then None."""
+    """Get tokenizer: tiktoken first (OpenAI), then local HF, then None.
+
+    .. deprecated::
+        Use ITokenizer port (TiktokenTokenizer or CharFallbackTokenizer)
+        instead of this function. Will be removed in next config_version.
+    """
+    warnings.warn(
+        "get_tokenizer is deprecated; use ITokenizer port",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if tiktoken is not None:
         try:
             return tiktoken.encoding_for_model(model)
@@ -113,7 +122,15 @@ def count_tokens(
 ) -> int:
     """Count tokens. Fallback to char//4 if no tokenizer available.
     CJK-heavy text (>threshold) falls back to len(text) instead of len(text)//4.
+
+    .. deprecated::
+        Use ITokenizer.count() instead. Will be removed in next config_version.
     """
+    warnings.warn(
+        "count_tokens is deprecated; use ITokenizer.count()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not text:
         return 0
     enc = get_tokenizer(model, local_dir=local_dir)
@@ -136,12 +153,32 @@ def count_tokens(
 async def async_count_tokens(
     text: str, model: str, local_dir: str = "./data/tokenizers"
 ) -> int:
-    """Async wrapper for count_tokens — offloads CPU-bound tiktoken/HF encoding to thread pool."""
+    """Async wrapper for count_tokens.
+
+    .. deprecated::
+        Use ITokenizer.count() via asyncio.to_thread instead.
+        Will be removed in next config_version.
+    """
+    warnings.warn(
+        "async_count_tokens is deprecated; use ITokenizer.count()",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return await asyncio.to_thread(count_tokens, text, model, local_dir)
 
 
 async def async_get_tokenizer(
     model: str, local_dir: str = "./data/tokenizers"
 ) -> Any | None:
-    """Async wrapper for get_tokenizer — offloads CPU-bound tokenizer loading to thread pool."""
+    """Async wrapper for get_tokenizer.
+
+    .. deprecated::
+        Use ITokenizer implementations directly.
+        Will be removed in next config_version.
+    """
+    warnings.warn(
+        "async_get_tokenizer is deprecated",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return await asyncio.to_thread(get_tokenizer, model, local_dir)
