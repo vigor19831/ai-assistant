@@ -108,7 +108,6 @@ async def _stream_with_heartbeat(
                 yield "data: [DONE]\n\n"
                 return
 
-            # isinstance check for queue sentinel (str | None | Exception)
             if isinstance(item, Exception):
                 raise item
 
@@ -204,9 +203,11 @@ async def chat_stream(
                 }
             )
             yield f"data: {payload}\n\n"
+            yield "data: [DONE]\n\n"
         except Exception:
             payload = json.dumps({"error": "Internal server error"})
             yield f"data: {payload}\n\n"
+            yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -292,9 +293,11 @@ async def openai_chat_completions(
                     }
                 )
                 yield f"data: {payload}\n\n"
+                yield "data: [DONE]\n\n"
             except Exception:
                 payload = json.dumps({"error": "Internal server error"})
                 yield f"data: {payload}\n\n"
+                yield "data: [DONE]\n\n"
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 

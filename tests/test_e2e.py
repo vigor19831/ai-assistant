@@ -218,7 +218,7 @@ class TestE2EStream:
     def test_stream_chat_llm_adapter_error_returns_sse_error(self, mock_state):
         """Given: ChatManager.stream_chat raises AdapterError.
         When: POST /api/v1/chat/stream.
-        Then: returns SSE stream with error payload."""
+        Then: returns SSE stream with error payload and [DONE] sentinel."""
         from ai_assistant.features.chat.handlers import _get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
@@ -242,11 +242,12 @@ class TestE2EStream:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
         assert "LLM service temporarily unavailable" in resp.text
+        assert "data: [DONE]" in resp.text
 
     def test_stream_chat_generic_exception_returns_sse_error(self, mock_state):
         """Given: ChatManager.stream_chat raises generic Exception.
         When: POST /api/v1/chat/stream.
-        Then: returns SSE stream with error payload."""
+        Then: returns SSE stream with error payload and [DONE] sentinel."""
         from ai_assistant.features.chat.handlers import _get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
@@ -270,6 +271,7 @@ class TestE2EStream:
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers["content-type"]
         assert "Internal server error" in resp.text
+        assert "data: [DONE]" in resp.text
 
     def test_stream_interruption_by_client(self, mock_state):
         """Given: server is producing a slow SSE stream.
