@@ -14,6 +14,8 @@ from fastapi import HTTPException
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import UserMessage
+from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline_steps import rerank
@@ -63,6 +65,7 @@ class TestRAGManager:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await mgr.query("What is the capital of France?")
         assert result["answer"] == "Paris"
@@ -86,6 +89,7 @@ class TestRAGManager:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         await mgr.query("test", namespace="work")
 
@@ -124,6 +128,7 @@ class TestRAGManager:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         # Should not raise — overrides flow through pipeline_config to generate step
         result = await mgr.query(
@@ -153,6 +158,7 @@ class TestRAGManager:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await mgr.query("obscure topic")
         assert result["answer"] == "I don\'t have enough information."
@@ -192,6 +198,7 @@ class TestRAGManager:
             vector_store=mock_vector_store,
             embedder=mock_embedder,
             reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await mgr.query("anything")
         # generate step catches AdapterError and adds LLM_UNAVAILABLE to data.errors

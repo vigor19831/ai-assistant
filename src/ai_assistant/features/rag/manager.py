@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import UserMessage
@@ -19,9 +19,13 @@ from ai_assistant.core.pipeline_steps import (
     rerank,
     retrieve,
 )
-
-if TYPE_CHECKING:
-    from ai_assistant.core.ports import ILLM, IEmbedder, IReranker, IVectorStore
+from ai_assistant.core.ports import (
+    ILLM,
+    IEmbedder,
+    IReranker,
+    ITokenizer,
+    IVectorStore,
+)
 
 _logger = get_logger("rag.manager")
 
@@ -109,6 +113,7 @@ class RAGManager:
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
         tokenizer_model: str = "gpt-4o",
+        tokenizer: ITokenizer | None = None,
     ) -> None:
         self.pipeline = RAGPipeline(
             steps=[
@@ -126,6 +131,7 @@ class RAGManager:
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
         self.tokenizer_model = tokenizer_model
+        self.tokenizer = tokenizer
 
     async def query(
         self,
@@ -157,6 +163,7 @@ class RAGManager:
             reranker=self.reranker,
             pipeline_config=pipeline_config,
             tokenizer_model=self.tokenizer_model,
+            tokenizer=self.tokenizer,
         )
         try:
             result = await self.pipeline.run(data)

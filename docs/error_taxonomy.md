@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-26 06:15 UTC
+> Auto-generated from source code. Updated: 2026-06-26 08:51 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -72,6 +72,7 @@
 | `features.chat.handlers` | `HTTPException` | Unknown error | High |
 | `features.chat.manager` | `AdapterError` | LLM call failed: {...} | High |
 | `features.chat.manager` | `AdapterError` | LLM stream failed: {...} | High |
+| `features.chat.manager` | `RuntimeError` | Tokenizer not configured | High |
 | `features.chat.manager` | `ValueError` | Unknown step: {...} | High |
 | `features.rag.handlers` | `HTTPException` | Unknown error | High |
 | `tests.test_api` | `HTTPException` | Unknown error | High |

@@ -24,7 +24,6 @@ from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import parse_rag_query
-from ai_assistant.core.utils import async_count_tokens
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -162,6 +161,7 @@ class ChatManager:
         self.top_k = top_k
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
+        self.tokenizer = tokenizer
 
         # Build pipeline internally — ChatManager owns its pipeline
         self._pipeline = self._build_pipeline(rag_steps)
@@ -196,10 +196,9 @@ class ChatManager:
         return RAGPipeline(step_funcs) if step_funcs else None
 
     async def _count_tokens(self, text: str) -> int:
-        if self.tokenizer is not None:
-            return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer_model)
-        # Deprecated fallback — remove when utils.py wrappers are dropped
-        return await async_count_tokens(text, self.tokenizer_model)
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer not configured")
+        return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer_model)
 
     async def _trim_history(
         self,

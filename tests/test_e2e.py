@@ -153,6 +153,7 @@ class TestE2EChat:
             llm=mock_state.llm,
             reranker=reranker,
             prompt_version=mock_state.config.rag.prompt_version,
+            tokenizer=mock_state.tokenizer,
         )
         assert mgr.prompt_version == mock_state.config.rag.prompt_version
 
@@ -160,6 +161,7 @@ class TestE2EChat:
             llm=mock_state.llm,
             reranker=reranker,
             prompt_version="v2",
+            tokenizer=mock_state.tokenizer,
         )
         assert mgr_v2.prompt_version == "v2"
 

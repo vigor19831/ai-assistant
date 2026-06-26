@@ -445,6 +445,7 @@ class TestIntegrationAPIInit:
             reranker=state.reranker,
             llm=state.llm,
             tokenizer_model="gpt-4o",
+            tokenizer=state.tokenizer,
             pipeline_config=PipelineConfig(
                 top_k=3,
                 namespace="test",
@@ -529,6 +530,7 @@ class TestIntegrationAPIInit:
             reranker=state.reranker,
             llm=state.llm,
             tokenizer_model="gpt-4o",
+            tokenizer=state.tokenizer,
             pipeline_config=PipelineConfig(
                 top_k=3,
                 namespace="test",

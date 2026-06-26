@@ -53,6 +53,7 @@ def _get_rag_manager(
         token_margin_min=state.config.rag.token_margin_min,
         token_margin_pct=state.config.rag.token_margin_pct,
         tokenizer_model=state.config.chat.tokenizer_model,
+        tokenizer=state.tokenizer,
     )
 
 

@@ -106,7 +106,7 @@ def manager_no_rag():
         vector_store=None,
         reranker=NullReranker(RerankerConfigData()),
         storage=None,
-        tokenizer=None,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
@@ -131,7 +131,7 @@ def manager_with_storage():
         storage=mock_storage,
         history_limit=10,
         max_context_tokens=None,
-        tokenizer=None,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
@@ -155,8 +155,8 @@ def manager_with_tokenizer():
 
 
 @pytest.fixture
-def manager_no_tokenizer():
-    """Given: ChatManager without tokenizer (no context limit).
+def manager_with_fallback_tokenizer():
+    """Given: ChatManager with fallback tokenizer (no context limit).
     When: fixture is requested.
     Then: ChatManager with count-based fallback is returned."""
     mock_llm = MagicMock()
@@ -168,7 +168,7 @@ def manager_no_tokenizer():
         max_context_tokens=None,
         history_limit=3,
         storage=None,
-        tokenizer=None,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
@@ -336,6 +336,7 @@ class TestChatManager:
             vector_store=MagicMock(),
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
         assert namespace == "default"
@@ -357,6 +358,7 @@ class TestChatManager:
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
         assert namespace == "default"
@@ -408,6 +410,7 @@ class TestChatManager:
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
             namespaces={},
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         chunk = Chunk(
             id="c1",
@@ -757,7 +760,7 @@ class TestChatPrefixes:
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
             namespaces={},
-            tokenizer=None,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         # Inject mock pipeline for prefix testing — pipeline is a private detail
         mgr._pipeline = MagicMock()
@@ -955,7 +958,7 @@ class TestChatManagerSources:
             llm=mock_llm,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            tokenizer=None,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
 
     def test_append_sources_with_source_uri(self, manager_for_sources):
@@ -1200,7 +1203,7 @@ class TestChatHistoryTrimming:
         assert trimmed == []
 
     @pytest.mark.asyncio
-    async def test_fallback_to_count_based(self, manager_no_tokenizer):
+    async def test_fallback_to_count_based(self, manager_with_fallback_tokenizer):
         """Given: no tokenizer available (no context limit).
         When: _trim_history is called.
         Then: simple count-based fallback is used."""
@@ -1212,7 +1215,7 @@ class TestChatHistoryTrimming:
             {"role": "user", "content": "5"},
         ]
         user_msg = UserMessage(text="q")
-        trimmed = await manager_no_tokenizer._trim_history(history, user_msg)
+        trimmed = await manager_with_fallback_tokenizer._trim_history(history, user_msg)
         assert len(trimmed) <= 3
 
     @pytest.mark.asyncio
@@ -1279,6 +1282,7 @@ class TestChatHistoryTrimming:
             max_context_tokens=50,
             history_limit=2,
             storage=None,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
 
         history = [
