@@ -1,13 +1,7 @@
 ## TODO ##
-
-[ ] <Конкретное действие/Заголовок> | <Причина/Почему это проблема> | <Затронутые файлы> | <Как проверить/Критерии теста>
-
-
-
-
-[ ] Add config migration tests | Untested migrations will break backward compatibility on config_version bump | tests/test_config.py | Test: parametrize old configs → AppConfig loads without error; fields migrated correctly
-
-[ ] Lower requires-python to >=3.10 | >=3.13 blocks LTS deployment (Debian 12, RHEL 9); no 3.13-specific features used | pyproject.toml | Test: CI passes on 3.10, 3.11, 3.12, 3.13; syntax check (str | None works since 3.10)
+---
+[ ] <Specific Action/Title> | <Reason/Why this is a problem> | <Affected Files> | <How to verify/Test criteria>
+---
 
 [ ] Add RetryConfig dataclass + env loading | Hardcoded retry policy prevents operational tuning per adapter (embedder fast/LLM slow) | core/domain/configs.py, core/retry.py | Test: RetryConfig(delay=0.1) overrides decorator default; existing tests pass unchanged
 
