@@ -7,7 +7,7 @@ from .messages import (
     ToolMessage,
     UserMessage,
 )
-from .pipeline import PipelineData
+from .pipeline import PipelineData, ReindexStatusEntry
 
 __all__ = [
     "UserMessage",
@@ -17,6 +17,7 @@ __all__ = [
     "Chunk",
     "ChunkMetadata",
     "PipelineData",
+    "ReindexStatusEntry",
     "ConfigurationError",
     "AdapterError",
     "VersionMismatchError",

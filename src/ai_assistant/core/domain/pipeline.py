@@ -15,7 +15,23 @@ if TYPE_CHECKING:
     from .ports.tokenizer import ITokenizer
     from .ports.vector_store import IVectorStore
 
-__all__ = ["PipelineData", "PipelineConfig"]
+__all__ = ["PipelineData", "PipelineConfig", "ReindexStatusEntry"]
+
+
+@dataclass(frozen=True, slots=True)
+class ReindexStatusEntry:
+    """Immutable status entry for background reindex tasks.
+
+    Replaces the untyped dict[str, object] bag in RAGState._status
+    (DRIFT.md #14).
+    """
+
+    status: str
+    started_at: float
+    finished_at: float | None = None
+    result: dict[str, object] | None = None
+    error: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class PipelineConfig:

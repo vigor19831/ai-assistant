@@ -20,6 +20,7 @@ from ai_assistant.core.domain.configs import (
     TokenizerConfigData,
     VectorStoreConfigData,
 )
+from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.tokenizer import ITokenizer
 
@@ -62,7 +63,7 @@ class RAGState:
 
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
     _tasks: dict[str, asyncio.Task[dict[str, object]]] = field(default_factory=dict)
-    _status: dict[str, dict[str, object]] = field(default_factory=dict)
+    _status: dict[str, ReindexStatusEntry] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     STATUS_TTL_SECONDS: int = field(default=3600, repr=False)
@@ -76,10 +77,10 @@ class RAGState:
         """Atomically register a running task."""
         await self.cleanup_status()
         async with self._lock:
-            self._status[task_id] = {
-                "status": "running",
-                "started_at": time.time(),
-            }
+            self._status[task_id] = ReindexStatusEntry(
+                status="running",
+                started_at=time.time(),
+            )
 
     async def register_task(self, task_id: str, task: asyncio.Task[dict[str, object]]) -> None:
         """Atomically store the asyncio.Task reference."""
@@ -89,28 +90,46 @@ class RAGState:
     async def complete_task(self, task_id: str, result: dict[str, object]) -> None:
         """Atomically mark task completed and remove from active tasks."""
         async with self._lock:
-            self._status[task_id] = {
-                "status": "completed",
-                "result": result,
-                "finished_at": time.time(),
-            }
+            old = self._status.get(task_id)
+            started = old.started_at if old is not None else time.time()
+            self._status[task_id] = ReindexStatusEntry(
+                status="completed",
+                started_at=started,
+                finished_at=time.time(),
+                result=result,
+            )
             self._tasks.pop(task_id, None)
 
     async def fail_task(self, task_id: str, error: str) -> None:
         """Atomically mark task failed and remove from active tasks."""
         async with self._lock:
-            self._status[task_id] = {
-                "status": "failed",
-                "error": error,
-                "finished_at": time.time(),
-            }
+            old = self._status.get(task_id)
+            started = old.started_at if old is not None else time.time()
+            self._status[task_id] = ReindexStatusEntry(
+                status="failed",
+                started_at=started,
+                finished_at=time.time(),
+                error=error,
+            )
             self._tasks.pop(task_id, None)
 
     async def get_status(self, task_id: str) -> dict[str, object] | None:
-        """Return a shallow copy of status for the given task, or None."""
+        """Return status as a JSON-compatible dict for the given task, or None."""
         async with self._lock:
             info = self._status.get(task_id)
-            return dict(info) if info is not None else None
+            if info is None:
+                return None
+            d: dict[str, object] = {
+                "status": info.status,
+                "started_at": info.started_at,
+            }
+            if info.finished_at is not None:
+                d["finished_at"] = info.finished_at
+            if info.result is not None:
+                d["result"] = info.result
+            if info.error is not None:
+                d["error"] = info.error
+            return d
 
     async def cleanup_status(self) -> None:
         """Remove expired entries and enforce max size cap on status."""
@@ -119,9 +138,9 @@ class RAGState:
 
             expired: list[str] = []
             for tid, info in self._status.items():
-                finished_at = info.get("finished_at")
-                started_at = info.get("started_at", 0)
-                last_activity = finished_at if isinstance(finished_at, (int, float)) else started_at
+                finished_at = info.finished_at
+                started_at = info.started_at
+                last_activity = finished_at if finished_at is not None else started_at
                 last_activity_float = _to_float(last_activity)
                 if now - last_activity_float > self.STATUS_TTL_SECONDS:
                     expired.append(tid)
@@ -132,7 +151,7 @@ class RAGState:
             if len(self._status) > self.STATUS_MAX_ENTRIES:
                 sorted_by_age = sorted(
                     self._status.items(),
-                    key=lambda item: _to_float(item[1].get("started_at", 0)),
+                    key=lambda item: _to_float(item[1].started_at),
                 )
                 excess = len(self._status) - self.STATUS_MAX_ENTRIES
                 for tid, _ in sorted_by_age[:excess]:

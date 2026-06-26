@@ -1045,3 +1045,59 @@ class TestPortReturnTypes:
 
         sig = inspect.signature(ILLM.complete)
         assert "AssistantMessage" in str(sig.return_annotation)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestRAGStateTypedStatus
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestRAGStateTypedStatus:
+    """Contract: RAGState._status must be typed as dict[str, ReindexStatusEntry].
+
+    DRIFT.md #14: replaces dict[str, dict[str, object]] with explicit dataclass.
+    """
+
+    def test_status_field_type(self):
+        """Given: RAGState dataclass fields.
+        When: _status field type is inspected.
+        Then: it references ReindexStatusEntry, not dict[str, object].
+        """
+        import dataclasses
+
+        from ai_assistant.api.deps import RAGState
+        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
+
+        fields = {f.name: f for f in dataclasses.fields(RAGState)}
+        status_field = fields["_status"]
+        assert "ReindexStatusEntry" in str(status_field.type), (
+            f"RAGState._status must be typed with ReindexStatusEntry, got: {status_field.type}"
+        )
+
+    def test_reindex_status_entry_is_frozen_dataclass(self):
+        """Given: ReindexStatusEntry domain model.
+        When: inspected.
+        Then: it is a frozen dataclass with slots.
+        """
+        import dataclasses
+
+        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
+
+        assert dataclasses.is_dataclass(ReindexStatusEntry)
+        assert ReindexStatusEntry.__dataclass_params__.frozen is True
+        assert hasattr(ReindexStatusEntry, "__slots__")
+
+    def test_reindex_status_entry_has_expected_fields(self):
+        """Given: ReindexStatusEntry fields.
+        When: inspected.
+        Then: all expected fields are present.
+        """
+        import dataclasses
+
+        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
+
+        fields = {f.name for f in dataclasses.fields(ReindexStatusEntry)}
+        expected = {"status", "started_at", "finished_at", "result", "error"}
+        assert fields == expected, f"Field mismatch: {fields ^ expected}"

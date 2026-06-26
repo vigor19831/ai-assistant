@@ -6,13 +6,7 @@
 ==============================================================================
 ## TODO ##
 =============================================================================
-Задача 1: Graceful shutdown crash — storage и chunker не IClosable
-Проблема: lifespan.py вызывает adapter.shutdown() на всех адаптерах, но SQLiteStorage (IChatStorage) и SimpleChunker (IChunker) не наследуют IClosable. При реальном shutdown — AttributeError.
-Что делать: Добавить IClosable в IChatStorage и IChunker, реализовать shutdown() в адаптерах, обновить тесты.
 
-Задача 2: Typed RAGState._status — ReindexStatusEntry dataclass
-Проблема: RAGState._status: dict[str, dict[str, object]] — нетипизированный object внутри (drift #14).
-Что делать: Создать ReindexStatusEntry dataclass в core/domain/, типизировать RAGState, обновить методы, обновить тесты. JSON API остаётся dict для совместимости.
 
 Задача 3: ChatManager всё ещё использует deprecated async_count_tokens
 Проблема: drift #20 заявлен как fixed, но features/chat/manager.py:202 вызывает async_count_tokens вместо self.tokenizer.count(). 40 deprecation warnings в тестах.
