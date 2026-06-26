@@ -964,6 +964,20 @@ class TestAPIRouter:
         for wrapper in legacy_wrappers:
             assert wrapper.dependencies, "Legacy wrapper must have dependencies"
 
+    def test_openai_chat_empty_messages_returns_422(self, client):
+        """Given: OpenAI endpoint receives empty messages list.
+        When: POST /v1/chat/completions with {"messages": []}.
+        Then: 422 Unprocessable Entity is returned (not 500).
+        """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
+        resp = client.post(
+            "/v1/chat/completions",
+            json={"messages": []},
+            headers={"Authorization": "Bearer test-key"},
+        )
+        assert resp.status_code == 422
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestSecurityConfig

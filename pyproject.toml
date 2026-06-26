@@ -95,6 +95,9 @@ markers = [
     "integration: integration tests",
     "regression: regression tests",
 ]
+filterwarnings = [
+    "ignore:.*is deprecated.*:DeprecationWarning",
+]
 
 [tool.mutmut]
 paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/", "src/ai_assistant/pipeline/"]

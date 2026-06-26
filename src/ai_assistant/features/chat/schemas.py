@@ -46,7 +46,7 @@ class OAIChatMessage(BaseModel):
 class OAIChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     model: str | None = None
-    messages: list[OAIChatMessage]
+    messages: list[OAIChatMessage] = Field(min_length=1)
     stream: bool = False
     max_tokens: int | None = None
     temperature: float | None = None
