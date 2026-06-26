@@ -458,7 +458,7 @@ class TestRuffRules:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
         target = data.get("tool", {}).get("ruff", {}).get("target-version", "")
-        assert target in ("py313", "py314"), f"ruff target-version must be py313+: {target}"
+        assert target == "py311", f"ruff target-version must be py311: {target}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -496,7 +496,7 @@ class TestMypyStrict:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
         version = data.get("tool", {}).get("mypy", {}).get("python_version", "")
-        assert version in ("3.13", "3.14"), f"mypy python_version must be 3.13+: {version}"
+        assert version == "3.11", f"mypy python_version must be 3.11: {version}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

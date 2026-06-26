@@ -557,3 +557,114 @@ class TestCORSConfig:
         cfg = AppConfig(**raw)
         # AppConfig allows 'null' — the fix is in main.py (not using *) and config.yaml (removing it)
         assert "null" in cfg.cors.allow_origins
+
+
+class TestConfigMigrationParametrized:
+    """Given: legacy config files with various deprecated keys.
+    When: AppConfig is instantiated via migration validators.
+    Then: deprecated keys are migrated or stripped without error."""
+
+    @pytest.mark.parametrize(
+        "old_config,expected_checks",
+        [
+            pytest.param(
+                {
+                    "config_version": "0",
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                },
+                [
+                    (lambda cfg: cfg.config_version, "0"),
+                ],
+                id="config_version_0_preserved",
+            ),
+            pytest.param(
+                {
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                },
+                [
+                    (lambda cfg: cfg.config_version, "0"),
+                ],
+                id="config_version_missing_defaults_to_0",
+            ),
+            pytest.param(
+                {
+                    "rag": {
+                        "steps": "embed_query,retrieve",
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                },
+                [
+                    (lambda cfg: cfg.rag.steps, [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE]),
+                ],
+                id="rag_steps_string_to_list",
+            ),
+            pytest.param(
+                {
+                    "vector_store": {
+                        "relevance_threshold": 0.5,
+                        "dim": 384,
+                        "provider": "memory",
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                },
+                [
+                    (lambda cfg: cfg.rag.relevance_threshold, 0.5),
+                    (lambda cfg: "relevance_threshold" not in cfg.vector_store.model_dump(), True),
+                ],
+                id="vector_store_relevance_threshold_migrated_to_rag",
+            ),
+            pytest.param(
+                {
+                    "security": {
+                        "api_key": "secret",
+                        "rate_limit": "100/min",
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                },
+                [
+                    (lambda cfg: cfg.security.api_key, "secret"),
+                    (lambda cfg: "rate_limit" not in cfg.security.model_dump(), True),
+                ],
+                id="security_rate_limit_stripped",
+            ),
+            pytest.param(
+                {
+                    "config_version": "0",
+                    "rag": {
+                        "steps": "embed_query,retrieve,build_context,generate",
+                    },
+                    "vector_store": {
+                        "relevance_threshold": 0.3,
+                        "dim": 384,
+                        "provider": "memory",
+                    },
+                    "security": {
+                        "api_key": "test-key",
+                        "rate_limit": "200/min",
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                },
+                [
+                    (lambda cfg: cfg.config_version, "0"),
+                    (lambda cfg: cfg.rag.steps, [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE, RAGStep.BUILD_CONTEXT, RAGStep.GENERATE]),
+                    (lambda cfg: cfg.rag.relevance_threshold, 0.3),
+                    (lambda cfg: "relevance_threshold" not in cfg.vector_store.model_dump(), True),
+                    (lambda cfg: cfg.security.api_key, "test-key"),
+                    (lambda cfg: "rate_limit" not in cfg.security.model_dump(), True),
+                ],
+                id="combined_migration_all_legacy_fields",
+            ),
+        ],
+    )
+    def test_config_migration(self, old_config, expected_checks):
+        """Given: legacy config dict with deprecated keys.
+        When: AppConfig(**old_config) is called.
+        Then: config loads without error and all migrations are applied correctly."""
+        cfg = AppConfig(**old_config)
+        for check_func, expected in expected_checks:
+            actual = check_func(cfg)
+            assert actual == expected, f"Expected {expected!r}, got {actual!r}"

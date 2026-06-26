@@ -40,7 +40,7 @@ Offline-first, OpenAI-compatible LLM/embedder adapters.
 > **Note:** If you move the project folder after setup, run `setup.py` again to fix paths.
 
 The script will:
-- Check your Python version (3.13+ required)
+- Check your Python version (3.11+ required)
 - Create a virtual environment (`.venv/`)
 - Install all dependencies
 - Copy `config.example.yaml` to `config.yaml`

@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-26 19:49 UTC
+> Auto-generated from source code. Updated: 2026-06-26 20:33 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -170,13 +170,8 @@
 | `features.chat.manager` | `Exception` | logger.warning("History load failed", extra={"error": str(ex | Medium |
 | `features.chat.manager` | `Exception` | duration_ms = int((time.perf_counter() - start) * 1000) | Medium |
 | `features.chat.manager` | `Exception` | logger.warning("History save failed", extra={"error": str(ex | Medium |
-| `features.rag.handlers` | `Exception` | _logger.exception("Auto-save failed") | Medium |
-| `features.rag.handlers` | `Exception` | _logger.exception("Delete chunks failed") | Medium |
-| `features.rag.handlers` | `Exception` | _logger.exception("List namespaces failed") | Medium |
-| `features.rag.handlers` | `Exception` | _logger.exception("Failed to save file") | Medium |
-| `features.rag.handlers` | `Exception` | return { | Medium |
+| `features.rag.handlers` | `Exception` | _logger.exception( | Medium |
 | `features.rag.handlers` | `Exception` | _logger.warning( | Medium |
-| `features.rag.handlers` | `Exception` | _logger.exception("Background reindex failed") | Medium |
 | `features.rag.manager` | `Exception` | _logger.exception("RAG pipeline failed") | Medium |
 | `features.rag.manager` | `Exception` | _logger.exception("Health check failed") | Medium |
 | `tests.test_api` | `Exception` | errors.append(e) | Medium |

@@ -1,43 +1,9 @@
-==============================================================================
-ПРОМПТ ДЛЯ ЗАПРОСА БАГОВ:
-==============================================================================
-Ты — архитектор на 30 лет. Найди проблемы, которые сломают проект через 5+ лет, каждый пункт независимый — одна строка, понятен без контекста.
-
-==============================================================================
 ## TODO ##
-=============================================================================
+
+[ ] <Конкретное действие/Заголовок> | <Причина/Почему это проблема> | <Затронутые файлы> | <Как проверить/Критерии теста>
 
 
 
-## Баги (6 штук)
-
-```
-[+] Fix get_chunker_for_config ignoring chunk_size | Namespace chunk_size overrides silently fail, all namespaces use base chunk_size | api/deps.py | Test: create chunker with chunk_size=1024, assert config.chunk_size == 1024
-```
-
-```
-[+] Fix rag.relevance_threshold default mismatch | Default 0.3 in code vs 0.1 in config.yaml causes unexpected strict filtering when YAML absent | core/config.py | Test: AppConfig() default relevance_threshold == 0.1; test_config.py passes
-```
-
-```
-[+] Fix metrics path explosion (cardinality leak) | Each unique URL path (UUIDs, task_ids) creates infinite time series, eventual OOM | api/middleware.py | Test: request with path /reindex/status/abc-123 produces label path="/reindex/status/{task_id}" or route pattern
-```
-
-```
-[+] Fix generate crash on None context limit | int(None * 0.1) raises TypeError, pipeline crashes completely | core/pipeline_steps.py | Test: mock llm.get_context_limit() returns None, pipeline returns error message without exception
-```
-
-```
-[+] Add retry wrapper for rerank step | Network failure in reranker causes full RAG failure without recovery | core/pipeline_steps.py | Test: mock reranker raises on first call, succeeds on second; pipeline completes
-```
-
-```
-[+] Add trace_id to RAG handlers | Impossible to correlate chat and RAG logs for same request | features/rag/handlers.py | Test: all RAG handler log calls include extra={"trace_id": ...}
-```
-
----
-
-## Архитектурные риски (7 штук)
 
 [ ] Add config migration tests | Untested migrations will break backward compatibility on config_version bump | tests/test_config.py | Test: parametrize old configs → AppConfig loads without error; fields migrated correctly
 
