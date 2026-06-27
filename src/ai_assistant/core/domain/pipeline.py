@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from .configs import RetryConfig
+
 if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
@@ -49,6 +51,7 @@ class PipelineConfig:
     prompt_version: str = "v1"
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
+    retry: RetryConfig | None = None
 
 @dataclass(frozen=True, slots=True)
 class PipelineData:

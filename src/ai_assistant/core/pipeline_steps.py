@@ -10,6 +10,7 @@ import asyncio
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ai_assistant.core.domain.configs import RetryConfig
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
@@ -22,12 +23,12 @@ from ai_assistant.core.domain.errors import (
     AdapterError,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
-from ai_assistant.core.domain.pipeline import PipelineConfig
+from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
-from ai_assistant.core.retry import with_retry
+from ai_assistant.core.retry import retry_with_config
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -79,32 +80,44 @@ async def _estimate_tokens(text: str, model: str, tokenizer: ITokenizer) -> int:
 # --- retry helpers for network calls ----------------------------------------
 
 
-@with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_embed(embedder: IEmbedder, text: str) -> list[list[float]]:
+async def _call_embed(embedder: IEmbedder, text: str, config: RetryConfig) -> list[list[float]]:
     """Embed a single text with retry."""
-    return await embedder.embed([text])
+    return await retry_with_config(lambda: embedder.embed([text]), config)
 
 
-@with_retry(max_retries=3, delay=1.0, backoff=2.0)
 async def _call_search(
-    vector_store: IVectorStore, embedding: list[float], top_k: int, namespace: str
+    vector_store: IVectorStore,
+    embedding: list[float],
+    top_k: int,
+    namespace: str,
+    config: RetryConfig,
 ) -> list[Chunk]:
     """Search vector store with retry."""
-    return await vector_store.search(embedding, top_k=top_k, namespace=namespace)
+    return await retry_with_config(
+        lambda: vector_store.search(embedding, top_k=top_k, namespace=namespace),
+        config,
+    )
 
 
-@with_retry(max_retries=3, delay=1.0, backoff=2.0)
-async def _call_llm(llm: ILLM, messages: list[Message]) -> AssistantMessage:
+async def _call_llm(
+    llm: ILLM, messages: list[Message], config: RetryConfig
+) -> AssistantMessage:
     """Call LLM with retry."""
-    return await llm.complete(messages)
+    return await retry_with_config(lambda: llm.complete(messages), config)
 
 
-@with_retry(max_retries=3, delay=1.0, backoff=2.0)
 async def _call_rerank(
-    reranker: IReranker, query: str, chunks: tuple[Chunk, ...], top_k: int
+    reranker: IReranker,
+    query: str,
+    chunks: tuple[Chunk, ...],
+    top_k: int,
+    config: RetryConfig,
 ) -> list[RerankResult]:
     """Rerank chunks with retry."""
-    return await reranker.rerank(query, list(chunks), top_k=top_k)
+    return await retry_with_config(
+        lambda: reranker.rerank(query, list(chunks), top_k=top_k),
+        config,
+    )
 
 
 @step("embed_query")
@@ -127,8 +140,12 @@ async def embed_query(data: PipelineData) -> PipelineData:
     if data.query is None or not data.query.text:
         _logger.warning("embed_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
+    cfg = data.pipeline_config
+    if cfg is None:
+        cfg = PipelineConfig()
+    retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
     try:
-        embeddings = await _call_embed(embedder, data.query.text)
+        embeddings = await _call_embed(embedder, data.query.text, retry_cfg)
         if not embeddings:
             _logger.warning(
                 "embed_query: empty embedding response",
@@ -171,7 +188,8 @@ async def retrieve(data: PipelineData) -> PipelineData:
             cfg = PipelineConfig()
         top_k = cfg.top_k
         namespace = cfg.namespace
-        chunks = await _call_search(vector_store, embedding, top_k, namespace)
+        retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+        chunks = await _call_search(vector_store, embedding, top_k, namespace, retry_cfg)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
@@ -218,8 +236,9 @@ async def rerank(data: PipelineData) -> PipelineData:
             cfg = PipelineConfig()
         top_k = cfg.top_k
         threshold = cfg.relevance_threshold
+        retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
 
-        results = await _call_rerank(reranker, query, data.chunks, top_k=top_k)
+        results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
         filtered = [r for r in results if r.score >= threshold]
 
@@ -338,6 +357,7 @@ async def generate(data: PipelineData) -> PipelineData:
         cfg = PipelineConfig()
     prompt_version = cfg.prompt_version
     prompt_name = cfg.prompt_name
+    retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
 
     try:
         prompt = get_prompt(
@@ -402,7 +422,7 @@ async def generate(data: PipelineData) -> PipelineData:
     response: AssistantMessage | None = None
 
     try:
-        response = await _call_llm(llm, messages)
+        response = await _call_llm(llm, messages, retry_cfg)
     except AdapterError as exc:
         _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
         return data.add_error(f"{LLM_UNAVAILABLE} ({exc})").with_response(
@@ -444,6 +464,11 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         _logger.warning("hyde_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
 
+    cfg = data.pipeline_config
+    if cfg is None:
+        cfg = PipelineConfig()
+    retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+
     # Generate hypothetical answer
     hyde_messages: list[Message] = [
         UserMessage(
@@ -451,7 +476,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         )
     ]
     try:
-        hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages)
+        hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages, retry_cfg)
     except Exception:
         _logger.exception(
             "hyde_query: LLM call failed", extra={"trace_id": data.trace_id}
@@ -464,7 +489,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
 
     # Embed hypothetical answer
     try:
-        embeddings = await _call_embed(embedder, hyde_text)
+        embeddings = await _call_embed(embedder, hyde_text, retry_cfg)
         if not embeddings:
             _logger.warning(
                 "hyde_query: empty embedding response",

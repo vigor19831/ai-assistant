@@ -169,3 +169,22 @@ class TokenizerConfigData:
 
     provider: str = "tiktoken"
     local_dir: str = "./data/tokenizers"
+
+
+@dataclass(frozen=True, slots=True)
+class RetryConfig:
+    """Configuration for retry behavior.
+
+    Attributes:
+        max_retries: Maximum number of retry attempts.
+        delay: Initial delay between retries in seconds.
+        backoff: Multiplier for delay after each retry.
+        max_delay: Maximum delay cap in seconds, or None for no cap.
+        jitter: If True, add random jitter to delay.
+    """
+
+    max_retries: int = 3
+    delay: float = 1.0
+    backoff: float = 2.0
+    max_delay: float | None = None
+    jitter: bool = False

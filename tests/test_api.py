@@ -542,7 +542,7 @@ class TestAPIDeps:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             mapping = {
                 ("llm", "mock"): mock_llm,
                 ("embedder", "mock"): mock_embedder,
@@ -597,7 +597,7 @@ class TestAPIDeps:
         mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
 
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
@@ -632,7 +632,7 @@ class TestAPIDeps:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
@@ -664,7 +664,7 @@ class TestAPIDeps:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_create_adapter(port: str, name: str, config: Any) -> Any:
+        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
@@ -694,7 +694,7 @@ class TestAPIDeps:
         minimal_config = _make_minimal_config()
         call_count = {"count": 0}
 
-        def counting_create_adapter(port: str, name: str, config: Any) -> Any:
+        def counting_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             call_count["count"] += 1
             m = MagicMock(spec=IVectorStore if port == "vector_store" else IChatStorage if port == "storage" else ILLM)
             if port == "vector_store":
@@ -745,6 +745,9 @@ class TestAPIDeps:
         app = FastAPI()
         from ai_assistant.core.ports.tokenizer import ITokenizer
 
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.aclose = AsyncMock()
         mock_state = InitializedAppState(
             config=AppConfig(),
             llm=MagicMock(spec=ILLM),
@@ -755,6 +758,7 @@ class TestAPIDeps:
             tokenizer=MagicMock(spec=ITokenizer),
             reranker=MagicMock(spec=IReranker),
             rag_state=RAGState(),
+            http_client=mock_client,
         )
         app.state.app_state = mock_state
 
@@ -789,6 +793,29 @@ class TestAPIDeps:
         with pytest.raises(RuntimeError, match="State not initialized"):
             get_state(request)
 
+    @pytest.mark.asyncio
+    async def test_init_adapters_creates_shared_http_client(self):
+        """Given: init_adapters is called with real factory.
+        When: HTTP adapters would be created.
+        Then: a shared httpx.AsyncClient is created and returned in state.
+        """
+        import httpx
+
+        minimal_config = _make_minimal_config()
+        # Use mock providers to avoid real network calls
+        minimal_config.llm.provider = "mock"
+        minimal_config.embedder.provider = "mock"
+        minimal_config.reranker.provider = "null"
+
+        result = await init_adapters(minimal_config)
+
+        assert result.http_client is not None
+        assert isinstance(result.http_client, httpx.AsyncClient)
+        # Client must still be open (not prematurely closed)
+        assert not result.http_client.is_closed
+        # Cleanup
+        await result.http_client.aclose()
+
     def test_get_chunker_for_config_respects_chunk_size(self):
         """Given: namespace requires different chunk_size than base config.
         When: get_chunker_for_config is called with chunk_size override.
@@ -801,6 +828,9 @@ class TestAPIDeps:
         cfg = AppConfig(
             chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
         )
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.aclose = AsyncMock()
         mock_state = InitializedAppState(
             config=cfg,
             llm=MagicMock(spec=ILLM),
@@ -813,6 +843,7 @@ class TestAPIDeps:
             tokenizer=MagicMock(spec=ITokenizer),
             reranker=MagicMock(spec=IReranker),
             rag_state=MagicMock(),
+            http_client=mock_client,
         )
 
         # Override to 1024 — must create new chunker, not return base

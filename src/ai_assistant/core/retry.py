@@ -7,10 +7,14 @@ import functools
 import inspect
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
-__all__ = ["with_retry"]
+from ai_assistant.core.domain.configs import RetryConfig
+
+__all__ = ["with_retry", "retry_with_config"]
+
+T = TypeVar("T")
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -93,3 +97,35 @@ def with_retry(
         return cast("F", wrapper)
 
     return decorator
+
+
+async def retry_with_config(
+    coro: Callable[[], Awaitable[T]], config: RetryConfig
+) -> T:
+    """Execute coroutine with retry policy from config.
+
+    Repeats the logic of @with_retry: exponential backoff,
+    permanent-error exclusion, jitter support.
+    """
+    last_exception: Exception | None = None
+    current_delay = config.delay
+    for attempt in range(config.max_retries + 1):
+        try:
+            return await coro()
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except _PERMANENT_ERRORS:
+            raise
+        except Exception as e:
+            last_exception = e
+            if attempt < config.max_retries:
+                sleep_for = current_delay
+                if config.jitter:
+                    sleep_for = random.uniform(0, sleep_for)
+                if config.max_delay is not None:
+                    sleep_for = min(sleep_for, config.max_delay)
+                await asyncio.sleep(sleep_for)
+                current_delay *= config.backoff
+    if last_exception is None:
+        raise RuntimeError("last_exception is None after retry loop")
+    raise last_exception

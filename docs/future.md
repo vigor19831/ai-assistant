@@ -5,7 +5,7 @@
 | TTS/STT | research | No local engine | adapters/stt_*.py, features/chat/handlers.py |
 | Vision | research | No vision model, PipelineData needs attachments | adapters/llm_vision_*.py, core/domain/pipeline.py |
 | MCP | planned | IToolRegistry has no implementation | adapters/mcp_client.py |
-| Native function calling | blocked | Needs MCP first | core/pipeline_steps.py |
+| Native function calling | blocked | Needs MCP first | core/pipeline_steps.py, core/domain/messages.py (ToolCall dataclass), core/domain/pipeline.py (tool_calls field + with_tool_calls() accessor) |
 | Agents | research | Needs function calling + long-term memory | features/agents/ |
 | Long-term memory | research | No storage format | core/ports/memory.py |
 | Code sandbox | research | Needs security sandbox | adapters/code_sandbox.py |

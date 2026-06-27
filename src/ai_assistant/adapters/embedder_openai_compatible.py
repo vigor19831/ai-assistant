@@ -58,7 +58,7 @@ def _extract_embeddings(
 class OpenAICompatibleEmbedder(IEmbedder):
     """Embedder using OpenAI-compatible REST API."""
 
-    def __init__(self, config: EmbedderConfigData) -> None:
+    def __init__(self, config: EmbedderConfigData, http_client: httpx.AsyncClient | None = None) -> None:
         super().__init__(config)
         self.model: str = config.model
         self.api_base: str = config.api_base
@@ -69,22 +69,27 @@ class OpenAICompatibleEmbedder(IEmbedder):
         self._dim: int = config.dim
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
-        timeout = (
-            httpx.Timeout(self._timeout, connect=self._connect_timeout)
-            if self._connect_timeout is not None
-            else self._timeout
-        )
-        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
+        self._own_client: bool = http_client is None
+        if http_client is not None:
+            self._client: httpx.AsyncClient = http_client
+        else:
+            timeout = (
+                httpx.Timeout(self._timeout, connect=self._connect_timeout)
+                if self._connect_timeout is not None
+                else self._timeout
+            )
+            self._client = httpx.AsyncClient(timeout=timeout)
         self._closed: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def shutdown(self) -> None:
-        """Close persistent HTTP client."""
+        """Close persistent HTTP client only if we own it."""
         async with self._lock:
             if self._closed:
                 return
             self._closed = True
-        await self._client.aclose()
+        if self._own_client:
+            await self._client.aclose()
 
     def _check_open(self) -> None:
         """Raise AdapterError if adapter has been shut down."""
