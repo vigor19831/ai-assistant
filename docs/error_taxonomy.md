@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-27 06:39 UTC
+> Auto-generated from source code. Updated: 2026-06-27 20:23 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -109,12 +109,12 @@
 | `adapters.storage_sqlite` | `Exception` | _logger.exception("Failed to close SQLite connection during  | Medium |
 | `adapters.storage_sqlite` | `JSONDecodeError` | _logger.warning("JSON decode failed in storage", extra={"err | Medium |
 | `adapters.storage_sqlite` | `OperationalError` | _logger.warning( | Medium |
-| `adapters.tiktoken_tokenizer` | `AttributeError` | return len(enc.encode(text)) | Medium |
-| `adapters.tiktoken_tokenizer` | `Exception` | pass | Medium |
-| `adapters.tiktoken_tokenizer` | `Exception` | if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD: | Medium |
+| `adapters.tiktoken_tokenizer` | `AttributeError` | return len(result) | Medium |
+| `adapters.tiktoken_tokenizer` | `Exception` | _logger.exception("tiktoken failed") | Medium |
+| `adapters.tiktoken_tokenizer` | `Exception` | _logger.exception("HF tokenizer failed") | Medium |
 | `adapters.tiktoken_tokenizer` | `ImportError` | tiktoken = None  # type: ignore[assignment] | Medium |
 | `adapters.tiktoken_tokenizer` | `ImportError` | tokenizers = None  # type: ignore[assignment] | Medium |
-| `adapters.tiktoken_tokenizer` | `KeyError` | try: | Medium |
+| `adapters.tiktoken_tokenizer` | `KeyError` | enc = tiktoken.get_encoding("cl100k_base") | Medium |
 | `adapters.tiktoken_tokenizer` | `OSError` | return None | Medium |
 | `adapters.vector_store_faiss` | `Exception` | _logger.exception( | Medium |
 | `adapters.vector_store_faiss` | `Exception` | with contextlib.suppress(OSError): | Medium |
@@ -129,6 +129,7 @@
 | `api.lifespan` | `Exception` | logger.exception( | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium |
+| `api.lifespan` | `Exception` | logger.exception("HTTP client close failed") | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning( | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium |
 | `api.security` | `ValueError` | raise HTTPException( | Medium |

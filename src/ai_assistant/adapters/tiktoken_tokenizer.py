@@ -1,14 +1,15 @@
-"""Tokenizer adapter using tiktoken and HuggingFace tokenizers."""
+"""Tokenizer backed by tiktoken (OpenAI) or local HF tokenizers."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.tokenizer import ITokenizer
+
+_logger = get_logger("adapters.tiktoken_tokenizer")
 
 try:
     import tiktoken
@@ -20,14 +21,6 @@ try:
 except ImportError:
     tokenizers = None  # type: ignore[assignment]
 
-__all__ = ["TiktokenTokenizer"]
-
-_logger = get_logger("adapters.tokenizer.tiktoken")
-
-
-# Named constant for CJK ratio threshold
-_CJK_RATIO_THRESHOLD: float = 0.3
-
 
 def _cjk_ratio(text: str) -> float:
     """Return ratio of CJK characters in text."""
@@ -37,10 +30,10 @@ def _cjk_ratio(text: str) -> float:
         1
         for c in text
         if (
-            "\u4e00" <= c <= "\u9fff"  # CJK Unified
-            or "\u3400" <= c <= "\u4dbf"  # CJK Extension A
-            or "\u3040" <= c <= "\u30ff"  # Hiragana + Katakana
-            or "\uac00" <= c <= "\ud7af"  # Hangul Syllables
+            "\u4e00" <= c <= "\u9fff"
+            or "\u3400" <= c <= "\u4dbf"
+            or "\u3040" <= c <= "\u30ff"
+            or "\uac00" <= c <= "\ud7af"
         )
     )
     return cjk_count / len(text)
@@ -81,43 +74,46 @@ class TiktokenTokenizer(ITokenizer):
     """Tokenizer backed by tiktoken (OpenAI) or local HF tokenizers."""
 
     def __init__(self, config: TokenizerConfigData) -> None:
-        self.local_dir = config.local_dir
+        self.config = config
+        self._model_name = config.provider
 
-    def _get_tokenizer(self, model: str) -> Any | None:
-        """Get tokenizer: tiktoken first, then local HF, then None."""
-        if tiktoken is not None:
-            try:
-                return tiktoken.encoding_for_model(model)
-            except KeyError:
-                try:
-                    return tiktoken.get_encoding("cl100k_base")
-                except Exception:
-                    pass
-        if tokenizers is not None:
-            tok_dir = _resolve_tokenizer_dir(model, self.local_dir)
-            if tok_dir is not None:
-                try:
-                    return tokenizers.Tokenizer.from_file(str(tok_dir / "tokenizer.json"))
-                except Exception:
-                    pass
-        return None
+    @property
+    def model_name(self) -> str:
+        """Model identifier this tokenizer was initialized for."""
+        return self._model_name
 
     def count(self, text: str, model: str) -> int:
-        """Count tokens. Fallback to char-based heuristic if no tokenizer."""
+        """Count tokens in text for the given model."""
         if not text:
             return 0
-        enc = self._get_tokenizer(model)
-        if enc is None:
-            if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
-                return len(text)
-            return len(text) // 4
-        try:
-            # HF tokenizers: encode() returns Encoding with .tokens
-            return len(enc.encode(text).tokens)
-        except AttributeError:
-            # tiktoken: encode() returns list[int]
-            return len(enc.encode(text))
-        except Exception:
-            if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
-                return len(text)
-            return len(text) // 4
+
+        if tiktoken is not None:
+            try:
+                try:
+                    enc = tiktoken.encoding_for_model(model)
+                except KeyError:
+                    enc = tiktoken.get_encoding("cl100k_base")
+                return len(enc.encode(text))
+            except Exception:
+                _logger.exception("tiktoken failed")
+
+        if tokenizers is not None:
+            tok_dir = _resolve_tokenizer_dir(model, self.config.local_dir)
+            if tok_dir is not None:
+                try:
+                    hf_tok = tokenizers.Tokenizer.from_file(str(tok_dir / "tokenizer.json"))
+                    result = hf_tok.encode(text)
+                    try:
+                        return len(result.tokens)
+                    except AttributeError:
+                        return len(result)
+                except Exception:
+                    _logger.exception("HF tokenizer failed")
+
+        return self._fallback_count(text)
+
+    def _fallback_count(self, text: str) -> int:
+        """Fallback to character heuristic when tiktoken is unavailable."""
+        if _cjk_ratio(text) > 0.3:
+            return len(text)
+        return len(text) // 4

@@ -64,6 +64,10 @@ Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectorie
 - Prefer `if/else` over polymorphism when branches <3
 - Prefer plain functions over classes when no state needed
 
+## 2.2. Data Ownership
+Port objects own their configuration. Callers pass port objects, not port config fields.
+PipelineData contains only runtime state. Config values live in PipelineConfig or port objects.
+
 ## 3. Layer Boundaries
 
 | Layer | May import from |

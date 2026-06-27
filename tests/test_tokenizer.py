@@ -524,6 +524,43 @@ class TestITokenizerPort:
         assert inspect.isabstract(ITokenizer)
         assert getattr(ITokenizer.count, "__isabstractmethod__", False)
 
+    def test_tiktoken_model_name_returns_str(self) -> None:
+        """Given: TiktokenTokenizer initialized.
+        When: model_name property is accessed.
+        Then: returns expected string."""
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = TiktokenTokenizer(TokenizerConfigData())
+        assert tok.model_name == "tiktoken"
+        assert isinstance(tok.model_name, str)
+
+    def test_char_fallback_model_name_returns_str(self) -> None:
+        """Given: CharFallbackTokenizer initialized.
+        When: model_name property is accessed.
+        Then: returns expected string."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok = CharFallbackTokenizer(TokenizerConfigData())
+        assert tok.model_name == "char-fallback"
+        assert isinstance(tok.model_name, str)
+
+    def test_model_name_is_str_not_optional(self) -> None:
+        """Given: any ITokenizer implementation.
+        When: model_name property is accessed.
+        Then: returns str, not None, not Optional."""
+        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tok1 = TiktokenTokenizer(TokenizerConfigData())
+        tok2 = CharFallbackTokenizer(TokenizerConfigData())
+        assert type(tok1.model_name) is str
+        assert type(tok2.model_name) is str
+        assert tok1.model_name is not None
+        assert tok2.model_name is not None
+
 
 class TestTokenizerAdapterRegistry:
     """Given: adapter registry.

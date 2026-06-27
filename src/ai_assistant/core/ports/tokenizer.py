@@ -15,6 +15,12 @@ class ITokenizer(ABC):
     returns a non-negative integer representing the token count.
     """
 
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Model identifier this tokenizer was initialized for."""
+        ...
+
     @abstractmethod
     def count(self, text: str, model: str) -> int:
         """Count tokens in text for the given model.

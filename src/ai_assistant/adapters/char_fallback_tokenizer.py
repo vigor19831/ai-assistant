@@ -1,15 +1,14 @@
-"""Character-based fallback tokenizer."""
+"""Fallback tokenizer using character heuristics.
+
+ASCII text: len(text) // 4
+CJK-heavy text (>30% CJK): len(text)
+"""
 
 from __future__ import annotations
 
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.ports.tokenizer import ITokenizer
-
-__all__ = ["CharFallbackTokenizer"]
-
-# Named constant for CJK ratio threshold
-_CJK_RATIO_THRESHOLD: float = 0.3
 
 
 def _cjk_ratio(text: str) -> float:
@@ -20,10 +19,10 @@ def _cjk_ratio(text: str) -> float:
         1
         for c in text
         if (
-            "\u4e00" <= c <= "\u9fff"  # CJK Unified
-            or "\u3400" <= c <= "\u4dbf"  # CJK Extension A
-            or "\u3040" <= c <= "\u30ff"  # Hiragana + Katakana
-            or "\uac00" <= c <= "\ud7af"  # Hangul Syllables
+            "\u4e00" <= c <= "\u9fff"
+            or "\u3400" <= c <= "\u4dbf"
+            or "\u3040" <= c <= "\u30ff"
+            or "\uac00" <= c <= "\ud7af"
         )
     )
     return cjk_count / len(text)
@@ -37,16 +36,19 @@ class CharFallbackTokenizer(ITokenizer):
     CJK-heavy text (>30% CJK): len(text)
     """
 
-    def __init__(self, _config: TokenizerConfigData) -> None:
-        """Config is accepted for factory uniformity but not used."""
+    def __init__(self, config: TokenizerConfigData) -> None:
+        self.config = config
+        self._model_name = "char-fallback"
 
-    def count(self, text: str, _model: str) -> int:
-        """Count tokens using character heuristics.
+    @property
+    def model_name(self) -> str:
+        """Model identifier this tokenizer was initialized for."""
+        return self._model_name
 
-        Model parameter is ignored — this is a model-agnostic fallback.
-        """
+    def count(self, text: str, model: str) -> int:
+        """Count tokens in text for the given model."""
         if not text:
             return 0
-        if _cjk_ratio(text) > _CJK_RATIO_THRESHOLD:
+        if _cjk_ratio(text) > 0.3:
             return len(text)
         return len(text) // 4
