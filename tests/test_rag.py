@@ -400,133 +400,6 @@ class TestRAGIndexing:
         assert "personal" in result["results"]
         assert result["results"]["personal"]["indexed"] == 1
 
-    @pytest.mark.asyncio
-    async def test_status_polling(self):
-        """Given: a reindex task was started and recorded in RAGState.
-        When: status is polled from the instance.
-        Then: correct status and timestamps are returned."""
-        from ai_assistant.api.deps import RAGState
-
-        rag_state = RAGState()
-        task_id = "task-123"
-        await rag_state.start_task(task_id)
-
-        status = await rag_state.get_status(task_id)
-        assert status is not None
-        assert status["status"] == "running"
-        assert "started_at" in status
-
-    @pytest.mark.asyncio
-    async def test_ttl_cleanup(self, monkeypatch):
-        """Given: expired and fresh entries in RAGState.status.
-        When: cleanup_status is called.
-        Then: expired entries are removed, fresh entries survive."""
-        from ai_assistant.api.deps import RAGState
-
-        rag_state = RAGState()
-        now = 1000.0
-        monkeypatch.setattr(time, "time", lambda: now)
-        ttl = rag_state.STATUS_TTL_SECONDS
-
-        # Build state via public API with monkeypatched time
-        await rag_state.start_task("old")
-        await rag_state.complete_task("old", {"done": True})
-        # Advance time past TTL for the completed task
-        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
-
-        # Fresh task started at current (advanced) time
-        await rag_state.start_task("fresh")
-
-        # Reset time to "now" for cleanup evaluation
-        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
-        await rag_state.cleanup_status()
-
-        assert await rag_state.get_status("old") is None
-        assert await rag_state.get_status("fresh") is not None
-
-    @pytest.mark.asyncio
-    async def test_start_task_triggers_cleanup(self, monkeypatch):
-        """Given: expired entries exist in RAGState._status.
-        When: start_task is called.
-        Then: expired entries are removed before new task is registered."""
-        from ai_assistant.api.deps import RAGState
-
-        rag_state = RAGState()
-        now = 1000.0
-        monkeypatch.setattr(time, "time", lambda: now)
-        ttl = rag_state.STATUS_TTL_SECONDS
-
-        # Create expired completed task via public API
-        await rag_state.start_task("old")
-        await rag_state.complete_task("old", {"done": True})
-
-        # Advance time past TTL
-        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
-
-        await rag_state.start_task("new-task")
-
-        assert await rag_state.get_status("old") is None
-        assert await rag_state.get_status("new-task") is not None
-
-    @pytest.mark.asyncio
-    async def test_get_status_does_not_mutate(self, monkeypatch):
-        """Given: expired entries exist in RAGState._status.
-        When: get_status is called.
-        Then: expired entries are NOT removed — get_status is pure read."""
-        from ai_assistant.api.deps import RAGState
-
-        rag_state = RAGState()
-        now = 1000.0
-        monkeypatch.setattr(time, "time", lambda: now)
-        ttl = rag_state.STATUS_TTL_SECONDS
-
-        # Create expired completed task via public API
-        await rag_state.start_task("old")
-        await rag_state.complete_task("old", {"done": True})
-
-        # Advance time past TTL
-        monkeypatch.setattr(time, "time", lambda: now + ttl + 100)
-
-        status = await rag_state.get_status("nonexistent")
-        assert status is None
-
-        # Verify expired entry still present (get_status is pure read)
-        assert await rag_state.get_status("old") is not None
-
-    @pytest.mark.asyncio
-    async def test_reindex_tasks_cleanup(self, mock_state):
-        """Given: multiple reindex tasks are started and completed.
-        When: tasks finish.
-        Then: tasks dict is cleaned up, no memory leak."""
-        from ai_assistant.features.rag.handlers import reindex_documents
-        from ai_assistant.features.rag.schemas import ReindexRequest
-        from unittest.mock import patch, AsyncMock
-
-        with patch(
-            "ai_assistant.features.rag.handlers.index_folder",
-            new_callable=AsyncMock,
-        ) as mock_index:
-            mock_index.return_value = {
-                "success": True,
-                "results": {"test": {"indexed": 1}},
-            }
-
-            # Start many reindex tasks
-            for _ in range(50):
-                req = ReindexRequest(folder="test", clear=False)
-                await reindex_documents(req, mock_state)
-
-            # Wait for all tasks to complete
-            for _ in range(1000):
-                if await mock_state.rag_state.active_task_count() == 0:
-                    break
-                await asyncio.sleep(0)
-            else:
-                pytest.fail("Tasks were not cleaned up")
-
-            assert await mock_state.rag_state.active_task_count() == 0
-
-
 # ── Reranker Regression ──
 
 
@@ -810,25 +683,15 @@ class TestChatExportIsolation:
             }
 
             req = ReindexRequest(folder="personal", clear=True)
-            result = await reindex_documents(req, mock_state)
+            await reindex_documents(req, mock_state)
 
-            task_id = result.get("task_id", "")
-
-            # Poll for background task completion
+            # Give event loop a chance to run the background task
             for _ in range(100):
-                if not await mock_state.rag_state.has_task(task_id):
-                    break
                 await asyncio.sleep(0)
+                if deleted_chunks:
+                    break
             else:
-                pytest.fail("Background task was not cleaned up")
-
-            # Await the task if still present
-            task = await mock_state.rag_state.get_task(task_id)
-            if task:
-                try:
-                    await asyncio.wait_for(task, timeout=1.0)
-                except asyncio.TimeoutError:
-                    pass
+                pytest.fail("Background task did not clear chat namespace")
 
             # Assert on deletion state — verify chat namespace was targeted
             chat_deletions = [

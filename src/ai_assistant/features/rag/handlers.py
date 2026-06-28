@@ -461,7 +461,6 @@ async def reindex_documents(
 
     async def _run() -> dict[str, Any]:
         async with rag_state.semaphore:
-            await rag_state.cleanup_status()
             await rag_state.start_task(task_id)
             try:
                 # If clearing, also clear associated chat namespaces
@@ -516,8 +515,7 @@ async def reindex_documents(
                 await rag_state.fail_task(task_id, "Internal server error")
                 raise
 
-    task = asyncio.create_task(_run())
-    await rag_state.register_task(task_id, task)
+    asyncio.create_task(_run())
     return {"status": "started", "task_id": task_id}
 
 
@@ -529,7 +527,6 @@ async def reindex_status(
     """Get status of a background reindex task."""
     trace_id = uuid.uuid4().hex
     rag_state = state.rag_state
-    await rag_state.cleanup_status()
     info = await rag_state.get_status(task_id)
     _logger.info(
         "Reindex status checked",

@@ -47,13 +47,6 @@ __all__ = [
 _logger = get_logger("deps")
 
 
-def _to_float(value: object, default: float = 0.0) -> float:
-    """Safely convert a value to float with explicit narrowing."""
-    if isinstance(value, (int, float)):
-        return float(value)
-    return default
-
-
 @dataclass
 class RAGState:
     """Explicit per-instance RAG background task state.
@@ -63,33 +56,19 @@ class RAGState:
     """
 
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
-    _tasks: dict[str, asyncio.Task[dict[str, object]]] = field(default_factory=dict)
     _status: dict[str, ReindexStatusEntry] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    STATUS_TTL_SECONDS: int = field(default=3600, repr=False)
-    STATUS_MAX_ENTRIES: int = field(default=1000, repr=False)
-
-    # ------------------------------------------------------------------
-    # Public lifecycle API — all mutations go through these methods
-    # ------------------------------------------------------------------
-
     async def start_task(self, task_id: str) -> None:
         """Atomically register a running task."""
-        await self.cleanup_status()
         async with self._lock:
             self._status[task_id] = ReindexStatusEntry(
                 status="running",
                 started_at=time.time(),
             )
 
-    async def register_task(self, task_id: str, task: asyncio.Task[dict[str, object]]) -> None:
-        """Atomically store the asyncio.Task reference."""
-        async with self._lock:
-            self._tasks[task_id] = task
-
     async def complete_task(self, task_id: str, result: dict[str, object]) -> None:
-        """Atomically mark task completed and remove from active tasks."""
+        """Atomically mark task completed."""
         async with self._lock:
             old = self._status.get(task_id)
             started = old.started_at if old is not None else time.time()
@@ -99,10 +78,9 @@ class RAGState:
                 finished_at=time.time(),
                 result=result,
             )
-            self._tasks.pop(task_id, None)
 
     async def fail_task(self, task_id: str, error: str) -> None:
-        """Atomically mark task failed and remove from active tasks."""
+        """Atomically mark task failed."""
         async with self._lock:
             old = self._status.get(task_id)
             started = old.started_at if old is not None else time.time()
@@ -112,7 +90,6 @@ class RAGState:
                 finished_at=time.time(),
                 error=error,
             )
-            self._tasks.pop(task_id, None)
 
     async def get_status(self, task_id: str) -> dict[str, object] | None:
         """Return status as a JSON-compatible dict for the given task, or None."""
@@ -131,54 +108,6 @@ class RAGState:
             if info.error is not None:
                 d["error"] = info.error
             return d
-
-    async def cleanup_status(self) -> None:
-        """Remove expired entries and enforce max size cap on status."""
-        async with self._lock:
-            now = time.time()
-
-            expired: list[str] = []
-            for tid, info in self._status.items():
-                finished_at = info.finished_at
-                started_at = info.started_at
-                last_activity = finished_at if finished_at is not None else started_at
-                last_activity_float = _to_float(last_activity)
-                if now - last_activity_float > self.STATUS_TTL_SECONDS:
-                    expired.append(tid)
-
-            for tid in expired:
-                self._status.pop(tid, None)
-
-            if len(self._status) > self.STATUS_MAX_ENTRIES:
-                sorted_by_age = sorted(
-                    self._status.items(),
-                    key=lambda item: _to_float(item[1].started_at),
-                )
-                excess = len(self._status) - self.STATUS_MAX_ENTRIES
-                for tid, _ in sorted_by_age[:excess]:
-                    self._status.pop(tid, None)
-
-            # Clean up finished tasks that may have leaked past done-callback
-            finished_tasks = [
-                tid for tid, task in self._tasks.items() if task.done()
-            ]
-            for tid in finished_tasks:
-                self._tasks.pop(tid, None)
-
-    async def has_task(self, task_id: str) -> bool:
-        """Return True if an active task with the given ID exists."""
-        async with self._lock:
-            return task_id in self._tasks
-
-    async def active_task_count(self) -> int:
-        """Return the number of active (unfinished) tasks."""
-        async with self._lock:
-            return len(self._tasks)
-
-    async def get_task(self, task_id: str) -> asyncio.Task[dict[str, object]] | None:
-        """Return the active task for the given ID, or None."""
-        async with self._lock:
-            return self._tasks.get(task_id)
 
 
 @dataclass

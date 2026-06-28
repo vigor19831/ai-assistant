@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-28 09:38 UTC
+> Auto-generated from source code. Updated: 2026-06-28 19:02 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -179,7 +179,6 @@
 | `tests.test_api` | `ImportError` | sqlite3 not available | Medium |
 | `tests.test_chat` | `StopAsyncIteration` | Raised StopAsyncIteration | Medium |
 | `tests.test_pipeline` | `Exception` | network error | Medium |
-| `tests.test_rag` | `TimeoutError` | pass | Medium |
 | `tests.test_retry` | `exc_cls` | permanent | Medium |
 | `tests.test_smoke` | `Exception` | return req, None, None | Medium |
 | `tests.test_stateful_ports` | `OSError` | pass | Medium |
