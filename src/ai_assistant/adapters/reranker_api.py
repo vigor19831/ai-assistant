@@ -9,6 +9,7 @@ import httpx
 if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
 
+from ai_assistant.adapters._http import async_post_json
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import RerankerConfigData
 from ai_assistant.core.domain.errors import AdapterError
@@ -75,9 +76,7 @@ class APIReranker(IReranker):
             "return_documents": False,
         }
 
-        resp = await self._client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
+        data = await async_post_json(self._client, url, headers, payload)
 
         try:
             raw_results = data["results"]

@@ -902,6 +902,77 @@ class TestFactoryRegistry:
 
 
 
+# ── TestAsyncPostJson ──
+
+
+class TestAsyncPostJson:
+    """Given: async_post_json helper centralizes POST + raise_for_status + JSON parsing.
+    When: called with various response scenarios.
+    Then: returns parsed dict or raises AdapterError with prior logging.
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_returns_json(self):
+        """Successful POST with valid JSON returns parsed dict."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from ai_assistant.adapters._http import async_post_json
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"data": [{"embedding": [0.1, 0.2]}]}
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.text = '{"data": [{"embedding": [0.1, 0.2]}]}'
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        result = await async_post_json(
+            mock_client,
+            "http://test/v1/embeddings",
+            {"Authorization": "Bearer x"},
+            {"input": "hi"},
+        )
+        assert result == {"data": [{"embedding": [0.1, 0.2]}]}
+        mock_client.post.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises_adapter_error(self):
+        """HTTP error raises AdapterError with chained exception."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from ai_assistant.adapters._http import async_post_json
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
+
+        with pytest.raises(AdapterError, match="HTTP request failed"):
+            await async_post_json(
+                mock_client, "http://test/v1/embeddings", {}, {"input": "hi"}
+            )
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_raises_adapter_error(self):
+        """Non-JSON response raises AdapterError."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from ai_assistant.adapters._http import async_post_json
+
+        mock_resp = MagicMock()
+        mock_resp.json.side_effect = ValueError("not json")
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.text = "not json"
+
+        mock_client = MagicMock()
+        mock_client.post = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(AdapterError, match="Invalid JSON response"):
+            await async_post_json(
+                mock_client, "http://test/v1/embeddings", {}, {"input": "hi"}
+            )
+
+
 # ── FaissVectorStore load() guard tests ─────────────────────────────────────
 
 import json

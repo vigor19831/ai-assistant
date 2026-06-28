@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 import httpx
 
+from ai_assistant.adapters._http import async_post_json
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.errors import AdapterError
@@ -182,16 +183,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         stop = [s for s in self.config.stop_sequences if s]
         if stop:
             payload["stop"] = stop
-        try:
-            resp = await self._client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-        except httpx.HTTPError as exc:
-            _logger.exception(
-                "LLM HTTP request failed",
-                extra={"url": url, "error": str(exc)},
-            )
-            raise AdapterError(f"LLM HTTP request failed: {exc}") from exc
+        data = await async_post_json(self._client, url, headers, payload)
 
         try:
             choice = data["choices"][0]

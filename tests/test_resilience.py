@@ -148,7 +148,7 @@ class TestEmbedderResilience:
             respx.post("http://localhost:9999/v1/embeddings").mock(
                 side_effect=httpx.TimeoutException("Connection timed out")
             )
-            with pytest.raises(AdapterError, match="Embedder HTTP request failed"):
+            with pytest.raises(AdapterError, match="HTTP request failed"):
                 await embedder.embed(["hello"])
 
 

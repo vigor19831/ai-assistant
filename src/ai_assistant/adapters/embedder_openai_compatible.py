@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from typing import Any
 
 import httpx
 
+from ai_assistant.adapters._http import async_post_json
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import EmbedderConfigData
 from ai_assistant.core.domain.errors import AdapterError
@@ -23,9 +23,8 @@ _logger = get_logger("embedder_openai_compatible")
 
 
 def _extract_embeddings(
-    resp_text: str, expected_dim: int, model: str
+    data: dict[str, Any], expected_dim: int, model: str
 ) -> list[list[float]]:
-    data = json.loads(resp_text)
     try:
         embeddings = [item["embedding"] for item in data["data"]]
     except (KeyError, TypeError) as exc:
@@ -101,7 +100,7 @@ class OpenAICompatibleEmbedder(IEmbedder):
         return self._dim
 
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
-    async def _post_embeddings(self, payload: dict[str, Any]) -> str:
+    async def _post_embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Execute HTTP POST to embeddings endpoint (retryable)."""
         self._check_open()
         url = f"{self.api_base}/embeddings"
@@ -110,9 +109,7 @@ class OpenAICompatibleEmbedder(IEmbedder):
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        resp = await self._client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
-        return resp.text
+        return await async_post_json(self._client, url, headers, payload)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Request embeddings from remote API.
@@ -126,15 +123,8 @@ class OpenAICompatibleEmbedder(IEmbedder):
             "model": self.model,
             "input": texts,
         }
-        try:
-            resp_text = await self._post_embeddings(payload)
-        except httpx.HTTPError as exc:
-            _logger.exception(
-                "Embedder HTTP request failed",
-                extra={"error": str(exc)},
-            )
-            raise AdapterError(f"Embedder HTTP request failed: {exc}") from exc
+        data = await self._post_embeddings(payload)
         embeddings = await asyncio.to_thread(
-            _extract_embeddings, resp_text, self._dim, self.model
+            _extract_embeddings, data, self._dim, self.model
         )
         return embeddings
