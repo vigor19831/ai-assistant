@@ -47,8 +47,6 @@ SAFE_PATTERNS: list[str] = [
     "pip-wheel-metadata",
     ".test_tmp",
     ".pytest_tmp",
-    ".env",
-    ".env.local",
 ]
 
 NEVER_TOUCH: set[str] = {
@@ -59,8 +57,8 @@ NEVER_TOUCH: set[str] = {
     "config.test.yaml",
     "pyproject.toml",
     "README.md",
-    "README_DEV.md",
     "AI_RULES.md",
+    ".env",
 }
 
 

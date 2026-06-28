@@ -99,18 +99,18 @@ def _install_deps(venv_py: str, root: Path) -> None:
     _ok("Dependencies installed")
 
 
-def _copy_config(root: Path) -> None:
-    """Copy config.example.yaml to config.yaml if not present."""
-    example = root / "config.example.yaml"
-    target = root / "config.yaml"
+def _copy_env(root: Path) -> None:
+    """Copy .env.example to .env if not present."""
+    example = root / ".env.example"
+    target = root / ".env"
     if target.exists():
-        _info("config.yaml already exists -- skipping")
+        _info(".env already exists -- skipping")
         return
     if not example.exists():
-        _error("config.example.yaml not found -- cannot create config.yaml")
+        _error(".env.example not found -- cannot create .env")
         return
     shutil.copy2(example, target)
-    _ok("config.yaml created from config.example.yaml")
+    _ok(".env created from .env.example")
 
 
 def _create_dirs(root: Path) -> None:
@@ -145,9 +145,11 @@ def _print_next_steps(root: Path) -> None:
     print("1. Activate the virtual environment:")
     print(f"   {activate_cmd}")
     print()
-    print("2. Edit config.yaml with your settings (LLM API endpoint, etc.)")
+    print("2. Edit .env with your API keys (or leave empty for local servers)")
     print()
-    print("3. Start the server:")
+    print("3. Edit config.yaml with your settings (LLM API endpoint, etc.)")
+    print()
+    print("4. Start the server:")
     print(f"   {venv_python} -m uvicorn ai_assistant.main:create_app --reload")
     print()
     print("   Then open http://localhost:8000 in your browser.")
@@ -173,7 +175,7 @@ def main() -> int:
     _create_venv(root, py)
     venv_py = _get_venv_python(root)
     _install_deps(venv_py, root)
-    _copy_config(root)
+    _copy_env(root)
     _create_dirs(root)
     _print_next_steps(root)
 

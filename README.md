@@ -43,7 +43,7 @@ The script will:
 - Check your Python version (3.11+ required)
 - Create a virtual environment (`.venv/`)
 - Install all dependencies
-- Copy `config.example.yaml` to `config.yaml`
+- Copy `.env.example` to `.env` and add your API keys (or leave empty for local servers without auth)
 - Create required data folders (`data/`, `sources/`)
 
 If Python is not installed, the script will open the download page in your browser.
@@ -101,7 +101,7 @@ If using Ollama, vLLM, or other external servers — start them separately.
 
 ## Configuration
 
-Edit `config.yaml` to point to your LLM and embedder endpoints. See `config.example.yaml` for all available options.
+Edit `config.yaml` to point to your LLM and embedder endpoints. All available options are documented inline with comments.
 
 ## Project Structure
 
@@ -149,8 +149,8 @@ ai-assistant/                          # Project root
 │   ├── models/
 │   └── llama/
 │
-├── config.example.yaml                # Config template
-├── config.yaml                        # Active config (created by setup)
+├── .env.example                       # Secret template (copy to .env)
+├── config.yaml                        # Active config
 ├── LICENSE
 ├── NOTICE
 ├── pyproject.toml                     # Dependencies, settings

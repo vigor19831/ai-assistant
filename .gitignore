@@ -114,6 +114,3 @@ docs/error_taxonomy.md
 
 # Test artifacts
 MagicMock/
-
-# Local config with secrets (config.example.yaml is tracked)
-config.yaml

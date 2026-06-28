@@ -1,0 +1,168 @@
+# AI Assistant — DEVELOPMENT / LOCAL Configuration
+# ============================================================================
+# This is the maintainer's working config for local development.
+# Secrets live in .env (AI_*_API_KEY variables), not in this file.
+# ============================================================================
+
+# ── Application ──
+app_name: ai-assistant
+debug: true                     # DEV ONLY: detailed traces, hot reload
+host: 0.0.0.0
+port: 8000
+config_version: "1"             # Sync with AppConfig default
+
+# ── CORS ──
+cors:
+  allow_origins:
+    - "http://localhost"
+    - "http://127.0.0.1"
+  allow_credentials: true
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+
+# ── Chat ──
+chat:
+  history_limit: 10
+  max_context_tokens: 4096      # Hard cap for 4K-context models; raise for 8K+
+  tokenizer_local_dir: "./data/tokenizers"
+
+# ── Chunker ──
+chunker:
+  provider: simple
+  chunk_size: 512
+  chunk_overlap: 50
+
+# ── Embedder ──
+# Local llama-server with nomic-embed-text or embeddinggemma
+# CPU-only: n_gpu_layers=0. For GPU: set to -1 (all) or layer count.
+embedder:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:8081/v1
+  api_key: null                 # Set via AI_EMBEDDER_API_KEY env var
+  model: embeddinggemma-300m-q8_0
+  dim: 768
+  timeout: 60.0
+  connect_timeout: 5.0
+  n_gpu_layers: 0               # 0=CPU, -1=all GPU layers, N=partial
+  n_batch: 512
+  n_ubatch: 64
+  mmap: true
+  mlock: false
+
+# ── LLM ──
+# Local llama-server with any GGUF model.
+# Adjust server_context_size and max_tokens to your model's actual limits.
+llm:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:8080/v1
+  api_key: null                 # Set via AI_LLM_API_KEY env var
+  model: gemma-4-e2b-it
+  available_models:
+    - gemma-4-e2b-it
+    - phi-4-mini-reasoning
+    - qwen3.5-4b
+  max_tokens: 4096
+  temperature: 0.7
+  top_p: 0.95
+  top_k: 40
+  min_p: 0.05
+  repeat_penalty: 1.1
+  presence_penalty: 0.0
+  frequency_penalty: 0.0
+  stop_sequences: []
+  timeout: 300.0
+  connect_timeout: 5.0
+  server_context_size: 4096     # MUST match model's actual context window
+  # llama.cpp performance tuning
+  n_gpu_layers: 99              # 99=almost all on GPU; 0 for CPU-only testing
+  n_batch: 512
+  n_ubatch: 64
+  mmap: true                    # Saves RAM; disable if on slow disk + plenty RAM
+  mlock: false                  # true = prevent swap (needs enough RAM)
+  # system_message: null        # Optional: override system prompt for this model
+
+# ── Vector Store ──
+vector_store:
+  provider: faiss
+  index_path: ./data/indices
+  metric: l2
+  dim: 768                      # MUST match embedder.dim
+  max_chunks: 100000
+  max_document_size: 10485760
+
+# ── Storage ──
+storage:
+  provider: sqlite
+  db_path: ./data/storage.db
+
+# ── Reranker ──
+# Disabled (null). Enable only if you have external reranker API.
+reranker:
+  provider: null                # YAML null = disabled; NOT string "null"
+  model: rerank-multilingual-v3.0
+  api_base: https://api.cohere.com
+  api_key: null                 # Set via AI_RERANKER_API_KEY env var
+  timeout: 30.0
+  threshold: 0.3
+
+# ── RAG ──
+rag:
+  steps:
+    - embed_query
+    - retrieve
+    - rerank
+    - build_context
+    - generate
+  prompt_version: v1
+  prompt_name: rag_strict
+  top_k: 5
+  default_namespace: "default"
+  relevance_threshold: 0.1
+  # max_tool_iterations: 5      # Reserved for future; currently unused
+  token_margin_min: 256
+  token_margin_pct: 0.1
+  chat_exports_root: "data/chat_exports"
+  index_chat_exports: false     # true = auto-index saved chats into RAG
+
+# ── Namespaces ──
+namespaces:
+  personal:
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
+  work:
+    threshold: 0.3
+    chunk_size: 1024
+    prompt: rag_creative
+  other:
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
+  code:
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
+  books:
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
+
+# ── Security ──
+security:
+  api_key: null                 # Set via AI_SECURITY_API_KEY env var
+  admin_enabled: true           # Enable /admin endpoints for dev
+  max_body_size: 10485760
+  allowed_hosts: ["localhost", "127.0.0.1"]
+  openai_routes_require_auth: false  # Local OpenAI-compatible UI access
+
+# ── Logging ──
+logging:
+  level: "INFO"
+  file: "./data/app.log"
+  format: "text"
+  max_bytes: 10485760
+  backup_count: 2
+
+# ── UI ──
+ui:
+  static_path: "../../ui"
