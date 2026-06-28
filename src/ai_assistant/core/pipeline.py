@@ -53,7 +53,7 @@ class RAGPipeline:
             "retrieve": {"vector_store"},
             "rerank": {"reranker"},
             "build_context": set(),
-            "generate": {"llm", "pipeline_config", "tokenizer_model"},
+            "generate": {"llm", "pipeline_config"},
             "hyde_query": {"embedder", "llm"},
         }
         required: set[str] = set()

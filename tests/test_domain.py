@@ -362,7 +362,7 @@ class TestPipelineDataCompatibility:
         assert data.llm is None
         assert data.pipeline_config is None
         assert data.query_embedding is None
-        assert data.tokenizer_model is None
+        assert data.tokenizer is None
         assert data.rerank_filtered_out is None
         assert data.rerank_scores is None
 

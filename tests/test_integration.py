@@ -266,7 +266,6 @@ class TestIntegrationChatRAG:
             vector_store=vector_store,
             reranker=reranker,
             llm=llm,
-            tokenizer_model="gpt-4o",
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
             pipeline_config=PipelineConfig(
                 top_k=5,
@@ -334,7 +333,6 @@ class TestIntegrationFullRAG:
             vector_store=vector_store,
             reranker=reranker,
             llm=llm,
-            tokenizer_model="gpt-4o",
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
             pipeline_config=PipelineConfig(
                 top_k=5,
@@ -444,7 +442,6 @@ class TestIntegrationAPIInit:
             vector_store=state.vector_store,
             reranker=state.reranker,
             llm=state.llm,
-            tokenizer_model="gpt-4o",
             tokenizer=state.tokenizer,
             pipeline_config=PipelineConfig(
                 top_k=3,
@@ -529,7 +526,6 @@ class TestIntegrationAPIInit:
             vector_store=state.vector_store,
             reranker=state.reranker,
             llm=state.llm,
-            tokenizer_model="gpt-4o",
             tokenizer=state.tokenizer,
             pipeline_config=PipelineConfig(
                 top_k=3,

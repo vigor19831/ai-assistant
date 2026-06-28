@@ -72,7 +72,6 @@ class ChatConfig(BaseSettings):
     history_limit: int = 10
     max_history_messages: int = 10_000
     max_context_tokens: int | None = None
-    tokenizer_model: str = "gpt-4o"
     tokenizer_local_dir: str = "./data/tokenizers"
 
 

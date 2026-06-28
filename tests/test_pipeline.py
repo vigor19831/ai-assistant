@@ -439,7 +439,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model=None,  # generate now uses tokenizer.model_name
             tokenizer=tokenizer,
         )
 
@@ -484,7 +483,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model=None,  # generate uses tokenizer.model_name
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -519,7 +517,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model=None,  # generate uses tokenizer.model_name
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         _result = await generate(data)
@@ -540,7 +537,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=None,
-            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -559,7 +555,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=FakeLLM(),
-            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -590,7 +585,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -621,7 +615,6 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)

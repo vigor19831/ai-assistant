@@ -337,7 +337,7 @@ async def generate(data: PipelineData) -> PipelineData:
         IN:  llm (ILLM) — required.
              pipeline_config (PipelineConfig) — provides prompt_name,
                  prompt_version, token_margin_min, token_margin_pct.
-             tokenizer_model (str) — required for token estimation.
+             tokenizer (ITokenizer) — required; model_name used for token estimation.
         DATA: query (UserMessage), context (str), chunks (tuple[Chunk, ...]).
         OUT: response (AssistantMessage).
     """

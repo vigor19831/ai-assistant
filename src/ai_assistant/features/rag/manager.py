@@ -160,7 +160,6 @@ class RAGManager:
             vector_store=self.vector_store,
             reranker=self.reranker,
             pipeline_config=pipeline_config,
-            tokenizer_model=self.tokenizer.model_name if self.tokenizer is not None else None,
             tokenizer=self.tokenizer,
         )
         try:
