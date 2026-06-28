@@ -112,7 +112,6 @@ class RAGManager:
         reranker: IReranker,
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
-        tokenizer_model: str = "gpt-4o",
         tokenizer: ITokenizer | None = None,
     ) -> None:
         self.pipeline = RAGPipeline(
@@ -130,7 +129,6 @@ class RAGManager:
         self.reranker = reranker
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
-        self.tokenizer_model = tokenizer_model
         self.tokenizer = tokenizer
 
     async def query(
@@ -162,7 +160,7 @@ class RAGManager:
             vector_store=self.vector_store,
             reranker=self.reranker,
             pipeline_config=pipeline_config,
-            tokenizer_model=self.tokenizer_model,
+            tokenizer_model=self.tokenizer.model_name if self.tokenizer is not None else None,
             tokenizer=self.tokenizer,
         )
         try:

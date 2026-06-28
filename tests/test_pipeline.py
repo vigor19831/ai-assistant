@@ -428,6 +428,7 @@ class TestGenerate:
         When: generate is called.
         Then: no truncation needed; LLM is called."""
         llm = FakeLLM("answer")
+        tokenizer = CharFallbackTokenizer(TokenizerConfigData())
         data = PipelineData(
             query=UserMessage(text="question"),
             chunks=[Chunk(id="c1", text="context")],
@@ -438,13 +439,13 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model="gpt-4o",
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+            tokenizer_model=None,  # generate now uses tokenizer.model_name
+            tokenizer=tokenizer,
         )
 
         # Mock _estimate_tokens to return exactly the limit
-        # Production calls pass model explicitly from metadata
-        async def mock_estimate(text, model="gpt-4o", tokenizer=None):
+        # Production calls use tokenizer.model_name internally
+        async def mock_estimate(text, tokenizer=None):
             # limit = 4096 - max(256, int(4096 * 0.1)) = 3686
             return 3686
 
@@ -483,7 +484,7 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model="gpt-4o",
+            tokenizer_model=None,  # generate uses tokenizer.model_name
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -518,7 +519,7 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model="gpt-4o",
+            tokenizer_model=None,  # generate uses tokenizer.model_name
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         _result = await generate(data)
@@ -539,7 +540,7 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=None,
-            tokenizer_model="gpt-4o",
+            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -558,7 +559,7 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=FakeLLM(),
-            tokenizer_model="gpt-4o",
+            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -589,7 +590,7 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model="gpt-4o",
+            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
@@ -620,7 +621,7 @@ class TestGenerate:
                 token_margin_pct=0.1,
             ),
             llm=llm,
-            tokenizer_model="gpt-4o",
+            tokenizer_model=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)

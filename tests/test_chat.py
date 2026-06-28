@@ -147,7 +147,6 @@ def manager_with_tokenizer():
         llm=mock_llm,
         reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=100,
-        tokenizer_model="gpt-4o",
         history_limit=10,
         storage=None,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),

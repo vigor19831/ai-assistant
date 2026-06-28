@@ -136,7 +136,6 @@ class ChatManager:
         history_limit: int = 10,
         max_history_messages: int = 10_000,
         max_context_tokens: int | None = None,
-        tokenizer_model: str = "gpt-4o",
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
         namespaces: dict[str, Any] | None = None,
@@ -153,7 +152,6 @@ class ChatManager:
         self.history_limit = history_limit
         self.max_history_messages = max_history_messages
         self.max_context_tokens = max_context_tokens
-        self.tokenizer_model = tokenizer_model
         self.embedder = embedder
         self.vector_store = vector_store
         self.namespaces = namespaces or {}
@@ -198,7 +196,7 @@ class ChatManager:
     async def _count_tokens(self, text: str) -> int:
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer not configured")
-        return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer_model)
+        return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer.model_name)
 
     async def _trim_history(
         self,
@@ -281,7 +279,7 @@ class ChatManager:
             vector_store=self.vector_store,
             reranker=self.reranker,
             pipeline_config=pipeline_config,
-            tokenizer_model=self.tokenizer_model,
+            tokenizer_model=self.tokenizer.model_name if self.tokenizer is not None else None,
             tokenizer=self.tokenizer,
         )
 

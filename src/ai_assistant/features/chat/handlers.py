@@ -1,3 +1,4 @@
+
 """Chat feature HTTP handlers."""
 
 from __future__ import annotations
@@ -52,7 +53,6 @@ def _get_chat_manager(
         storage=state.storage,
         history_limit=state.config.chat.history_limit,
         max_context_tokens=state.config.chat.max_context_tokens,
-        tokenizer_model=state.config.chat.tokenizer_model,
         embedder=state.embedder,
         vector_store=state.vector_store,
         namespaces=state.config.namespaces,
