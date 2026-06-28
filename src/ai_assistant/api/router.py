@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import time
+from importlib.metadata import version as _get_version
 from typing import Any
 
 from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel
 from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api import admin
@@ -30,11 +33,38 @@ _ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics", "admin"})
 # Metrics router — no API key, Prometheus-compatible exposition format
 _metrics_router = APIRouter(tags=["metrics"])
 
+_START_TIME = time.time()
+
+
+def _load_version() -> str:
+    """Read version from installed package metadata (stdlib, works in wheel)."""
+    try:
+        return _get_version("ai-assistant")
+    except Exception:
+        return "unknown"
+
+
+_VERSION = _load_version()
+
+
+class _HealthResponse(BaseModel):
+    status: str
+    version: str
+    uptime_seconds: float
+
+
+@_metrics_router.get("/health", response_model=_HealthResponse)
+async def _health_endpoint() -> _HealthResponse:
+    return _HealthResponse(
+        status="ok",
+        version=_VERSION,
+        uptime_seconds=round(time.time() - _START_TIME, 2),
+    )
+
 
 @_metrics_router.get("/metrics", response_class=Response)
 async def _metrics_endpoint() -> Response:
     return Response(content=get_metrics(), media_type="text/plain; version=0.0.4")
-
 
 @_metrics_router.get("/metrics/json")
 async def _metrics_json_endpoint() -> dict[str, Any]:
