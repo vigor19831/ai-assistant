@@ -277,18 +277,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
 
     state.rag_state = RAGState()
 
-    if state.llm is None:
-        raise RuntimeError("LLM adapter failed to initialize")
-    if state.embedder is None:
-        raise RuntimeError("Embedder adapter failed to initialize")
-    if state.vector_store is None:
-        raise RuntimeError("Vector store adapter failed to initialize")
     if state.storage is None:
         raise RuntimeError("Storage adapter failed to initialize")
-    if state.tokenizer is None:
-        raise RuntimeError("Tokenizer adapter failed to initialize")
-    if state.chunker is None:
-        raise RuntimeError("Chunker adapter failed to initialize")
     return InitializedAppState(
         config=cfg,
         llm=state.llm,
