@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-29 05:16 UTC
+> Auto-generated from source code. Updated: 2026-06-29 06:09 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -130,7 +130,6 @@
 | `api.lifespan` | `Exception` | logger.exception( | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Index save failed") | Medium |
 | `api.lifespan` | `Exception` | logger.exception("Adapter shutdown failed", extra={"adapter" | Medium |
-| `api.lifespan` | `Exception` | logger.exception("HTTP client close failed") | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning( | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium |
 | `api.router` | `Exception` | return "unknown" | Medium |

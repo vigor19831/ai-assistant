@@ -118,7 +118,6 @@ rag:
   top_k: 5
   default_namespace: "default"
   relevance_threshold: 0.1
-  # max_tool_iterations: 5      # Reserved for future; currently unused
   token_margin_min: 256
   token_margin_pct: 0.1
   chat_exports_root: "data/chat_exports"

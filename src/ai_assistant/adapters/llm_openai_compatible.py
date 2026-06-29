@@ -212,8 +212,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
     ) -> AsyncIterator[str]:
         """Actual streaming implementation.
 
-        Tool calls in streaming mode are ignored — IToolRegistry is not
-        implemented (FUTURE.md: blocked). Only text content is yielded.
+        Tool calls in streaming mode are ignored — IToolRegistry is
+        not implemented. Only text content is yielded.
         """
         self._check_open()
         url = f"{self.api_base}/chat/completions"

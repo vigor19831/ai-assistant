@@ -1,13 +1,8 @@
-"""Tool port — external capabilities (calculator, search, APIs, code execution.
+"""Tool port — external capabilities (calculator, search, APIs, code execution).
 
 This enables the LLM to call external tools, similar to OpenAI function calling
 but framework-agnostic. ToolRegistry manages available tools; ITool is the
 interface for individual tool implementations.
-
-Future directions:
-- MCP (Model Context Protocol) adapter
-- Local code execution sandbox
-- Hardware control (robotics, IoT)
 """
 
 from __future__ import annotations

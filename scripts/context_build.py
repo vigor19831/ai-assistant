@@ -40,7 +40,7 @@ HARD_EXCLUDED = {
 SPECIAL_DIRS = {"docs", "scripts", "tests"}
 
 # Docs files that are ALWAYS embedded in context (search in root and docs/)
-REQUIRED_DOCS = ["ai_rules.md", "error_taxonomy.md", "DRIFT.md", "FUTURE.md"]
+REQUIRED_DOCS = ["ai_rules.md", "error_taxonomy.md", "DRIFT.md"]
 
 # Files that are ALWAYS full in compact mode (except tests/scripts)
 ALWAYS_FULL = {
