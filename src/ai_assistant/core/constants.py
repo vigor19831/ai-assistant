@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-__all__ = ["CHAT_NS_PREFIX", "FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
+__all__ = ["CHAT_NS_PREFIX", "DEFAULT_NAMESPACE", "FROZEN_NO_INFO_PHRASES", "RAG_NS_MAP", "RAG_PREFIX_RE"]
 
 RAG_NS_MAP: dict[str, str] = {
     "p": "personal",
@@ -14,6 +14,8 @@ RAG_NS_MAP: dict[str, str] = {
     "b": "books",
 }
 RAG_PREFIX_RE: re.Pattern[str] = re.compile(r"^\[(p|w|o|c|b)\]\s*(.*)", re.IGNORECASE)
+
+DEFAULT_NAMESPACE = "default"
 
 CHAT_NS_PREFIX = "chat_"
 

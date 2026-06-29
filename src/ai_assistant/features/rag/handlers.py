@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import time
 import uuid
 from pathlib import Path
@@ -295,14 +294,6 @@ async def save_chat(
 ) -> dict[str, Any]:
     trace_id = uuid.uuid4().hex
     namespace = req.namespace
-    if not re.match(r"^[a-z]+$", namespace):
-        _logger.warning(
-            "Invalid namespace in save-chat",
-            extra={"trace_id": trace_id, "namespace": namespace},
-        )
-        raise HTTPException(
-            status_code=400, detail="Invalid namespace: must be lowercase letters only"
-        )
     filename = req.filename
     content = req.content
 

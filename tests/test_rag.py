@@ -493,22 +493,14 @@ class TestChatExportIsolation:
     @pytest.mark.asyncio
     async def test_save_chat_rejects_invalid_namespace(self, mock_state, tmp_path):
         """Given: namespace contains path traversal or invalid chars.
-        When: saveChat handler processes the request.
-        Then: HTTPException 400 is raised before any filesystem access."""
-        from ai_assistant.features.rag.handlers import save_chat
+        When: SaveChatRequest is constructed.
+        Then: Pydantic validation error is raised before handler runs."""
         from ai_assistant.features.rag.schemas import SaveChatRequest
-
-        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
 
         invalid_namespaces = ["../etc", "foo/bar", "Foo", "123", "chat_"]
         for ns in invalid_namespaces:
-            req = SaveChatRequest.model_construct(
-                content="test", namespace=ns, filename="test.md"
-            )
-            with pytest.raises(HTTPException) as exc_info:
-                await save_chat(req, mock_state)
-            assert exc_info.value.status_code == 400
-            assert "invalid namespace" in exc_info.value.detail.lower()
+            with pytest.raises(ValueError):
+                SaveChatRequest(content="test", namespace=ns, filename="test.md")
 
     @pytest.mark.asyncio
     async def test_chat_export_not_indexed_by_default(self, mock_state, tmp_path):
@@ -924,17 +916,12 @@ class TestRAGHandlersTraceId:
         _assert_all_logs_have_trace_id(caplog)
 
     @pytest.mark.asyncio
-    async def test_save_chat_invalid_namespace_logs_trace_id(self, caplog, mock_state):
+    async def test_save_chat_invalid_namespace_rejected_by_schema(self, caplog, mock_state):
         caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
 
-        req = SaveChatRequest.model_construct(
-            content="hello", namespace="INVALID", filename="chat.md"
-        )
-        with pytest.raises(HTTPException) as exc_info:
-            await save_chat(req, mock_state)
-
-        assert exc_info.value.status_code == 400
-        _assert_all_logs_have_trace_id(caplog)
+        # Pydantic rejects invalid namespace before handler runs
+        with pytest.raises(ValueError):
+            SaveChatRequest(content="hello", namespace="INVALID", filename="chat.md")
 
     @pytest.mark.asyncio
     async def test_save_chat_indexing_enabled_logs_trace_id(self, caplog, mock_state, tmp_path):
