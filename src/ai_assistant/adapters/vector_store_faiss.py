@@ -313,9 +313,9 @@ class FaissVectorStore(IVectorStore):
     async def save(self, path: str, namespace: str = "default") -> None:
         """Persist namespace index + metadata atomically.
 
-        Both the FAISS binary index and the JSON metadata store are written
-        via temp-file + atomic rename. If a crash occurs during save(),
-        the previous files remain intact.
+        Writes both files into a temporary directory, then renames them
+        into place. If a crash occurs during save(), the previous files
+        remain intact because the rename is the final step.
         """
         async with self._lock:
             ns = self._get_ns(namespace)
@@ -323,21 +323,42 @@ class FaissVectorStore(IVectorStore):
                 return
             base = anyio.Path(path)
             await base.mkdir(parents=True, exist_ok=True)
-            index_file = str(base / f"{namespace}.faiss")
-            store_file = str(base / f"{namespace}.store.json")
+            index_file = base / f"{namespace}.faiss"
+            store_file = base / f"{namespace}.store.json"
 
-            # Save FAISS index atomically
-            await asyncio.to_thread(self._atomic_write_faiss, ns.index, index_file)
-
-            # Save metadata store atomically (already atomic via atomic_write)
+            # Prepare data
             store_data = {
                 "dim": self.config.dim,
                 "metric": self.config.metric,
                 "chunks": [_chunk_to_dict(c) for c in ns.chunks.values()],
             }
-            await atomic_write(
-                store_file, json.dumps(store_data, ensure_ascii=False)
-            )
+
+            # Write both files into a temp directory, then rename into place
+            tmp_dir = base / f".{namespace}.tmp"
+            await tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_index = tmp_dir / f"{namespace}.faiss"
+            tmp_store = tmp_dir / f"{namespace}.store.json"
+
+            try:
+                await asyncio.to_thread(
+                    self._atomic_write_faiss, ns.index, str(tmp_index)
+                )
+                await atomic_write(
+                    str(tmp_store), json.dumps(store_data, ensure_ascii=False)
+                )
+                # Atomic rename: old files replaced only after both are ready
+                await asyncio.to_thread(os.replace, str(tmp_index), str(index_file))
+                await asyncio.to_thread(os.replace, str(tmp_store), str(store_file))
+            except Exception:
+                # Clean up temp files on failure; leave original files untouched
+                with contextlib.suppress(OSError):
+                    await tmp_index.unlink(missing_ok=True)
+                with contextlib.suppress(OSError):
+                    await tmp_store.unlink(missing_ok=True)
+                raise
+            finally:
+                with contextlib.suppress(OSError):
+                    await tmp_dir.rmdir()
 
     async def load(self, path: str, namespace: str = "default") -> None:
         """Load namespace index + metadata. Validate version.

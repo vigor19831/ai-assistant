@@ -103,44 +103,43 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     degraded = False
 
     # 1. Persist indices FIRST — metrics/adapter shutdown may block/hang
-    if state.vector_store is not None:
+    try:
         index_path = state.vector_store.index_path
-        try:
-            namespaces = await state.vector_store.list_namespaces(index_path)
-            saved = 0
-            for ns in namespaces:
-                try:
-                    await _save_index_with_timeout(
-                        state.vector_store, index_path, ns
-                    )
-                    logger.info(
-                        "Index saved", extra={"path": index_path, "namespace": ns}
-                    )
-                    saved += 1
-                except TimeoutError:
-                    logger.warning(
-                        "Index save timed out",
-                        extra={"path": index_path, "namespace": ns},
-                    )
-                    degraded = True
-                except Exception:
-                    logger.exception(
-                        "Index save failed after retries",
-                        extra={"path": index_path, "namespace": ns},
-                    )
-                    degraded = True
-            logger.info(
-                "Indices persisted",
-                extra={"saved": saved, "total": len(namespaces)},
-            )
-            if degraded:
-                logger.critical(
-                    "Shutdown degraded: one or more indices failed to persist"
+        namespaces = await state.vector_store.list_namespaces(index_path)
+        saved = 0
+        for ns in namespaces:
+            try:
+                await _save_index_with_timeout(
+                    state.vector_store, index_path, ns
                 )
-                app.state.shutdown_degraded = True
-        except Exception:
-            logger.exception("Index save failed")
+                logger.info(
+                    "Index saved", extra={"path": index_path, "namespace": ns}
+                )
+                saved += 1
+            except TimeoutError:
+                logger.warning(
+                    "Index save timed out",
+                    extra={"path": index_path, "namespace": ns},
+                )
+                degraded = True
+            except Exception:
+                logger.exception(
+                    "Index save failed after retries",
+                    extra={"path": index_path, "namespace": ns},
+                )
+                degraded = True
+        logger.info(
+            "Indices persisted",
+            extra={"saved": saved, "total": len(namespaces)},
+        )
+        if degraded:
+            logger.critical(
+                "Shutdown degraded: one or more indices failed to persist"
+            )
             app.state.shutdown_degraded = True
+    except Exception:
+        logger.exception("Index save failed")
+        app.state.shutdown_degraded = True
 
     # 2. Graceful adapter shutdown — add new closable adapters here
     adapters = (
@@ -153,14 +152,13 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     )
 
     for adapter, name in adapters:
-        if adapter is not None:
-            try:
-                await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
-                logger.info("Adapter shutdown complete", extra={"adapter": name})
-            except TimeoutError:
-                logger.warning("Adapter shutdown timed out", extra={"adapter": name})
-            except Exception:
-                logger.exception("Adapter shutdown failed", extra={"adapter": name})
+        try:
+            await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
+            logger.info("Adapter shutdown complete", extra={"adapter": name})
+        except TimeoutError:
+            logger.warning("Adapter shutdown timed out", extra={"adapter": name})
+        except Exception:
+            logger.exception("Adapter shutdown failed", extra={"adapter": name})
 
     # Adapters own their HTTP clients; each closes its own in shutdown()
 

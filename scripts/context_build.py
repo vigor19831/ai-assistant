@@ -30,13 +30,10 @@ logger = logging.getLogger("context_build")
 HARD_EXCLUDED = {
     ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
     ".venv", "venv", "env", ".env", "node_modules", ".idea", ".vscode",
-    "dist", "build", "*.egg-info",
+    "dist", "build",
     "data", "sources", "vendor",
     ".test_tmp", ".hypothesis",
 }
-
-# Scanned, but processing depends on mode
-SPECIAL_DIRS = {"docs", "scripts", "tests"}
 
 # Docs files that are ALWAYS embedded in context (search in root and docs/)
 REQUIRED_DOCS = ["ai_rules.md", "architectural_strategy.md", "DRIFT.md"]
@@ -99,7 +96,7 @@ def extract_imports(source: str) -> tuple[list[str], list[str]]:
             if mod.startswith("ai_assistant"):
                 names = ", ".join(a.name for a in node.names)
                 internal.append(f"{mod}: {names}")
-            elif not mod.startswith("."):
+            elif mod and not mod.startswith("."):
                 external.append(mod.split(".")[0])
         elif isinstance(node, ast.Import):
             for alias in node.names:
@@ -139,20 +136,22 @@ def scan(root: Path, mode: str):
                 continue
 
             size = path.stat().st_size
-            metrics["total"] += 1
+
+            is_py = rel.endswith(".py")
+            basename = os.path.basename(rel)
 
             # docs — do not read content (except REQUIRED_DOCS, added later)
             if is_docs:
                 continue  # skip, REQUIRED_DOCS will be added later
 
-            # Read content
-            try:
-                content = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-
-            is_py = rel.endswith(".py")
-            basename = os.path.basename(rel)
+            # Read content only if needed for this mode
+            need_content = mode != "rules" or is_py
+            content = None
+            if need_content:
+                try:
+                    content = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
 
             if is_py:
                 metrics["py"] += 1
@@ -171,10 +170,12 @@ def scan(root: Path, mode: str):
             # Determine display type
             if mode == "rules":
                 all_files.append((rel, None, size, "listed"))
+                metrics["total"] += 1
 
             elif mode == "full":
                 # In full: scripts and tests fully, others too
                 all_files.append((rel, content, size, "full"))
+                metrics["total"] += 1
 
             else:  # compact
                 if is_scripts or is_tests:
@@ -186,6 +187,7 @@ def scan(root: Path, mode: str):
                     all_files.append((rel, content, size, "signature"))
                 else:
                     all_files.append((rel, content, size, "listed"))
+                metrics["total"] += 1
 
     # Add REQUIRED_DOCS separately (search in root and docs/)
     for doc_name in REQUIRED_DOCS:
@@ -260,7 +262,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     doc_files = [(r, c) for r, c, s, t in all_files if t == "doc"]
     full_files = [(r, c) for r, c, s, t in all_files if t == "full"]
     sig_files = [(r, c) for r, c, s, t in all_files if t == "signature"]
-    listed_files = [(r, s) for r, c, s, t in all_files if t == "listed"]
+    listed_files = [r for r, c, s, t in all_files if t == "listed"]
 
     lines = [
         "# AI Context",
@@ -272,7 +274,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
         "",
     ]
 
-    # README — excluded from AI context (user-facing docs, not code)
+    # README — content excluded from AI context, file listed in inventory
     # readme = root / "README.md"
     # if readme.exists():
     #     lines.extend([
@@ -286,9 +288,15 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     #     ])
 
     # AI Rules (from doc_files)
+    _DOC_TITLES = {
+        "ai_rules.md": "AI Development Guidelines",
+        "architectural_strategy.md": "Architectural Strategy",
+        "DRIFT.md": "Known Drift",
+    }
     for rel, content in doc_files:
+        title = _DOC_TITLES.get(rel, "Project Documentation")
         lines.extend([
-            "## 🚨 AI Development Guidelines",
+            f"## 🚨 {title}",
             f"> Auto-extracted from: `{rel}`",
             "```markdown",
             content[:25000],
@@ -328,7 +336,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
             lines.append(f"- `{rel}`")
             for imp in imports:
                 lines.append(f"  - → `{imp}`")
-        lines.extend(["", "---", ""])
+            lines.extend(["", "---", ""])
 
     # File Inventory
     lines.extend(["## 📦 Files", ""])
@@ -344,7 +352,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
         lines.append("")
     if listed_files:
         lines.append("### Listed Only (no content)")
-        for r, _ in sorted(listed_files):
+        for r in sorted(listed_files):
             lines.append(f"- `{r}`")
         lines.append("")
     lines.extend(["---", ""])
@@ -353,7 +361,20 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     if full_files:
         lines.extend(["## 🔑 Full Code", ""])
         for rel, content in sorted(full_files, key=lambda x: x[0]):
-            ext = "python" if rel.endswith(".py") else "text"
+            if rel.endswith(".py"):
+                ext = "python"
+            elif rel.endswith((".yaml", ".yml")):
+                ext = "yaml"
+            elif rel.endswith(".toml"):
+                ext = "toml"
+            elif rel.endswith(".json"):
+                ext = "json"
+            elif rel.endswith(".md"):
+                ext = "markdown"
+            elif rel.endswith(".j2"):
+                ext = "jinja"
+            else:
+                ext = "text"
             lines.extend([f"### `{rel}`", f"```{ext}", content, "```", ""])
 
     # Signatures
@@ -373,8 +394,12 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
 def write_file(path: Path, content: str):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 # ============================================================================
@@ -411,8 +436,15 @@ def menu():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["rules", "compact", "full"], default="rules")
+    parser.add_argument("--mode", choices=["rules", "compact", "full"], default="compact")
     parser.add_argument("--output", default=None)
+
+    if len(sys.argv) <= 1:
+        mode = menu()
+        args = parser.parse_args([])  # Get defaults for output
+    else:
+        args = parser.parse_args()
+        mode = args.mode
 
     root = find_project_root()
 
@@ -420,18 +452,13 @@ def main():
     if script_parent.name == "scripts" and script_parent.parent.exists():
         root = script_parent.parent
 
-    if len(sys.argv) <= 1:
-        mode = menu()
-    else:
-        mode = parser.parse_args().mode
-
     all_files, py_files, metrics = scan(root, mode)
 
     logger.info("Total: %d | Python: %d | LOC: %d", metrics["total"], metrics["py"], metrics["loc"])
 
     md = build_markdown(root, mode, all_files, py_files, metrics)
 
-    out_name = (len(sys.argv) > 1 and sys.argv[sys.argv.index("--output") + 1] if "--output" in sys.argv else None) or f"context_build_{mode}.md"
+    out_name = args.output or f"context_build_{mode}.md"
     out_path = root / out_name
     write_file(out_path, md)
 

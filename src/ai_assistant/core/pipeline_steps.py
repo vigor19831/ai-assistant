@@ -346,11 +346,11 @@ async def generate(data: PipelineData) -> PipelineData:
     if llm is None:
         _logger.warning("generate: no llm", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_NOT_PROVIDED)
-    if data.query is None:
+    if data.query is None or not data.query.text:
         _logger.warning("generate: no query", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_MISSING)
 
-    query_text = data.query.text or "  "
+    query_text = data.query.text
     cfg = data.pipeline_config
     if cfg is None:
         cfg = PipelineConfig()
