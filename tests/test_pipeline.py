@@ -106,7 +106,7 @@ class TestEmbedQuery:
         When: embed_query is called.
         Then: QUERY_TEXT_MISSING error is added."""
         embedder = FakeEmbedder()
-        data = PipelineData(query=UserMessage(text=""))
+        data = PipelineData(query=UserMessage(text=""), pipeline_config=PipelineConfig())
         data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
@@ -125,7 +125,7 @@ class TestEmbedQuery:
                 return []
 
         embedder = EmptyEmbedder()
-        data = PipelineData(query=UserMessage(text="hello"))
+        data = PipelineData(query=UserMessage(text="hello"), pipeline_config=PipelineConfig())
         data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
@@ -136,7 +136,7 @@ class TestEmbedQuery:
         """Given: no embedder (None value).
         When: embed_query is called.
         Then: EMBEDDER_NOT_PROVIDED error is added."""
-        data = PipelineData(query=UserMessage(text="hello"))
+        data = PipelineData(query=UserMessage(text="hello"), pipeline_config=PipelineConfig())
         data = replace(data, embedder=None)
         result = await embed_query(data)
         assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
@@ -147,7 +147,7 @@ class TestEmbedQuery:
         When: embed_query is called.
         Then: QUERY_TEXT_MISSING error is added."""
         embedder = FakeEmbedder()
-        data = PipelineData()
+        data = PipelineData(pipeline_config=PipelineConfig())
         data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
@@ -247,6 +247,7 @@ class TestBuildContext:
         Then: empty texts are skipped."""
         data = PipelineData(
             query=UserMessage(text="hello"),
+            pipeline_config=PipelineConfig(),
             chunks=[
                 Chunk(id="c1", text="valid"),
                 Chunk(id="c2", text=""),
@@ -263,6 +264,7 @@ class TestBuildContext:
         long_text = "word " * 10000
         data = PipelineData(
             query=UserMessage(text="hello"),
+            pipeline_config=PipelineConfig(),
             chunks=[
                 Chunk(id="c1", text=long_text),
                 Chunk(id="c2", text="tail"),
@@ -280,6 +282,7 @@ class TestBuildContext:
         Then: context equals that text."""
         data = PipelineData(
             query=UserMessage(text="hello"),
+            pipeline_config=PipelineConfig(),
             chunks=[Chunk(id="c1", text="only")],
         )
         result = await build_context(data)
@@ -290,7 +293,7 @@ class TestBuildContext:
         """Given: no chunks.
         When: build_context is called.
         Then: context is empty string."""
-        data = PipelineData(query=UserMessage(text="hello"))
+        data = PipelineData(query=UserMessage(text="hello"), pipeline_config=PipelineConfig())
         result = await build_context(data)
         assert result.context == ""
 
@@ -644,6 +647,7 @@ class TestHydeQuery:
             query=UserMessage(text="What is the capital of France?"),
             embedder=embedder,
             llm=llm,
+            pipeline_config=PipelineConfig(),
         )
         result = await hyde_query(data)
         assert any("empty hypothetical answer" in e for e in result.errors)
@@ -659,6 +663,7 @@ class TestHydeQuery:
             query=UserMessage(text="question"),
             llm=llm,
             embedder=None,
+            pipeline_config=PipelineConfig(),
         )
         result = await hyde_query(data)
         assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
@@ -673,6 +678,7 @@ class TestHydeQuery:
             query=UserMessage(text="question"),
             embedder=embedder,
             llm=None,
+            pipeline_config=PipelineConfig(),
         )
         result = await hyde_query(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)

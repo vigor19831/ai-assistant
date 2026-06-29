@@ -21,6 +21,7 @@ from ai_assistant.core.domain.errors import (
     QUERY_TEXT_MISSING,
     VECTOR_STORE_NOT_PROVIDED,
     AdapterError,
+    ConfigurationError,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
@@ -71,6 +72,19 @@ def step(
         return func
 
     return decorator
+
+
+def _get_config(data: PipelineData) -> PipelineConfig:
+    """Return pipeline config, raising if missing.
+
+    RAGPipeline.run() pre-check guarantees this never raises in normal
+    execution. The explicit check exists for type narrowing (mypy) and
+    for direct step calls in tests.
+    """
+    cfg = data.pipeline_config
+    if cfg is None:
+        raise ConfigurationError("pipeline_config is required in PipelineData")
+    return cfg
 
 
 async def _estimate_tokens(text: str, tokenizer: ITokenizer) -> int:
@@ -140,9 +154,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
     if data.query is None or not data.query.text:
         _logger.warning("embed_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
-    cfg = data.pipeline_config
-    if cfg is None:
-        cfg = PipelineConfig()
+    cfg = _get_config(data)
     retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
     try:
         embeddings = await _call_embed(embedder, data.query.text, retry_cfg)
@@ -183,9 +195,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
         _logger.warning("retrieve: no embedding", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
-        cfg = data.pipeline_config
-        if cfg is None:
-            cfg = PipelineConfig()
+        cfg = _get_config(data)
         top_k = cfg.top_k
         namespace = cfg.namespace
         retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
@@ -231,9 +241,7 @@ async def rerank(data: PipelineData) -> PipelineData:
     try:
         _raw_query = data.query.text if data.query is not None else None
         query = _raw_query if _raw_query is not None else " "
-        cfg = data.pipeline_config
-        if cfg is None:
-            cfg = PipelineConfig()
+        cfg = _get_config(data)
         top_k = cfg.top_k
         threshold = cfg.relevance_threshold
         retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
@@ -351,9 +359,7 @@ async def generate(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_MISSING)
 
     query_text = data.query.text
-    cfg = data.pipeline_config
-    if cfg is None:
-        cfg = PipelineConfig()
+    cfg = _get_config(data)
     prompt_version = cfg.prompt_version
     prompt_name = cfg.prompt_name
     retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
@@ -456,9 +462,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         _logger.warning("hyde_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
 
-    cfg = data.pipeline_config
-    if cfg is None:
-        cfg = PipelineConfig()
+    cfg = _get_config(data)
     retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
 
     # Generate hypothetical answer
