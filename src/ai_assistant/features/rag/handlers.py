@@ -210,7 +210,6 @@ async def delete_chunks(
 ) -> DeleteResponse:
     trace_id = uuid.uuid4().hex
     namespace = req.namespace or state.config.rag.default_namespace
-    errors: list[str] = []
     deleted = 0
     try:
         if req.chunk_ids:
@@ -240,8 +239,10 @@ async def delete_chunks(
             "Delete chunks failed",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
-        errors.append("Internal server error")
-    return DeleteResponse(deleted_chunks=deleted, errors=errors)
+        raise HTTPException(
+            status_code=500, detail="Internal server error"
+        ) from None
+    return DeleteResponse(deleted_chunks=deleted, errors=[])
 
 
 @router.get("/health", response_model=HealthResponse)

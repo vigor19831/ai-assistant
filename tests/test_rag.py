@@ -864,9 +864,11 @@ class TestRAGHandlersTraceId:
         mock_state.vector_store.delete = AsyncMock(side_effect=RuntimeError("boom"))
 
         req = DeleteRequest(chunk_ids=["c1"], namespace="default")
-        resp = await delete_chunks(req, mock_state)
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_chunks(req, mock_state)
 
-        assert resp.errors == ["Internal server error"]
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Internal server error"
         _assert_all_logs_have_trace_id(caplog)
 
     @pytest.mark.asyncio
