@@ -116,7 +116,9 @@ async def index_documents(
                 "Auto-save failed",
                 extra={"trace_id": trace_id, "namespace": namespace},
             )
-            result.setdefault("errors", []).append("Internal server error")
+            raise HTTPException(
+                status_code=500, detail="Internal server error"
+            ) from None
 
     duration_ms = int((time.perf_counter() - start) * 1000)
     _logger.info(

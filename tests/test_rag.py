@@ -800,9 +800,11 @@ class TestRAGHandlersTraceId:
                 documents=[{"id": "doc1", "content": "hello", "metadata": {}}],
                 namespace="default",
             )
-            resp = await index_documents(req, mock_state)
+            with pytest.raises(HTTPException) as exc_info:
+                await index_documents(req, mock_state)
 
-        assert "Internal server error" in resp.errors
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Internal server error"
         _assert_all_logs_have_trace_id(caplog)
 
     @pytest.mark.asyncio
