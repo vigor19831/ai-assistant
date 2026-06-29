@@ -110,6 +110,7 @@ src/**/*.egg-info/
 
 # Generated docs
 context_build_*.md
+structure.txt
 
 # Test artifacts
 MagicMock/
