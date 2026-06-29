@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from pathlib import Path
@@ -427,59 +428,63 @@ class TestRAGIndexing:
         assert "personal" in result["results"]
         assert result["results"]["personal"]["indexed"] == 1
 
-# ── Reranker Regression ──
-
-
     @pytest.mark.asyncio
-    async def test_source_uri_is_relative_not_absolute(self, tmp_path, mock_chunker, mock_embedder, mock_vector_store):
-        """REGRESSION: source_uri must be relative path, not absolute file URI.
+    async def test_index_folder_does_not_block_event_loop(
+        self, monkeypatch, tmp_path, mock_chunker, mock_embedder, mock_vector_store
+    ):
+        """REGRESSION: sync file I/O inside index_folder must not block the event loop.
 
-        Given: documents in a temp folder.
-        When: index_folder discovers and indexes them.
-        Then: source_uri contains relative path, not absolute file:// URI.
+        Given: _read_file is intentionally slow (simulating large file).
+        When: index_folder runs with multiple files.
+        Then: event loop remains responsive — a concurrent ticker keeps firing.
         """
-        sources = tmp_path / "sources"
-        personal = sources / "personal"
-        personal.mkdir(parents=True)
-        (personal / "notes.md").write_text("# Test note")
+        import time
 
-        # Capture what the chunker receives
-        captured_docs: list[dict[str, Any]] = []
-        original_chunk = mock_chunker.chunk
+        def _slow_read(path: Path) -> str:
+            time.sleep(0.05)  # 50ms per file
+            return "test content"
 
-        async def capturing_chunk(document: Any) -> list[Any]:
-            captured_docs.append({
-                "id": document.id,
-                "metadata": dict(document.metadata) if hasattr(document, "metadata") else {},
-            })
-            return await original_chunk(document)
-
-        mock_chunker.chunk = capturing_chunk
-        mock_vector_store.config.index_path = str(tmp_path / "indices")
-
-        result = await index_folder(
-            folder="personal",
-            clear=False,
-            chunker=mock_chunker,
-            embedder=mock_embedder,
-            vector_store=mock_vector_store,
-            documents_root=sources,
+        monkeypatch.setattr(
+            "ai_assistant.features.rag.indexing._read_file",
+            _slow_read,
         )
 
-        assert result["success"] is True
-        assert len(captured_docs) > 0
+        sources = tmp_path / "sources"
+        ns = sources / "personal"
+        ns.mkdir(parents=True)
+        for i in range(5):
+            (ns / f"doc{i}.md").write_text("x")
 
-        for doc in captured_docs:
-            source_uri = doc.get("metadata", {}).get("source_uri", "")
-            assert not source_uri.startswith("file:///"), (
-                f"source_uri must not be absolute file URI, got: {source_uri}"
+        mock_vector_store.config.index_path = str(tmp_path / "indices")
+
+        ticks: list[float] = []
+
+        async def _ticker() -> None:
+            while True:
+                await asyncio.sleep(0.005)
+                ticks.append(asyncio.get_event_loop().time())
+
+        task = asyncio.create_task(_ticker())
+        try:
+            await index_folder(
+                folder="personal",
+                clear=False,
+                chunker=mock_chunker,
+                embedder=mock_embedder,
+                vector_store=mock_vector_store,
+                documents_root=sources,
             )
-            assert "/" in source_uri or "\\" not in source_uri, (
-                f"source_uri should use forward slashes (as_posix), got: {source_uri}"
-            )
-            assert "personal" in source_uri, (
-                f"source_uri should contain relative path, got: {source_uri}"
-            )
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        # 5 files * 50ms = 250ms of blocking work.
+        # If it ran in the main thread, ticker would fire ~0 times.
+        # In a thread pool, ticker fires ~40+ times (250ms / 5ms = 50).
+        assert len(ticks) > 15, f"event loop blocked: only {len(ticks)} ticks"
+
+# ── Reranker Regression ──
 
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -124,7 +125,8 @@ async def index_folder(
     """
     from ai_assistant.features.rag.manager import IndexingManager
 
-    docs_by_ns = _discover_documents(
+    docs_by_ns = await asyncio.to_thread(
+        _discover_documents,
         folder,
         max_file_size=max_file_size,
         documents_root=documents_root,
