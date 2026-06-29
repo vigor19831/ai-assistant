@@ -235,6 +235,33 @@ class TestRAGManager:
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio
+    async def test_query_unexpected_exception_propagates(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
+        """REGRESSION: unexpected pipeline bugs must not be swallowed as empty 200.
+
+        Given: pipeline.run raises an unexpected exception (bug in pipeline orchestration).
+        When: RAGManager.query is called.
+        Then: exception propagates instead of returning empty answer with HTTP 200.
+        """
+        from ai_assistant.core.domain.errors import ConfigurationError
+
+        mgr = RAGManager(
+            llm=mock_llm,
+            vector_store=mock_vector_store,
+            embedder=mock_embedder,
+            reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        # Simulate a bug in pipeline orchestration (e.g. missing required field check)
+        async def buggy_run(data):
+            raise ConfigurationError("simulated pipeline bug")
+
+        mgr.pipeline.run = buggy_run
+
+        # The bug should propagate, not be swallowed
+        with pytest.raises(ConfigurationError, match="simulated pipeline bug"):
+            await mgr.query("anything")
+
+    @pytest.mark.asyncio
     async def test_health_index_loaded(self, mock_vector_store):
         """Given: vector store has namespaces with chunks.
         When: RAGManager.health is called.

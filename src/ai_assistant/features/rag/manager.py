@@ -162,16 +162,7 @@ class RAGManager:
             pipeline_config=pipeline_config,
             tokenizer=self.tokenizer,
         )
-        try:
-            result = await self.pipeline.run(data)
-        except Exception:
-            _logger.exception("RAG pipeline failed")
-            return {
-                "answer": "",
-                "sources": [],
-                "chunks_used": 0,
-                "errors": ["Internal server error"],
-            }
+        result = await self.pipeline.run(data)
         duration_ms = int((time.perf_counter() - start) * 1000)
         _logger.info(
             "RAG pipeline completed",
