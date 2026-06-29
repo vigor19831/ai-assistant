@@ -745,9 +745,6 @@ class TestAPIDeps:
         app = FastAPI()
         from ai_assistant.core.ports.tokenizer import ITokenizer
 
-        mock_client = MagicMock()
-        mock_client.is_closed = False
-        mock_client.aclose = AsyncMock()
         mock_state = InitializedAppState(
             config=AppConfig(),
             llm=MagicMock(spec=ILLM),
@@ -758,7 +755,6 @@ class TestAPIDeps:
             tokenizer=MagicMock(spec=ITokenizer),
             reranker=MagicMock(spec=IReranker),
             rag_state=RAGState(),
-            http_client=mock_client,
         )
         app.state.app_state = mock_state
 
@@ -794,13 +790,11 @@ class TestAPIDeps:
             get_state(request)
 
     @pytest.mark.asyncio
-    async def test_init_adapters_creates_shared_http_client(self):
+    async def test_init_adapters_returns_initialized_state(self):
         """Given: init_adapters is called with real factory.
-        When: HTTP adapters would be created.
-        Then: a shared httpx.AsyncClient is created and returned in state.
+        When: adapters are created.
+        Then: InitializedAppState has all core adapters populated.
         """
-        import httpx
-
         minimal_config = _make_minimal_config()
         # Use mock providers to avoid real network calls
         minimal_config.llm.provider = "mock"
@@ -809,12 +803,14 @@ class TestAPIDeps:
 
         result = await init_adapters(minimal_config)
 
-        assert result.http_client is not None
-        assert isinstance(result.http_client, httpx.AsyncClient)
-        # Client must still be open (not prematurely closed)
-        assert not result.http_client.is_closed
-        # Cleanup
-        await result.http_client.aclose()
+        assert isinstance(result, InitializedAppState)
+        assert result.llm is not None
+        assert result.embedder is not None
+        assert result.vector_store is not None
+        assert result.storage is not None
+        assert result.chunker is not None
+        assert result.tokenizer is not None
+        assert result.reranker is not None
 
     def test_get_chunker_for_config_respects_chunk_size(self):
         """Given: namespace requires different chunk_size than base config.
@@ -828,9 +824,6 @@ class TestAPIDeps:
         cfg = AppConfig(
             chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
         )
-        mock_client = MagicMock()
-        mock_client.is_closed = False
-        mock_client.aclose = AsyncMock()
         mock_state = InitializedAppState(
             config=cfg,
             llm=MagicMock(spec=ILLM),
@@ -843,7 +836,6 @@ class TestAPIDeps:
             tokenizer=MagicMock(spec=ITokenizer),
             reranker=MagicMock(spec=IReranker),
             rag_state=MagicMock(),
-            http_client=mock_client,
         )
 
         # Override to 1024 — must create new chunker, not return base

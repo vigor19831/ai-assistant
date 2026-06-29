@@ -1,5 +1,5 @@
 ## 🧨 ERROR TAXONOMY
-> Auto-generated from source code. Updated: 2026-06-28 21:13 UTC
+> Auto-generated from source code. Updated: 2026-06-29 05:16 UTC
 > **Rule:** Check this table before adding try/except or changing error handling.
 > **Note:** This is heuristic output — verify against source before acting.
 
@@ -133,6 +133,7 @@
 | `api.lifespan` | `Exception` | logger.exception("HTTP client close failed") | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning( | Medium |
 | `api.lifespan` | `TimeoutError` | logger.warning("Adapter shutdown timed out", extra={"adapter | Medium |
+| `api.router` | `Exception` | return "unknown" | Medium |
 | `api.security` | `ValueError` | raise HTTPException( | Medium |
 | `core.config` | `YAMLError` | raise ValueError(f"Invalid YAML in {config_path}: {exc}") fr | Medium |
 | `core.io_utils` | `OSError` | pass  # Windows or filesystem without directory fsync suppor | Medium |

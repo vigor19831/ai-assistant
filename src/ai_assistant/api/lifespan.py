@@ -162,13 +162,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
             except Exception:
                 logger.exception("Adapter shutdown failed", extra={"adapter": name})
 
-    # Close shared HTTP client after all adapters have shut down
-    if state.http_client is not None:
-        try:
-            await state.http_client.aclose()
-            logger.info("HTTP client closed")
-        except Exception:
-            logger.exception("HTTP client close failed")
+    # Adapters own their HTTP clients; each closes its own in shutdown()
 
 
 @with_retry(max_retries=3, delay=0.5, backoff=2.0)

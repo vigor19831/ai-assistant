@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-import httpx
 from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires runtime
 
 from ai_assistant.adapters.factory import create_adapter
@@ -123,7 +122,6 @@ class AppState:
     reranker: IReranker | None = None
     storage: IChatStorage | None = None
     rag_state: RAGState | None = None
-    http_client: httpx.AsyncClient | None = None
 
 
 @dataclass
@@ -139,7 +137,6 @@ class InitializedAppState:
     tokenizer: ITokenizer
     reranker: IReranker
     rag_state: RAGState
-    http_client: httpx.AsyncClient
 
 
 # ---------------------------------------------------------------------------
@@ -247,14 +244,12 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     state = AppState(config=config)
     cfg = config
 
-    state.http_client = httpx.AsyncClient()
-
     state.tokenizer = create_adapter("tokenizer", cfg.tokenizer.provider, _tokenizer_data(cfg))
     state.chunker = create_adapter("chunker", cfg.chunker.provider, _chunker_data(cfg))
     state.embedder = create_adapter(
-        "embedder", cfg.embedder.provider, _embedder_data(cfg), http_client=state.http_client
+        "embedder", cfg.embedder.provider, _embedder_data(cfg)
     )
-    state.llm = create_adapter("llm", cfg.llm.provider, _llm_data(cfg), http_client=state.http_client)
+    state.llm = create_adapter("llm", cfg.llm.provider, _llm_data(cfg))
     state.vector_store = create_adapter(
         "vector_store",
         cfg.vector_store.provider,
@@ -263,7 +258,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
 
     reranker_cfg = _reranker_data(cfg)
     if reranker_cfg is not None and cfg.reranker.provider is not None:
-        state.reranker = create_adapter("reranker", cfg.reranker.provider, reranker_cfg, http_client=state.http_client)
+        state.reranker = create_adapter("reranker", cfg.reranker.provider, reranker_cfg)
     else:
         state.reranker = create_adapter("reranker", "null", RerankerConfigData())
 
@@ -304,7 +299,6 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         tokenizer=state.tokenizer,
         reranker=state.reranker,
         rag_state=state.rag_state,
-        http_client=state.http_client,
     )
 
 

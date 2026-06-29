@@ -33,23 +33,18 @@ class APIReranker(IReranker):
     - Any OpenAI-compatible rerank endpoint
     """
 
-    def __init__(self, config: RerankerConfigData, http_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, config: RerankerConfigData) -> None:
         super().__init__(config)
         self.api_base: str = config.api_base
         self.api_key: str = resolve_api_key(config.api_key, "RERANK_API_KEY")
         self.model: str = config.model
         self._timeout: float = config.timeout
         self._threshold: float = config.threshold
-        self._own_client: bool = http_client is None
-        if http_client is not None:
-            self._client: httpx.AsyncClient = http_client
-        else:
-            self._client = httpx.AsyncClient(timeout=self._timeout)
+        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=self._timeout)
 
     async def shutdown(self) -> None:
-        """Close client only if we own it."""
-        if self._own_client:
-            await self._client.aclose()
+        """Close HTTP client."""
+        await self._client.aclose()
 
     @with_retry(max_retries=2, delay=1.0, jitter=True, max_delay=15.0)
     async def rerank(

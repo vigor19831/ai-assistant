@@ -805,13 +805,9 @@ class TestOpenAICompatibleLLM:
 
     @pytest.mark.asyncio
     async def test_shutdown_closes_client(self, llm):
-        """shutdown must close and clear HTTP client."""
-        from unittest.mock import AsyncMock
-
-        mock_client = AsyncMock()
-        llm._client = mock_client
+        """shutdown must close HTTP client."""
         await llm.shutdown()
-        mock_client.aclose.assert_awaited_once()
+        assert llm._client.is_closed
 
     def test_connect_timeout_used_in_client(self, llm):
         """connect_timeout must be passed to httpx.AsyncClient via Timeout."""
