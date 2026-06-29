@@ -90,8 +90,7 @@ Requires `CORE CHANGE REQUIRED` + user confirmation: new port method/field, Pipe
 If core changes:
 1. Update ALL adapters implementing the port
 2. Update `tests/test_core_critical.py`, `tests/test_contracts.py`
-3. Update `docs/error_taxonomy.md`
-4. Run `python scripts/check_all.py`
+3. Run `python scripts/check_all.py`
 
 New functionality requires new tests. Existing tests may only be updated during refactoring or contract changes.
 
@@ -178,7 +177,7 @@ File review checklist (output findings only, skip if clean):
 Feature conflicts with Absolute Constraint:
 
 1. Can it live entirely in `adapters/` or `features/`? -> Do it there. No core change.
-2. Needs `core/` change but keeps all tests green? -> Allowed. Update `error_taxonomy.md`.
+2. Needs `core/` change but keeps all tests green? -> Allowed.
 3. Requires breaking port contract or adding `**kwargs`? -> Output `CORE CHANGE REQUIRED`, propose port extension or `PipelineData.metadata`, wait for confirmation.
 4. Known drift in `docs/drift.md` makes hack tempting? -> Reference drift, propose fixing it. If user says "use drift for now", document new instance immediately.
 5. Never silently bypass a port contract. If `llm.config` is needed but `ILLM` does not expose it, do not use `getattr(llm, "config", None)`. Either add to `ILLM`, or add a getter, or keep logic inside the adapter.

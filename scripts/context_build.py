@@ -4,7 +4,7 @@ context_build.py — AI Context Builder.
 
 Folder processing rules:
   .venv .git data sources vendor — always fully excluded
-  docs — excluded, but ai_rules.md and error_taxonomy.md are embedded in context
+  docs — excluded, but ai_rules.md is embedded in context
   scripts tests — file list in rules/compact, full content in full mode
 """
 
@@ -13,7 +13,6 @@ import ast
 import fnmatch
 import logging
 import os
-import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -40,7 +39,8 @@ HARD_EXCLUDED = {
 SPECIAL_DIRS = {"docs", "scripts", "tests"}
 
 # Docs files that are ALWAYS embedded in context (search in root and docs/)
-REQUIRED_DOCS = ["ai_rules.md", "error_taxonomy.md", "DRIFT.md"]
+REQUIRED_DOCS = ["ai_rules.md", "architectural_strategy.md", "DRIFT.md"]
+
 
 # Files that are ALWAYS full in compact mode (except tests/scripts)
 ALWAYS_FULL = {
@@ -106,38 +106,6 @@ def extract_imports(source: str) -> tuple[list[str], list[str]]:
                 name = alias.name.split(".")[0]
                 (internal if name == "ai_assistant" else external).append(name)
     return sorted(set(internal)), sorted(set(external))
-
-
-# ============================================================================
-# ERROR TAXONOMY BUILD
-# ============================================================================
-
-def _run_error_taxonomy(root: Path) -> None:
-    """Generate error_taxonomy.md before building context.
-
-    Runs error_taxonomy_build.py as a subprocess to ensure fresh data.
-    """
-    taxonomy_script = root / "scripts" / "error_taxonomy_build.py"
-    if not taxonomy_script.exists():
-        logger.warning("error_taxonomy_build.py not found, skipping")
-        return
-
-    try:
-        result = subprocess.run(
-            [sys.executable, str(taxonomy_script)],
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            timeout=30.0,
-        )
-        if result.returncode == 0:
-            logger.info("ERROR_TAXONOMY.md regenerated")
-        else:
-            logger.warning("error_taxonomy_build.py failed: %s", result.stderr[:200])
-    except subprocess.TimeoutExpired:
-        logger.warning("error_taxonomy_build.py timed out")
-    except Exception as exc:
-        logger.warning("error_taxonomy_build.py error: %s", exc)
 
 
 # ============================================================================
@@ -317,11 +285,10 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     #         "",
     #     ])
 
-    # AI Rules & Error Taxonomy (from doc_files)
+    # AI Rules (from doc_files)
     for rel, content in doc_files:
-        title = "🚨 AI Development Guidelines" if "ai_rules" in rel else "⚠️ Error Taxonomy"
         lines.extend([
-            f"## {title}",
+            "## 🚨 AI Development Guidelines",
             f"> Auto-extracted from: `{rel}`",
             "```markdown",
             content[:25000],
@@ -457,9 +424,6 @@ def main():
         mode = menu()
     else:
         mode = parser.parse_args().mode
-
-    # ── Generate error taxonomy BEFORE scanning ──
-    _run_error_taxonomy(root)
 
     all_files, py_files, metrics = scan(root, mode)
 

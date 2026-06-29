@@ -125,7 +125,6 @@ ai-assistant/                          # Project root
 │   ├── clean_cache.py                 # Cache cleanup
 │   ├── context_build.py               # [dev] AI context build
 │   ├── download_tokenizers.py         # Download tokenizers
-│   ├── error_taxonomy_build.py        # [dev] Error taxonomy
 │   ├── index_documents.py             # Document indexing
 │   ├── kill.py                        # Emergency shutdown
 │   ├── open_shell.py                  # [dev] Open shell with venv

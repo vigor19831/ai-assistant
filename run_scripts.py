@@ -35,7 +35,6 @@ _DEV_SCRIPTS = frozenset({
     "check_rag.py",
     "clean_cache.py",
     "context_build.py",
-    "error_taxonomy_build.py",
     "open_shell.py",
     "structure.py",
 })
