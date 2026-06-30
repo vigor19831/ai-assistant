@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from ai_assistant.api.deps import init_adapters
 from ai_assistant.api.security import get_expected_api_key, set_api_key
 from ai_assistant.core.config import AppConfig, load_config
+from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.logger import get_logger, setup_logging
 from ai_assistant.core.retry import with_retry
 
@@ -72,11 +73,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         index_path = state.vector_store.index_path
         try:
             namespaces = await state.vector_store.list_namespaces(index_path)
+            loaded = 0
+            skipped = 0
             for ns in namespaces:
-                await state.vector_store.load(index_path, namespace=ns)
+                try:
+                    await state.vector_store.load(index_path, namespace=ns)
+                    loaded += 1
+                except (AdapterError, VersionMismatchError) as exc:
+                    logger.error(
+                        "Index load failed, skipping namespace",
+                        extra={"namespace": ns, "error": str(exc), "path": index_path},
+                    )
+                    skipped += 1
             logger.info(
                 "Loaded indices",
-                extra={"count": len(namespaces), "path": index_path},
+                extra={
+                    "loaded": loaded,
+                    "skipped": skipped,
+                    "total": len(namespaces),
+                    "path": index_path,
+                },
             )
         except Exception:
             logger.exception("Index load failed on startup")

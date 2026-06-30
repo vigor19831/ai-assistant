@@ -51,7 +51,7 @@ class PipelineConfig:
     prompt_version: str = "v1"
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
-    retry: RetryConfig | None = None
+    retry: RetryConfig = field(default_factory=RetryConfig)
 
 @dataclass(frozen=True, slots=True)
 class PipelineData:

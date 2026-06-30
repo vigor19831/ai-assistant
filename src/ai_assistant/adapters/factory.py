@@ -2,6 +2,11 @@
 
 All adapter imports are eager at module load time so that @register
 decorators populate the registry before create_adapter() is called.
+
+PATTERN for optional dependencies: adapters with heavy/optional imports
+must wrap them in try/except ImportError at module level (see
+vector_store_faiss.py). This prevents factory.py from crashing on
+startup when the dependency is not installed.
 """
 
 from __future__ import annotations

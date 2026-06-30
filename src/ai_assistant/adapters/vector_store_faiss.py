@@ -29,6 +29,8 @@ from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
 
+# PATTERN: optional dependency wrapped at module level so factory.py
+# can import this file without crashing when faiss-cpu is absent.
 try:
     import faiss
 except ImportError:
@@ -292,6 +294,7 @@ class FaissVectorStore(IVectorStore):
                     extra={"namespace": namespace},
                 )
             raise
+
     def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
         """Write FAISS index atomically via temp file + os.replace.
 

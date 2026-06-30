@@ -155,7 +155,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
         _logger.warning("embed_query: no query text", extra={"trace_id": data.trace_id})
         return data.add_error(QUERY_TEXT_MISSING)
     cfg = _get_config(data)
-    retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+    retry_cfg = cfg.retry
     try:
         embeddings = await _call_embed(embedder, data.query.text, retry_cfg)
         if not embeddings:
@@ -198,7 +198,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
         cfg = _get_config(data)
         top_k = cfg.top_k
         namespace = cfg.namespace
-        retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+        retry_cfg = cfg.retry
         chunks = await _call_search(vector_store, embedding, top_k, namespace, retry_cfg)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
@@ -244,7 +244,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         cfg = _get_config(data)
         top_k = cfg.top_k
         threshold = cfg.relevance_threshold
-        retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+        retry_cfg = cfg.retry
 
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
@@ -362,7 +362,7 @@ async def generate(data: PipelineData) -> PipelineData:
     cfg = _get_config(data)
     prompt_version = cfg.prompt_version
     prompt_name = cfg.prompt_name
-    retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+    retry_cfg = cfg.retry
 
     try:
         prompt = get_prompt(
@@ -463,7 +463,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_TEXT_MISSING)
 
     cfg = _get_config(data)
-    retry_cfg = cfg.retry if cfg.retry is not None else RetryConfig()
+    retry_cfg = cfg.retry
 
     # Generate hypothetical answer
     hyde_messages: list[Message] = [
