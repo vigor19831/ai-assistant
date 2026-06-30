@@ -375,3 +375,65 @@ async def test_sqlite_storage_shutdown_idempotent(tmp_path: Path) -> None:
 
     await storage.shutdown()
     await storage.shutdown()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# ISettingsStorage tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sqlite_settings_get_default(tmp_path: Path) -> None:
+    """get() returns default when key absent."""
+    db = tmp_path / "settings_default.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
+    await storage.init_db()
+    value = await storage.get("nonexistent_key", default="fallback")
+    assert value == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_settings_set_and_get(tmp_path: Path) -> None:
+    """set() persists value; get() retrieves it."""
+    db = tmp_path / "settings_basic.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
+    await storage.init_db()
+    await storage.set("theme", "dark")
+    value = await storage.get("theme")
+    assert value == "dark"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_settings_overwrite(tmp_path: Path) -> None:
+    """set() overwrites existing value."""
+    db = tmp_path / "settings_overwrite.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
+    await storage.init_db()
+    await storage.set("key1", "first")
+    await storage.set("key1", "second")
+    value = await storage.get("key1")
+    assert value == "second"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_settings_complex_value(tmp_path: Path) -> None:
+    """set/get round-trip nested dicts and lists."""
+    db = tmp_path / "settings_complex.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
+    await storage.init_db()
+    data = {"nested": {"a": [1, 2, 3]}, "flag": True}
+    await storage.set("config", data)
+    value = await storage.get("config")
+    assert value == data
+
+
+@pytest.mark.asyncio
+async def test_sqlite_settings_none_value(tmp_path: Path) -> None:
+    """set/get round-trip None."""
+    db = tmp_path / "settings_none.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
+    await storage.init_db()
+    await storage.set("nullable", None)
+    value = await storage.get("nullable")
+    assert value is None
+

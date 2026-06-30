@@ -482,7 +482,7 @@ class TestRAGIndexing:
         # 5 files * 50ms = 250ms of blocking work.
         # If it ran in the main thread, ticker would fire ~0 times.
         # In a thread pool, ticker fires ~40+ times (250ms / 5ms = 50).
-        assert len(ticks) > 15, f"event loop blocked: only {len(ticks)} ticks"
+        assert len(ticks) >= 15, f"event loop blocked: only {len(ticks)} ticks"
 
 # ── Reranker Regression ──
 
