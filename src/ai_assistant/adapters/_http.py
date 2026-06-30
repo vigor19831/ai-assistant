@@ -27,8 +27,9 @@ async def async_post_json(
     """Execute POST request and return parsed JSON response.
 
     Args:
-        client: httpx.AsyncClient instance (may be shared).
-        url: Full request URL.
+    client: httpx.AsyncClient instance owned by the calling adapter.
+        Per architectural strategy §4.2, each adapter creates and closes
+        its own client; this parameter is NOT for cross-adapter sharing.        url: Full request URL.
         headers: HTTP headers including Authorization if needed.
         payload: JSON-serializable request body.
 

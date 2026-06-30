@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 from collections import defaultdict
 from typing import Any
@@ -77,6 +78,8 @@ def observe_histogram(
     labels: dict[str, str] | None = None,
 ) -> None:
     """Observe a value into a histogram."""
+    if not math.isfinite(value):
+        return
     key = (name, _labels_key(labels))
     with _lock:
         hist = _histograms.setdefault(
