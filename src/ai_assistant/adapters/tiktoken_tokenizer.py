@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import TokenizerConfigData
+from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.tokenizer import ITokenizer
 
@@ -20,23 +21,6 @@ try:
     import tokenizers
 except ImportError:
     tokenizers = None  # type: ignore[assignment]
-
-
-def _cjk_ratio(text: str) -> float:
-    """Return ratio of CJK characters in text."""
-    if not text:
-        return 0.0
-    cjk_count = sum(
-        1
-        for c in text
-        if (
-            "\u4e00" <= c <= "\u9fff"
-            or "\u3400" <= c <= "\u4dbf"
-            or "\u3040" <= c <= "\u30ff"
-            or "\uac00" <= c <= "\ud7af"
-        )
-    )
-    return cjk_count / len(text)
 
 
 def _resolve_tokenizer_dir(model: str, local_dir: str) -> Path | None:
@@ -94,8 +78,9 @@ class TiktokenTokenizer(ITokenizer):
                 except KeyError:
                     enc = tiktoken.get_encoding("cl100k_base")
                 return len(enc.encode(text))
-            except Exception:
+            except Exception as exc:
                 _logger.exception("tiktoken failed")
+                raise AdapterError(f"tiktoken failed for model {model}: {exc}") from exc
 
         if tokenizers is not None:
             tok_dir = _resolve_tokenizer_dir(model, self.config.local_dir)
@@ -107,13 +92,11 @@ class TiktokenTokenizer(ITokenizer):
                         return len(result.tokens)
                     except AttributeError:
                         return len(result)
-                except Exception:
+                except Exception as exc:
                     _logger.exception("HF tokenizer failed")
+                    raise AdapterError(f"HF tokenizer failed for model {model}: {exc}") from exc
 
-        return self._fallback_count(text)
-
-    def _fallback_count(self, text: str) -> int:
-        """Fallback to character heuristic when tiktoken is unavailable."""
-        if _cjk_ratio(text) > 0.3:
-            return len(text)
-        return len(text) // 4
+        raise AdapterError(
+            f"No tokenizer backend available for model {model}. "
+            "Install tiktoken or use the 'char_fallback' tokenizer provider."
+        )
