@@ -449,6 +449,27 @@ class FaissVectorStore(IVectorStore):
                 raise AdapterError(
                     f"Invalid store.json for namespace '{namespace}': {exc}"
                 ) from exc
+            except Exception:
+                _logger.exception(
+                    "FAISS load failed: unexpected error reading store.json",
+                    extra={"namespace": namespace, "path": str(store_file)},
+                )
+                raise AdapterError(
+                    f"Failed to read store.json for namespace '{namespace}'"
+                ) from None
+
+            if not isinstance(store_data, dict):
+                _logger.error(
+                    "FAISS load failed: store.json is not a JSON object",
+                    extra={
+                        "namespace": namespace,
+                        "type": type(store_data).__name__,
+                    },
+                )
+                raise AdapterError(
+                    f"Invalid store.json for namespace '{namespace}': "
+                    f"expected dict, got {type(store_data).__name__}"
+                )
 
             stored_dim = store_data.get("dim")
             if stored_dim is not None and stored_dim != self.config.dim:
@@ -484,15 +505,36 @@ class FaissVectorStore(IVectorStore):
                 )
 
             # Load FAISS index
-            ns.index = await asyncio.to_thread(faiss.read_index, str(index_file))
+            try:
+                ns.index = await asyncio.to_thread(faiss.read_index, str(index_file))
+            except Exception:
+                _logger.exception(
+                    "FAISS load failed: error reading index file",
+                    extra={"namespace": namespace, "path": str(index_file)},
+                )
+                raise AdapterError(
+                    f"Failed to read index for namespace '{namespace}'"
+                ) from None
 
             # Rebuild chunk mapping
             ns.chunks.clear()
             ns.next_id = 0
-            for chunk_data in store_data.get("chunks", []):
-                chunk = _chunk_from_dict(chunk_data)
-                ns.chunks[ns.next_id] = chunk
-                ns.next_id += 1
+            try:
+                for chunk_data in store_data.get("chunks", []):
+                    chunk = _chunk_from_dict(chunk_data)
+                    ns.chunks[ns.next_id] = chunk
+                    ns.next_id += 1
+            except Exception:
+                _logger.exception(
+                    "FAISS load failed: chunk deserialization error",
+                    extra={"namespace": namespace},
+                )
+                ns.index = None
+                ns.chunks.clear()
+                ns.next_id = 0
+                raise AdapterError(
+                    f"Failed to deserialize chunks for namespace '{namespace}'"
+                ) from None
 
             # Integrity check: FAISS vector count must match metadata chunk count
             ntotal = ns.index.ntotal

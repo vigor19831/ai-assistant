@@ -274,8 +274,25 @@ class MemoryVectorStore(IVectorStore):
             )
 
     async def load(self, path: str, namespace: str = "default") -> None:
-        async with self._lock:
-            await self._load_unlocked(path, namespace=namespace)
+        """Load namespace index + metadata. Validate version.
+
+        Raises:
+            AdapterError: If file is missing, unreadable, or JSON is invalid.
+            VersionMismatchError: If stored dim does not match config dim.
+        """
+        try:
+            async with self._lock:
+                await self._load_unlocked(path, namespace=namespace)
+        except (AdapterError, VersionMismatchError):
+            raise
+        except Exception:
+            _logger.exception(
+                "Memory vector store load failed",
+                extra={"namespace": namespace, "path": path},
+            )
+            raise AdapterError(
+                f"Failed to load memory store for namespace '{namespace}'"
+            ) from None
 
     async def list_by_filter(
         self,
