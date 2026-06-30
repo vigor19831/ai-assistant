@@ -72,6 +72,11 @@ class ChatConfig(BaseSettings):
     history_limit: int = 10
     max_history_messages: int = 10_000
     max_context_tokens: int | None = None
+    # Intentionally kept as a no-op field for backward compat with old
+    # config.yaml files. The value is IGNORED by all code paths.
+    # Tokenizer directory is configured in TokenizerConfig.local_dir.
+    # Do not re-add usage — this field will be stripped by a future
+    # config_version migration when drift cleanup is performed.
     tokenizer_local_dir: str = "./data/tokenizers"  # DEPRECATED: ignored — use TokenizerConfig.local_dir
 
 
