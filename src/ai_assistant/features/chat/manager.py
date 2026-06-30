@@ -56,7 +56,14 @@ def _build_step_funcs(
     cfg: Any,
     stop_at: RAGStep | None = None,
 ) -> list[Any]:
-    """Build pipeline step functions. Stops before *stop_at* if provided."""
+    """Build pipeline step functions. Stops before *stop_at* if provided.
+
+    NOTE: Currently unused. ChatManager uses a fixed retrieval pipeline
+    (embed_query -> retrieve -> rerank -> build_context) because generation
+    is handled separately via llm.complete(). If a unified pipeline is
+    needed in the future, wire this function into _build_pipeline and
+    pass cfg.rag.steps from handlers.py. See ai_rules.md §2.1.
+    """
     step_funcs: list[Any] = []
     for step in cfg.rag.steps:
         if stop_at is not None and step == stop_at:
@@ -161,7 +168,12 @@ class ChatManager:
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
 
-        # Build pipeline internally — ChatManager owns its pipeline
+        # Build pipeline internally — ChatManager owns its pipeline.
+        # rag_steps parameter exists for tests and future overrides.
+        # Factory in handlers.py does NOT pass it; hardcoded retrieval
+        # steps are used instead. Generation is handled separately via
+        # llm.complete(), so cfg.rag.steps (which includes GENERATE)
+        # is not appropriate here.
         self._pipeline = self._build_pipeline(rag_steps)
 
     def _build_pipeline(self, rag_steps: list[RAGStep] | None = None) -> RAGPipeline | None:
