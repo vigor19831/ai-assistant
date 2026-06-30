@@ -709,13 +709,10 @@ class TestChatExportIsolation:
             req = ReindexRequest(folder="personal", clear=True)
             await reindex_documents(req, mock_state)
 
-            # Give event loop a chance to run the background task
-            for _ in range(100):
-                await asyncio.sleep(0)
-                if deleted_chunks:
-                    break
-            else:
-                pytest.fail("Background task did not clear chat namespace")
+            # Capture the background task before it completes and await it.
+            tasks = list(mock_state.rag_state._tasks)
+            assert len(tasks) == 1, f"Expected 1 background task, got {len(tasks)}"
+            await asyncio.wait_for(tasks[0], timeout=1.0)
 
             # Assert on deletion state — verify chat namespace was targeted
             chat_deletions = [
@@ -993,6 +990,11 @@ class TestRAGHandlersTraceId:
         ):
             req = ReindexRequest(folder="test", clear=False)
             resp = await reindex_documents(req, mock_state)
+
+            # Capture and await the background task so all logs are in caplog.
+            tasks = list(mock_state.rag_state._tasks)
+            assert len(tasks) == 1, f"Expected 1 background task, got {len(tasks)}"
+            await asyncio.wait_for(tasks[0], timeout=1.0)
 
         assert resp["status"] == "started"
         assert "task_id" in resp

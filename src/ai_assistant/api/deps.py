@@ -46,6 +46,9 @@ __all__ = [
 _logger = get_logger("deps")
 
 
+_MAX_STATUS_ENTRIES: int = 1000
+
+
 @dataclass
 class RAGState:
     """Explicit per-instance RAG background task state.
@@ -57,6 +60,21 @@ class RAGState:
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
     _status: dict[str, ReindexStatusEntry] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    _tasks: set[asyncio.Task[object]] = field(default_factory=set)
+
+    def _cleanup_old_status(self) -> None:
+        """Evict oldest completed/failed entries when limit exceeded."""
+        if len(self._status) <= _MAX_STATUS_ENTRIES:
+            return
+        completed = [
+            (tid, entry)
+            for tid, entry in self._status.items()
+            if entry.status in ("completed", "failed")
+        ]
+        completed.sort(key=lambda x: x[1].finished_at or 0.0)
+        to_evict = len(self._status) - _MAX_STATUS_ENTRIES
+        for tid, _ in completed[:to_evict]:
+            del self._status[tid]
 
     async def start_task(self, task_id: str) -> None:
         """Atomically register a running task."""

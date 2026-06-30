@@ -454,62 +454,73 @@ async def reindex_documents(
     )
 
     async def _run() -> dict[str, Any]:
-        async with rag_state.semaphore:
-            await rag_state.start_task(task_id)
-            try:
-                # If clearing, also clear associated chat namespaces
-                if clear and folder is not None:
-                    chat_ns = _get_chat_namespace(folder)
-                    try:
-                        all_chat_chunks = await state.vector_store.list_by_filter(
-                            {}, namespace=chat_ns
-                        )
-                        if all_chat_chunks:
-                            await state.vector_store.delete(
-                                [cid for cid, _ in all_chat_chunks], namespace=chat_ns
+        try:
+            async with asyncio.timeout(14400.0):  # 4 hours
+                async with rag_state.semaphore:
+                    await rag_state.start_task(task_id)
+                    rag_state._cleanup_old_status()
+                    # If clearing, also clear associated chat namespaces
+                    if clear and folder is not None:
+                        chat_ns = _get_chat_namespace(folder)
+                        try:
+                            all_chat_chunks = await state.vector_store.list_by_filter(
+                                {}, namespace=chat_ns
                             )
-                            _logger.info(
-                                "Cleared chat namespace during reindex",
+                            if all_chat_chunks:
+                                await state.vector_store.delete(
+                                    [cid for cid, _ in all_chat_chunks], namespace=chat_ns
+                                )
+                                _logger.info(
+                                    "Cleared chat namespace during reindex",
+                                    extra={
+                                        "trace_id": trace_id,
+                                        "namespace": folder,
+                                        "chat_namespace": chat_ns,
+                                    },
+                                )
+                        except Exception:
+                            _logger.warning(
+                                "Failed to clear chat namespace during reindex",
                                 extra={
                                     "trace_id": trace_id,
                                     "namespace": folder,
                                     "chat_namespace": chat_ns,
                                 },
                             )
-                    except Exception:
-                        _logger.warning(
-                            "Failed to clear chat namespace during reindex",
-                            extra={
-                                "trace_id": trace_id,
-                                "namespace": folder,
-                                "chat_namespace": chat_ns,
-                            },
-                        )
 
-                result = await index_folder(
-                    folder=folder,
-                    clear=clear,
-                    chunker=state.chunker,
-                    embedder=state.embedder,
-                    vector_store=state.vector_store,
-                    max_file_size=state.config.vector_store.max_document_size,
-                    documents_root=Path(state.config.rag.documents_root),
-                )
-                await rag_state.complete_task(task_id, result)
-                _logger.info(
-                    "Reindex completed",
-                    extra={"trace_id": trace_id, "task_id": task_id},
-                )
-                return result
-            except Exception:
-                _logger.exception(
-                    "Background reindex failed",
-                    extra={"trace_id": trace_id, "task_id": task_id},
-                )
-                await rag_state.fail_task(task_id, "Internal server error")
-                raise
+                    result = await index_folder(
+                        folder=folder,
+                        clear=clear,
+                        chunker=state.chunker,
+                        embedder=state.embedder,
+                        vector_store=state.vector_store,
+                        max_file_size=state.config.vector_store.max_document_size,
+                        documents_root=Path(state.config.rag.documents_root),
+                    )
+                    await rag_state.complete_task(task_id, result)
+                    _logger.info(
+                        "Reindex completed",
+                        extra={"trace_id": trace_id, "task_id": task_id},
+                    )
+                    return result
+        except TimeoutError:
+            _logger.error(
+                "Reindex timed out after 4 hours",
+                extra={"trace_id": trace_id, "task_id": task_id},
+            )
+            await rag_state.fail_task(task_id, "Reindex timed out after 4 hours")
+            return {"error": "Reindex timed out after 4 hours"}
+        except Exception as exc:
+            _logger.exception(
+                "Background reindex failed",
+                extra={"trace_id": trace_id, "task_id": task_id},
+            )
+            await rag_state.fail_task(task_id, f"Internal server error: {exc}")
+            return {"error": str(exc)}
 
-    asyncio.create_task(_run())
+    task = asyncio.create_task(_run())
+    rag_state._tasks.add(task)
+    task.add_done_callback(rag_state._tasks.discard)
     return {"status": "started", "task_id": task_id}
 
 
