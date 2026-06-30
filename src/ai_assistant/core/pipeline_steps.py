@@ -381,6 +381,10 @@ async def generate(data: PipelineData) -> PipelineData:
             context=data.context,
         )
     except Exception:
+        _logger.exception(
+            "get_prompt failed, using fallback",
+            extra={"trace_id": data.trace_id},
+        )
         prompt = _build_fallback_prompt(data.chunks, query_text)
 
     max_ctx = llm.get_context_limit()

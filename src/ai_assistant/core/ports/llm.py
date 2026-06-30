@@ -45,7 +45,16 @@ class ILLM(IClosable, ABC):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
-    ) -> AsyncIterator[str]: ...
+    ) -> AsyncIterator[str]:
+        """Yield content chunks as strings.
+
+        Empty strings may be yielded and must be ignored by callers.
+        Errors are signaled only by raising exceptions (e.g. AdapterError).
+        End of stream is signaled by normal iterator exhaustion
+        (StopAsyncIteration). Callers are responsible for mapping
+        exceptions to transport-level error signals.
+        """
+        ...
 
     @abstractmethod
     def get_context_limit(self) -> int | None:
