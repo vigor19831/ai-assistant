@@ -434,7 +434,7 @@ class TestRAGIndexing:
     ):
         """REGRESSION: sync file I/O inside index_folder must not block the event loop.
 
-        Given: _read_file is intentionally slow (simulating large file).
+        Given: the file reader is intentionally slow (simulating large file).
         When: index_folder runs with multiple files.
         Then: event loop remains responsive — a concurrent ticker keeps firing.
         """
@@ -445,7 +445,7 @@ class TestRAGIndexing:
             return "test content"
 
         monkeypatch.setattr(
-            "ai_assistant.features.rag.indexing._read_file",
+            "ai_assistant.features.rag.indexing._read_file_sync",
             _slow_read,
         )
 

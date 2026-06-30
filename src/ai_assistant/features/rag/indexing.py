@@ -16,8 +16,8 @@ DOCUMENTS_ROOT = Path("sources")
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
 
 
-def _read_file(path: Path) -> str:
-    """Read text file with encoding fallback."""
+def _read_file_sync(path: Path) -> str:
+    """Read text file with encoding fallback.  SYNC — call via to_thread."""
     encodings = ["utf-8", "utf-8-sig", "cp1251", "cp1252", "latin-1"]
     for enc in encodings:
         try:
@@ -27,13 +27,13 @@ def _read_file(path: Path) -> str:
     return ""
 
 
-def _discover_documents(
+def _discover_documents_sync(
     folder: str | None = None,
     max_file_size: int | None = None,
     documents_root: Path | None = None,
     exclude_roots: list[str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Discover documents in folders. Returns {namespace: [docs]}."""
+    """Discover documents in folders. Returns {namespace: [docs]}.  SYNC — call via to_thread."""
     result: dict[str, list[dict[str, Any]]] = {}
     root = Path(documents_root) if documents_root is not None else DOCUMENTS_ROOT
     exclude_set = set(exclude_roots or [])
@@ -73,7 +73,7 @@ def _discover_documents(
                 except OSError:
                     continue
 
-            content = _read_file(file_path)
+            content = _read_file_sync(file_path)
             if not content.strip():
                 continue
 
@@ -97,7 +97,6 @@ def _discover_documents(
             result[namespace] = docs
 
     return result
-
 
 async def index_folder(
     folder: str | None,
@@ -126,7 +125,7 @@ async def index_folder(
     from ai_assistant.features.rag.manager import IndexingManager
 
     docs_by_ns = await asyncio.to_thread(
-        _discover_documents,
+        _discover_documents_sync,
         folder,
         max_file_size=max_file_size,
         documents_root=documents_root,
