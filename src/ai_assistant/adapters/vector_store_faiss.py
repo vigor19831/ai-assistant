@@ -163,9 +163,27 @@ class FaissVectorStore(IVectorStore):
 
             # FIFO eviction if max_chunks exceeded
             max_chunks = self.config.max_chunks
-            while len(ns.chunks) > max_chunks:
-                oldest = min(ns.chunks.keys())
-                del ns.chunks[oldest]
+            evicted = 0
+            if len(ns.chunks) > max_chunks:
+                while len(ns.chunks) > max_chunks:
+                    oldest = min(ns.chunks.keys())
+                    del ns.chunks[oldest]
+                    evicted += 1
+                # Rebuild index to stay consistent with chunks dict.
+                # FAISS IndexFlat* does not support per-vector deletion,
+                # so we rebuild from remaining chunks. This is O(n) but
+                # eviction is rare (only when max_chunks is exceeded).
+                ns.index, ns.chunks, ns.next_id = self._rebuild_index(
+                    list(ns.chunks.values())
+                )
+                _logger.info(
+                    "FAISS FIFO eviction triggered rebuild",
+                    extra={
+                        "namespace": namespace,
+                        "evicted": evicted,
+                        "remaining": len(ns.chunks),
+                    },
+                )
 
     async def search(
         self,
