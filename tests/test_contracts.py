@@ -1129,3 +1129,70 @@ class TestRAGStateTypedStatus:
         fields = {f.name for f in dataclasses.fields(ReindexStatusEntry)}
         expected = {"status", "started_at", "finished_at", "result", "error"}
         assert fields == expected, f"Field mismatch: {fields ^ expected}"
+
+
+def test_all_pipeline_steps_declare_requirements() -> None:
+    """Every registered pipeline step must declare its requirements."""
+    from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+
+    for name, func in STEP_REGISTRY.items():
+        assert hasattr(func, "_step_requires"), (
+            f"Step '{name}' missing _step_requires. "
+            f"Update @step('{name}', requires={{...}})."
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestStepRegistryRAGStepSync
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.slow
+@pytest.mark.contract
+class TestStepRegistryRAGStepSync:
+    """Contract: STEP_REGISTRY keys and RAGStep values must be bijective.
+
+    Three sources of truth were identified:
+    1. STEP_REGISTRY — runtime registry populated by @step decorator
+    2. RAGStep enum — config-level validation for rag.steps
+    3. @step requires — per-step dependency declarations (fixed by _step_requires)
+
+    This contract guarantees that (1) and (2) never desynchronize.
+    A mismatch means either:
+    - A config-valid step has no runtime implementation (crash at first request)
+    - A runtime step is not config-valid (cannot be used in YAML config)
+
+    Both are bugs that must be caught at test time, not in production.
+    """
+
+    def test_all_ragstep_values_in_step_registry(self) -> None:
+        """Given: all RAGStep enum values.
+        When: checked against STEP_REGISTRY keys.
+        Then: every RAGStep value is a registered step name.
+        """
+        from ai_assistant.core.config import RAGStep
+        from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+
+        ragstep_values = {step.value for step in RAGStep}
+        registry_keys = set(STEP_REGISTRY.keys())
+        missing = ragstep_values - registry_keys
+        assert not missing, (
+            f"RAGStep values missing from STEP_REGISTRY: {missing}. "
+            f"Add @step('{missing.pop()}', requires={{...}}) to pipeline_steps.py."
+        )
+
+    def test_all_step_registry_keys_in_ragstep(self) -> None:
+        """Given: all STEP_REGISTRY keys.
+        When: checked against RAGStep enum values.
+        Then: every registered step name is a valid RAGStep value.
+        """
+        from ai_assistant.core.config import RAGStep
+        from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+
+        ragstep_values = {step.value for step in RAGStep}
+        registry_keys = set(STEP_REGISTRY.keys())
+        extra = registry_keys - ragstep_values
+        assert not extra, (
+            f"STEP_REGISTRY keys not in RAGStep enum: {extra}. "
+            f"Add a member to RAGStep in core/config.py."
+        )

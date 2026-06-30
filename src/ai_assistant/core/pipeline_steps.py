@@ -59,16 +59,25 @@ STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
 
 def step(
     name: str,
+    requires: set[str],
 ) -> Callable[
     [Callable[[PipelineData], Awaitable[PipelineData]]],
     Callable[[PipelineData], Awaitable[PipelineData]],
 ]:
-    """Register a pipeline step by its config name."""
+    """Register a pipeline step by its config name.
+
+    Args:
+        name: Step identifier used in config and STEP_REGISTRY.
+        requires: Set of PipelineData field names required by this step.
+            Pass an empty set if the step has no external dependencies.
+            These are validated by RAGPipeline.run() before execution.
+    """
 
     def decorator(
         func: Callable[[PipelineData], Awaitable[PipelineData]],
     ) -> Callable[[PipelineData], Awaitable[PipelineData]]:
         STEP_REGISTRY[name] = func
+        func._step_requires = requires  # type: ignore[attr-defined]
         return func
 
     return decorator
@@ -134,7 +143,7 @@ async def _call_rerank(
     )
 
 
-@step("embed_query")
+@step("embed_query", requires={"embedder"})
 async def embed_query(data: PipelineData) -> PipelineData:
     """Embed the user query text.
 
@@ -171,7 +180,7 @@ async def embed_query(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
-@step("retrieve")
+@step("retrieve", requires={"vector_store"})
 async def retrieve(data: PipelineData) -> PipelineData:
     """Retrieve relevant chunks from vector store (namespace-aware).
 
@@ -213,7 +222,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
-@step("rerank")
+@step("rerank", requires={"reranker"})
 async def rerank(data: PipelineData) -> PipelineData:
     """Rerank retrieved chunks by relevance and filter by threshold.
 
@@ -270,7 +279,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
 
-@step("build_context")
+@step("build_context", requires=set())
 async def build_context(data: PipelineData) -> PipelineData:
     """Build context string from retrieved (and reranked) chunks.
 
@@ -337,7 +346,7 @@ async def _truncate_to_fit(
     return current_data, prompt
 
 
-@step("generate")
+@step("generate", requires={"llm", "pipeline_config"})
 async def generate(data: PipelineData) -> PipelineData:
     """Generate response from context using LLM.
 
@@ -442,7 +451,7 @@ async def generate(data: PipelineData) -> PipelineData:
     return data.with_response(response)
 
 
-@step("hyde_query")
+@step("hyde_query", requires={"embedder", "llm"})
 async def hyde_query(data: PipelineData) -> PipelineData:
     """Hypothetical Document Embedding (HyDE).
 

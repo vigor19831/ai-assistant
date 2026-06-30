@@ -49,19 +49,13 @@ class RAGPipeline:
         return data
 
     def _required_fields_for_steps(self) -> set[str]:
-        """Return required PipelineData field names based on configured steps."""
-        from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+        """Return required PipelineData field names based on configured steps.
 
-        field_map: dict[str, set[str]] = {
-            "embed_query": {"embedder"},
-            "retrieve": {"vector_store"},
-            "rerank": {"reranker"},
-            "build_context": set(),
-            "generate": {"llm", "pipeline_config"},
-            "hyde_query": {"embedder", "llm"},
-        }
+        Requirements are declared at the @step decorator via the *requires*
+        parameter. This eliminates the hardcoded field_map and guarantees
+        that every registered step documents its own dependencies.
+        """
         required: set[str] = set()
-        for step_name, step_func in STEP_REGISTRY.items():
-            if any(s is step_func for s in self.steps):
-                required |= field_map.get(step_name, set())
+        for step_func in self.steps:
+            required |= getattr(step_func, "_step_requires", set())
         return required
