@@ -29,6 +29,7 @@ from ai_assistant.api.deps import (
     get_state,
     init_adapters,
 )
+from ai_assistant.core.task_registry import TaskRegistry
 from ai_assistant.api.lifespan import _async_cleanup, _load_config, lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
 from ai_assistant.api.router import _ROUTERS, assemble_routers
@@ -741,12 +742,14 @@ class TestAPIDeps:
         Then: the mock is returned.
         """
         from ai_assistant.api.deps import RAGState
+        from ai_assistant.core.task_registry import TaskRegistry
 
         app = FastAPI()
         from ai_assistant.core.ports.tokenizer import ITokenizer
 
         mock_state = InitializedAppState(
             config=AppConfig(),
+            task_registry=TaskRegistry(),
             llm=MagicMock(spec=ILLM),
             embedder=MagicMock(spec=IEmbedder),
             vector_store=MagicMock(spec=IVectorStore),
@@ -826,6 +829,7 @@ class TestAPIDeps:
         )
         mock_state = InitializedAppState(
             config=cfg,
+            task_registry=TaskRegistry(),
             llm=MagicMock(spec=ILLM),
             embedder=MagicMock(spec=IEmbedder),
             vector_store=MagicMock(spec=IVectorStore),

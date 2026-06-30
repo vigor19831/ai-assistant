@@ -518,9 +518,11 @@ async def reindex_documents(
             await rag_state.fail_task(task_id, f"Internal server error: {exc}")
             return {"error": str(exc)}
 
-    task = asyncio.create_task(_run())
-    rag_state._tasks.add(task)
-    task.add_done_callback(rag_state._tasks.discard)
+    state.task_registry.spawn(
+        lambda: _run(),
+        trace_id=trace_id,
+        name=f"reindex:{task_id}",
+    )
     return {"status": "started", "task_id": task_id}
 
 

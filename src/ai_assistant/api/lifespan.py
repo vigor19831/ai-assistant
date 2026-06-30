@@ -141,7 +141,14 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         logger.exception("Index save failed")
         app.state.shutdown_degraded = True
 
-    # 2. Graceful adapter shutdown — add new closable adapters here
+    # 2. Wait for background tasks before adapter shutdown
+    try:
+        await state.task_registry.shutdown(wait_for=30.0)
+        logger.info("Background tasks shutdown complete")
+    except Exception:
+        logger.exception("Background tasks shutdown failed")
+
+    # 3. Graceful adapter shutdown — add new closable adapters here
     adapters = (
         (state.llm, "llm"),
         (state.embedder, "embedder"),

@@ -710,9 +710,9 @@ class TestChatExportIsolation:
             await reindex_documents(req, mock_state)
 
             # Capture the background task before it completes and await it.
-            tasks = list(mock_state.rag_state._tasks)
+            tasks = list(mock_state.task_registry.get_tasks())
             assert len(tasks) == 1, f"Expected 1 background task, got {len(tasks)}"
-            await asyncio.wait_for(tasks[0], timeout=1.0)
+            await asyncio.wait_for(tasks.pop().task, timeout=1.0)
 
             # Assert on deletion state — verify chat namespace was targeted
             chat_deletions = [
@@ -721,6 +721,88 @@ class TestChatExportIsolation:
             ]
             assert len(chat_deletions) > 0, "chat_personal namespace should be cleared"
             assert chat_deletions[0][0] == ["chat-1", "chat-2"]
+
+
+class TestReindexTaskSafety:
+    """REGRESSION: reindex background tasks must not leak or lose exceptions."""
+
+    @pytest.mark.asyncio
+    async def test_reindex_does_not_leak_tasks(self, mock_state, tmp_path):
+        """Given: reindex is triggered.
+        When: background task completes.
+        Then: asyncio.all_tasks() does not grow — task is cleaned up.
+        """
+        from ai_assistant.features.rag.handlers import reindex_documents
+        from ai_assistant.features.rag.schemas import ReindexRequest
+        from unittest.mock import patch, AsyncMock
+
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[])
+        mock_state.vector_store.delete = AsyncMock()
+
+        tasks_before = len(asyncio.all_tasks())
+
+        with patch(
+            "ai_assistant.features.rag.handlers.index_folder",
+            new=AsyncMock(return_value={"success": True}),
+        ):
+            req = ReindexRequest(folder="test", clear=False)
+            await reindex_documents(req, mock_state)
+
+            # Wait for background task to complete
+            tasks = list(mock_state.task_registry.get_tasks())
+            if tasks:
+                await asyncio.wait_for(tasks.pop().task, timeout=1.0)
+
+        # Give event loop a chance to process done_callbacks
+        await asyncio.sleep(0.01)
+
+        tasks_after = len(asyncio.all_tasks())
+        assert tasks_after <= tasks_before, (
+            f"Task leak detected: {tasks_after} > {tasks_before}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reindex_exception_logged_via_logger(self, caplog, mock_state, tmp_path):
+        """Given: index_folder raises an exception.
+        When: reindex is triggered.
+        Then: exception is logged through structured logger with trace_id.
+        """
+        import logging
+        from ai_assistant.features.rag.handlers import reindex_documents
+        from ai_assistant.features.rag.schemas import ReindexRequest
+        from unittest.mock import patch, AsyncMock
+
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[])
+        mock_state.vector_store.delete = AsyncMock()
+
+        with patch(
+            "ai_assistant.features.rag.handlers.index_folder",
+            new=AsyncMock(side_effect=RuntimeError("disk full")),
+        ):
+            req = ReindexRequest(folder="test", clear=False)
+            await reindex_documents(req, mock_state)
+
+            # Wait for background task
+            tasks = list(mock_state.task_registry.get_tasks())
+            assert len(tasks) == 1
+            await asyncio.wait_for(tasks.pop().task, timeout=1.0)
+
+        # Exception is caught inside handlers.py::_run() and logged via
+        # ai_assistant.rag.handlers logger. TaskRegistry._on_done does not
+        # fire because the task returns successfully (dict with error).
+        error_logs = [
+            r for r in caplog.records
+            if r.levelno >= logging.ERROR and "Background reindex failed" in r.getMessage()
+        ]
+        assert error_logs, "Expected error log for background reindex failure"
+
+        # Verify structured logging fields
+        for record in error_logs:
+            assert hasattr(record, "trace_id"), "Log record missing trace_id"
+            assert record.trace_id is not None
 
 
 class TestRerankerRegression:
@@ -992,9 +1074,9 @@ class TestRAGHandlersTraceId:
             resp = await reindex_documents(req, mock_state)
 
             # Capture and await the background task so all logs are in caplog.
-            tasks = list(mock_state.rag_state._tasks)
+            tasks = list(mock_state.task_registry.get_tasks())
             assert len(tasks) == 1, f"Expected 1 background task, got {len(tasks)}"
-            await asyncio.wait_for(tasks[0], timeout=1.0)
+            await asyncio.wait_for(tasks.pop().task, timeout=1.0)
 
         assert resp["status"] == "started"
         assert "task_id" in resp

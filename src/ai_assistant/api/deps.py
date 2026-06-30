@@ -23,6 +23,7 @@ from ai_assistant.core.domain.configs import (
 from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.tokenizer import ITokenizer
+from ai_assistant.core.task_registry import TaskRegistry
 
 if TYPE_CHECKING:
     from ai_assistant.core.ports import (
@@ -132,6 +133,7 @@ class AppState:
     """Application state container — pre-initialization, mutable for tests."""
 
     config: AppConfig
+    task_registry: TaskRegistry | None = None
     llm: ILLM | None = None
     embedder: IEmbedder | None = None
     vector_store: IVectorStore | None = None
@@ -147,6 +149,7 @@ class InitializedAppState:
     """Runtime application state — core adapters are guaranteed present."""
 
     config: AppConfig
+    task_registry: TaskRegistry
     llm: ILLM
     embedder: IEmbedder
     vector_store: IVectorStore
@@ -293,12 +296,14 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     if state.storage is not None:
         await state.storage.init_db()
 
+    state.task_registry = TaskRegistry()
     state.rag_state = RAGState()
 
     if state.storage is None:
         raise RuntimeError("Storage adapter failed to initialize")
     return InitializedAppState(
         config=cfg,
+        task_registry=state.task_registry,
         llm=state.llm,
         embedder=state.embedder,
         vector_store=state.vector_store,
