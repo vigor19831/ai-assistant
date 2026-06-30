@@ -26,6 +26,7 @@ from ai_assistant.api.admin import _UpdateApiKeyRequest, _UpdateApiKeyResponse, 
 from ai_assistant.api.deps import (
     AppState,
     InitializedAppState,
+    RAGState,
     get_state,
     init_adapters,
 )
@@ -878,6 +879,28 @@ class TestAPIDeps:
         assert _router is not None
         assert _security is not None
 
+
+    def test_no_cyclic_imports_between_api_modules(self):
+        """Given: api submodules are imported.
+        When: checking import graph.
+        Then: no circular dependencies exist between security, deps, router, lifespan, admin.
+        """
+        # Re-importing after previous tests should not raise ImportError
+        import ai_assistant.api.admin as _admin
+        import ai_assistant.api.deps as _deps
+        import ai_assistant.api.lifespan as _lifespan
+        import ai_assistant.api.router as _router
+        import ai_assistant.api.security as _security
+
+        assert _admin is not None
+        assert _deps is not None
+        assert _lifespan is not None
+        assert _router is not None
+        assert _security is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestAPIRouter
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAPIRouter

@@ -48,7 +48,7 @@ _logger = get_logger("deps")
 
 
 _MAX_STATUS_ENTRIES: int = 1000
-
+_RUNNING_TTL_SECONDS: float = 28800.0  # 8h — reindex timeout is 4h
 
 @dataclass
 class RAGState:
@@ -61,21 +61,38 @@ class RAGState:
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
     _status: dict[str, ReindexStatusEntry] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    _tasks: set[asyncio.Task[object]] = field(default_factory=set)
 
-    def _cleanup_old_status(self) -> None:
-        """Evict oldest completed/failed entries when limit exceeded."""
-        if len(self._status) <= _MAX_STATUS_ENTRIES:
-            return
-        completed = [
-            (tid, entry)
-            for tid, entry in self._status.items()
-            if entry.status in ("completed", "failed")
-        ]
-        completed.sort(key=lambda x: x[1].finished_at or 0.0)
-        to_evict = len(self._status) - _MAX_STATUS_ENTRIES
-        for tid, _ in completed[:to_evict]:
-            del self._status[tid]
+    async def _cleanup_old_status(self) -> None:
+        """Evict oldest completed/failed entries when limit exceeded.
+
+        Also evict 'running' entries older than _RUNNING_TTL_SECONDS
+        to prevent unbounded growth from orphaned tasks.
+        """
+        async with self._lock:
+            now = time.time()
+            stale_cutoff = now - _RUNNING_TTL_SECONDS
+
+            # Always evict stale running entries regardless of total size
+            stale_running = [
+                tid
+                for tid, entry in self._status.items()
+                if entry.status == "running" and entry.started_at < stale_cutoff
+            ]
+            for tid in stale_running:
+                del self._status[tid]
+
+            if len(self._status) <= _MAX_STATUS_ENTRIES:
+                return
+
+            completed = [
+                (tid, entry)
+                for tid, entry in self._status.items()
+                if entry.status in ("completed", "failed")
+            ]
+            completed.sort(key=lambda x: x[1].finished_at or 0.0)
+            to_evict = len(self._status) - _MAX_STATUS_ENTRIES
+            for tid, _ in completed[:to_evict]:
+                del self._status[tid]
 
     async def start_task(self, task_id: str) -> None:
         """Atomically register a running task."""
