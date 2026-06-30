@@ -296,3 +296,42 @@ class TestJinja2EnvironmentConfig:
         # With trim_blocks=True and lstrip_blocks=True, output should be compact
         assert "a" in result
         assert "b" in result
+
+
+# ---------- circular references in _make_hashable ----------
+import dataclasses
+
+from ai_assistant.core.prompts import _make_hashable
+
+
+@dataclasses.dataclass
+class _Node:
+    value: int
+    next: "_Node | None" = None
+
+
+def test_make_hashable_self_referencing_dataclass():
+    """_make_hashable must not crash on circular references."""
+    node = _Node(value=1)
+    node.next = node
+
+    result = _make_hashable(node)
+
+    assert isinstance(result, tuple)
+    fields = dict(result)
+    assert fields["next"] == "<circular>"
+
+
+def test_make_hashable_mutual_reference():
+    """Mutual circular references must be handled gracefully."""
+    a = {"name": "a"}
+    b = {"name": "b"}
+    a["ref"] = b
+    b["ref"] = a
+
+    result = _make_hashable(a)
+
+    a_dict = dict(result)
+    b_dict = dict(a_dict["ref"])
+    assert b_dict["name"] == "b"
+    assert b_dict["ref"] == "<circular>"

@@ -72,7 +72,7 @@ class ChatConfig(BaseSettings):
     history_limit: int = 10
     max_history_messages: int = 10_000
     max_context_tokens: int | None = None
-    tokenizer_local_dir: str = "./data/tokenizers"
+    tokenizer_local_dir: str = "./data/tokenizers"  # DEPRECATED: ignored — use TokenizerConfig.local_dir
 
 
 class TokenizerConfig(BaseSettings):

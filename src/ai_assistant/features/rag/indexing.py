@@ -35,7 +35,18 @@ def _discover_documents_sync(
 ) -> dict[str, list[dict[str, Any]]]:
     """Discover documents in folders. Returns {namespace: [docs]}.  SYNC — call via to_thread."""
     result: dict[str, list[dict[str, Any]]] = {}
-    root = Path(documents_root) if documents_root is not None else DOCUMENTS_ROOT
+    if documents_root is not None:
+        root = Path(documents_root)
+    else:
+        import warnings
+        warnings.warn(
+            "documents_root parameter is required; fallback to DOCUMENTS_ROOT "
+            "is deprecated and will be removed in a future version. "
+            "Pass documents_root explicitly or configure RAGConfig.documents_root.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        root = DOCUMENTS_ROOT
     exclude_set = set(exclude_roots or [])
 
     if folder:

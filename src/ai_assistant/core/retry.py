@@ -29,6 +29,45 @@ _PERMANENT_ERRORS: tuple[type[Exception], ...] = (
 )
 
 
+def _calculate_sleep(current_delay: float, jitter: bool, max_delay: float | None) -> float:
+    """Compute sleep duration with jitter and max_delay cap."""
+    sleep_for = current_delay
+    if jitter:
+        sleep_for = random.uniform(0, sleep_for)
+    if max_delay is not None:
+        sleep_for = min(sleep_for, max_delay)
+    return sleep_for
+
+
+async def _async_retry_loop(
+    coro: Callable[[], Awaitable[T]],
+    max_retries: int,
+    delay: float,
+    backoff: float,
+    max_delay: float | None,
+    jitter: bool,
+) -> T:
+    """Shared async retry loop used by @with_retry and retry_with_config."""
+    last_exception: Exception | None = None
+    current_delay = delay
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro()
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except _PERMANENT_ERRORS:
+            raise
+        except Exception as e:
+            last_exception = e
+            if attempt < max_retries:
+                sleep_for = _calculate_sleep(current_delay, jitter, max_delay)
+                await asyncio.sleep(sleep_for)
+                current_delay *= backoff
+    if last_exception is None:
+        raise RuntimeError("last_exception is None after retry loop")
+    raise last_exception
+
+
 def with_retry(
     max_retries: int = 3,
     delay: float = 1.0,
@@ -45,28 +84,14 @@ def with_retry(
     def decorator(func: F) -> F:
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception: Exception | None = None
-            current_delay = delay
-            for attempt in range(max_retries + 1):
-                try:
-                    return await func(*args, **kwargs)
-                except (SystemExit, KeyboardInterrupt):
-                    raise
-                except _PERMANENT_ERRORS:
-                    raise
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries:
-                        sleep_for = current_delay
-                        if jitter:
-                            sleep_for = random.uniform(0, sleep_for)
-                        if max_delay is not None:
-                            sleep_for = min(sleep_for, max_delay)
-                        await asyncio.sleep(sleep_for)
-                        current_delay *= backoff
-            if last_exception is None:
-                raise RuntimeError("last_exception is None after retry loop")
-            raise last_exception
+            return await _async_retry_loop(
+                lambda: func(*args, **kwargs),
+                max_retries=max_retries,
+                delay=delay,
+                backoff=backoff,
+                max_delay=max_delay,
+                jitter=jitter,
+            )
 
         @functools.wraps(func)
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -104,28 +129,14 @@ async def retry_with_config(
 ) -> T:
     """Execute coroutine with retry policy from config.
 
-    Repeats the logic of @with_retry: exponential backoff,
-    permanent-error exclusion, jitter support.
+    Delegates to the shared _async_retry_loop to avoid duplicating
+    retry logic with @with_retry.
     """
-    last_exception: Exception | None = None
-    current_delay = config.delay
-    for attempt in range(config.max_retries + 1):
-        try:
-            return await coro()
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except _PERMANENT_ERRORS:
-            raise
-        except Exception as e:
-            last_exception = e
-            if attempt < config.max_retries:
-                sleep_for = current_delay
-                if config.jitter:
-                    sleep_for = random.uniform(0, sleep_for)
-                if config.max_delay is not None:
-                    sleep_for = min(sleep_for, config.max_delay)
-                await asyncio.sleep(sleep_for)
-                current_delay *= config.backoff
-    if last_exception is None:
-        raise RuntimeError("last_exception is None after retry loop")
-    raise last_exception
+    return await _async_retry_loop(
+        coro,
+        max_retries=config.max_retries,
+        delay=config.delay,
+        backoff=config.backoff,
+        max_delay=config.max_delay,
+        jitter=config.jitter,
+    )

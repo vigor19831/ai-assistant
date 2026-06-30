@@ -13,19 +13,38 @@ _env_cache: dict[str, Environment] = {}
 
 
 def _make_hashable(value: Any) -> Any:
-    """Convert a value into a hashable form for cache keys."""
-    if isinstance(value, (str, int, float, bool, type(None))):
-        return value
-    if isinstance(value, (list, tuple)):
-        return tuple(_make_hashable(v) for v in value)
-    if isinstance(value, dict):
-        return tuple(sorted((k, _make_hashable(v)) for k, v in value.items()))
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        fields = value.__dataclass_fields__
-        return tuple(
-            (k, _make_hashable(getattr(value, k, None))) for k in sorted(fields.keys())
-        )
-    return str(value)
+    visited: set[int] = set()
+
+    def _inner(v: Any) -> Any:
+        vid = id(v)
+        if vid in visited:
+            return "<circular>"
+        if type(v) in (str, int, float, bool, type(None)):
+            return v
+        if type(v) in (list, tuple):
+            visited.add(vid)
+            try:
+                return tuple(_inner(x) for x in v)
+            finally:
+                visited.discard(vid)
+        if type(v) is dict:
+            visited.add(vid)
+            try:
+                return tuple(sorted((k, _inner(val)) for k, val in v.items()))
+            finally:
+                visited.discard(vid)
+        if dataclasses.is_dataclass(v) and type(v) is not type:
+            visited.add(vid)
+            try:
+                fields = v.__dataclass_fields__
+                return tuple(
+                    (k, _inner(getattr(v, k, None))) for k in sorted(fields.keys())
+                )
+            finally:
+                visited.discard(vid)
+        return str(v)
+
+    return _inner(value)
 
 
 def _kwargs_to_tuple(kwargs: dict[str, Any]) -> tuple[tuple[str, Any], ...]:

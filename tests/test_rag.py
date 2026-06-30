@@ -1147,3 +1147,20 @@ async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> Non
     health = await rag_manager.health()
     assert health["chunk_count"] == 1
     assert health["index_loaded"] is True
+
+
+# ---------- documents_root soft-deprecation ----------
+import warnings
+
+from ai_assistant.features.rag.indexing import _discover_documents_sync
+
+
+def test_discover_documents_without_root_emits_deprecation_warning():
+    """Missing documents_root must emit DeprecationWarning."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        _discover_documents_sync(folder=None, documents_root=None, exclude_roots=None)
+
+        deprecation = [x for x in w if issubclass(x.category, DeprecationWarning)]
+        assert len(deprecation) == 1
+        assert "documents_root parameter is required" in str(deprecation[0].message)

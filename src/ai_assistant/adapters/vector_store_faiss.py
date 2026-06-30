@@ -567,6 +567,11 @@ class FaissVectorStore(IVectorStore):
                 store_file = base / f"{ns_name}.store.json"
                 if await store_file.exists():
                     namespaces.append(ns_name)
+                else:
+                    _logger.warning(
+                        "Orphaned FAISS index file detected (no matching store.json)",
+                        extra={"namespace": ns_name, "path": str(f)},
+                    )
         return sorted(set(namespaces))
 
     async def shutdown(self) -> None:

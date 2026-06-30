@@ -744,7 +744,7 @@ class TestOpenAICompatibleLLM:
             server_context_size=None,
             max_tokens=2048,
         ))
-        assert llm.get_context_limit() == 2048
+        assert llm.get_context_limit() is None
 
     def test_get_context_limit_returns_default(self):
         """If both are invalid, return default 4096."""
@@ -753,7 +753,8 @@ class TestOpenAICompatibleLLM:
             server_context_size=0,
             max_tokens=0,
         ))
-        assert llm.get_context_limit() == 4096
+        assert llm.get_context_limit() is None
+
 
     def test_build_messages_user_and_assistant(self):
         """_build_messages converts UserMessage and AssistantMessage correctly."""
@@ -1348,3 +1349,75 @@ async def test_llm_openai_compatible_rejects_after_shutdown():
     await llm.shutdown()
     with pytest.raises(AdapterError, match="shutting down"):
         await llm.complete([UserMessage(text="hi")])
+
+
+# ---------- #19: orphaned .faiss without .store.json ----------
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+
+@pytest.fixture
+def faiss_store():
+    cfg = VectorStoreConfigData(
+        index_path="./data/indices/test",
+        metric="l2",
+        dim=384,
+        max_chunks=100,
+    )
+    return FaissVectorStore(cfg)
+
+
+async def test_list_namespaces_warns_on_orphaned_faiss(faiss_store, caplog):
+    """Orphaned .faiss without .store.json must log a warning."""
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "orphaned.faiss").write_bytes(b"fake")
+        Path(tmp, "valid.store.json").write_text('{"dim": 384}')
+        Path(tmp, "valid.faiss").write_bytes(b"fake")
+
+        with caplog.at_level("WARNING"):
+            ns = await faiss_store.list_namespaces(tmp)
+
+        assert "valid" in ns
+        assert "orphaned" not in ns
+        assert "Orphaned FAISS index file" in caplog.text
+
+
+# ---------- get_context_limit must not fallback to max_tokens ----------
+from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+from ai_assistant.core.domain.configs import LLMConfigData
+
+
+def test_get_context_limit_returns_none_when_server_context_size_unset():
+    """max_tokens is generation limit, not context window."""
+    cfg = LLMConfigData(
+        model="gpt-4",
+        api_base="http://localhost",
+        max_tokens=512,
+        server_context_size=None,
+    )
+    llm = OpenAICompatibleLLM(cfg)
+
+    limit = llm.get_context_limit()
+
+    assert limit is None, (
+        f"Expected None when server_context_size is unset, got {limit} "
+        f"(max_tokens={cfg.max_tokens})"
+    )
+
+
+def test_get_context_limit_returns_server_context_size_when_set():
+    """When server_context_size is set, it must be returned."""
+    cfg = LLMConfigData(
+        model="gpt-4",
+        api_base="http://localhost",
+        max_tokens=512,
+        server_context_size=8192,
+    )
+    llm = OpenAICompatibleLLM(cfg)
+
+    assert llm.get_context_limit() == 8192

@@ -1348,3 +1348,49 @@ class TestChatHistoryTrimming:
         history = [{"role": "assistant", "content": "Previous"}]
         trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
         assert trimmed == []
+
+
+# ---------- _trim_history falls back to count-based limit ----------
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from ai_assistant.core.domain.messages import UserMessage
+from ai_assistant.features.chat.manager import ChatManager
+
+
+@pytest.fixture
+def mock_llm_none_context():
+    m = MagicMock()
+    m.get_context_limit.return_value = None
+    m.system_message = None
+    return m
+
+
+async def test_trim_history_uses_count_fallback_when_budget_is_none(
+    mock_llm_none_context,
+):
+    """When get_context_limit() returns None, use history_limit."""
+    manager = ChatManager(
+        llm=mock_llm_none_context,
+        reranker=AsyncMock(),
+        storage=None,
+        history_limit=3,
+        max_context_tokens=None,
+    )
+    # Avoid asyncio.to_thread issues with AsyncMock by mocking _count_tokens directly
+    manager._count_tokens = AsyncMock(return_value=10)
+
+    history = [
+        {"role": "user", "content": "msg1"},
+        {"role": "user", "content": "msg2"},
+        {"role": "user", "content": "msg3"},
+        {"role": "user", "content": "msg4"},
+        {"role": "user", "content": "msg5"},
+    ]
+
+    trimmed = await manager._trim_history(history, UserMessage(text="current"))
+
+    assert len(trimmed) == 3
+    assert trimmed[0]["content"] == "msg3"
+    assert trimmed[-1]["content"] == "msg5"

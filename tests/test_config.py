@@ -744,3 +744,19 @@ class TestConfigMigrationParametrizedV2:
         for check_func, expected in expected_checks:
             actual = check_func(cfg)
             assert actual == expected, f"Expected {expected!r}, got {actual!r}"
+
+
+# ---------- ChatConfig.tokenizer_local_dir is dead code ----------
+from ai_assistant.core.config import ChatConfig, TokenizerConfig
+
+
+def test_chat_config_still_accepts_tokenizer_local_dir():
+    """Backward compat: field must still be accepted by pydantic."""
+    cfg = ChatConfig(tokenizer_local_dir="./custom/tokenizers")
+    assert cfg.tokenizer_local_dir == "./custom/tokenizers"
+
+
+def test_tokenizer_config_is_source_of_truth():
+    """TokenizerConfig.local_dir is the actual source of truth."""
+    cfg = TokenizerConfig(local_dir="./real/tokenizers")
+    assert cfg.local_dir == "./real/tokenizers"

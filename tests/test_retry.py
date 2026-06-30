@@ -303,3 +303,62 @@ async def test_retry_async_zero_max_retries():
     with pytest.raises(RuntimeError):
         await fn()
     assert len(tracker.calls) == 1
+
+
+# ---------- retry_with_config must use shared logic ----------
+from unittest.mock import AsyncMock
+
+import pytest
+
+from ai_assistant.core.domain.configs import RetryConfig
+from ai_assistant.core.retry import retry_with_config, with_retry
+
+
+class _FakeConfig:
+    max_retries = 2
+    delay = 0.01
+    backoff = 1.0
+    max_delay = None
+    jitter = False
+
+
+async def test_retry_with_config_same_behavior_as_decorator():
+    """retry_with_config and @with_retry must behave identically."""
+    call_count = 0
+
+    async def _fail_twice():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise ConnectionError("fail")
+        return "ok"
+
+    # retry_with_config
+    result = await retry_with_config(_fail_twice, _FakeConfig())
+    assert result == "ok"
+    assert call_count == 3
+
+    # @with_retry
+    call_count = 0
+
+    @with_retry(max_retries=2, delay=0.01, backoff=1.0, jitter=False)
+    async def _decorated():
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise ConnectionError("fail")
+        return "ok"
+
+    result = await _decorated()
+    assert result == "ok"
+    assert call_count == 3
+
+
+async def test_retry_with_config_permanent_error_not_retried():
+    """ValueError must not be retried."""
+    coro = AsyncMock(side_effect=ValueError("permanent"))
+
+    with pytest.raises(ValueError):
+        await retry_with_config(coro, _FakeConfig())
+
+    assert coro.call_count == 1
