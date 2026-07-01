@@ -33,6 +33,7 @@ HARD_EXCLUDED = {
     "dist", "build",
     "data", "sources", "vendor",
     ".test_tmp", ".hypothesis",
+    "ui",
 }
 
 # Docs files that are ALWAYS embedded in context (search in root and docs/)
