@@ -17,6 +17,7 @@ Offline-first, OpenAI-compatible LLM/embedder adapters.
 - **Embedder**: any OpenAI-compatible server (nomic-embed-text, etc.)
 - **Vector store**: FAISS (persistent) or memory (ephemeral)
 - **Storage**: SQLite
+- **API**: OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/models`) + native endpoints
 
 ---
 ### 1. First Time Setup
@@ -43,7 +44,7 @@ The script will:
 - Check your Python version (3.11+ required)
 - Create a virtual environment (`.venv/`)
 - Install all dependencies
-- Copy `.env.example` to `.env` and add your API keys (or leave empty for local servers without auth)
+- Copy `.env.example` to `.env` and add your API keys there (e.g., `AI_LLM_API_KEY`, `AI_EMBEDDER_API_KEY`). Leave empty for local servers. Do not put keys directly in `config.yaml`.
 - Create required data folders (`data/`, `sources/`)
 
 If Python is not installed, the script will open the download page in your browser.
@@ -51,15 +52,26 @@ If Python is not installed, the script will open the download page in your brows
 4. **Download models:** Place your GGUF models in `vendor/models/`. Download from [HuggingFace](https://huggingface.co/models) or other sources. Ensure filenames match your `config.yaml` settings.
 
 5. **Edit configuration:** Open `config.yaml` and set:
-   - LLM: `model` (filename for llama.cpp GGUF, or model name for Ollama/vLLM) and `api_base`
+   - LLM: `model` (for `run_servers.py` with llama.cpp, use the GGUF filename *without* the `.gguf` extension; for Ollama/vLLM, use the model ID) and `api_base`
    - Embedder: `model` and `api_base`
    - Adjust other settings as needed
 
-6. **Download tokenizers:** Run `download_tokenizers.py` via `run_scripts.py`:
-   - **Windows:** double-click `run_scripts.py`, select `download_tokenizers.py`
+   **Model selection:** Set `model` to the exact name of the model loaded on your server. For `run_servers.py` with llama.cpp, use the GGUF filename *without* the `.gguf` extension. List all available models in `available_models` (first entry is treated as active for `/v1/models`):
+
+   ```yaml
+   llm:
+     model: your-model-name
+     available_models:
+       - "your-model-name"
+       - "model-2"
+       - "model-3"
+   ```
+
+6. **Download tokenizers:** Run `download_tokenizers.py` via `run_scripts.py` to download tokenizer files for your local models.
+   - **Windows:** double-click `run_scripts.py` (in the project root), select `download_tokenizers.py`
    - **macOS / Linux:** `python3 run_scripts.py`, select `download_tokenizers.py`
 
-   This downloads tokenizers to `data/tokenizers/` based on your `config.yaml` settings.
+   *Note: This is required for local models (Llama, Qwen, Gemma, Phi, etc.). You can skip this step only if you use cloud OpenAI models (like `gpt-4o`).*
 
 ### 2. Start the Server
 
@@ -78,22 +90,72 @@ Then open http://localhost:8000 in your browser.
 ---
 ### 3. Daily Use
 
+**RAG Namespaces:** Folders in `sources/` act as namespaces. Target them in chat with prefixes: `[p]` (personal), `[w]` (work), `[b]` (books), `[c]` (code), `[o]` (other).
+
+**Chat Exports:** Save and index chat history via the `/api/v1/rag/save-chat` endpoint (toggle in `config.yaml` via `rag.index_chat_exports`).
+
+**API Endpoints:**
+
+The server exposes two API families:
+
+1. **Native API** (`/api/v1/*`) — requires API key if configured:
+   - `POST /api/v1/chat` — chat with RAG
+   - `POST /api/v1/chat/stream` — streaming chat (SSE)
+   - `POST /api/v1/rag/query` — RAG query only
+   - `POST /api/v1/rag/index` — index documents
+   - `POST /api/v1/rag/reindex` — background reindex from disk
+   - `GET /api/v1/rag/reindex/status/{task_id}` — check reindex progress
+   - `GET /api/v1/rag/health` — RAG health check
+   - `GET /api/v1/rag/namespaces` — list namespaces
+   - `POST /api/v1/rag/delete` — delete chunks/documents
+   - `POST /api/v1/rag/save-chat` — save chat export
+
+2. **OpenAI-compatible API** (`/v1/*`) — stays at root, optional auth via `security.openai_routes_require_auth`:
+   - `GET /v1/models` — list available models
+   - `POST /v1/chat/completions` — OpenAI-compatible chat (supports streaming)
+
+   Use this to connect existing tools (continue.dev, OpenWebUI, etc.) that expect an OpenAI endpoint.
+
+**Admin endpoints** (`/admin/*`, dev-only):
+   - `GET /admin/current-model` — show active model
+   - `POST /admin/api-key` — rotate API key at runtime (process-local only)
+
+   Disabled unless `security.admin_enabled: true`.
+
 **Servers:**
 
 `run_servers.py` — starts local llama.cpp LLM and embedder servers. Must be running before using the app (if you use local models).
 
 - **Start:** double-click `run_servers.py` (Windows) or `.venv/bin/python run_servers.py` (macOS/Linux)
-- **Stop:** press `Ctrl+C` or `Enter` in the terminal window
+- **Stop:** press `Ctrl+C` in the terminal window. The app performs graceful shutdown: finishes active requests, persists indices, closes connections.
 
 If using Ollama, vLLM, or other external servers — start them separately.
 
-**Helper scripts** (run via `run_scripts.py`):
+**Helper scripts** (run via `run_scripts.py` from the project root):
 
 | Script | When to run |
 |--------|-------------|
 | `index_documents.py` | After adding files to `sources/` |
-| `download_tokenizers.py` | After adding a new model |
+| `download_tokenizers.py` | After adding a new model (HF only) |
 | `kill.py` | Emergency shutdown — stops all running servers |
+| `check_llm.py` | [dev] Verifies LLM connection and basic generation |
+| `check_rag.py` | [dev] Tests the full RAG pipeline (retrieval + generation) |
+
+**Background Reindex:**
+The `/api/v1/rag/reindex` endpoint returns immediately and runs in the background. Check status with `/api/v1/rag/reindex/status/{task_id}`. Tasks time out after 4 hours. Only one reindex runs at a time (semaphore-protected).
+
+---
+
+## ⚠️ Security & Production Deployment
+The default `config.yaml` is optimized for local development and includes `debug: true` and `security.admin_enabled: true`.
+**Before deploying to production:**
+- Set `debug: false`
+- Set `security.admin_enabled: false`
+- Set `security.openai_routes_require_auth: true` if you expose `/v1/*` externally
+- Set `security.api_key` or `AI_SECURITY_API_KEY` env var
+- Review `security.allowed_hosts`
+
+---
 
 ## Requirements
 
@@ -104,6 +166,15 @@ If using Ollama, vLLM, or other external servers — start them separately.
 ## Configuration
 
 Edit `config.yaml` to point to your LLM and embedder endpoints. All available options are documented inline with comments.
+
+Key sections:
+- `llm` — model, API endpoint, sampling parameters
+- `embedder` — embedding model, dimension (must match `vector_store.dim`)
+- `vector_store` — FAISS or memory, index path, dimension
+- `rag` — pipeline steps (`embed_query`, `retrieve`, `rerank`, `build_context`, `generate`, optional `hyde_query`), top_k, thresholds
+- `namespaces` — per-namespace chunk size, threshold, prompt overrides
+- `security` — API key, admin endpoints, body size limits
+- `logging` — level, format (text/json), rotation
 
 ## Project Structure
 
@@ -118,6 +189,9 @@ ai-assistant/                          # Project root
 │   └── .run_history.json              # Script run history
 │
 ├── docs/                              # Documentation
+│   ├── ai_rules.md                    # AI development rules
+│   ├── architectural_strategy.md      # Architecture decisions
+│   └── drift.md                       # Known drift log
 │
 ├── scripts/                           # Helper scripts
 │   ├── setup.py                       # Project setup (one-time)
@@ -140,6 +214,10 @@ ai-assistant/                          # Project root
 │   └── work/
 │
 ├── src/ai_assistant/                  # Application source code
+│   ├── core/                          # Domain, ports, pipeline (immutable)
+│   ├── adapters/                      # Adapter implementations
+│   ├── api/                           # HTTP handlers, DI, lifespan
+│   └── features/                      # Chat and RAG features
 │
 ├── tests/                             # Tests
 │
@@ -156,10 +234,11 @@ ai-assistant/                          # Project root
 ├── NOTICE
 ├── pyproject.toml                     # Dependencies, settings
 ├── README.md                          # This file
-├── run_scripts.py                     # Script runner
+├── run_scripts.py                     # Script runner (project root)
 └── run_servers.py                     # Server orchestrator
 ```
 
 ## License
 
 Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+```

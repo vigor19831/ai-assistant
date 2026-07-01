@@ -19,7 +19,7 @@ _VALID_LEVELS: Final[frozenset[str]] = frozenset(
 
 
 class _TextFormatter(logging.Formatter):
-    """Text formatter with trace_id support — thread-safe, no record mutation."""
+    """Text formatter with trace_id support — thread-safe."""
 
     def format(self, record: logging.LogRecord) -> str:
         trace_id = getattr(record, "trace_id", None)

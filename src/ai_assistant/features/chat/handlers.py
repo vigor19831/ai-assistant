@@ -90,18 +90,19 @@ async def _stream_with_heartbeat(
             await queue.put(exc)
 
     task = asyncio.create_task(_producer())
-    last_activity = asyncio.get_event_loop().time()
+    loop = asyncio.get_running_loop()
+    last_activity = loop.time()
 
     try:
         while True:
-            elapsed = asyncio.get_event_loop().time() - last_activity
+            elapsed = loop.time() - last_activity
             timeout = max(0.1, interval - elapsed)
 
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=timeout)
             except TimeoutError:
                 yield ": ping\n\n"
-                last_activity = asyncio.get_event_loop().time()
+                last_activity = loop.time()
                 continue
 
             if item is None:

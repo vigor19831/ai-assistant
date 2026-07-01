@@ -80,7 +80,7 @@ async def index_documents(
     filtered_docs: list[dict[str, Any]] = []
     pre_errors: list[str] = []
     for doc in req.documents:
-        content = doc.get("content", "")
+        content = doc.get("content") or ""
         size = len(content.encode("utf-8"))
         if size > max_doc_size:
             doc_id = doc.get("id", "unknown")

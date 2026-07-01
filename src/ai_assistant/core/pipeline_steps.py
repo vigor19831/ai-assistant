@@ -46,6 +46,7 @@ __all__: list[str] = [
     "build_context",
     "embed_query",
     "generate",
+    "hyde_query",
     "rerank",
     "retrieve",
     "STEP_REGISTRY",
@@ -417,14 +418,14 @@ async def generate(data: PipelineData) -> PipelineData:
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
         if prompt_tokens > limit:
             error_msg = (
-                f"generate: prompt too long ({prompt_tokens} tokens)  "
-                f"exceeds limit ({limit}) "
+                f"generate: prompt too long ({prompt_tokens} tokens) "
+                f"exceeds limit ({limit})"
             )
             return data.add_error(error_msg).with_response(
                 AssistantMessage(
                     text=(
-                        "Sorry, the retrieved context is too large  "
-                        "to process. Please narrow your query. "
+                        "Sorry, the retrieved context is too large "
+                        "to process. Please narrow your query."
                     )
                 )
             )
