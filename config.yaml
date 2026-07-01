@@ -61,6 +61,7 @@ llm:
     - gemma-4-e2b-it
     - phi-4-mini-reasoning
     - qwen3.5-4b
+    - gemma-4-e4b-it
   max_tokens: 4096
   temperature: 0.7
   top_p: 0.95

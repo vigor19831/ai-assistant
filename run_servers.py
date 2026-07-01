@@ -137,28 +137,35 @@ def start() -> int:
     (ROOT / "data").mkdir(exist_ok=True)
     py = str(VENV_PY)
 
+    # Shared llama.cpp log with rotation-like cleanup
+    llama_log = ROOT / "data" / "llama.log"
+    # Truncate if >10MB to avoid unbounded growth
+    if llama_log.exists() and llama_log.stat().st_size > 10_485_760:
+        llama_log.unlink()
+
     # LLM server
     llm_cfg = cfg.get("llm", {})
     model = _find_model(llm_cfg.get("model", ""))
     if model:
         exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
         if exe:
-            print(f"  > LLM server  model={model.name}")
+            print(f"\n  > LLM server  model={model.name}")
             cmd = [
                 str(exe), "-m", str(model),
                 "--host", "127.0.0.1", "--port", "8080",
                 "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
                 "-c", str(llm_cfg.get("server_context_size", 4096)),
+                "-lv", "1",  # warnings only — suppress per-token debug
             ]
-            _run(cmd, ROOT / "data" / "server_8080.log")
+            _run(cmd, llama_log)
             if wait_port(8080):
-                print("  + LLM ready  http://127.0.0.1:8080")
+                print("  + LLM ready  http://127.0.0.1:8080\n")
             else:
-                print("  ! LLM did not respond")
+                print("  ! LLM did not respond\n")
         else:
-            print("  ! llama-server not found")
+            print("  ! llama-server not found\n")
     else:
-        print("  ! LLM model not found")
+        print("  ! LLM model not found\n")
 
     # Embedder server
     emb_cfg = cfg.get("embedder", {})
@@ -172,16 +179,17 @@ def start() -> int:
                 "--host", "127.0.0.1", "--port", "8081",
                 "-ngl", str(emb_cfg.get("n_gpu_layers", 99)),
                 "-c", "512", "--embedding", "--pooling", "mean",
+                "-lv", "1",  # warnings only
             ]
-            _run(cmd, ROOT / "data" / "server_8081.log")
+            _run(cmd, llama_log)
             if wait_port(8081):
-                print("  + Embedder ready  http://127.0.0.1:8081")
+                print("  + Embedder ready  http://127.0.0.1:8081\n")
             else:
-                print("  ! Embedder did not respond")
+                print("  ! Embedder did not respond\n")
         else:
-            print("  ! llama-server not found")
+            print("  ! llama-server not found\n")
     else:
-        print("  ! Embedder model not found")
+        print("  ! Embedder model not found\n")
 
     # Uvicorn API
     host = cfg.get("host", "0.0.0.0")
@@ -195,9 +203,9 @@ def start() -> int:
     (ROOT / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
 
     if wait_port(port):
-        print(f"  + API ready  http://{host}:{port}")
+        print(f"  + API ready  http://{host}:{port}\n")
     else:
-        print(f"  ! API did not respond on port {port}")
+        print(f"  ! API did not respond on port {port}\n")
 
     _wait_for_stop()
     return stop()

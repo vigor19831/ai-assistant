@@ -65,6 +65,8 @@ If Python is not installed, the script will open the download page in your brows
 
 **If using llama.cpp (local GGUF models):**
 
+> **Windows first-time users:** After downloading llama.cpp, Windows may show a security warning ("Unknown publisher") when first running `llama-server.exe`. You must run `llama-server.exe` manually once and click "Run anyway" before using `run_servers.py`. Otherwise `run_servers.py` will hang silently because the security dialog cannot appear for subprocesses.
+
 - **Windows:** double-click `run_servers.py`
 - **macOS / Linux:** `.venv/bin/python run_servers.py`
 

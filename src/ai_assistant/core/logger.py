@@ -69,6 +69,11 @@ def setup_logging(
 ) -> logging.Logger:
     """Configure application logging.
 
+    When log_file is set, writes to file ONLY. Console output is
+    captured by run_servers.py into server_8000.log; writing to
+    both places duplicates every line. Use console-only when
+    log_file is None (e.g. tests, docker).
+
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         log_file: Path to log file, or None for console-only.
@@ -101,9 +106,15 @@ def setup_logging(
             _TextFormatter() if fmt == "text" else _JsonFormatter()
         )
 
-        console = logging.StreamHandler(sys.stdout)
-        console.setFormatter(formatter)
-        logger.addHandler(console)
+        if log_file:
+            # File only — console output is captured by run_servers.py
+            # into server_8000.log, which duplicates app.log. Avoid double
+            # logging by writing to file only when log_file is configured.
+            pass  # file handler added below
+        else:
+            console = logging.StreamHandler(sys.stdout)
+            console.setFormatter(formatter)
+            logger.addHandler(console)
 
         if log_file:
             path = Path(log_file)
