@@ -60,11 +60,11 @@ If Python is not installed, the script will open the download page in your brows
 
    ```yaml
    llm:
-     model: your-model-name
+     model: your-model-name-1
      available_models:
-       - "your-model-name"
-       - "model-2"
-       - "model-3"
+       - "your-model-name-1"
+       - "your-model-name-2"
+       - "your-model-name-3"
    ```
 
 6. **Download tokenizers:** Run `download_tokenizers.py` via `run_scripts.py` to download tokenizer files for your local models.
