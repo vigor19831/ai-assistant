@@ -243,7 +243,7 @@ def main() -> int:
     else:
         out = args.output or args.root / "structure.txt"
         out.write_text(text, encoding="utf-8")
-        print(f"✅ {out}")
+        print(f"[OK] {out}")
     return 0
 
 

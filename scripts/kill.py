@@ -163,9 +163,9 @@ def main() -> int:
     for name in _KILL_NAMES:
         killed = _kill_by_name(name)
         if killed:
-            print(f"  ✓ Sent kill to: {name}")
+            print(f"  [OK] Sent kill to: {name}")
         else:
-            print(f"  - Not found: {name}")
+            print(f"  [SKIP] Not found: {name}")
 
     # 2. Kill by port holders
     print("\n[2/3] Killing port holders...")
@@ -178,19 +178,18 @@ def main() -> int:
                 print(f"  Port {port} still held — forcing kill...")
                 _kill_pid(pid, force=True)
             if _wait_port_free(port, timeout=1.0):
-                print(f"  ✓ Port {port} freed")
+                print(f"  [OK] Port {port} freed")
             else:
-                print(f"  ✗ Port {port} STILL held (permission denied?)")
+                print(f"  [FAIL] Port {port} STILL held (permission denied?)")
         else:
-            print(f"  ✓ Port {port} already free")
+            print(f"  [OK] Port {port} already free")
 
     # 3. Clean PID file
     print("\n[3/3] Cleaning PID files...")
-    root = Path(__file__).parent.resolve()
     pid_file = root / "data" / "uvicorn.pid"
     if pid_file.exists():
         pid_file.unlink(missing_ok=True)
-        print(f"  ✓ Removed {pid_file}")
+        print(f"  [OK] Removed {pid_file}")
 
     print("\n" + "=" * 50)
     print("  Done.")

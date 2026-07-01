@@ -13,6 +13,7 @@ import os
 import shutil
 import stat
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 # ── Configuration ──
@@ -122,7 +123,7 @@ def format_size(path: Path | int) -> str:
     return f"{size:.1f} TB"
 
 
-def _rmtree_onerror(func: callable, path: str, exc_info: tuple) -> None:
+def _rmtree_onerror(func: Callable[..., object], path: str, exc_info: tuple) -> None:
     """Error handler for shutil.rmtree — handles read-only files on Windows."""
     try:
         os.chmod(path, stat.S_IWUSR)
@@ -161,10 +162,10 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
     print(f"  {title}")
     print(f"{'─' * 60}")
     for d in dirs:
-        rel = str(d.relative_to(root)) if root and _is_relative_to(d, root) else str(d)
+        rel = str(d.relative_to(root)) if root and d.is_relative_to(root) else str(d)
         print(f"  [DIR]  {rel:<50} {format_size(d):>10}")
     for f in files:
-        rel = str(f.relative_to(root)) if root and _is_relative_to(f, root) else str(f)
+        rel = str(f.relative_to(root)) if root and f.is_relative_to(root) else str(f)
         print(f"  [FILE] {rel:<50} {format_size(f):>10}")
     total = 0
     for t in targets:
@@ -182,14 +183,6 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
     print(f"{'─' * 60}")
     print(f"  Total: {len(dirs)} dirs, {len(files)} files  ({format_size(total)})")
 
-
-def _is_relative_to(path: Path, other: Path) -> bool:
-    """Polyfill for Path.is_relative_to (Python 3.9+)."""
-    try:
-        path.relative_to(other)
-        return True
-    except ValueError:
-        return False
 
 
 def _detect_project_root() -> Path:
@@ -234,7 +227,7 @@ def main() -> int:
     failed = 0
     for target in targets:
         ok, reason = delete_target(target)
-        rel = str(target.relative_to(root)) if _is_relative_to(target, root) else str(target)
+        rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
         if ok:
             print(f"  [OK]   {rel}")
             deleted += 1

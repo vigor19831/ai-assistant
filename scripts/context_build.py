@@ -11,15 +11,15 @@ Folder processing rules:
 import argparse
 import ast
 import fnmatch
-import logging
 import os
 import sys
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
-logger = logging.getLogger("context_build")
+from ai_assistant.core.logger import get_logger
+
+logger = get_logger("context_build")
 
 
 # ============================================================================
@@ -274,19 +274,6 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
         "",
     ]
 
-    # README — content excluded from AI context, file listed in inventory
-    # readme = root / "README.md"
-    # if readme.exists():
-    #     lines.extend([
-    #         "## 📋 Project Overview",
-    #         "```markdown",
-    #         readme.read_text(encoding="utf-8", errors="replace")[:2000],
-    #         "```",
-    #         "",
-    #         "---",
-    #         "",
-    #     ])
-
     # AI Rules (from doc_files)
     _DOC_TITLES = {
         "ai_rules.md": "AI Development Guidelines",
@@ -296,7 +283,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     for rel, content in doc_files:
         title = _DOC_TITLES.get(rel, "Project Documentation")
         lines.extend([
-            f"## 🚨 {title}",
+            f"## {title}",
             f"> Auto-extracted from: `{rel}`",
             "```markdown",
             content[:25000],
@@ -308,7 +295,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
 
     # Structure
     lines.extend([
-        "## 🗂️ Structure",
+        "## Structure",
         "```",
     ])
     for dirpath, dirnames, filenames in os.walk(root):
@@ -326,7 +313,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
 
     # Dependencies
     if mode in ("rules", "compact") and py_files:
-        lines.extend(["## 🔗 Dependencies", ""])
+        lines.extend(["## Dependencies", ""])
         graph = defaultdict(list)
         for rel, content in py_files:
             internal, _ = extract_imports(content)
@@ -339,7 +326,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
             lines.extend(["", "---", ""])
 
     # File Inventory
-    lines.extend(["## 📦 Files", ""])
+    lines.extend(["## Files", ""])
     if full_files:
         lines.append("### Full Content")
         for r, _ in sorted(full_files):
@@ -359,7 +346,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
 
     # Full Content
     if full_files:
-        lines.extend(["## 🔑 Full Code", ""])
+        lines.extend(["## Full Code", ""])
         for rel, content in sorted(full_files, key=lambda x: x[0]):
             if rel.endswith(".py"):
                 ext = "python"
@@ -379,7 +366,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
 
     # Signatures
     if sig_files:
-        lines.extend(["## 🧩 API Signatures", ""])
+        lines.extend(["## API Signatures", ""])
         for rel, content in sorted(sig_files, key=lambda x: x[0]):
             sig = extract_signature(content, rel)
             lines.extend([f"### `{rel}`", "```python", sig, "```", ""])

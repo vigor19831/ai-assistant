@@ -98,6 +98,19 @@ def _install_deps(venv_py: str, root: Path) -> None:
     )
     _ok("Dependencies installed")
 
+    # Ask about faiss — vector store backend
+    _info("Optional: install FAISS vector store backend?")
+    _info("  (required if config.yaml uses vector_store.provider = 'faiss')")
+    ans = input("  Install faiss-cpu? [y/N]: ").strip().lower()
+    if ans in ("y", "yes"):
+        _info("Installing faiss-cpu...")
+        subprocess.run(
+            [venv_py, "-m", "pip", "install", ".[faiss]"],
+            cwd=root,
+            check=False,
+        )
+        _ok("FAISS installed")
+
 
 def _copy_env(root: Path) -> None:
     """Copy .env.example to .env if not present."""

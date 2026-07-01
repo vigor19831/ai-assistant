@@ -95,7 +95,7 @@ If using Ollama, vLLM, or other external servers — start them separately.
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.11+
 - LLM server: llama.cpp (local GGUF), Ollama, vLLM, or any OpenAI-compatible endpoint
 - Embedder server: any OpenAI-compatible endpoint
 

@@ -22,17 +22,25 @@ def main() -> int:
     new_path = str(venv_scripts) + os.pathsep + os.environ.get("PATH", "")
     new_prompt = "(.venv) " + os.environ.get("PROMPT", "$P$G")
 
+    def _quote_ps(s: str) -> str:
+        """Escape single quotes for PowerShell single-quoted string."""
+        return s.replace("'", "''")
+
     # PowerShell command: set policy + activate venv + cd to project
     ps_script = (
         f"Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force; "
-        f"$env:PATH = '{new_path}'; "
-        f"$env:VIRTUAL_ENV = '{venv}'; "
-        f"$env:PROMPT = '{new_prompt}'; "
-        f"Set-Location '{root}'; "
+        f"$env:PATH = '{_quote_ps(new_path)}'; "
+        f"$env:VIRTUAL_ENV = '{_quote_ps(str(venv))}'; "
+        f"$env:PROMPT = '{_quote_ps(new_prompt)}'; "
+        f"Set-Location '{_quote_ps(str(root))}'; "
         f"Write-Host 'venv activated (admin)' -ForegroundColor Green"
     )
 
     import ctypes
+
+    def _quote_ps(s: str) -> str:
+        """Escape single quotes for PowerShell single-quoted string."""
+        return s.replace("'", "''")
 
     # If already admin — just open PowerShell directly
     if ctypes.windll.shell32.IsUserAnAdmin():
@@ -40,7 +48,7 @@ def main() -> int:
         return 0
 
     # Not admin — request elevation via UAC
-    ctypes.windll.shell32.ShellExecuteW(
+    ret = ctypes.windll.shell32.ShellExecuteW(
         None,           # hwnd
         "runas",        # operation — triggers UAC dialog
         "powershell.exe",  # file to run
@@ -48,6 +56,9 @@ def main() -> int:
         str(root),      # working directory
         1               # SW_SHOWNORMAL
     )
+    if ret <= 32:
+        print(f"[FAIL] Failed to elevate PowerShell (error {ret})")
+        return 1
     return 0
 
 

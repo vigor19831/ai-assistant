@@ -75,19 +75,11 @@ def _check_embedder_reachable(cfg) -> tuple[bool, str]:
 
 
 async def _shutdown_adapters(state) -> None:
-    """Gracefully shutdown all adapters that support it."""
-    for attr_name in ("llm", "embedder", "vector_store", "reranker", "storage"):
-        adapter = getattr(state, attr_name, None)
-        if adapter is None:
-            continue
-        shutdown = getattr(adapter, "shutdown", None)
-        if shutdown is None or not callable(shutdown):
-            continue
+    """Gracefully shutdown all adapters unconditionally."""
+    for adapter in (state.llm, state.embedder, state.vector_store,
+                    state.reranker, state.storage):
         try:
-            if asyncio.iscoroutinefunction(shutdown):
-                await shutdown()
-            else:
-                shutdown()
+            await adapter.shutdown()
         except Exception:
             pass
 

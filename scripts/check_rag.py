@@ -31,7 +31,7 @@ async def main() -> int:
     with _project_path():
         from ai_assistant.core.config import load_config
         from ai_assistant.core.domain.messages import UserMessage
-        from ai_assistant.core.domain.pipeline import PipelineData
+        from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
         from ai_assistant.core.constants import RAG_NS_MAP
         from ai_assistant.core.query_parser import parse_rag_query
         from ai_assistant.adapters.factory import create_adapter
@@ -151,17 +151,22 @@ async def main() -> int:
         threshold = ns_cfg.relevance_threshold if ns_cfg else cfg.rag.relevance_threshold
         print(f"        -> relevance_threshold={threshold}")
 
-        # Build pipeline data
+        # Build pipeline config and data
+        pipeline_config = PipelineConfig(
+            top_k=cfg.rag.top_k,
+            namespace=namespace,
+            relevance_threshold=threshold,
+            prompt_name=cfg.rag.prompt_name,
+            prompt_version=cfg.rag.prompt_version,
+            token_margin_min=cfg.rag.token_margin_min,
+            token_margin_pct=cfg.rag.token_margin_pct,
+        )
+
         data = PipelineData(
             query=UserMessage(text=query_text),
-            metadata={
-                "top_k": cfg.rag.top_k,
-                "namespace": namespace,
-                "relevance_threshold": threshold,
-                "embedder": embedder,
-                "vector_store": vector_store,
-                "reranker": None,  # Will use NullReranker if needed
-            },
+            embedder=embedder,
+            vector_store=vector_store,
+            pipeline_config=pipeline_config,
         )
 
         # Step 1: embed
@@ -169,7 +174,7 @@ async def main() -> int:
         if data.errors:
             print(f"        [FAIL] embed_query: {data.errors}")
             continue
-        emb = data.metadata.get("query_embedding")
+        emb = data.query_embedding
         print(f"        [OK] embed_query: embedding len={len(emb) if emb else 'NONE'}")
 
         # Step 2: retrieve

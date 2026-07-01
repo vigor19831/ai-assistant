@@ -11,6 +11,11 @@ from pathlib import Path
 VENV = ".venv"
 PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
 
+# Menu layout constants
+_NUM_W = 6
+_NAME_W = 34
+_COL_W = _NUM_W + _NAME_W + 4
+
 # Auto-activate venv
 _venv = Path(__file__).parent / ".venv"
 _venv_py = _venv / PY
@@ -107,16 +112,15 @@ def _save_history(root: Path, history: dict[str, dict[str, object]]) -> None:
 
 
 def print_menu(scripts, history, last, last_time):
-    NUM_W = 6
-    NAME_W = 34
-    COL_W = NUM_W + NAME_W + 4
-
     user = [s for s in scripts if s[0] not in _DEV_SCRIPTS]
     dev = [s for s in scripts if s[0] in _DEV_SCRIPTS]
 
-    print()
+    print("=" * (_COL_W + 4))
+    print("=" * (_COL_W + 4))
     print(f"   SCRIPT RUNNER          {time.strftime('%H:%M:%S')}")
-    print("  " + "-" * COL_W)
+    print("=" * (_COL_W + 4))
+    print("=" * (_COL_W + 4))
+
 
     idx = 1
     for name, path in user:
@@ -126,7 +130,7 @@ def print_menu(scripts, history, last, last_time):
         mark = "o" if status == "ok" else "x" if status == "fail" else "-"
         prefix = "* " if is_last else "  "
         server_mark = " [srv]" if name == "index_documents.py" else ""
-        name_fmt = (name + server_mark)[:NAME_W]
+        name_fmt = (name + server_mark)[:_NAME_W]
         desc = _get_docstring(path)
         if desc:
             line = f"{name_fmt} - {desc[:22]}"
@@ -136,14 +140,14 @@ def print_menu(scripts, history, last, last_time):
         idx += 1
 
     if dev:
-        print("  " + "-" * COL_W)
+        print("  " + "-" * _COL_W)
         for name, path in dev:
             is_last = (path == last)
             hist = history.get(path, {})
             status = hist.get("status", "")
             mark = "o" if status == "ok" else "x" if status == "fail" else "-"
             prefix = "* " if is_last else "  "
-            name_fmt = name[:NAME_W]
+            name_fmt = name[:_NAME_W]
             desc = _get_docstring(path)
             if desc:
                 line = f"[dev] {name_fmt} - {desc[:17]}"
@@ -152,8 +156,8 @@ def print_menu(scripts, history, last, last_time):
             print(f"  {prefix}[{idx:2d}] {mark} {line}")
             idx += 1
 
-    print("  " + "-" * COL_W)
-    print("  [r] Rerun last" + " " * (COL_W - 16) + "[0] Exit")
+    print("  " + "-" * _COL_W)
+    print("  [r] Rerun last" + " " * (_COL_W - 16) + "[0] Exit")
 
     if last:
         last_name = Path(last).name
@@ -171,7 +175,12 @@ def run(py, target, root, extra, history):
     name = Path(target).name
     now = time.strftime("%H:%M:%S")
 
-    print(f"\n  > Running: {name}  [{now}]")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    print(f"|  RUN: {name:<{_COL_W - 6}}  |")
+    print(f"|  TIME: {now:<{_COL_W - 7}} |")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    print("+" + "-" * (_COL_W + 2) + "+")
     print(f"    {' '.join(cmd)}")
 
     start = time.perf_counter()
@@ -187,8 +196,12 @@ def run(py, target, root, extra, history):
 
     _save_history(root, history)
 
-    print(f"\n  > {status}")
-    input("\n  Press Enter... ")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    print(f"|  RESULT: {status:<{_COL_W - 10}} |")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    print("+" + "-" * (_COL_W + 2) + "+")
+    input("  Press Enter... ")
     return res.returncode, elapsed
 
 
