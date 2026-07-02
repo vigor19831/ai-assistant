@@ -45,7 +45,7 @@ The script will:
 - Create a virtual environment (`.venv/`)
 - Install all dependencies
 - Copy `.env.example` to `.env` and add your API keys there (e.g., `AI_LLM_API_KEY`, `AI_EMBEDDER_API_KEY`). Leave empty for local servers. Do not put keys directly in `config.yaml`.
-- Create required data folders (`data/`, `sources/`)
+- Create required data folder (`data/`). Document sources are configured in `config.yaml` via `rag.sources`.
 
 If Python is not installed, the script will open the download page in your browser.
 
@@ -90,7 +90,7 @@ Then open http://localhost:8000 in your browser.
 ---
 ### 3. Daily Use
 
-**RAG Namespaces:** Folders in `sources/` act as namespaces. Target them in chat with prefixes: `[p]` (personal), `[w]` (work), `[b]` (books), `[c]` (code), `[o]` (other).
+**RAG Namespaces:** RAG is opt-in. To search your documents, start a message with a namespace prefix configured in `config.yaml` (e.g., `[p]` for personal, `[w]` for work). Messages without a prefix go directly to the LLM with no document search. Prefixes are defined per-namespace via the `prefix` field — remove or change them in `config.yaml` as needed.
 
 **Chat Exports:** Save and index chat history via the `/api/v1/rag/save-chat` endpoint (toggle in `config.yaml` via `rag.index_chat_exports`).
 
@@ -135,7 +135,7 @@ If using Ollama, vLLM, or other external servers — start them separately.
 
 | Script | When to run |
 |--------|-------------|
-| `index_documents.py` | After adding files to `sources/` |
+| `index_documents.py` | After updating `rag.sources` in `config.yaml` |
 | `download_tokenizers.py` | After adding a new model (HF only) |
 | `kill.py` | Emergency shutdown — stops all running servers |
 | `check_llm.py` | [dev] Verifies LLM connection and basic generation |
@@ -206,12 +206,6 @@ ai-assistant/                          # Project root
 │   ├── open_shell.py                  # [dev] Open shell with venv
 │   └── structure.py                   # [dev] Structure generation
 │
-├── sources/                           # Document sources for RAG
-│   ├── books/
-│   ├── code/
-│   ├── other/
-│   ├── personal/
-│   └── work/
 │
 ├── src/ai_assistant/                  # Application source code
 │   ├── core/                          # Domain, ports, pipeline (immutable)

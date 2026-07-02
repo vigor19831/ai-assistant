@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.logger import get_logger
 
-__all__ = ["index_folder"]
+if TYPE_CHECKING:
+    from ai_assistant.core.config import SourceConfig
+
+__all__ = ["index_folder", "read_sources"]
 
 _logger = get_logger("rag.indexing")
-
-DOCUMENTS_ROOT = Path("sources")
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".py", ".json", ".yaml", ".yml", ".csv", ".log"}
 
 
 def _read_file_sync(path: Path) -> str:
@@ -27,87 +28,102 @@ def _read_file_sync(path: Path) -> str:
     return ""
 
 
-def _discover_documents_sync(
-    folder: str | None = None,
+def _match_patterns(file_path: Path, patterns: list[str]) -> bool:
+    """Return True if file name matches any of the glob patterns."""
+    name = file_path.name
+    return any(fnmatch.fnmatch(name, pat) for pat in patterns)
+
+
+def _collect_files_sync(
+    source: SourceConfig,
     max_file_size: int | None = None,
-    documents_root: Path | None = None,
-    exclude_roots: list[str] | None = None,
-) -> dict[str, list[dict[str, Any]]]:
-    """Discover documents in folders. Returns {namespace: [docs]}.  SYNC — call via to_thread."""
-    result: dict[str, list[dict[str, Any]]] = {}
-    if documents_root is not None:
-        root = Path(documents_root)
-    else:
-        import warnings
-        warnings.warn(
-            "documents_root parameter is required; fallback to DOCUMENTS_ROOT "
-            "is deprecated and will be removed in a future version. "
-            "Pass documents_root explicitly or configure RAGConfig.documents_root.",
-            DeprecationWarning,
-            stacklevel=2,
+) -> list[dict[str, Any]]:
+    """Collect documents from a single source configuration.
+
+    Returns list of document dicts for this source's namespace.
+    """
+    docs: list[dict[str, Any]] = []
+    root = Path(source.path).expanduser().resolve()
+
+    if not root.exists():
+        _logger.warning(
+            "Source path does not exist, skipping: %s",
+            root,
         )
-        root = DOCUMENTS_ROOT
-    exclude_set = set(exclude_roots or [])
+        return docs
 
-    if folder:
-        folders = [root / folder]
-    else:
-        if not root.exists():
-            return {}
-        folders = [d for d in root.iterdir() if d.is_dir()]
+    iterator = root.rglob("*") if source.recursive else root.iterdir()
 
-    for folder_path in folders:
-        if folder_path.name in exclude_set:
-            _logger.info("Skipping excluded folder: %s", folder_path)
+    for file_path in iterator:
+        if not file_path.is_file():
             continue
-        namespace = folder_path.name
-        docs: list[dict[str, Any]] = []
+        if not _match_patterns(file_path, source.include):
+            continue
 
-        for file_path in folder_path.rglob("*"):
-            if not file_path.is_file():
-                continue
-            if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
-                continue
-
-            # Guard: skip files exceeding max size before reading into memory
-            if max_file_size is not None:
-                try:
-                    file_size = file_path.stat().st_size
-                    if file_size > max_file_size:
-                        _logger.warning(
-                            "Skipping oversized file %s (%d > %d bytes)",
-                            file_path,
-                            file_size,
-                            max_file_size,
-                        )
-                        continue
-                except OSError:
+        # Guard: skip files exceeding max size before reading into memory
+        if max_file_size is not None:
+            try:
+                file_size = file_path.stat().st_size
+                if file_size > max_file_size:
+                    _logger.warning(
+                        "Skipping oversized file %s (%d > %d bytes)",
+                        file_path,
+                        file_size,
+                        max_file_size,
+                    )
                     continue
-
-            content = _read_file_sync(file_path)
-            if not content.strip():
+            except OSError:
                 continue
 
-            rel_source = str(file_path.relative_to(root))
-            # Relative path from documents_root — no absolute path leakage
-            source_uri = file_path.relative_to(root).as_posix()
+        content = _read_file_sync(file_path)
+        if not content.strip():
+            continue
 
-            docs.append(
-                {
-                    "id": file_path.stem,
-                    "content": content,
-                    "metadata": {
-                        "source": rel_source,
-                        "folder": namespace,
-                        "source_uri": source_uri,  # Pass through to chunker
-                    },
-                }
-            )
+        source_uri = file_path.relative_to(root).as_posix()
 
+        docs.append(
+            {
+                "id": file_path.stem,
+                "content": content,
+                "metadata": {
+                    "source": source_uri,
+                    "folder": source.namespace,
+                    "source_uri": source_uri,
+                    "type": "document",
+                },
+            }
+        )
+
+    return docs
+
+
+def read_sources(
+    sources: list[SourceConfig],
+    max_file_size: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Read all configured sources and group by namespace.
+
+    Args:
+        sources: List of SourceConfig from RAGConfig.
+        max_file_size: Skip files larger than this (bytes).
+
+    Returns:
+        {namespace: [document_dicts]}.
+    """
+    result: dict[str, list[dict[str, Any]]] = {}
+    for source in sources:
+        docs = _collect_files_sync(source, max_file_size=max_file_size)
         if docs:
-            result[namespace] = docs
-
+            existing = result.get(source.namespace, [])
+            result[source.namespace] = existing + docs
+            _logger.info(
+                "Source '%s': %d documents from %s",
+                source.namespace,
+                len(docs),
+                source.path,
+            )
     return result
+
 
 async def index_folder(
     folder: str | None,
@@ -116,8 +132,7 @@ async def index_folder(
     embedder: Any,
     vector_store: Any,
     max_file_size: int | None = None,
-    documents_root: Path | None = None,
-    exclude_roots: list[str] | None = None,
+    sources: list[SourceConfig] | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -128,19 +143,21 @@ async def index_folder(
         embedder: IEmbedder instance.
         vector_store: IVectorStore instance.
         max_file_size: Max file size in bytes before skipping (guard).
-        documents_root: Root path for document folders. Falls back to DOCUMENTS_ROOT.
+        sources: List of SourceConfig — specifies document sources.
 
     Returns:
         Dict with results per namespace and any errors.
     """
     from ai_assistant.features.rag.manager import IndexingManager
 
+    if not sources:
+        _logger.warning("No sources configured, nothing to index")
+        return {"success": False, "results": {}, "errors": ["No sources configured"]}
+
     docs_by_ns = await asyncio.to_thread(
-        _discover_documents_sync,
-        folder,
+        read_sources,
+        sources,
         max_file_size=max_file_size,
-        documents_root=documents_root,
-        exclude_roots=exclude_roots,
     )
     if not docs_by_ns:
         return {"success": True, "results": {}, "errors": ["No documents found"]}
@@ -155,6 +172,9 @@ async def index_folder(
     all_errors: list[str] = []
 
     for namespace, docs in docs_by_ns.items():
+        if folder and namespace != folder:
+            continue
+
         if clear:
             try:
                 existing = await vector_store.list_by_filter({}, namespace=namespace)
@@ -177,7 +197,7 @@ async def index_folder(
             if result.get("errors"):
                 all_errors.extend(result["errors"])
 
-            index_path = getattr(vector_store.config, "index_path", None)
+            index_path = vector_store.index_path
             if index_path:
                 try:
                     await vector_store.save(index_path, namespace=namespace)

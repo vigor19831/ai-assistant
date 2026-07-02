@@ -406,8 +406,10 @@ class TestRAGIndexing:
     @pytest.mark.asyncio
     async def test_reindex_background_task(self, tmp_path, mock_chunker, mock_embedder, mock_vector_store):
         """Given: markdown files in tmp_path/sources/personal.
-        When: index_folder is called with folder='personal'.
+        When: index_folder is called with sources pointing to personal folder.
         Then: documents are indexed and namespace 'personal' appears in results."""
+        from ai_assistant.core.config import SourceConfig
+
         sources = tmp_path / "sources"
         personal = sources / "personal"
         personal.mkdir(parents=True)
@@ -422,7 +424,14 @@ class TestRAGIndexing:
             chunker=mock_chunker,
             embedder=mock_embedder,
             vector_store=mock_vector_store,
-            documents_root=str(sources),
+            sources=[
+                SourceConfig(
+                    namespace="personal",
+                    path=str(personal),
+                    include=["*.md"],
+                    recursive=True,
+                )
+            ],
         )
         assert result["success"] is True
         assert "personal" in result["results"]
@@ -439,6 +448,7 @@ class TestRAGIndexing:
         Then: event loop remains responsive — a concurrent ticker keeps firing.
         """
         import time
+        from ai_assistant.core.config import SourceConfig
 
         def _slow_read(path: Path) -> str:
             time.sleep(0.05)  # 50ms per file
@@ -472,7 +482,14 @@ class TestRAGIndexing:
                 chunker=mock_chunker,
                 embedder=mock_embedder,
                 vector_store=mock_vector_store,
-                documents_root=sources,
+                sources=[
+                    SourceConfig(
+                        namespace="personal",
+                        path=str(ns),
+                        include=["*.md"],
+                        recursive=True,
+                    )
+                ],
             )
         finally:
             task.cancel()
@@ -675,7 +692,7 @@ class TestChatExportIsolation:
     @pytest.mark.asyncio
     async def test_reindex_clears_chat_namespace(self, mock_state, tmp_path):
         """Given: chat exports indexed in 'chat_personal'.
-        When: reindex called with clear=True, folder='personal'.
+        When: reindex called with clear=True, namespace='personal'.
         Then: 'chat_personal' namespace is also cleared."""
         from ai_assistant.features.rag.handlers import reindex_documents
         from ai_assistant.features.rag.schemas import ReindexRequest
@@ -1109,6 +1126,29 @@ class TestRAGHandlersTraceId:
 
 # ── RAG health check after load() ───────────────────────────────────────────
 
+def test_check_rag_script_imports() -> None:
+    """Verify scripts/check_rag.py can be imported without errors.
+
+    This catches drift from removed symbols (RAG_NS_MAP) or
+    signature changes (parse_rag_query requiring prefix_map).
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    script_path = Path(__file__).parent.parent / "scripts" / "check_rag.py"
+    spec = importlib.util.spec_from_file_location("check_rag", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["check_rag"] = module
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        pytest.fail(f"check_rag.py failed to import: {exc}")
+    finally:
+        sys.modules.pop("check_rag", None)
+
+
 async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> None:
     """Health check after correct load() shows accurate chunk_count.
 
@@ -1149,18 +1189,176 @@ async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> Non
     assert health["index_loaded"] is True
 
 
-# ---------- documents_root soft-deprecation ----------
-import warnings
-
-from ai_assistant.features.rag.indexing import _discover_documents_sync
+# ---------- read_sources tests ----------
 
 
-def test_discover_documents_without_root_emits_deprecation_warning():
-    """Missing documents_root must emit DeprecationWarning."""
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        _discover_documents_sync(folder=None, documents_root=None, exclude_roots=None)
+class TestReadSources:
+    """Tests for the new read_sources() function."""
 
-        deprecation = [x for x in w if issubclass(x.category, DeprecationWarning)]
-        assert len(deprecation) == 1
-        assert "documents_root parameter is required" in str(deprecation[0].message)
+    def test_read_sources_empty_returns_empty(self) -> None:
+        """Given: empty sources list.
+        When: read_sources called.
+        Then: returns empty dict."""
+        from ai_assistant.features.rag.indexing import read_sources
+
+        result = read_sources([])
+        assert result == {}
+
+    def test_read_sources_duplicate_namespace_merges(self, tmp_path: Path) -> None:
+        """Given: two SourceConfig with same namespace.
+        When: read_sources called.
+        Then: documents from both paths merged into one namespace."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import read_sources
+
+        folder_a = tmp_path / "docs_a"
+        folder_b = tmp_path / "docs_b"
+        folder_a.mkdir()
+        folder_b.mkdir()
+        (folder_a / "file1.md").write_text("content a", encoding="utf-8")
+        (folder_b / "file2.md").write_text("content b", encoding="utf-8")
+
+        sources = [
+            SourceConfig(namespace="merged", path=str(folder_a), include=["*.md"]),
+            SourceConfig(namespace="merged", path=str(folder_b), include=["*.md"]),
+        ]
+
+        result = read_sources(sources)
+        assert "merged" in result
+        assert len(result["merged"]) == 2
+        texts = {d["content"] for d in result["merged"]}
+        assert texts == {"content a", "content b"}
+
+    def test_read_sources_single_namespace(self, tmp_path: Path) -> None:
+        """Given: source config pointing to a folder with .md files.
+        When: read_sources is called.
+        Then: returns documents grouped by namespace."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import read_sources
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "note.md").write_text("hello")
+        (docs_dir / "skip.py").write_text("code")  # filtered by include
+
+        sources = [
+            SourceConfig(namespace="notes", path=str(docs_dir), include=["*.md"], recursive=True)
+        ]
+        result = read_sources(sources)
+        assert "notes" in result
+        assert len(result["notes"]) == 1
+        assert result["notes"][0]["content"] == "hello"
+
+    def test_read_sources_nonexistent_path(self, tmp_path: Path) -> None:
+        """Given: source config pointing to non-existent path.
+        When: read_sources is called.
+        Then: returns empty dict, no exception."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import read_sources
+
+        sources = [
+            SourceConfig(namespace="missing", path=str(tmp_path / "nope"), include=["*.md"])
+        ]
+        result = read_sources(sources)
+        assert result == {}
+
+    def test_read_sources_multiple_namespaces(self, tmp_path: Path) -> None:
+        """Given: two source configs with different namespaces.
+        When: read_sources is called.
+        Then: documents grouped correctly by namespace."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import read_sources
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+        (work_dir / "report.md").write_text("report")
+
+        personal_dir = tmp_path / "personal"
+        personal_dir.mkdir()
+        (personal_dir / "diary.md").write_text("diary")
+
+        sources = [
+            SourceConfig(namespace="work", path=str(work_dir), include=["*.md"]),
+            SourceConfig(namespace="personal", path=str(personal_dir), include=["*.md"]),
+        ]
+        result = read_sources(sources)
+        assert len(result["work"]) == 1
+        assert len(result["personal"]) == 1
+        assert result["work"][0]["content"] == "report"
+        assert result["personal"][0]["content"] == "diary"
+
+    def test_read_sources_respects_recursive(self, tmp_path: Path) -> None:
+        """Given: nested folder with recursive=False.
+        When: read_sources is called.
+        Then: nested files are skipped."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import read_sources
+
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "top.md").write_text("top")
+        nested = root / "nested"
+        nested.mkdir()
+        (nested / "deep.md").write_text("deep")
+
+        sources = [
+            SourceConfig(namespace="root", path=str(root), include=["*.md"], recursive=False)
+        ]
+        result = read_sources(sources)
+        assert len(result["root"]) == 1
+        assert result["root"][0]["content"] == "top"
+
+    def test_read_sources_max_file_size(self, tmp_path: Path) -> None:
+        """Given: files of different sizes with max_file_size set.
+        When: read_sources is called.
+        Then: oversized files are skipped."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import read_sources
+
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "small.md").write_text("x")
+        (root / "large.md").write_text("x" * 1000)
+
+        sources = [
+            SourceConfig(namespace="root", path=str(root), include=["*.md"])
+        ]
+        result = read_sources(sources, max_file_size=10)
+        assert len(result["root"]) == 1
+        assert result["root"][0]["id"] == "small"
+
+    @pytest.mark.asyncio
+    async def test_index_folder_no_sources_returns_error(self) -> None:
+        """Given: no sources configured.
+        When: index_folder called with empty sources.
+        Then: returns explicit error with success=False."""
+        from ai_assistant.features.rag.indexing import index_folder
+
+        result = await index_folder(
+            folder=None,
+            clear=False,
+            chunker=AsyncMock(),
+            embedder=AsyncMock(),
+            vector_store=AsyncMock(),
+            sources=[],
+        )
+        assert result["success"] is False
+        assert result["errors"] == ["No sources configured"]
+
+    @pytest.mark.asyncio
+    async def test_index_folder_no_sources_returns_error(self) -> None:
+        """Given: no sources configured.
+        When: index_folder called with empty sources.
+        Then: returns error gracefully."""
+        from ai_assistant.features.rag.indexing import index_folder
+
+        result = await index_folder(
+            folder=None,
+            clear=False,
+            chunker=AsyncMock(),
+            embedder=AsyncMock(),
+            vector_store=AsyncMock(),
+            sources=[],
+        )
+        assert "errors" in result
+        assert "No sources configured" in result["errors"][0]

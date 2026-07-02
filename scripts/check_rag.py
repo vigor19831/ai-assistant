@@ -32,11 +32,10 @@ async def main() -> int:
         from ai_assistant.core.config import load_config
         from ai_assistant.core.domain.messages import UserMessage
         from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
-        from ai_assistant.core.constants import RAG_NS_MAP
-        from ai_assistant.core.query_parser import parse_rag_query
+        from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
         from ai_assistant.adapters.factory import create_adapter
         from ai_assistant.core.pipeline_steps import (
-            embed_query, retrieve, build_context, rerank
+        embed_query, retrieve, build_context, rerank
         )
         from ai_assistant.core.logger import get_logger
 
@@ -59,19 +58,21 @@ async def main() -> int:
         return 1
 
     # ── 2. Check source files exist ──
-    sources_dir = PROJECT_ROOT / "sources"
     print(f"\n  --- Source files ---")
-    for short, ns in RAG_NS_MAP.items():
-        ns_dir = sources_dir / ns
+    for source in cfg.rag.sources:
+        ns_dir = Path(source.path)
         if ns_dir.exists():
-            files = list(ns_dir.iterdir())
-            print(f"  [{short}] {ns:<10} -> {len(files)} files in {ns_dir}")
-            for f in files[:3]:
+            files = [f for f in ns_dir.iterdir() if f.is_file()]
+            filtered = [f for f in files if any(
+                fnmatch.fnmatch(f.name, pat) for pat in source.include
+            )]
+            print(f"  [{source.namespace}] -> {len(filtered)} files in {ns_dir}")
+            for f in filtered[:3]:
                 print(f"         - {f.name} ({f.stat().st_size} bytes)")
-            if len(files) > 3:
-                print(f"         ... and {len(files)-3} more")
+            if len(filtered) > 3:
+                print(f"         ... and {len(filtered)-3} more")
         else:
-            print(f"  [{short}] {ns:<10} -> MISSING directory {ns_dir}")
+            print(f"  [{source.namespace}] -> MISSING directory {ns_dir}")
 
     # ── 3. Init REAL embedder (not mock!) ──
     print(f"\n  --- Initializing REAL embedder ---")
@@ -132,6 +133,7 @@ async def main() -> int:
 
     # ── 6. Test REAL query through pipeline ──
     print(f"\n  --- REAL RAG test ---")
+    prefix_map = build_prefix_map(cfg.namespaces)
     test_queries = [
         ("[p] какой любимый цвет", "personal"),
         ("[w] test query work", "work"),
@@ -141,8 +143,8 @@ async def main() -> int:
     for raw_query, expected_ns in test_queries:
         print(f"\n  Query: '{raw_query}'")
 
-        query_text, namespace = parse_rag_query(raw_query)
-        if namespace == "default" and raw_query == query_text:
+        query_text, namespace = parse_rag_query(raw_query, prefix_map)
+        if namespace is None and raw_query == query_text:
             namespace = expected_ns
         print(f"        -> Parsed: ns='{namespace}', text='{query_text}'")
 
@@ -162,10 +164,15 @@ async def main() -> int:
             token_margin_pct=cfg.rag.token_margin_pct,
         )
 
+        # Create NullReranker for diagnostic pipeline
+        from ai_assistant.core.domain.configs import RerankerConfigData
+        reranker = create_adapter("reranker", "null", RerankerConfigData())
+
         data = PipelineData(
             query=UserMessage(text=query_text),
             embedder=embedder,
             vector_store=vector_store,
+            reranker=reranker,
             pipeline_config=pipeline_config,
         )
 
@@ -213,7 +220,7 @@ async def main() -> int:
     print("\n" + "=" * WIDTH)
     print("DIAGNOSIS CHECKLIST:")
     print("  [ ] embedder.dim == vector_store.dim")
-    print("  [ ] sources/ folder has files")
+    print("  [ ] rag.sources configured with existing paths")
     print("  [ ] scripts/index_documents.py was run")
     print("  [ ] Index files exist in data/indices/")
     print("  [ ] Query embedding matches index embedding (same model)")

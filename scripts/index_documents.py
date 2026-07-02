@@ -86,7 +86,7 @@ async def _shutdown_adapters(state) -> None:
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Index documents into RAG")
-    parser.add_argument("--folder", "-f", help="Index only specific folder")
+    parser.add_argument("--namespace", "-n", help="Index only specific namespace")
     parser.add_argument(
         "--clear", "-c", action="store_true", help="Clear before indexing"
     )
@@ -119,12 +119,13 @@ async def main() -> int:
 
     try:
         result = await index_folder(
-            folder=args.folder,
+            folder=args.namespace,
             clear=args.clear,
             chunker=state.chunker,
             embedder=state.embedder,
             vector_store=state.vector_store,
-            documents_root=Path(config.rag.documents_root),
+            max_file_size=config.vector_store.max_document_size,
+            sources=config.rag.sources,
         )
     except Exception as exc:
         print(f"[ERROR] Indexing failed: {exc}")

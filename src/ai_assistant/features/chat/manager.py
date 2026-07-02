@@ -23,7 +23,7 @@ from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
-from ai_assistant.core.query_parser import parse_rag_query
+from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -167,6 +167,7 @@ class ChatManager:
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
+        self._prefix_map = build_prefix_map(self.namespaces)
 
         # Build pipeline internally — ChatManager owns its pipeline.
         # rag_steps parameter exists for tests and future overrides.
@@ -254,19 +255,19 @@ class ChatManager:
 
     async def _retrieve_context(
         self, message: str, trace_id: str | None = None
-    ) -> tuple[str, str, str, tuple[Chunk, ...]]:
+    ) -> tuple[str, str, str | None, tuple[Chunk, ...]]:
         """Run RAG retrieval and return (prompt_for_llm, original_query, namespace, rag_chunks).
 
         If RAG is not triggered or no results are found, returns the original
         message unchanged with empty chunks.
         """
         if not self._pipeline:
-            return message, message, "default", ()
+            return message, message, None, ()
 
-        query_text, namespace = parse_rag_query(message)
-        if namespace == "default" and message == query_text:
+        query_text, namespace = parse_rag_query(message, self._prefix_map)
+        if namespace is None:
             # No RAG prefix detected — return original message unchanged
-            return message, message, "default", ()
+            return message, message, None, ()
 
         ns_cfg = self.namespaces.get(namespace)
         relevance_threshold = ns_cfg.relevance_threshold if ns_cfg else 0.3
@@ -372,8 +373,8 @@ class ChatManager:
         )
 
         # Graceful degradation: RAG requested but infrastructure unavailable
-        _clean, _ns = parse_rag_query(message)
-        if _ns != "default" and not self._pipeline:
+        _clean, _ns = parse_rag_query(message, self._prefix_map)
+        if _ns is not None and not self._pipeline:
             return AssistantMessage(
                 text="Document search (RAG) temporarily unavailable."
             )
@@ -467,8 +468,8 @@ class ChatManager:
         )
 
         # Graceful degradation: RAG requested but infrastructure unavailable
-        _clean, _ns = parse_rag_query(message)
-        if _ns != "default" and not self._pipeline:
+        _clean, _ns = parse_rag_query(message, self._prefix_map)
+        if _ns is not None and not self._pipeline:
             yield "Document search (RAG) temporarily unavailable."
             return
 

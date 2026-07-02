@@ -2,34 +2,46 @@
 
 from __future__ import annotations
 
-from ai_assistant.core.constants import DEFAULT_NAMESPACE, RAG_NS_MAP, RAG_PREFIX_RE
+import re
+from collections.abc import Mapping
 
-__all__ = ["parse_rag_query"]
+__all__ = ["build_prefix_map", "parse_rag_query"]
 
 
-def parse_rag_query(text: str) -> tuple[str, str]:
+def parse_rag_query(text: str, prefix_map: dict[str, str]) -> tuple[str, str | None]:
     """Extract RAG prefix and return (clean_text, namespace).
 
-    Prefix-to-namespace mapping is intentionally hardcoded in
-    constants.RAG_NS_MAP. Dynamic prefix configuration was
-    rejected per architectural strategy (simplicity constraints,
-    config freeze >=3 uses threshold). Custom namespaces are
-    supported via the full namespace name or the namespace
-    parameter in API requests.
+    RAG is strictly opt-in: no prefix match returns namespace=None.
+    All prefixes are provided via *prefix_map* from configuration.
 
-    Examples:
-        "[p] hello" -> ("hello", "personal")
-        "[w] test"  -> ("test", "work")
-        "hello"     -> ("hello", "default")
+    Args:
+        text: Raw user message.
+        prefix_map: Mapping of prefix string -> namespace name,
+            built from NamespaceConfig.prefix values.
+
+    Returns:
+        (clean_text, namespace). namespace is None when no prefix matches.
     """
-    if not text:
-        return ("", DEFAULT_NAMESPACE)
+    if not text or not prefix_map:
+        return ("", None)
 
-    match = RAG_PREFIX_RE.match(text)
+    escaped = [re.escape(k) for k in prefix_map]
+    pattern = re.compile(r"^\[(" + "|".join(escaped) + r")\]\s*(.*)", re.IGNORECASE)
+    match = pattern.match(text)
     if not match:
-        return (text, DEFAULT_NAMESPACE)
+        return (text, None)
 
     prefix = match.group(1).lower()
     clean = match.group(2).strip()
-    namespace = RAG_NS_MAP.get(prefix, DEFAULT_NAMESPACE)
+    namespace = prefix_map.get(prefix)
     return (clean, namespace)
+
+
+def build_prefix_map(namespaces: Mapping[str, object]) -> dict[str, str]:
+    """Build prefix -> namespace mapping from NamespaceConfig dict."""
+    result: dict[str, str] = {}
+    for ns_name, cfg in namespaces.items():
+        prefix = getattr(cfg, "prefix", None)
+        if prefix:
+            result[prefix] = ns_name
+    return result

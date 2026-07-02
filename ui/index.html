@@ -374,6 +374,9 @@
         const sidebarOverlay = document.getElementById('sidebarOverlay');
         const dragOverlay = document.getElementById('dragOverlay');
 
+        // ===== Scroll Constants (must be declared before any function calls that use them) =====
+        const SCROLL_THRESHOLD = 100;
+
         // ===== Init =====
         loadSettings();
         loadSessions();
@@ -508,7 +511,6 @@
         }
 
         // ===== Scroll =====
-        const SCROLL_THRESHOLD = 100;
         function isNearBottom() {
             return container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_THRESHOLD;
         }

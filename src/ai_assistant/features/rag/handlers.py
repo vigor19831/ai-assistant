@@ -19,7 +19,7 @@ from ai_assistant.api.deps import (
 from ai_assistant.core.config import _get_chat_namespace
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.query_parser import parse_rag_query
+from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 from ai_assistant.features.rag.schemas import (
@@ -149,8 +149,9 @@ async def query_rag(
 
     # Fallback: if namespace not explicitly set, try parsing from query text
     if ns == cfg.default_namespace:
-        parsed_text, parsed_ns = parse_rag_query(req.query)
-        if parsed_ns != "default":
+        prefix_map = build_prefix_map(state.config.namespaces)
+        parsed_text, parsed_ns = parse_rag_query(req.query, prefix_map)
+        if parsed_ns is not None:
             query_text = parsed_text
             ns = parsed_ns
 
@@ -495,7 +496,7 @@ async def reindex_documents(
                         embedder=state.embedder,
                         vector_store=state.vector_store,
                         max_file_size=state.config.vector_store.max_document_size,
-                        documents_root=Path(state.config.rag.documents_root),
+                        sources=state.config.rag.sources,
                     )
                     await rag_state.complete_task(task_id, result)
                     _logger.info(

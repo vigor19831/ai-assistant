@@ -63,16 +63,19 @@ def chat_manager_with_rag():
     store = MemoryVectorStore(VectorStoreConfigData(dim=3))
     namespaces = {
         "personal": NamespaceConfig(
-            threshold=0.1, chunk_size=512, prompt="rag_strict"
+            prefix="p", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
         "work": NamespaceConfig(
-            threshold=0.3, chunk_size=1024, prompt="rag_creative"
+            prefix="w", threshold=0.3, chunk_size=1024, prompt="rag_creative"
         ),
-        "custom": NamespaceConfig(
-            threshold=0.2, chunk_size=512, prompt="rag_custom"
+        "other": NamespaceConfig(
+            prefix="o", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
-        "business": NamespaceConfig(
-            threshold=0.25, chunk_size=1024, prompt="rag_business"
+        "code": NamespaceConfig(
+            prefix="c", threshold=0.1, chunk_size=512, prompt="rag_strict"
+        ),
+        "books": NamespaceConfig(
+            prefix="b", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
     }
     mock_llm = MagicMock()
@@ -191,7 +194,7 @@ class TestChatManager:
         )
         assert prompt == "Hello world"
         assert query == "Hello world"
-        assert namespace == "default"
+        assert namespace is None
         assert chunks == ()
 
     @pytest.mark.asyncio
@@ -335,10 +338,11 @@ class TestChatManager:
             vector_store=MagicMock(),
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
+            namespaces={"personal": NamespaceConfig(prefix="p")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
-        assert namespace == "default"
+        assert namespace is None
         assert prompt == "[p] query"
         assert query == "[p] query"
         assert chunks == ()
@@ -357,14 +361,14 @@ class TestChatManager:
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
+            namespaces={"personal": NamespaceConfig(prefix="p")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
-        assert namespace == "default"
+        assert namespace is None
         assert prompt == "[p] query"
         assert query == "[p] query"
         assert chunks == ()
-
     @pytest.mark.asyncio
     async def test_retrieve_per_namespace_prompt_and_threshold(
         self, chat_manager_with_rag
@@ -394,7 +398,7 @@ class TestChatManager:
 
     @pytest.mark.asyncio
     async def test_retrieve_fallback_to_defaults_when_no_namespace_config(self):
-        """Given: empty namespaces dict.
+        """Given: namespace with prefix but no per-namespace overrides.
         When: _retrieve_context is called with prefix.
         Then: global defaults (rag_strict, 0.3) are used."""
         embedder = MockEmbedder(EmbedderConfigData(dim=3))
@@ -408,7 +412,7 @@ class TestChatManager:
             vector_store=store,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            namespaces={},
+            namespaces={"personal": NamespaceConfig(prefix="p")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         chunk = Chunk(
@@ -597,11 +601,26 @@ class TestChatManager:
     # ── Graceful degradation ──
 
     @pytest.mark.asyncio
-    async def test_chat_with_prefix_no_pipeline_graceful(self, manager_no_rag):
+    async def test_chat_with_prefix_no_pipeline_graceful(self):
         """Given: [p] prefix with no RAG pipeline.
         When: chat() is called.
         Then: graceful unavailable message is returned."""
-        result = await manager_no_rag.chat(
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
+        mock_llm.system_message = None
+        mock_llm.complete = AsyncMock(
+            return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
+        )
+        manager = ChatManager(
+            llm=mock_llm,
+            embedder=None,
+            vector_store=None,
+            reranker=NullReranker(RerankerConfigData()),
+            storage=None,
+            namespaces={"personal": NamespaceConfig(prefix="p")},
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await manager.chat(
             message="[p] capital of France",
             conversation_id="test-1",
         )
@@ -639,12 +658,24 @@ class TestChatManager:
         assert chunks == ["Hello", "!"]
 
     @pytest.mark.asyncio
-    async def test_stream_chat_with_rag_prefix_graceful(self, manager_no_rag):
+    async def test_stream_chat_with_rag_prefix_graceful(self):
         """Given: [p] prefix with no RAG pipeline in stream_chat.
         When: stream_chat() is called.
         Then: graceful unavailable message is yielded."""
+        mock_llm = MagicMock()
+        mock_llm.get_context_limit.return_value = 4096
+        mock_llm.system_message = None
+        manager = ChatManager(
+            llm=mock_llm,
+            embedder=None,
+            vector_store=None,
+            reranker=NullReranker(RerankerConfigData()),
+            storage=None,
+            namespaces={"personal": NamespaceConfig(prefix="p")},
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
         chunks = []
-        async for chunk in manager_no_rag.stream_chat(
+        async for chunk in manager.stream_chat(
             "[p] capital of France", "conv-1"
         ):
             chunks.append(chunk)
@@ -685,6 +716,11 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
+
+        # Force embedder to return matching embedding so search finds the chunk
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
 
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Paris", " is", " sunny."])
@@ -758,7 +794,13 @@ class TestChatPrefixes:
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            namespaces={},
+            namespaces={
+                "personal": NamespaceConfig(prefix="p"),
+                "work": NamespaceConfig(prefix="w"),
+                "other": NamespaceConfig(prefix="o"),
+                "code": NamespaceConfig(prefix="c"),
+                "books": NamespaceConfig(prefix="b"),
+            },
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         # Inject mock pipeline for prefix testing — pipeline is a private detail
@@ -932,7 +974,7 @@ class TestChatPrefixes:
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
             "plain message without prefix"
         )
-        assert namespace == "default"
+        assert namespace is None
         assert query == "plain message without prefix"
         assert prompt == "plain message without prefix"
 

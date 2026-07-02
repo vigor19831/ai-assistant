@@ -121,28 +121,38 @@ rag:
   relevance_threshold: 0.1
   token_margin_min: 256
   token_margin_pct: 0.1
+  sources:
+    - namespace: default
+      path: "sources"
+      include: ["*.md", "*.txt", "*.py", "*.json", "*.yaml", "*.yml", "*.csv", "*.log"]
+      recursive: true
   chat_exports_root: "data/chat_exports"
   index_chat_exports: false     # true = auto-index saved chats into RAG
 
 # ── Namespaces ──
 namespaces:
   personal:
+    prefix: p
     threshold: 0.1
     chunk_size: 512
     prompt: rag_strict
   work:
+    prefix: w
     threshold: 0.3
     chunk_size: 1024
     prompt: rag_creative
   other:
+    prefix: o
     threshold: 0.1
     chunk_size: 512
     prompt: rag_strict
   code:
+    prefix: c
     threshold: 0.1
     chunk_size: 512
     prompt: rag_strict
   books:
+    prefix: b
     threshold: 0.1
     chunk_size: 512
     prompt: rag_strict

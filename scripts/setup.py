@@ -132,7 +132,6 @@ def _create_dirs(root: Path) -> None:
         root / "data",
         root / "data" / "tokenizers",
         root / "data" / "indices",
-        root / "sources",
     ]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)

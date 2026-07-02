@@ -279,8 +279,11 @@ def isolated_app_state(tmp_path):
     """
     state = build_mock_state()
     # Isolate paths to tmp_path for filesystem safety
+    from ai_assistant.core.config import SourceConfig
     state.config.vector_store.index_path = str(tmp_path / "indices")
-    state.config.rag.documents_root = str(tmp_path / "documents")
+    state.config.rag.sources = [
+        SourceConfig(namespace="default", path=str(tmp_path / "documents"))
+    ]
     state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
     state.config.storage.db_path = str(tmp_path / "storage.db")
     return state

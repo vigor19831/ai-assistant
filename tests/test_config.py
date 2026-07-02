@@ -746,6 +746,77 @@ class TestConfigMigrationParametrizedV2:
             assert actual == expected, f"Expected {expected!r}, got {actual!r}"
 
 
+class TestSourceConfigMigration:
+    """Given: legacy config with documents_root but no sources.
+    When: AppConfig is loaded.
+    Then: sources is populated from documents_root automatically."""
+
+    def test_migrate_documents_root_to_sources(self) -> None:
+        """Given: old config with documents_root but no sources.
+        When: AppConfig is loaded.
+        Then: sources is populated from documents_root automatically."""
+        from ai_assistant.core.config import SourceConfig
+
+        data = {
+            "rag": {
+                "documents_root": "my_docs",
+            },
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**data)
+        assert len(cfg.rag.sources) == 1
+        assert cfg.rag.sources[0].namespace == "default"
+        assert cfg.rag.sources[0].path == "my_docs"
+        assert cfg.rag.sources[0].recursive is True
+        assert "*.md" in cfg.rag.sources[0].include
+
+    def test_sources_takes_precedence_over_documents_root(self) -> None:
+        """Given: config with both sources and documents_root.
+        When: AppConfig is loaded.
+        Then: sources is used as-is, documents_root ignored."""
+        from ai_assistant.core.config import SourceConfig
+
+        data = {
+            "rag": {
+                "documents_root": "old_docs",
+                "sources": [
+                    {"namespace": "work", "path": "D:/Work", "include": ["*.md"]}
+                ],
+            },
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**data)
+        assert len(cfg.rag.sources) == 1
+        assert cfg.rag.sources[0].namespace == "work"
+
+    def test_source_config_defaults(self) -> None:
+        """Given: minimal SourceConfig with only namespace and path.
+        When: SourceConfig is created.
+        Then: defaults are applied correctly."""
+        from ai_assistant.core.config import SourceConfig
+
+        sc = SourceConfig(namespace="test", path="/some/path")
+        assert sc.include == ["*.md", "*.txt"]
+        assert sc.recursive is True
+
+    def test_migrate_documents_root_stripped_from_output(self) -> None:
+        """Given: config with documents_root.
+        When: AppConfig is loaded and dumped.
+        Then: documents_root is not present in output."""
+        data = {
+            "rag": {
+                "documents_root": "my_docs",
+            },
+            "embedder": {"dim": 384, "provider": "mock"},
+            "vector_store": {"dim": 384, "provider": "memory"},
+        }
+        cfg = AppConfig(**data)
+        dumped = cfg.model_dump()
+        assert "documents_root" not in dumped["rag"]
+        assert "sources" in dumped["rag"]
+
 # ---------- ChatConfig.tokenizer_local_dir is dead code ----------
 from ai_assistant.core.config import ChatConfig, TokenizerConfig
 

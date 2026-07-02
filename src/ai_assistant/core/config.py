@@ -48,6 +48,7 @@ __all__ = [
     "RAGConfig",
     "RerankerConfig",
     "SecurityConfig",
+    "SourceConfig",
     "StorageConfig",
     "UIConfig",
     "VectorStoreConfig",
@@ -177,6 +178,16 @@ class RAGStep(StrEnum):
     GENERATE = "generate"
 
 
+class SourceConfig(BaseModel):
+    """Document source configuration — read-only path with filtering."""
+
+    model_config = ConfigDict(extra="forbid")
+    namespace: str
+    path: str
+    include: list[str] = Field(default_factory=lambda: ["*.md", "*.txt"])
+    recursive: bool = True
+
+
 class RAGConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_RAG_", extra="forbid")
     steps: list[RAGStep] = Field(
@@ -196,11 +207,40 @@ class RAGConfig(BaseSettings):
     max_tool_iterations: int = 5
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
-    documents_root: str = "sources"
+    sources: list[SourceConfig] = Field(default_factory=list)
     chat_exports_root: str = "data/chat_exports"
     index_chat_exports: bool = False
 
-    @field_validator("documents_root", "chat_exports_root")
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_documents_root_to_sources(cls, v: Any) -> Any:
+        """Backward-compatible loader: migrate documents_root → sources list.
+
+        If 'sources' is absent but 'documents_root' is present,
+        create a single SourceConfig from documents_root with default filters.
+        Always strips documents_root to satisfy extra="forbid".
+        """
+        if type(v) is not dict:
+            return v
+        if "documents_root" in v:
+            if "sources" not in v:
+                # Migrate old flat folder to new source format
+                v = {
+                    **v,
+                    "sources": [
+                        {
+                            "namespace": "default",
+                            "path": v["documents_root"],
+                            "include": ["*.md", "*.txt", "*.py", "*.json", "*.yaml", "*.yml", "*.csv", "*.log"],
+                            "recursive": True,
+                        }
+                    ],
+                }
+            # Always remove the old key so extra="forbid" doesn't choke
+            v = {k: val for k, val in v.items() if k != "documents_root"}
+        return v
+
+    @field_validator("chat_exports_root")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
         """Normalize path: strip trailing slashes, reject absolute paths."""
@@ -230,6 +270,7 @@ class NamespaceConfig(BaseModel):
     relevance_threshold: float = Field(default=0.1, validation_alias="threshold")
     chunk_size: int = 512
     prompt: str = "rag_strict"
+    prefix: str | None = None
 
 
 class LoggingConfig(BaseSettings):
@@ -330,6 +371,7 @@ class AppConfig(BaseSettings):
             sec = {k: val for k, val in sec.items() if k != "rate_limit"}
             v = {**v, "security": sec}
         return v
+
 
     @model_validator(mode="after")
     def _check_dimensions(self) -> AppConfig:
