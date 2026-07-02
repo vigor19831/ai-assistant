@@ -498,7 +498,7 @@ def chat_storage_adapter(request):
 
     if request.param == "sqlite":
         storage = SQLiteStorage(
-            StorageConfigData(provider="sqlite", path=":memory:")
+            StorageConfigData(provider="sqlite", db_path=":memory:")
         )
         return storage
     raise ValueError(f"Unknown storage: {request.param}")

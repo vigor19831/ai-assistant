@@ -285,14 +285,13 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             )
             raise AdapterError(f"LLM stream request failed: {exc}") from exc
 
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AsyncIterator[str]:
         """Stream tokens with retry."""
-        async for chunk in self._stream_impl(
+        return self._stream_impl(
             messages, max_tokens=max_tokens, temperature=temperature
-        ):
-            yield chunk
+        )

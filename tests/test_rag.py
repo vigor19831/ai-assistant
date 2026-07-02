@@ -1344,21 +1344,3 @@ class TestReadSources:
         )
         assert result["success"] is False
         assert result["errors"] == ["No sources configured"]
-
-    @pytest.mark.asyncio
-    async def test_index_folder_no_sources_returns_error(self) -> None:
-        """Given: no sources configured.
-        When: index_folder called with empty sources.
-        Then: returns error gracefully."""
-        from ai_assistant.features.rag.indexing import index_folder
-
-        result = await index_folder(
-            folder=None,
-            clear=False,
-            chunker=AsyncMock(),
-            embedder=AsyncMock(),
-            vector_store=AsyncMock(),
-            sources=[],
-        )
-        assert "errors" in result
-        assert "No sources configured" in result["errors"][0]

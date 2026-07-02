@@ -601,15 +601,24 @@ class FaissVectorStore(IVectorStore):
             return []
         namespaces: list[str] = []
         async for f in base.iterdir():
-            if await f.is_file() and f.suffixes == [".store", ".json"]:
-                namespaces.append(f.stem.split(".")[0])
-            elif await f.is_file() and f.suffix == ".faiss":
-                # Also detect orphaned index files (no store.json)
-                ns_name = f.stem
-                store_file = base / f"{ns_name}.store.json"
-                if await store_file.exists():
+            if not await f.is_file():
+                continue
+            name = f.name
+            # Detect valid namespace pairs: {namespace}.store.json + {namespace}.faiss
+            if name.endswith(".store.json"):
+                ns_name = name[:-11]  # strip ".store.json"
+                faiss_file = base / f"{ns_name}.faiss"
+                if await faiss_file.exists():
                     namespaces.append(ns_name)
                 else:
+                    _logger.warning(
+                        "Orphaned metadata file detected (no matching .faiss)",
+                        extra={"namespace": ns_name, "path": str(f)},
+                    )
+            elif name.endswith(".faiss"):
+                ns_name = name[:-6]  # strip ".faiss"
+                store_file = base / f"{ns_name}.store.json"
+                if not await store_file.exists():
                     _logger.warning(
                         "Orphaned FAISS index file detected (no matching store.json)",
                         extra={"namespace": ns_name, "path": str(f)},

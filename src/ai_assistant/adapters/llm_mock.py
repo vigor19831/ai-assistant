@@ -36,17 +36,18 @@ class MockLLM(ILLM):
             last = getattr(msg, "content", None) or getattr(msg, "text", None) or "..."
         return AssistantMessage(text=f"[MOCK LLM] Echo: {last}")
 
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AsyncIterator[str]:
-        yield (
-            "[MOCK] Server is running. Switch config.yaml to "
-            "'llamacpp' or 'openai_compatible' for real responses."
-        )
-
+        async def _gen() -> AsyncIterator[str]:
+            yield (
+                "[MOCK] Server is running. Switch config.yaml to "
+                "'llamacpp' or 'openai_compatible' for real responses."
+            )
+        return _gen()
     def get_context_limit(self) -> int | None:
         """Return context limit from config, or default 4096."""
         cfg = self.config
