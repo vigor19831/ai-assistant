@@ -53,6 +53,10 @@ class PipelineConfig:
     token_margin_pct: float = 0.1
     retry: RetryConfig = field(default_factory=RetryConfig)
 
+    def __post_init__(self) -> None:
+        if self.top_k < 1:
+            raise ValueError(f"top_k must be >= 1, got {self.top_k}")
+
 @dataclass(frozen=True, slots=True)
 class PipelineData:
     query: UserMessage | None = None

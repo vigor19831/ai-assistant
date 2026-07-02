@@ -184,21 +184,23 @@ class TestRetrieve:
 
     @pytest.mark.asyncio
     async def test_top_k_boundary(self) -> None:
-        """Given: top_k is 0.
+        """Given: top_k is 1 and store has 2 chunks.
         When: retrieve is called.
-        Then: empty chunks returned; no error."""
+        Then: exactly 1 chunk returned; top_k respected."""
         store = FakeVectorStore()
-        chunk = Chunk(id="c1", text="test", embedding=[0.0, 1.0, 0.0])
-        await store.add([chunk], namespace="test")
+        await store.add([
+            Chunk(id="c1", text="first", embedding=[0.0, 1.0, 0.0]),
+            Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
+        ], namespace="test")
 
         data = PipelineData(
             query=UserMessage(text="hello"),
             query_embedding=[0.0, 1.0, 0.0],
-            pipeline_config=PipelineConfig(top_k=0, namespace="test"),
+            pipeline_config=PipelineConfig(top_k=1, namespace="test"),
             vector_store=store,
         )
         result = await retrieve(data)
-        assert len(result.chunks) == 0
+        assert len(result.chunks) == 1
 
     @pytest.mark.asyncio
     async def test_no_vector_store(self) -> None:
@@ -624,6 +626,40 @@ class TestGenerate:
         assert any("context limit unknown" in e for e in result.errors)
         assert result.response is not None
         assert "context limit" in result.response.text.lower()
+
+    @pytest.mark.asyncio
+    async def test_generate_empty_context_no_llm_call(self) -> None:
+        """Given: empty chunks and empty context.
+        When: generate is called.
+        Then: no LLM call; returns 'no information' response without token waste."""
+        captured_calls: list = []
+
+        class CapturingLLM:
+            async def complete(self, messages, max_tokens=None, temperature=None):
+                captured_calls.append(messages)
+                return AssistantMessage(text="should not reach")
+
+            def get_context_limit(self) -> int | None:
+                return 4096
+
+        llm = CapturingLLM()
+        data = PipelineData(
+            query=UserMessage(text="obscure topic nobody indexed"),
+            chunks=(),
+            context="",
+            pipeline_config=PipelineConfig(
+                prompt_version="v1",
+                prompt_name="rag_default",
+                token_margin_min=256,
+                token_margin_pct=0.1,
+            ),
+            llm=llm,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await generate(data)
+        assert len(captured_calls) == 0, "LLM must not be called with empty context"
+        assert result.response is not None
+        assert "do not have enough information" in result.response.text.lower()
 
 
 # ———————————————————————————————————————

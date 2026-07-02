@@ -134,11 +134,21 @@ async def main() -> int:
     # ── 6. Test REAL query through pipeline ──
     print(f"\n  --- REAL RAG test ---")
     prefix_map = build_prefix_map(cfg.namespaces)
-    test_queries = [
-        ("[p] какой любимый цвет", "personal"),
-        ("[w] test query work", "work"),
-        ("no prefix query", cfg.rag.default_namespace),
-    ]
+
+    # Build test queries dynamically from actual config instead of hardcoded prefixes
+    test_queries: list[tuple[str, str]] = []
+    for ns_name, ns_cfg in cfg.namespaces.items():
+        if ns_cfg.prefix:
+            test_queries.append((f"[{ns_cfg.prefix}] test query {ns_name}", ns_name))
+        else:
+            test_queries.append((f"test query {ns_name}", ns_name))
+    # Always test default namespace without prefix
+    if cfg.rag.default_namespace not in {ns for _, ns in test_queries}:
+        test_queries.append(("no prefix query", cfg.rag.default_namespace))
+
+    if not test_queries:
+        print("  [WARN] No namespaces configured — cannot run RAG tests")
+        return 0
 
     for raw_query, expected_ns in test_queries:
         print(f"\n  Query: '{raw_query}'")

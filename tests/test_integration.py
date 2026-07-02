@@ -291,6 +291,44 @@ class TestIntegrationChatRAG:
 
 @pytest.mark.integration
 @pytest.mark.slow
+class TestIntegrationNamespaceIsolation:
+    """Namespace isolation: chunks in one namespace never leak to another."""
+
+    @pytest.mark.asyncio
+    async def test_namespace_isolation_cross_contamination(self):
+        """Given: chunks in 'personal' and 'work' with same embedding.
+        When: query targets 'personal' via prefix.
+        Then: only personal chunks returned; work chunks isolated."""
+        embedder = MockEmbedder(EmbedderConfigData(dim=3))
+        vector_store = MemoryVectorStore(VectorStoreConfigData(dim=3))
+
+        await vector_store.add([
+            Chunk(id="p1", text="personal secret", embedding=[1.0, 0.0, 0.0]),
+        ], namespace="personal")
+        await vector_store.add([
+            Chunk(id="w1", text="work secret", embedding=[1.0, 0.0, 0.0]),
+        ], namespace="work")
+
+        # Query personal namespace directly
+        results_personal = await vector_store.search(
+            [1.0, 0.0, 0.0], top_k=10, namespace="personal"
+        )
+        assert len(results_personal) == 1
+        assert results_personal[0].id == "p1"
+
+        # Query work namespace directly
+        results_work = await vector_store.search(
+            [1.0, 0.0, 0.0], top_k=10, namespace="work"
+        )
+        assert len(results_work) == 1
+        assert results_work[0].id == "w1"
+
+        # Verify no cross-contamination via ids
+        personal_ids = {c.id for c in results_personal}
+        work_ids = {c.id for c in results_work}
+        assert not personal_ids & work_ids
+
+
 class TestIntegrationFullRAG:
     """Full RAG: index → query → hyde → retrieve → rerank → generate."""
 

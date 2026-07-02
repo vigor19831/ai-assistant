@@ -374,6 +374,19 @@ async def generate(data: PipelineData) -> PipelineData:
     prompt_name = cfg.prompt_name
     retry_cfg = cfg.retry
 
+    # Short-circuit: no chunks and no context means nothing to answer from.
+    # Skip LLM call entirely — saves tokens and gives predictable response.
+    if not data.chunks and not data.context:
+        _logger.info(
+            "generate: empty context, skipping LLM",
+            extra={"trace_id": data.trace_id},
+        )
+        return data.with_response(
+            AssistantMessage(
+                text="I do not have enough information to answer this question."
+            )
+        )
+
     try:
         prompt = get_prompt(
             prompt_name,
@@ -387,7 +400,6 @@ async def generate(data: PipelineData) -> PipelineData:
             extra={"trace_id": data.trace_id},
         )
         prompt = _build_fallback_prompt(data.chunks, query_text)
-
     max_ctx = llm.get_context_limit()
     if max_ctx is None:
         error_msg = "generate: LLM context limit unknown"
