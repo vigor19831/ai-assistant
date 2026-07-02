@@ -57,8 +57,15 @@ class IndexingManager:
                 content=doc.get("content", ""),
                 metadata=doc.get("metadata", {}),
             )
+            # Preserve source_uri from document metadata if chunker didn't set it
+            doc_source_uri = document.metadata.get("source_uri")
             chunks = await self.chunker.chunk(document)
             for idx, chunk in enumerate(chunks):
+                chunk_source_uri = (
+                    chunk.metadata.source_uri
+                    if chunk.metadata and chunk.metadata.source_uri
+                    else doc_source_uri
+                )
                 chunk = replace(
                     chunk,
                     metadata=ChunkMetadata(
@@ -66,7 +73,7 @@ class IndexingManager:
                         index=idx,
                         total_chunks=len(chunks),
                         original_path=chunk.metadata.original_path if chunk.metadata else None,
-                        source_uri=chunk.metadata.source_uri if chunk.metadata else None,
+                        source_uri=chunk_source_uri,
                         custom=chunk.metadata.custom if chunk.metadata else {},
                     ),
                 )

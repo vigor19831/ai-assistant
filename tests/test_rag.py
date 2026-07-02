@@ -1344,3 +1344,42 @@ class TestReadSources:
         )
         assert result["success"] is False
         assert result["errors"] == ["No sources configured"]
+
+    @pytest.mark.asyncio
+    async def test_index_folder_idempotent(self, tmp_path, mock_chunker, mock_embedder):
+        """Given: same documents indexed twice.
+        When: index_folder called without --clear.
+        Then: second run skips all, no duplicate chunks."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import index_folder
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+        from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "note.md").write_text("hello world")
+
+        vector_store = MemoryVectorStore(
+            VectorStoreConfigData(dim=384, index_path=str(tmp_path / "indices"))
+        )
+
+        sources = [
+            SourceConfig(namespace="test", path=str(docs_dir), include=["*.md"])
+        ]
+
+        # First run
+        r1 = await index_folder(
+            folder="test", clear=False,
+            chunker=mock_chunker, embedder=mock_embedder,
+            vector_store=vector_store, sources=sources,
+        )
+        assert r1["results"]["test"]["indexed"] == 1
+
+        # Second run — idempotent
+        r2 = await index_folder(
+            folder="test", clear=False,
+            chunker=mock_chunker, embedder=mock_embedder,
+            vector_store=vector_store, sources=sources,
+        )
+        assert r2["results"]["test"]["indexed"] == 0
+        assert r2["results"]["test"]["chunks"] == 0

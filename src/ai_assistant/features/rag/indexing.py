@@ -188,8 +188,37 @@ async def index_folder(
                 _logger.warning("Failed to clear namespace %s: %s", namespace, exc)
                 all_errors.append(f"Clear failed for {namespace}: {exc}")
 
+        # Deduplicate: skip documents whose source_uri already exists in index.
+        # This makes re-indexing idempotent without changing disk format.
+        existing_uris: set[str] = set()
         try:
-            result = await manager.index_documents(docs, namespace=namespace)
+            all_meta = await vector_store.list_by_filter({}, namespace=namespace)
+            for _cid, meta in all_meta:
+                uri = meta.get("source_uri")
+                if uri:
+                    existing_uris.add(uri)
+        except Exception as exc:
+            _logger.warning(
+                "Could not list existing chunks for dedup: %s", exc
+            )
+
+        new_docs = [
+            d for d in docs
+            if d.get("metadata", {}).get("source_uri") not in existing_uris
+        ]
+        skipped = len(docs) - len(new_docs)
+        if skipped:
+            _logger.info(
+                "Skipped %d documents (source_uri already in index) for namespace %s",
+                skipped, namespace,
+            )
+
+        if not new_docs:
+            all_results[namespace] = {"indexed": 0, "chunks": 0}
+            continue
+
+        try:
+            result = await manager.index_documents(new_docs, namespace=namespace)
             all_results[namespace] = {
                 "indexed": result.get("indexed_count", 0),
                 "chunks": result.get("chunk_count", 0),
