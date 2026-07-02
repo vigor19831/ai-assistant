@@ -112,18 +112,33 @@ def _install_deps(venv_py: str, root: Path) -> None:
         _ok("FAISS installed")
 
 
-def _copy_env(root: Path) -> None:
-    """Copy .env.example to .env if not present."""
-    example = root / ".env.example"
-    target = root / ".env"
+def _create_local_config(root: Path) -> None:
+    """Create config.local.yaml template if not present."""
+    target = root / "config.local.yaml"
     if target.exists():
-        _info(".env already exists -- skipping")
+        _info("config.local.yaml already exists -- skipping")
         return
-    if not example.exists():
-        _error(".env.example not found -- cannot create .env")
-        return
-    shutil.copy2(example, target)
-    _ok(".env created from .env.example")
+    target.write_text(
+        "# LOCAL CONFIG -- DO NOT COMMIT\n"
+        "# This file is git-ignored. Put your secrets and local paths here.\n"
+        "# Only include fields you want to override; all others come from config.yaml.\n"
+        "#\n"
+        "# Example:\n"
+        "# llm:\n"
+        "#   api_key: sk-your-llm-key-here\n"
+        "# embedder:\n"
+        "#   api_key: sk-your-embedder-key-here\n"
+        "# security:\n"
+        "#   api_key: your-admin-api-key-here\n"
+        "# rag:\n"
+        "#   sources:\n"
+        "#     - namespace: default\n"
+        "#       path: \"/home/user/my-documents\"\n"
+        "#       include: [\"*.md\", \"*.txt\"]\n"
+        "#       recursive: true\n",
+        encoding="utf-8",
+    )
+    _ok("config.local.yaml created -- add your secrets and local paths there")
 
 
 def _create_dirs(root: Path) -> None:
@@ -157,9 +172,10 @@ def _print_next_steps(root: Path) -> None:
     print("1. Activate the virtual environment:")
     print(f"   {activate_cmd}")
     print()
-    print("2. Edit .env with your API keys (or leave empty for local servers)")
+    print("2. Edit config.local.yaml with your API keys and local paths")
+    print("   (or leave empty for local servers)")
     print()
-    print("3. Edit config.yaml with your settings (LLM API endpoint, etc.)")
+    print("3. Edit config.yaml with your shared settings (LLM model, etc.)")
     print()
     print("4. Start the server:")
     print(f"   {venv_python} -m uvicorn ai_assistant.main:create_app --reload")
@@ -187,7 +203,7 @@ def main() -> int:
     _create_venv(root, py)
     venv_py = _get_venv_python(root)
     _install_deps(venv_py, root)
-    _copy_env(root)
+    _create_local_config(root)
     _create_dirs(root)
     _print_next_steps(root)
 

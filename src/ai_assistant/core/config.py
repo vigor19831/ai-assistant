@@ -383,25 +383,55 @@ class AppConfig(BaseSettings):
         return self
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge override into base. Override wins at every level."""
+    result = dict(base)
+    for key, value in override.items():
+        if (
+            key in result
+            and type(result[key]) is dict
+            and type(value) is dict
+        ):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def load_config(path: str | Path = "config.yaml") -> AppConfig:
-    """Load config from YAML, fallback to env defaults.
+    """Load config from YAML, merge with config.local.yaml if present.
 
     Args:
-        path: Path to the YAML config file.
+        path: Path to the shared YAML config file. Local overrides are
+            loaded from the same path with '.local' suffix
+            (e.g. config.local.yaml).
 
     Returns:
-        Populated AppConfig instance.
+        Populated AppConfig instance. Local config overrides shared
+        config via deep merge. pydantic-settings env vars still
+        take highest precedence.
 
     Raises:
-        ValueError: If the file contains invalid YAML.
-        ValidationError: If unknown keys or env vars are present.
+        ValueError: If either file contains invalid YAML.
+        ValidationError: If merged config contains unknown keys.
     """
     config_path = Path(path)
-    if not config_path.exists():
-        return AppConfig()
-    try:
-        with config_path.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Invalid YAML in {config_path}: {exc}") from exc
+    data: dict[str, Any] = {}
+
+    if config_path.exists():
+        try:
+            with config_path.open(encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid YAML in {config_path}: {exc}") from exc
+
+    local_path = config_path.with_suffix(".local.yaml")
+    if local_path.exists():
+        try:
+            with local_path.open(encoding="utf-8") as f:
+                local_data = yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid YAML in {local_path}: {exc}") from exc
+        data = _deep_merge(data, local_data)
+
     return AppConfig(**data)

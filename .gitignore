@@ -85,9 +85,8 @@ data/
 *.db-wal
 *.store.json
 
-# Secrets & environment
-.env
-.env.local
+# Local config overrides (secrets, paths)
+config.local.yaml
 
 # Logs
 *.log

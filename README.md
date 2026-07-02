@@ -44,17 +44,17 @@ The script will:
 - Check your Python version (3.11+ required)
 - Create a virtual environment (`.venv/`)
 - Install all dependencies
-- Copy `.env.example` to `.env` and add your API keys there (e.g., `AI_LLM_API_KEY`, `AI_EMBEDDER_API_KEY`). Leave empty for local servers. Do not put keys directly in `config.yaml`.
-- Create required data folder (`data/`). Document sources are configured in `config.yaml` via `rag.sources`.
+- Create `config.local.yaml` from a template. Add your API keys and local paths there. Do not put secrets in `config.yaml`.
+- Create required data folder (`data/`). Document sources are configured in `config.yaml` via `rag.sources`, or overridden per-machine in `config.local.yaml`.
 
 If Python is not installed, the script will open the download page in your browser.
 
 4. **Download models:** Place your GGUF models in `vendor/models/`. Download from [HuggingFace](https://huggingface.co/models) or other sources. Ensure filenames match your `config.yaml` settings.
 
-5. **Edit configuration:** Open `config.yaml` and set:
-   - LLM: `model` (for `run_servers.py` with llama.cpp, use the GGUF filename *without* the `.gguf` extension; for Ollama/vLLM, use the model ID) and `api_base`
-   - Embedder: `model` and `api_base`
-   - Adjust other settings as needed
+5. **Edit configuration:**
+   - Open `config.yaml` for shared settings (model names, endpoints, thresholds).
+   - Open `config.local.yaml` for secrets (API keys) and local paths (document folders).
+   - In `config.local.yaml`, only include fields you want to override -- all others are inherited from `config.yaml`.
 
    **Model selection:** Set `model` to the exact name of the model loaded on your server. For `run_servers.py` with llama.cpp, use the GGUF filename *without* the `.gguf` extension. List all available models in `available_models` (first entry is treated as active for `/v1/models`):
 
@@ -90,7 +90,7 @@ Then open http://localhost:8000 in your browser.
 ---
 ### 3. Daily Use
 
-**RAG Namespaces:** RAG is opt-in. To search your documents, start a message with a namespace prefix configured in `config.yaml` (e.g., `[p]` for personal, `[w]` for work). Messages without a prefix go directly to the LLM with no document search. Prefixes are defined per-namespace via the `prefix` field — remove or change them in `config.yaml` as needed.
+**RAG Namespaces:** RAG is opt-in. To search your documents, start a message with a namespace prefix configured in `config.yaml` (e.g., `[p]` for personal, `[w]` for work). Messages without a prefix go directly to the LLM with no document search. Prefixes are defined per-namespace via the `prefix` field -- remove or change them in `config.yaml` as needed. Local paths to document folders go in `config.local.yaml`.
 
 **Chat Exports:** Save and index chat history via the `/api/v1/rag/save-chat` endpoint (toggle in `config.yaml` via `rag.index_chat_exports`).
 
@@ -152,7 +152,7 @@ The default `config.yaml` is optimized for local development and includes `debug
 - Set `debug: false`
 - Set `security.admin_enabled: false`
 - Set `security.openai_routes_require_auth: true` if you expose `/v1/*` externally
-- Set `security.api_key` or `AI_SECURITY_API_KEY` env var
+- Set `security.api_key` in `config.local.yaml` or `AI_SECURITY_API_KEY` env var
 - Review `security.allowed_hosts`
 
 ---
@@ -168,13 +168,15 @@ The default `config.yaml` is optimized for local development and includes `debug
 Edit `config.yaml` to point to your LLM and embedder endpoints. All available options are documented inline with comments.
 
 Key sections:
-- `llm` — model, API endpoint, sampling parameters
-- `embedder` — embedding model, dimension (must match `vector_store.dim`)
-- `vector_store` — FAISS or memory, index path, dimension
-- `rag` — pipeline steps (`embed_query`, `retrieve`, `rerank`, `build_context`, `generate`, optional `hyde_query`), top_k, thresholds
-- `namespaces` — per-namespace chunk size, threshold, prompt overrides
-- `security` — API key, admin endpoints, body size limits
-- `logging` — level, format (text/json), rotation
+- `llm` -- model, API endpoint, sampling parameters
+- `embedder` -- embedding model, dimension (must match `vector_store.dim`)
+- `vector_store` -- FAISS or memory, index path, dimension
+- `rag` -- pipeline steps (`embed_query`, `retrieve`, `rerank`, `build_context`, `generate`, optional `hyde_query`), top_k, thresholds
+- `namespaces` -- per-namespace chunk size, threshold, prompt overrides
+- `security` -- API key, admin endpoints, body size limits
+- `logging` -- level, format (text/json), rotation
+
+**Local overrides:** Put secrets (API keys) and machine-specific paths in `config.local.yaml`. It is git-ignored and merged with `config.yaml` at startup. Only include fields you want to override -- all others are inherited from `config.yaml`.
 
 ## Project Structure
 
@@ -222,8 +224,8 @@ ai-assistant/                          # Project root
 │   ├── models/
 │   └── llama/
 │
-├── .env.example                       # Secret template (copy to .env)
-├── config.yaml                        # Active config
+├── config.yaml                        # Shared config (in repo)
+├── config.local.yaml                  # Local overrides (git-ignored)
 ├── LICENSE
 ├── NOTICE
 ├── pyproject.toml                     # Dependencies, settings
