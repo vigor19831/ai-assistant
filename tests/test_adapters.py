@@ -456,6 +456,33 @@ class TestSQLiteStorage:
         assert isinstance(storage, IChatStorage)
         assert isinstance(storage, IInitializable)
 
+    def test_safe_json_loads_invalid_json_returns_default(self):
+        """Given: invalid JSON string.
+        When: _safe_json_loads is called.
+        Then: default value is returned."""
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads("not json", default={})
+        assert result == {}
+
+    def test_safe_json_loads_none_returns_default(self):
+        """Given: None input.
+        When: _safe_json_loads is called.
+        Then: default value is returned."""
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads(None, default=[])
+        assert result == []
+
+    def test_safe_json_loads_valid_json_parses(self):
+        """Given: valid JSON string.
+        When: _safe_json_loads is called.
+        Then: parsed object is returned."""
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads('{"key": "value"}', default={})
+        assert result == {"key": "value"}
+
 
 # ── TestSimpleChunker ──
 

@@ -20,7 +20,7 @@ from ai_assistant.core.domain.messages import (
     ToolMessage,
     UserMessage,
 )
-from ai_assistant.core.domain.pipeline import PipelineData
+from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,33 @@ logger = logging.getLogger(__name__)
 # ───────────────────────────────────────────────
 # PipelineData — functional behaviour
 # ───────────────────────────────────────────────
+
+
+class TestPipelineConfig:
+    """Given: PipelineConfig validates pipeline parameters.
+    When: constructed with invalid values.
+    Then: ValueError is raised for invalid input."""
+
+    def test_top_k_less_than_one_raises_value_error(self) -> None:
+        """Given: top_k is 0.
+        When: PipelineConfig is constructed.
+        Then: ValueError with descriptive message is raised."""
+        with pytest.raises(ValueError, match="top_k must be >= 1, got 0"):
+            PipelineConfig(top_k=0)
+
+    def test_top_k_negative_raises_value_error(self) -> None:
+        """Given: top_k is -1.
+        When: PipelineConfig is constructed.
+        Then: ValueError with descriptive message is raised."""
+        with pytest.raises(ValueError, match="top_k must be >= 1, got -1"):
+            PipelineConfig(top_k=-1)
+
+    def test_valid_top_k_accepted(self) -> None:
+        """Given: top_k is 1.
+        When: PipelineConfig is constructed.
+        Then: instance is created without error."""
+        cfg = PipelineConfig(top_k=1)
+        assert cfg.top_k == 1
 
 
 class TestPipelineDataFunctional:

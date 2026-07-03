@@ -856,9 +856,8 @@ class TestAPIDeps:
         default_chunker = get_chunker_for_config(mock_state, chunk_size=None)
         assert default_chunker is mock_state.chunker
 
+
     # ── Step registry ──
-
-
 
 
     def test_no_cyclic_imports_between_api_modules(self):
