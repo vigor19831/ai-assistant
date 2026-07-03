@@ -147,14 +147,13 @@ async def query_rag(
     ns = req.namespace or cfg.default_namespace
     query_text = req.query
 
-    # Fallback: if namespace not explicitly set, try parsing from query text
+    # Fallback: if namespace equals default, try parsing from query text
     if ns == cfg.default_namespace:
         prefix_map = build_prefix_map(state.config.namespaces)
         parsed_text, parsed_ns = parse_rag_query(req.query, prefix_map)
         if parsed_ns is not None:
             query_text = parsed_text
             ns = parsed_ns
-
     ns_cfg = state.config.namespaces.get(ns)
 
     # Per-namespace overrides with global fallback

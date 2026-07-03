@@ -870,6 +870,96 @@ def _assert_all_logs_have_trace_id(caplog: pytest.LogCaptureFixture) -> None:
         )
 
 
+class TestQueryPrefixParsing:
+    """REGRESSION: prefix parsing must work when namespace is not explicitly set."""
+
+    def _setup_prefixes(self, mock_state) -> None:
+        """Configure test namespaces with prefixes for deterministic tests."""
+        from ai_assistant.core.config import NamespaceConfig
+        mock_state.config.namespaces = {
+            "personal": NamespaceConfig(prefix="p", relevance_threshold=0.1, chunk_size=512, prompt="rag_strict"),
+            "work": NamespaceConfig(prefix="w", relevance_threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+        }
+
+    @pytest.mark.asyncio
+    async def test_prefix_parsing_when_namespace_is_none(self, mock_state):
+        """Given: req.namespace is None, query contains [p] prefix.
+        When: query_rag processes the request.
+        Then: prefix is parsed and namespace switches to 'personal'."""
+        from ai_assistant.features.rag.handlers import query_rag
+        from ai_assistant.features.rag.schemas import QueryRequest
+
+        self._setup_prefixes(mock_state)
+
+        mock_manager = MagicMock()
+        mock_manager.query = AsyncMock(
+            return_value={
+                "answer": "",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+            }
+        )
+
+        req = QueryRequest(query="[p] test query")
+        await query_rag(req, mock_manager, mock_state)
+
+        call_kwargs = mock_manager.query.call_args.kwargs
+        assert call_kwargs.get("namespace") == "personal"
+
+    @pytest.mark.asyncio
+    async def test_prefix_parsing_skipped_when_namespace_explicitly_set(self, mock_state):
+        """Given: req.namespace is explicitly 'work', query contains [p] prefix.
+        When: query_rag processes the request.
+        Then: prefix is ignored, 'work' namespace is used."""
+        from ai_assistant.features.rag.handlers import query_rag
+        from ai_assistant.features.rag.schemas import QueryRequest
+
+        self._setup_prefixes(mock_state)
+
+        mock_manager = MagicMock()
+        mock_manager.query = AsyncMock(
+            return_value={
+                "answer": "",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+            }
+        )
+
+        req = QueryRequest(query="[p] test query", namespace="work")
+        await query_rag(req, mock_manager, mock_state)
+
+        call_kwargs = mock_manager.query.call_args.kwargs
+        assert call_kwargs.get("namespace") == "work"
+
+    @pytest.mark.asyncio
+    async def test_prefix_parsing_with_explicit_default_namespace(self, mock_state):
+        """Given: req.namespace='default' (explicit), query has [p] prefix.
+        When: query_rag processes the request.
+        Then: prefix is parsed and namespace switches to 'personal'."""
+        from ai_assistant.features.rag.handlers import query_rag
+        from ai_assistant.features.rag.schemas import QueryRequest
+
+        self._setup_prefixes(mock_state)
+
+        mock_manager = MagicMock()
+        mock_manager.query = AsyncMock(
+            return_value={
+                "answer": "",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+            }
+        )
+
+        req = QueryRequest(query="[p] test query", namespace="default")
+        await query_rag(req, mock_manager, mock_state)
+
+        call_kwargs = mock_manager.query.call_args.kwargs
+        assert call_kwargs.get("namespace") == "personal"
+
+
 class TestRAGHandlersTraceId:
     """All _logger calls in RAG handlers must include extra={"trace_id": ...}."""
 
