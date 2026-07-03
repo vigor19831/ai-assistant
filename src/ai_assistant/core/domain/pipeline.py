@@ -64,6 +64,7 @@ class PipelineData:
     context: str = ""
     response: AssistantMessage | None = None
     errors: tuple[str, ...] = field(default_factory=tuple)
+    error_details: tuple[str | None, ...] = field(default_factory=tuple)
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     # Typed dependency fields — replace metadata bag
@@ -89,9 +90,19 @@ class PipelineData:
         """Return a new PipelineData with updated response."""
         return replace(self, response=response)
 
-    def add_error(self, msg: str) -> PipelineData:
-        """Return a new PipelineData with an additional error message."""
-        return replace(self, errors=(*self.errors, msg))
+    def add_error(self, msg: str, detail: str | None = None) -> PipelineData:
+        """Return a new PipelineData with an additional error message.
+
+        Args:
+            msg: User-facing error message (returned in API responses).
+            detail: Internal diagnostic detail (for logs/debugging).
+                If None, no detail is recorded for this error.
+        """
+        return replace(
+            self,
+            errors=(*self.errors, msg),
+            error_details=(*self.error_details, detail),
+        )
 
     def with_query_embedding(self, query_embedding: list[float] | None) -> PipelineData:
         """Return a new PipelineData with updated query_embedding."""

@@ -176,9 +176,9 @@ async def embed_query(data: PipelineData) -> PipelineData:
             return data.add_error(INTERNAL_SERVER_ERROR)
         _logger.debug("embed_query done", extra={"trace_id": data.trace_id})
         return data.with_query_embedding(embeddings[0])
-    except Exception:
+    except Exception as exc:
         _logger.exception("embed_query failed", extra={"trace_id": data.trace_id})
-        return data.add_error(INTERNAL_SERVER_ERROR)
+        return data.add_error(INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
 @step("retrieve", requires={"vector_store"})
@@ -218,9 +218,9 @@ async def retrieve(data: PipelineData) -> PipelineData:
             "retrieve done", extra={"trace_id": data.trace_id, "chunks": len(chunks)}
         )
         return data.with_chunks(chunks)
-    except Exception:
+    except Exception as exc:
         _logger.exception("retrieve failed", extra={"trace_id": data.trace_id})
-        return data.add_error(INTERNAL_SERVER_ERROR)
+        return data.add_error(INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
 @step("rerank", requires={"reranker"})
@@ -275,9 +275,9 @@ async def rerank(data: PipelineData) -> PipelineData:
                 .with_rerank_scores([r.score for r in filtered])
             )
 
-    except Exception:
+    except Exception as exc:
         _logger.exception("rerank failed", extra={"trace_id": data.trace_id})
-        return data.add_error(INTERNAL_SERVER_ERROR)
+        return data.add_error(INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
 @step("build_context", requires=set())
@@ -449,16 +449,16 @@ async def generate(data: PipelineData) -> PipelineData:
         response = await _call_llm(llm, messages, retry_cfg)
     except AdapterError as exc:
         _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
-        return data.add_error(f"{LLM_UNAVAILABLE} ({exc})").with_response(
+        return data.add_error(LLM_UNAVAILABLE, detail=str(exc)).with_response(
             AssistantMessage(
                 text="LLM service temporarily unavailable. Please try again later."
             )
         )
-    except Exception:
+    except Exception as exc:
         _logger.exception(
             "generate failed after retries", extra={"trace_id": data.trace_id}
         )
-        return data.add_error(INTERNAL_SERVER_ERROR).with_response(
+        return data.add_error(INTERNAL_SERVER_ERROR, detail=str(exc)).with_response(
             AssistantMessage(
                 text="Sorry, I encountered an error generating the response. "
             )
@@ -499,11 +499,11 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     ]
     try:
         hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages, retry_cfg)
-    except Exception:
+    except Exception as exc:
         _logger.exception(
             "hyde_query: LLM call failed", extra={"trace_id": data.trace_id}
         )
-        return data.add_error(INTERNAL_SERVER_ERROR)
+        return data.add_error(INTERNAL_SERVER_ERROR, detail=str(exc))
 
     hyde_text = hyde_resp.text or ""
     if not hyde_text:
@@ -518,11 +518,11 @@ async def hyde_query(data: PipelineData) -> PipelineData:
                 extra={"trace_id": data.trace_id},
             )
             return data.add_error(INTERNAL_SERVER_ERROR)
-    except Exception:
+    except Exception as exc:
         _logger.exception(
             "hyde_query: embedding failed", extra={"trace_id": data.trace_id}
         )
-        return data.add_error(INTERNAL_SERVER_ERROR)
+        return data.add_error(INTERNAL_SERVER_ERROR, detail=str(exc))
 
     _logger.debug("hyde_query done", extra={"trace_id": data.trace_id})
     return data.with_query_embedding(embeddings[0])

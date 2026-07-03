@@ -15,6 +15,7 @@ from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import (
+    AdapterError,
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
     LLM_NOT_PROVIDED,
@@ -152,6 +153,28 @@ class TestEmbedQuery:
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
 
+    @pytest.mark.asyncio
+    async def test_embed_error_detail_recorded(self) -> None:
+        """Given: embedder raises exception with specific message.
+        When: embed_query catches it.
+        Then: error_details contains the exception string; errors stays clean."""
+        class FailingEmbedder:
+            def __init__(self):
+                self.dimension = 384
+
+            async def embed(self, texts: list[str]) -> list[list[float]]:
+                raise RuntimeError("embedding service overloaded")
+
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            embedder=FailingEmbedder(),
+            pipeline_config=PipelineConfig(),
+        )
+        result = await embed_query(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        assert any("overloaded" in d for d in result.error_details if d)
+        assert len(result.errors) == len(result.error_details)
+
 
 # ———————————————————————————————————————
 # TestRetrieve
@@ -230,6 +253,26 @@ class TestRetrieve:
         )
         result = await retrieve(data)
         assert any(QUERY_EMBEDDING_MISSING in e for e in result.errors)
+
+    @pytest.mark.asyncio
+    async def test_retrieve_error_detail_recorded(self) -> None:
+        """Given: vector_store.search raises unexpected exception.
+        When: retrieve is called.
+        Then: error_details contains original exception; errors stays clean."""
+        class FailingVectorStore:
+            async def search(self, query_embedding, top_k=5, namespace="default"):
+                raise RuntimeError("disk I/O error")
+
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            query_embedding=[0.1] * 384,
+            vector_store=FailingVectorStore(),
+            pipeline_config=PipelineConfig(),
+        )
+        result = await retrieve(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        assert any("disk I/O error" in d for d in result.error_details if d)
+        assert len(result.errors) == len(result.error_details)
 
 
 # ———————————————————————————————————————
@@ -369,6 +412,47 @@ class TestRerank:
         # chunks are preserved (not mutated) so downstream can inspect or ignore
         assert len(result.chunks) == 1
         assert result.chunks[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_threshold_boundary_kept(self) -> None:
+        """Given: chunk score exactly equals relevance_threshold.
+        When: rerank is called.
+        Then: chunk is KEPT (>= threshold)."""
+        class FakeRerankerAtThreshold:
+            async def rerank(self, query, chunks, top_k=None):
+                return [RerankResult(chunk=c, score=0.3) for c in chunks]
+
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="boundary")],
+            reranker=FakeRerankerAtThreshold(),
+            pipeline_config=PipelineConfig(relevance_threshold=0.3),
+        )
+        result = await rerank(data)
+        assert len(result.chunks) == 1
+        assert result.rerank_filtered_out is None
+        assert result.rerank_scores == [0.3]
+
+    @pytest.mark.asyncio
+    async def test_rerank_error_detail_recorded(self) -> None:
+        """Given: reranker raises AdapterError with specific message.
+        When: rerank is called.
+        Then: error_details contains original exception; errors stays clean."""
+        class FailingReranker:
+            async def rerank(self, query, chunks, top_k=None):
+                raise AdapterError("HTTP request failed: connection timeout")
+
+        data = PipelineData(
+            query=UserMessage(text="hello"),
+            chunks=[Chunk(id="c1", text="test")],
+            reranker=FailingReranker(),
+            pipeline_config=PipelineConfig(),
+        )
+        result = await rerank(data)
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        assert any("connection timeout" in d for d in result.error_details if d)
+        assert len(result.errors) == len(result.error_details)
+        assert len(result.chunks) == 1  # preserved for inspection
 
     @pytest.mark.asyncio
     async def test_rerank_retry_recover(self) -> None:
@@ -570,7 +654,7 @@ class TestGenerate:
         """Given: LLM raises AdapterError.
         When: generate is called.
         Then: PipelineData returned with error and fallback response."""
-        from ai_assistant.core.domain.errors import LLM_UNAVAILABLE, AdapterError
+        from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 
         class FailingLLM:
             async def complete(self, messages, max_tokens=None, temperature=None):

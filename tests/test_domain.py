@@ -43,8 +43,40 @@ class TestPipelineDataFunctional:
         data2 = data.add_error("err")
 
         assert data.errors == ()
+        assert data.error_details == ()
         assert data2.errors == ("err",)
+        assert data2.error_details == (None,)
         assert data is not data2
+
+    def test_add_error_with_detail(self) -> None:
+        """Given: add_error called with detail.
+        When: error and detail are recorded.
+        Then: both tuples match; lengths equal."""
+        data = PipelineData().add_error("err", detail="connection timeout")
+        assert data.errors == ("err",)
+        assert data.error_details == ("connection timeout",)
+
+    def test_add_error_without_detail(self) -> None:
+        """Given: add_error called without detail.
+        When: error is recorded.
+        Then: detail is None."""
+        data = PipelineData().add_error("err")
+        assert data.errors == ("err",)
+        assert data.error_details == (None,)
+
+    def test_error_and_detail_lengths_match(self) -> None:
+        """Given: multiple errors with mixed detail presence.
+        When: errors and details recorded.
+        Then: tuples always same length."""
+        data = (
+            PipelineData()
+            .add_error("a", detail="x")
+            .add_error("b")
+            .add_error("c", detail="y")
+        )
+        assert len(data.errors) == 3
+        assert len(data.error_details) == 3
+        assert data.error_details == ("x", None, "y")
 
     def test_add_error_preserves_other_fields(self) -> None:
         """Given: fully populated PipelineData.
@@ -63,15 +95,18 @@ class TestPipelineDataFunctional:
             context="ctx",
             response=resp,
             errors=("old",),
+            error_details=("old_detail",),
         )
-        data2 = data.add_error("new")
+        data2 = data.add_error("new", detail="new_detail")
 
         assert data2.query is msg
         assert data2.chunks == (chunk,)
         assert data2.context == "ctx"
         assert data2.response is resp
         assert data2.errors == ("old", "new")
+        assert data2.error_details == ("old_detail", "new_detail")
         assert data.errors == ("old",)  # original unchanged
+        assert data.error_details == ("old_detail",)  # original unchanged
 
     def test_with_chunks_returns_new_instance(self) -> None:
         """Given: empty PipelineData.
@@ -175,6 +210,7 @@ class TestPipelineDataFunctional:
         assert data.context == "ctx"
         assert data.response is resp
         assert data.errors == ("e1", "e2")
+        assert data.error_details == (None, None)
 
     def test_chunks_type_is_tuple(self) -> None:
         """Given: chunks passed as tuple.
@@ -345,6 +381,7 @@ class TestPipelineDataCompatibility:
         assert data.context == "ctx"
         assert data.response is resp
         assert data.errors == ("e1",)
+        assert data.error_details == (None,)
 
     def test_default_values_compatible(self) -> None:
         """Given: no arguments to constructor.
@@ -356,6 +393,7 @@ class TestPipelineDataCompatibility:
         assert data.context == ""
         assert data.response is None
         assert data.errors == ()
+        assert data.error_details == ()
         assert data.embedder is None
         assert data.vector_store is None
         assert data.reranker is None

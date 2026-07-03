@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
-from ai_assistant.core.domain.errors import AdapterError
+from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
@@ -192,8 +192,6 @@ class TestRAGManager:
         """Given: LLM raises AdapterError (simulating LLM_UNAVAILABLE).
         When: RAGManager.query processes through real pipeline.
         Then: result contains LLM_UNAVAILABLE in errors; handler raises HTTPException 503."""
-        from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
-
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(return_value=[
             Chunk(
@@ -967,7 +965,7 @@ class TestRAGHandlersTraceId:
                 "answer": "",
                 "sources": [],
                 "chunks_used": 0,
-                "errors": ["generate: LLM unavailable (connection timeout)"],
+                "errors": [LLM_UNAVAILABLE],
             }
         )
 
