@@ -745,6 +745,92 @@ class TestGenerate:
         assert result.response is not None
         assert "do not have enough information" in result.response.text.lower()
 
+    @pytest.mark.asyncio
+    async def test_truncate_removes_least_relevant_from_end(self, monkeypatch) -> None:
+        """Given: prompt exceeds token limit; chunks ordered by relevance (high→low).
+        When: _truncate_to_fit is called.
+        Then: least relevant chunks (at the end) are removed first."""
+        from ai_assistant.core.pipeline_steps import _truncate_to_fit
+
+        tokenizer = CharFallbackTokenizer(TokenizerConfigData())
+
+        # Mock _estimate_tokens: first call returns over limit, then under limit
+        # after one chunk removed
+        call_count = 0
+
+        async def mock_estimate(text, tokenizer=None):
+            nonlocal call_count
+            call_count += 1
+            # First: 3 chunks = 100 tokens (over limit 50)
+            # After removing 1 chunk: 2 chunks = 40 tokens (under limit)
+            # After removing 2 chunks: 1 chunk = 20 tokens
+            if "chunk3" in text:
+                return 100
+            if "chunk2" in text:
+                return 40
+            return 20
+
+        monkeypatch.setattr(
+            "ai_assistant.core.pipeline_steps._estimate_tokens", mock_estimate
+        )
+
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chunks=(
+                Chunk(id="c1", text="chunk1 most relevant"),
+                Chunk(id="c2", text="chunk2 medium relevant"),
+                Chunk(id="c3", text="chunk3 least relevant"),
+            ),
+            context="chunk1 most relevant\n\nchunk2 medium relevant\n\nchunk3 least relevant",
+            pipeline_config=PipelineConfig(
+                prompt_version="v1",
+                prompt_name="rag_default",
+            ),
+        )
+
+        updated_data, updated_prompt = await _truncate_to_fit(
+            data, data.context, "rag_default", "v1", "question", 50, tokenizer
+        )
+
+        # Least relevant chunk (c3) removed first
+        assert len(updated_data.chunks) == 2
+        assert updated_data.chunks[0].id == "c1"
+        assert updated_data.chunks[1].id == "c2"
+        assert "chunk3" not in updated_prompt
+
+    @pytest.mark.asyncio
+    async def test_truncate_all_chunks_still_too_long(self, monkeypatch) -> None:
+        """Given: even with all chunks removed, prompt still exceeds limit.
+        When: _truncate_to_fit is called.
+        Then: empty chunks and empty context returned."""
+        from ai_assistant.core.pipeline_steps import _truncate_to_fit
+
+        tokenizer = CharFallbackTokenizer(TokenizerConfigData())
+
+        async def mock_estimate(text, tokenizer=None):
+            # Even empty context + query is over limit
+            return 9999
+
+        monkeypatch.setattr(
+            "ai_assistant.core.pipeline_steps._estimate_tokens", mock_estimate
+        )
+
+        data = PipelineData(
+            query=UserMessage(text="very long question that exceeds everything"),
+            chunks=(Chunk(id="c1", text="chunk1"),),
+            context="chunk1",
+            pipeline_config=PipelineConfig(
+                prompt_version="v1",
+                prompt_name="rag_default",
+            ),
+        )
+
+        updated_data, updated_prompt = await _truncate_to_fit(
+            data, data.context, "rag_default", "v1", "very long question", 50, tokenizer
+        )
+
+        assert updated_data.chunks == ()
+        assert updated_data.context == ""
 
 # ———————————————————————————————————————
 # TestHydeQuery
@@ -802,6 +888,55 @@ class TestHydeQuery:
         )
         result = await hyde_query(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)
+
+
+# ———————————————————————————————————————
+# TestBuildFallbackPrompt
+# ———————————————————————————————————————
+
+
+class TestBuildFallbackPrompt:
+    """Given: _build_fallback_prompt receives chunks and query.
+    When: called with various inputs.
+    Then: produces valid prompt string without template dependency."""
+
+    def test_basic_fallback(self) -> None:
+        """Given: two chunks and a query.
+        When: _build_fallback_prompt is called.
+        Then: numbered context lines followed by question/answer format."""
+        from ai_assistant.core.pipeline_steps import _build_fallback_prompt
+
+        chunks = (
+            Chunk(id="c1", text="First piece of context."),
+            Chunk(id="c2", text="Second piece of context."),
+        )
+        result = _build_fallback_prompt(chunks, "What is the answer?")
+        assert "[1] First piece of context." in result
+        assert "[2] Second piece of context." in result
+        assert "Question: What is the answer?" in result
+        assert "Answer:" in result
+
+    def test_empty_chunks(self) -> None:
+        """Given: empty chunks tuple.
+        When: _build_fallback_prompt is called.
+        Then: context section is empty but structure preserved."""
+        from ai_assistant.core.pipeline_steps import _build_fallback_prompt
+
+        result = _build_fallback_prompt((), "Any question?")
+        assert "Context:" in result
+        assert "Question: Any question?" in result
+        assert "Answer:" in result
+
+    def test_single_chunk(self) -> None:
+        """Given: single chunk.
+        When: _build_fallback_prompt is called.
+        Then: only [1] marker present."""
+        from ai_assistant.core.pipeline_steps import _build_fallback_prompt
+
+        chunks = (Chunk(id="c1", text="Only context."),)
+        result = _build_fallback_prompt(chunks, "Simple question?")
+        assert "[1] Only context." in result
+        assert "[2]" not in result
 
 
 # ———————————————————————————————————————
