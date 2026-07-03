@@ -8,17 +8,12 @@ from dataclasses import replace
 from typing import Any
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
+from ai_assistant.core.domain.errors import ConfigurationError
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
-from ai_assistant.core.pipeline_steps import (
-    build_context,
-    embed_query,
-    generate,
-    rerank,
-    retrieve,
-)
+from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.core.ports import (
     ILLM,
     IEmbedder,
@@ -120,16 +115,27 @@ class RAGManager:
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
         tokenizer: ITokenizer | None = None,
+        rag_steps: list[str] | None = None,
     ) -> None:
-        self.pipeline = RAGPipeline(
-            steps=[
-                embed_query,
-                retrieve,
-                rerank,
-                build_context,
-                generate,
-            ]
-        )
+        # Build pipeline from config step names, validating each against STEP_REGISTRY.
+        # Default: full RAG pipeline with all steps.
+        step_names = rag_steps if rag_steps is not None else [
+            "embed_query",
+            "retrieve",
+            "rerank",
+            "build_context",
+            "generate",
+        ]
+        step_funcs = []
+        for name in step_names:
+            func = STEP_REGISTRY.get(name)
+            if func is None:
+                raise ConfigurationError(
+                    f"Unknown pipeline step: {name!r}. "
+                    f"Available: {list(STEP_REGISTRY.keys())}"
+                )
+            step_funcs.append(func)
+        self.pipeline = RAGPipeline(step_funcs)
         self.llm = llm
         self.vector_store = vector_store
         self.embedder = embedder
@@ -171,6 +177,15 @@ class RAGManager:
         )
         result = await self.pipeline.run(data)
         duration_ms = int((time.perf_counter() - start) * 1000)
+        if result.errors:
+            _logger.warning(
+                "RAG pipeline completed with errors",
+                extra={
+                    "namespace": namespace,
+                    "errors": list(result.errors),
+                    "trace_id": data.trace_id,
+                },
+            )
         _logger.info(
             "RAG pipeline completed",
             extra={

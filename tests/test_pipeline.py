@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
@@ -888,6 +888,59 @@ class TestHydeQuery:
         )
         result = await hyde_query(data)
         assert any(LLM_NOT_PROVIDED in e for e in result.errors)
+
+
+# ———————————————————————————————————————
+# TestChatManagerStepValidation
+# ———————————————————————————————————————
+
+
+class TestChatManagerStepValidation:
+    """Given: ChatManager._build_pipeline builds pipeline from steps.
+    When: default or custom steps are used.
+    Then: pipeline constructed successfully with registered steps."""
+
+    @pytest.mark.asyncio
+    async def test_default_steps_all_available(self) -> None:
+        """Given: default steps are used.
+        When: _build_pipeline with no rag_steps.
+        Then: pipeline constructed successfully with 4 retrieval steps."""
+        from ai_assistant.features.chat.manager import ChatManager
+
+        manager = ChatManager(
+            llm=FakeLLM(),
+            reranker=MagicMock(),  # type: ignore[arg-type]
+            embedder=FakeEmbedder(),
+            vector_store=FakeVectorStore(),
+        )
+        pipeline = manager._build_pipeline()
+        assert pipeline is not None
+        assert len(pipeline.steps) == 4  # embed, retrieve, rerank, build_context
+
+    @pytest.mark.asyncio
+    async def test_custom_steps_skip_generate(self) -> None:
+        """Given: rag_steps includes GENERATE.
+        When: _build_pipeline is called.
+        Then: GENERATE is skipped; pipeline stops before it."""
+        from ai_assistant.core.config import RAGStep
+        from ai_assistant.features.chat.manager import ChatManager
+
+        manager = ChatManager(
+            llm=FakeLLM(),
+            reranker=MagicMock(),  # type: ignore[arg-type]
+            embedder=FakeEmbedder(),
+            vector_store=FakeVectorStore(),
+        )
+        pipeline = manager._build_pipeline(rag_steps=[
+            RAGStep.EMBED_QUERY,
+            RAGStep.RETRIEVE,
+            RAGStep.GENERATE,  # Should be skipped
+            RAGStep.BUILD_CONTEXT,
+        ])
+        assert pipeline is not None
+        # GENERATE is skipped, BUILD_CONTEXT comes after it so also not included
+        # Only EMBED_QUERY and RETRIEVE before GENERATE break
+        assert len(pipeline.steps) == 2
 
 
 # ———————————————————————————————————————

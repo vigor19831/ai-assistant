@@ -193,8 +193,12 @@ class ChatManager:
             step_funcs = []
             for step in default_steps:
                 func = _STEP_MAP.get(step)
-                if func is not None:
-                    step_funcs.append(func)
+                if func is None:
+                    raise ValueError(
+                        f"Default step {step.value!r} not found in STEP_REGISTRY. "
+                        f"Available: {list(STEP_REGISTRY.keys())}"
+                    )
+                step_funcs.append(func)
             return RAGPipeline(step_funcs) if step_funcs else None
 
         step_funcs = []
@@ -202,8 +206,12 @@ class ChatManager:
             if step == RAGStep.GENERATE:
                 break  # ChatManager does its own generation via LLM
             func = _STEP_MAP.get(step)
-            if func is not None:
-                step_funcs.append(func)
+            if func is None:
+                raise ValueError(
+                    f"Unknown pipeline step: {step.value!r}. "
+                    f"Available: {list(STEP_REGISTRY.keys())}"
+                )
+            step_funcs.append(func)
         return RAGPipeline(step_funcs) if step_funcs else None
 
     async def _count_tokens(self, text: str) -> int:
@@ -296,6 +304,12 @@ class ChatManager:
         )
 
         data = await self._pipeline.run(data)
+
+        if data.errors:
+            logger.warning(
+                "Pipeline errors during retrieval",
+                extra={"trace_id": trace_id, "errors": list(data.errors)},
+            )
 
         if not data.chunks:
             return query_text, query_text, namespace, ()
