@@ -286,7 +286,6 @@ class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AI_",
         extra="forbid",
-        env_file=".env",
     )
     app_name: str = "ai-assistant"
     debug: bool = False
