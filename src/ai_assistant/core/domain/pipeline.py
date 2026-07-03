@@ -67,7 +67,7 @@ class PipelineData:
     error_details: tuple[str | None, ...] = field(default_factory=tuple)
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
-    # Typed dependency fields — replace metadata bag
+    # Runtime dependency references for pipeline steps
     embedder: IEmbedder | None = None
     vector_store: IVectorStore | None = None
     reranker: IReranker | None = None

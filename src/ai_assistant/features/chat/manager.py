@@ -52,29 +52,6 @@ _STEP_MAP: dict[RAGStep, Any] = {
 }
 
 
-def _build_step_funcs(
-    cfg: Any,
-    stop_at: RAGStep | None = None,
-) -> list[Any]:
-    """Build pipeline step functions. Stops before *stop_at* if provided.
-
-    NOTE: Currently unused. ChatManager uses a fixed retrieval pipeline
-    (embed_query -> retrieve -> rerank -> build_context) because generation
-    is handled separately via llm.complete(). If a unified pipeline is
-    needed in the future, wire this function into _build_pipeline and
-    pass cfg.rag.steps from handlers.py. See ai_rules.md §2.1.
-    """
-    step_funcs: list[Any] = []
-    for step in cfg.rag.steps:
-        if stop_at is not None and step == stop_at:
-            break
-        func = _STEP_MAP.get(step)
-        if func is None:
-            raise ValueError(f"Unknown step: {step}")
-        step_funcs.append(func)
-    return step_funcs
-
-
 class ChatManager:
     """Universal chat router."""
 

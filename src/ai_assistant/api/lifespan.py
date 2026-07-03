@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     "path": index_path,
                 },
             )
-        except Exception:
+        except (OSError, RuntimeError):
             logger.exception("Index load failed on startup")
             raise
 

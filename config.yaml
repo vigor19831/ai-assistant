@@ -24,7 +24,6 @@ cors:
 chat:
   history_limit: 10
   max_context_tokens: 4096      # Hard cap for 4K-context models; raise for 8K+
-  tokenizer_local_dir: "./data/tokenizers"
 
 # ── Chunker ──
 chunker:

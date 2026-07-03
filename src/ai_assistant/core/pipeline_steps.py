@@ -39,7 +39,6 @@ if TYPE_CHECKING:
     from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.llm import ILLM, Message
     from ai_assistant.core.ports.reranker import IReranker, RerankResult
-    from ai_assistant.core.ports.tokenizer import ITokenizer
     from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__: list[str] = [
