@@ -296,37 +296,37 @@ class TestIntegrationNamespaceIsolation:
 
     @pytest.mark.asyncio
     async def test_namespace_isolation_cross_contamination(self):
-        """Given: chunks in 'personal' and 'work' with same embedding.
-        When: query targets 'personal' via prefix.
-        Then: only personal chunks returned; work chunks isolated."""
+        """Given: chunks in 'test' and 'test-alt' with same embedding.
+        When: query targets 'test' via prefix.
+        Then: only test chunks returned; test-alt chunks isolated."""
         embedder = MockEmbedder(EmbedderConfigData(dim=3))
         vector_store = MemoryVectorStore(VectorStoreConfigData(dim=3))
 
         await vector_store.add([
-            Chunk(id="p1", text="personal secret", embedding=[1.0, 0.0, 0.0]),
-        ], namespace="personal")
+            Chunk(id="t1", text="test secret", embedding=[1.0, 0.0, 0.0]),
+        ], namespace="test")
         await vector_store.add([
-            Chunk(id="w1", text="work secret", embedding=[1.0, 0.0, 0.0]),
-        ], namespace="work")
+            Chunk(id="a1", text="alt secret", embedding=[1.0, 0.0, 0.0]),
+        ], namespace="test-alt")
 
-        # Query personal namespace directly
-        results_personal = await vector_store.search(
-            [1.0, 0.0, 0.0], top_k=10, namespace="personal"
+        # Query test namespace directly
+        results_test = await vector_store.search(
+            [1.0, 0.0, 0.0], top_k=10, namespace="test"
         )
-        assert len(results_personal) == 1
-        assert results_personal[0].id == "p1"
+        assert len(results_test) == 1
+        assert results_test[0].id == "t1"
 
-        # Query work namespace directly
-        results_work = await vector_store.search(
-            [1.0, 0.0, 0.0], top_k=10, namespace="work"
+        # Query test-alt namespace directly
+        results_alt = await vector_store.search(
+            [1.0, 0.0, 0.0], top_k=10, namespace="test-alt"
         )
-        assert len(results_work) == 1
-        assert results_work[0].id == "w1"
+        assert len(results_alt) == 1
+        assert results_alt[0].id == "a1"
 
         # Verify no cross-contamination via ids
-        personal_ids = {c.id for c in results_personal}
-        work_ids = {c.id for c in results_work}
-        assert not personal_ids & work_ids
+        test_ids = {c.id for c in results_test}
+        alt_ids = {c.id for c in results_alt}
+        assert not test_ids & alt_ids
 
 
 class TestIntegrationFullRAG:

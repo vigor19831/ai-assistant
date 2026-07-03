@@ -338,7 +338,7 @@ class TestYamlLoading:
             yaml.safe_dump({
                 "rag": {
                     "sources": [
-                        {"namespace": "work", "path": "/home/user/work", "include": ["*.txt"]}
+                        {"namespace": "test", "path": "/home/user/test", "include": ["*.txt"]}
                     ]
                 },
             }),
@@ -346,8 +346,8 @@ class TestYamlLoading:
         )
         cfg = load_config(str(shared))
         assert len(cfg.rag.sources) == 1
-        assert cfg.rag.sources[0].namespace == "work"   # replaced
-        assert cfg.rag.sources[0].path == "/home/user/work"
+        assert cfg.rag.sources[0].namespace == "test"   # replaced
+        assert cfg.rag.sources[0].path == "/home/user/test"
 
     def test_load_config_local_missing_uses_shared_only(self, tmp_path: Path):
         """Given: only config.yaml exists, no config.local.yaml.
@@ -442,46 +442,17 @@ class TestYamlLoading:
         assert cfg.logging.backup_count == 5
 
 
-class TestNamespacesDefaultFactory:
+class TestNamespacesEmptyDefault:
     """Given: no explicit namespaces in config.
     When: AppConfig is instantiated.
-    Then: default namespaces are populated with correct values."""
+    Then: namespaces defaults to empty dict (no demo data)."""
 
-    def test_default_namespaces_present(self):
+    def test_namespaces_defaults_to_empty(self):
         """Given: no namespace overrides.
         When: AppConfig is loaded.
-        Then: default namespaces (personal, work, other, code, books) exist."""
+        Then: namespaces is empty."""
         cfg = AppConfig()
-        assert "personal" in cfg.namespaces
-        assert "work" in cfg.namespaces
-        assert "other" in cfg.namespaces
-        assert "code" in cfg.namespaces
-        assert "books" in cfg.namespaces
-
-    def test_default_namespace_values(self):
-        """Given: no namespace overrides.
-        When: AppConfig is loaded.
-        Then: personal and work namespaces have expected overrides."""
-        cfg = AppConfig()
-        personal = cfg.namespaces["personal"]
-        assert personal.relevance_threshold == 0.1
-        assert personal.chunk_size == 512
-        assert personal.prompt == "rag_strict"
-
-        work = cfg.namespaces["work"]
-        assert work.relevance_threshold == 0.3
-        assert work.chunk_size == 1024
-        assert work.prompt == "rag_creative"
-
-    def test_default_namespace_uses_defaults_for_others(self):
-        """Given: no explicit overrides for 'other' namespace.
-        When: AppConfig is loaded.
-        Then: 'other' uses NamespaceConfig defaults."""
-        cfg = AppConfig()
-        other = cfg.namespaces["other"]
-        assert other.relevance_threshold == 0.1
-        assert other.chunk_size == 512
-        assert other.prompt == "rag_strict"
+        assert cfg.namespaces == {}
 
     def test_namespace_validation_alias(self):
         """Given: namespace config uses legacy 'threshold' key.
@@ -857,7 +828,7 @@ class TestSourceConfigMigration:
             "rag": {
                 "documents_root": "old_docs",
                 "sources": [
-                    {"namespace": "work", "path": "D:/Work", "include": ["*.md"]}
+                    {"namespace": "test", "path": "D:/Test", "include": ["*.md"]}
                 ],
             },
             "embedder": {"dim": 384, "provider": "mock"},
@@ -865,7 +836,7 @@ class TestSourceConfigMigration:
         }
         cfg = AppConfig(**data)
         assert len(cfg.rag.sources) == 1
-        assert cfg.rag.sources[0].namespace == "work"
+        assert cfg.rag.sources[0].namespace == "test"
 
     def test_source_config_defaults(self) -> None:
         """Given: minimal SourceConfig with only namespace and path.
@@ -893,14 +864,8 @@ class TestSourceConfigMigration:
         assert "documents_root" not in dumped["rag"]
         assert "sources" in dumped["rag"]
 
-# ---------- ChatConfig.tokenizer_local_dir is dead code ----------
-from ai_assistant.core.config import ChatConfig, TokenizerConfig
-
-
-def test_chat_config_still_accepts_tokenizer_local_dir():
-    """Backward compat: field must still be accepted by pydantic."""
-    cfg = ChatConfig(tokenizer_local_dir="./custom/tokenizers")
-    assert cfg.tokenizer_local_dir == "./custom/tokenizers"
+# ---------- TokenizerConfig.local_dir is source of truth ----------
+from ai_assistant.core.config import TokenizerConfig
 
 
 def test_tokenizer_config_is_source_of_truth():

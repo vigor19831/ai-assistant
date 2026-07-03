@@ -62,20 +62,14 @@ def chat_manager_with_rag():
     embedder = MockEmbedder(EmbedderConfigData(dim=3))
     store = MemoryVectorStore(VectorStoreConfigData(dim=3))
     namespaces = {
-        "personal": NamespaceConfig(
-            prefix="p", threshold=0.1, chunk_size=512, prompt="rag_strict"
+        "test": NamespaceConfig(
+            prefix="t", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
-        "work": NamespaceConfig(
-            prefix="w", threshold=0.3, chunk_size=1024, prompt="rag_creative"
+        "test-alt": NamespaceConfig(
+            prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_creative"
         ),
-        "other": NamespaceConfig(
-            prefix="o", threshold=0.1, chunk_size=512, prompt="rag_strict"
-        ),
-        "code": NamespaceConfig(
-            prefix="c", threshold=0.1, chunk_size=512, prompt="rag_strict"
-        ),
-        "books": NamespaceConfig(
-            prefix="b", threshold=0.1, chunk_size=512, prompt="rag_strict"
+        "test-default": NamespaceConfig(
+            prefix="d", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
     }
     mock_llm = MagicMock()
@@ -198,8 +192,8 @@ class TestChatManager:
         assert chunks == ()
 
     @pytest.mark.asyncio
-    async def test_retrieve_personal_prefix_triggers_rag(self, chat_manager_with_rag):
-        """Given: [p] prefix and chunk in personal namespace.
+    async def test_retrieve_test_prefix_triggers_rag(self, chat_manager_with_rag):
+        """Given: [t] prefix and chunk in test namespace.
         When: _retrieve_context is called.
         Then: RAG is triggered, chunks returned, prompt contains context."""
         chunk = Chunk(
@@ -209,52 +203,52 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="personal"
+            [chunk], namespace="test"
         )
 
         prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[p] What is the capital?"
+            "[t] What is the capital?"
         )
-        assert namespace == "personal"
+        assert namespace == "test"
         assert len(chunks) > 0
         assert "Paris" in prompt or "France" in prompt or "Context:" in prompt
 
     @pytest.mark.asyncio
-    async def test_retrieve_work_prefix_triggers_rag(self, chat_manager_with_rag):
-        """Given: [w] prefix and chunk in work namespace.
+    async def test_retrieve_alt_prefix_triggers_rag(self, chat_manager_with_rag):
+        """Given: [a] prefix and chunk in test-alt namespace.
         When: _retrieve_context is called.
-        Then: RAG is triggered for work namespace."""
+        Then: RAG is triggered for test-alt namespace."""
         chunk = Chunk(
             id="c1",
             text="Project deadline is Friday.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="work")
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
 
         prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[w] When is the deadline?"
+            "[a] When is the deadline?"
         )
-        assert namespace == "work"
+        assert namespace == "test-alt"
         assert len(chunks) > 0
 
     @pytest.mark.asyncio
-    async def test_retrieve_other_prefix_triggers_rag(self, chat_manager_with_rag):
-        """Given: [o] prefix and chunk in other namespace.
+    async def test_retrieve_default_prefix_triggers_rag(self, chat_manager_with_rag):
+        """Given: [d] prefix and chunk in test-default namespace.
         When: _retrieve_context is called.
-        Then: RAG is triggered for other namespace."""
+        Then: RAG is triggered for test-default namespace."""
         chunk = Chunk(
             id="c1",
             text="Recipe: 2 eggs, 1 cup flour.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="other")
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test-default")
 
         prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[o] What ingredients?"
+            "[d] What ingredients?"
         )
-        assert namespace == "other"
+        assert namespace == "test-default"
         assert len(chunks) > 0
 
     @pytest.mark.asyncio
@@ -265,16 +259,16 @@ class TestChatManager:
         When: _retrieve_context is called.
         Then: original query text is returned unchanged."""
         prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[p] something impossible to find"
+            "[t] something impossible to find"
         )
-        assert namespace == "personal"
+        assert namespace == "test"
         assert prompt == "something impossible to find"
         assert query == "something impossible to find"
         assert chunks == ()
 
     @pytest.mark.asyncio
     async def test_retrieve_prefix_stripped_from_query(self, chat_manager_with_rag):
-        """Given: message with [p] prefix.
+        """Given: message with [t] prefix.
         When: _retrieve_context is called.
         Then: prefix is stripped from query text."""
         chunk = Chunk(
@@ -284,21 +278,21 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="personal"
+            [chunk], namespace="test"
         )
 
         prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[p] query text"
+            "[t] query text"
         )
-        assert namespace == "personal"
-        assert not query.startswith("[p]")
+        assert namespace == "test"
+        assert not query.startswith("[t]")
         assert "query text" in query
 
     @pytest.mark.asyncio
     async def test_retrieve_case_insensitive_prefix(self, chat_manager_with_rag):
-        """Given: uppercase prefix [P].
+        """Given: uppercase prefix [T].
         When: _retrieve_context is called.
-        Then: same result as lowercase [p]."""
+        Then: same result as lowercase [t]."""
         chunk = Chunk(
             id="c1",
             text="Content",
@@ -306,7 +300,7 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="personal"
+            [chunk], namespace="test"
         )
 
         (
@@ -314,14 +308,14 @@ class TestChatManager:
             query_upper,
             namespace_upper,
             chunks_upper,
-        ) = await chat_manager_with_rag._retrieve_context("[P] test")
+        ) = await chat_manager_with_rag._retrieve_context("[T] test")
         (
             prompt_lower,
             query_lower,
             namespace_lower,
             chunks_lower,
-        ) = await chat_manager_with_rag._retrieve_context("[p] test")
-        assert namespace_upper == namespace_lower == "personal"
+        ) = await chat_manager_with_rag._retrieve_context("[t] test")
+        assert namespace_upper == namespace_lower == "test"
         assert chunks_upper == chunks_lower
 
     @pytest.mark.asyncio
@@ -338,13 +332,13 @@ class TestChatManager:
             vector_store=MagicMock(),
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            namespaces={"personal": NamespaceConfig(prefix="p")},
+            namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
+        prompt, query, namespace, chunks = await manager._retrieve_context("[t] query")
         assert namespace is None
-        assert prompt == "[p] query"
-        assert query == "[p] query"
+        assert prompt == "[t] query"
+        assert query == "[t] query"
         assert chunks == ()
 
     @pytest.mark.asyncio
@@ -361,37 +355,37 @@ class TestChatManager:
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            namespaces={"personal": NamespaceConfig(prefix="p")},
+            namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        prompt, query, namespace, chunks = await manager._retrieve_context("[p] query")
+        prompt, query, namespace, chunks = await manager._retrieve_context("[t] query")
         assert namespace is None
-        assert prompt == "[p] query"
-        assert query == "[p] query"
+        assert prompt == "[t] query"
+        assert query == "[t] query"
         assert chunks == ()
     @pytest.mark.asyncio
     async def test_retrieve_per_namespace_prompt_and_threshold(
         self, chat_manager_with_rag
     ):
-        """Given: work namespace with custom prompt and threshold.
-        When: _retrieve_context is called with [w] prefix.
+        """Given: test-alt namespace with custom prompt and threshold.
+        When: _retrieve_context is called with [a] prefix.
         Then: correct prompt name and threshold are used."""
         chunk = Chunk(
             id="c1",
-            text="Work item.",
+            text="Alt item.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="work")
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
-            mock_get_prompt.return_value = "work prompt"
+            mock_get_prompt.return_value = "alt prompt"
             prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-                "[w] work item?"
+                "[a] alt item?"
             )
-            assert namespace == "work"
+            assert namespace == "test-alt"
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_creative"
             assert len(chunks) > 0
@@ -412,7 +406,7 @@ class TestChatManager:
             vector_store=store,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            namespaces={"personal": NamespaceConfig(prefix="p")},
+            namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         chunk = Chunk(
@@ -421,66 +415,16 @@ class TestChatManager:
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await manager.vector_store.add([chunk], namespace="personal")
+        await manager.vector_store.add([chunk], namespace="test")
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "default prompt"
-            prompt, query, namespace, chunks = await manager._retrieve_context("[p] content?")
-            assert namespace == "personal"
+            prompt, query, namespace, chunks = await manager._retrieve_context("[t] content?")
+            assert namespace == "test"
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_strict"
-
-    @pytest.mark.asyncio
-    async def test_retrieve_custom_prefix_c_triggers_rag(self, chat_manager_with_rag):
-        """Given: [c] prefix and chunk in code namespace.
-        When: _retrieve_context is called.
-        Then: RAG is triggered for code namespace with rag_strict prompt."""
-        chunk = Chunk(
-            id="c1",
-            text="Code configuration details.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="code")
-
-        with patch(
-            "ai_assistant.features.chat.manager.get_prompt"
-        ) as mock_get_prompt:
-            mock_get_prompt.return_value = "code prompt"
-            prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-                "[c] configuration?"
-            )
-            assert namespace == "code"
-            mock_get_prompt.assert_called_once()
-            assert mock_get_prompt.call_args[0][0] == "rag_strict"
-            assert len(chunks) > 0
-
-    @pytest.mark.asyncio
-    async def test_retrieve_business_prefix_b_triggers_rag(self, chat_manager_with_rag):
-        """Given: [b] prefix and chunk in books namespace.
-        When: _retrieve_context is called.
-        Then: RAG is triggered for books namespace with rag_strict prompt."""
-        chunk = Chunk(
-            id="c1",
-            text="Books report Q3.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="books")
-
-        with patch(
-            "ai_assistant.features.chat.manager.get_prompt"
-        ) as mock_get_prompt:
-            mock_get_prompt.return_value = "books prompt"
-            prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-                "[b] Q3 report?"
-            )
-            assert namespace == "books"
-            mock_get_prompt.assert_called_once()
-            assert mock_get_prompt.call_args[0][0] == "rag_strict"
-            assert len(chunks) > 0
 
     # ── _build_messages ──
 
@@ -602,7 +546,7 @@ class TestChatManager:
 
     @pytest.mark.asyncio
     async def test_chat_with_prefix_no_pipeline_graceful(self):
-        """Given: [p] prefix with no RAG pipeline.
+        """Given: [t] prefix with no RAG pipeline.
         When: chat() is called.
         Then: graceful unavailable message is returned."""
         mock_llm = MagicMock()
@@ -617,11 +561,11 @@ class TestChatManager:
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
-            namespaces={"personal": NamespaceConfig(prefix="p")},
+            namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await manager.chat(
-            message="[p] capital of France",
+            message="[t] capital of France",
             conversation_id="test-1",
         )
         assert (
@@ -706,7 +650,7 @@ class TestChatManager:
 
     @pytest.mark.asyncio
     async def test_stream_chat_with_rag_prefix(self, chat_manager_with_rag):
-        """Given: [p] prefix with full RAG pipeline in stream_chat.
+        """Given: [t] prefix with full RAG pipeline in stream_chat.
         When: stream_chat() is called.
         Then: RAG context is retrieved and stream proceeds."""
         chunk = Chunk(
@@ -715,7 +659,7 @@ class TestChatManager:
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="personal")
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
 
         # Force embedder to return matching embedding so search finds the chunk
         chat_manager_with_rag.embedder.embed = AsyncMock(
@@ -727,49 +671,49 @@ class TestChatManager:
         )
         chunks = []
         async for chunk_text in chat_manager_with_rag.stream_chat(
-            "[p] Weather in Paris?", "conv-1"
+            "[t] Weather in Paris?", "conv-1"
         ):
             chunks.append(chunk_text)
         assert chunks == ["Paris", " is", " sunny.", "\n\nSources:\n[1] doc1"]
 
     @pytest.mark.asyncio
-    async def test_namespace_c_and_b_prefixes(self, chat_manager_with_rag):
-        """Given: [c] and [b] prefixes with chunks in respective namespaces.
+    async def test_namespace_test_and_alt_prefixes(self, chat_manager_with_rag):
+        """Given: [t] and [a] prefixes with chunks in respective namespaces.
         When: _retrieve_context is called for each.
         Then: correct namespace routing and prompt selection occurs."""
-        chunk_c = Chunk(
+        chunk_t = Chunk(
             id="c1",
-            text="Code settings.",
+            text="Test settings.",
             embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc_code", index=0, total_chunks=1),
+            metadata=ChunkMetadata(source="doc_test", index=0, total_chunks=1),
         )
-        chunk_b = Chunk(
-            id="b1",
-            text="Books plan.",
+        chunk_a = Chunk(
+            id="c2",
+            text="Alt plan.",
             embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc_books", index=0, total_chunks=1),
+            metadata=ChunkMetadata(source="doc_alt", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk_c], namespace="code")
-        await chat_manager_with_rag.vector_store.add([chunk_b], namespace="books")
+        await chat_manager_with_rag.vector_store.add([chunk_t], namespace="test")
+        await chat_manager_with_rag.vector_store.add([chunk_a], namespace="test-alt")
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "prompt"
 
-            prompt_c, query_c, namespace_c, chunks_c = await chat_manager_with_rag._retrieve_context(
-                "[c] settings?"
+            prompt_t, query_t, namespace_t, chunks_t = await chat_manager_with_rag._retrieve_context(
+                "[t] settings?"
             )
-            assert namespace_c == "code"
-            assert len(chunks_c) > 0
-            assert chunks_c[0].metadata.source == "doc_code"
+            assert namespace_t == "test"
+            assert len(chunks_t) > 0
+            assert chunks_t[0].metadata.source == "doc_test"
 
-            prompt_b, query_b, namespace_b, chunks_b = await chat_manager_with_rag._retrieve_context(
-                "[b] plan?"
+            prompt_a, query_a, namespace_a, chunks_a = await chat_manager_with_rag._retrieve_context(
+                "[a] plan?"
             )
-            assert namespace_b == "books"
-            assert len(chunks_b) > 0
-            assert chunks_b[0].metadata.source == "doc_books"
+            assert namespace_a == "test-alt"
+            assert len(chunks_a) > 0
+            assert chunks_a[0].metadata.source == "doc_alt"
 
 
 # ── TestChatPrefixes ──
@@ -795,11 +739,8 @@ class TestChatPrefixes:
             reranker=NullReranker(RerankerConfigData()),
             storage=None,
             namespaces={
-                "personal": NamespaceConfig(prefix="p"),
-                "work": NamespaceConfig(prefix="w"),
-                "other": NamespaceConfig(prefix="o"),
-                "code": NamespaceConfig(prefix="c"),
-                "books": NamespaceConfig(prefix="b"),
+                "test": NamespaceConfig(prefix="t"),
+                "test-alt": NamespaceConfig(prefix="a"),
             },
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
@@ -808,144 +749,65 @@ class TestChatPrefixes:
         return mgr
 
     @pytest.mark.asyncio
-    async def test_prefix_p_personal(self, prefix_manager):
-        """Given: [p] prefix.
+    async def test_prefix_t_test(self, prefix_manager):
+        """Given: [t] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
         prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context("[p] test")
-        assert namespace == "personal"
+        prompt, query, namespace, chunks = await prefix_manager._retrieve_context("[t] test")
+        assert namespace == "test"
         assert query == "test"
-        assert not query.startswith("[p]")
+        assert not query.startswith("[t]")
 
     @pytest.mark.asyncio
-    async def test_prefix_w_work(self, prefix_manager):
-        """Given: [w] prefix.
+    async def test_prefix_a_alt(self, prefix_manager):
+        """Given: [a] prefix.
         When: _retrieve_context is called.
         Then: query is stripped of prefix."""
         prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="deadline"))
         )
         prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
-            "[w] deadline"
+            "[a] deadline"
         )
-        assert namespace == "work"
+        assert namespace == "test-alt"
         assert query == "deadline"
-        assert not query.startswith("[w]")
+        assert not query.startswith("[a]")
 
     @pytest.mark.asyncio
-    async def test_prefix_o_other(self, prefix_manager):
-        """Given: [o] prefix.
+    async def test_prefix_case_insensitive_t(self, prefix_manager):
+        """Given: uppercase [T] prefix.
         When: _retrieve_context is called.
-        Then: query is stripped of prefix."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="recipe"))
-        )
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
-            "[o] recipe"
-        )
-        assert namespace == "other"
-        assert query == "recipe"
-        assert not query.startswith("[o]")
-
-    @pytest.mark.asyncio
-    async def test_prefix_c_custom(self, prefix_manager):
-        """Given: [c] prefix.
-        When: _retrieve_context is called.
-        Then: query is stripped of prefix."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="config"))
-        )
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
-            "[c] config"
-        )
-        assert namespace == "code"
-        assert query == "config"
-        assert not query.startswith("[c]")
-
-    @pytest.mark.asyncio
-    async def test_prefix_b_business(self, prefix_manager):
-        """Given: [b] prefix.
-        When: _retrieve_context is called.
-        Then: query is stripped of prefix."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="report"))
-        )
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
-            "[b] report"
-        )
-        assert namespace == "books"
-        assert query == "report"
-        assert not query.startswith("[b]")
-
-    @pytest.mark.asyncio
-    async def test_prefix_case_insensitive_p(self, prefix_manager):
-        """Given: uppercase [P] prefix.
-        When: _retrieve_context is called.
-        Then: same behavior as lowercase [p]."""
+        Then: same behavior as lowercase [t]."""
         prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
-            "[p] test"
+            "[t] test"
         )
         prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
-            "[P] test"
+            "[T] test"
         )
-        assert ns_lower == ns_upper == "personal"
+        assert ns_lower == ns_upper == "test"
         assert query_lower == query_upper == "test"
 
     @pytest.mark.asyncio
-    async def test_prefix_case_insensitive_w(self, prefix_manager):
-        """Given: uppercase [W] prefix.
+    async def test_prefix_case_insensitive_a(self, prefix_manager):
+        """Given: uppercase [A] prefix.
         When: _retrieve_context is called.
-        Then: same behavior as lowercase [w]."""
+        Then: same behavior as lowercase [a]."""
         prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="test"))
         )
         prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
-            "[w] test"
+            "[a] test"
         )
         prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
-            "[W] test"
+            "[A] test"
         )
-        assert ns_lower == ns_upper == "work"
-        assert query_lower == query_upper == "test"
-
-    @pytest.mark.asyncio
-    async def test_prefix_case_insensitive_c(self, prefix_manager):
-        """Given: uppercase [C] prefix.
-        When: _retrieve_context is called.
-        Then: same behavior as lowercase [c]."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="test"))
-        )
-        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
-            "[c] test"
-        )
-        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
-            "[C] test"
-        )
-        assert ns_lower == ns_upper == "code"
-        assert query_lower == query_upper == "test"
-
-    @pytest.mark.asyncio
-    async def test_prefix_case_insensitive_b(self, prefix_manager):
-        """Given: uppercase [B] prefix.
-        When: _retrieve_context is called.
-        Then: same behavior as lowercase [b]."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="test"))
-        )
-        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
-            "[b] test"
-        )
-        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
-            "[B] test"
-        )
-        assert ns_lower == ns_upper == "books"
+        assert ns_lower == ns_upper == "test-alt"
         assert query_lower == query_upper == "test"
 
     @pytest.mark.asyncio
@@ -956,15 +818,12 @@ class TestChatPrefixes:
         prefix_manager._pipeline.run = AsyncMock(
             return_value=PipelineData(query=UserMessage(text="query text"))
         )
-        for prefix in ["p", "w", "o", "c", "b"]:
+        for prefix in ["t", "a"]:
             _, query, ns, _ = await prefix_manager._retrieve_context(
                 f"[{prefix}] query text"
             )
             assert query == "query text", f"Failed for prefix [{prefix}]"
-            assert ns == {
-                "p": "personal", "w": "work", "o": "other",
-                "c": "code", "b": "books"
-            }[prefix]
+            assert ns == {"t": "test", "a": "test-alt"}[prefix]
 
     @pytest.mark.asyncio
     async def test_no_prefix_no_stripping(self, prefix_manager):

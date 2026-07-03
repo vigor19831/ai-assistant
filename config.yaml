@@ -1,7 +1,7 @@
 # AI Assistant — DEVELOPMENT / LOCAL Configuration
 # ============================================================================
 # This is the maintainer's working config for local development.
-# Secrets live in .env (AI_*_API_KEY variables), not in this file.
+# Secrets live in config.local.yaml or AI_* env vars, not in this file.
 # ============================================================================
 
 # ── Application ──
@@ -56,10 +56,8 @@ llm:
   api_base: http://127.0.0.1:8080/v1
   api_key: null                 # Set via AI_LLM_API_KEY env var
   model: gemma-4-e2b-it
-  available_models:
+  available_models:    # Populate with your local models
     - gemma-4-e2b-it
-    - phi-4-mini-reasoning
-    - qwen3.5-4b
     - gemma-4-e4b-it
   max_tokens: 4096
   temperature: 0.7
@@ -129,32 +127,13 @@ rag:
   index_chat_exports: false     # true = auto-index saved chats into RAG
 
 # ── Namespaces ──
-namespaces:
-  personal:
-    prefix: p
+namespaces:    # Add your own when needed:
+  default:
+    prefix: d
     threshold: 0.1
     chunk_size: 512
     prompt: rag_strict
-  work:
-    prefix: w
-    threshold: 0.3
-    chunk_size: 1024
-    prompt: rag_creative
-  other:
-    prefix: o
-    threshold: 0.1
-    chunk_size: 512
-    prompt: rag_strict
-  code:
-    prefix: c
-    threshold: 0.1
-    chunk_size: 512
-    prompt: rag_strict
-  books:
-    prefix: b
-    threshold: 0.1
-    chunk_size: 512
-    prompt: rag_strict
+
 
 # ── Security ──
 security:

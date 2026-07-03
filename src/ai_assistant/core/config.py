@@ -73,12 +73,6 @@ class ChatConfig(BaseSettings):
     history_limit: int = 10
     max_history_messages: int = 10_000
     max_context_tokens: int | None = None
-    # Intentionally kept as a no-op field for backward compat with old
-    # config.yaml files. The value is IGNORED by all code paths.
-    # Tokenizer directory is configured in TokenizerConfig.local_dir.
-    # Do not re-add usage — this field will be stripped by a future
-    # config_version migration when drift cleanup is performed.
-    tokenizer_local_dir: str = "./data/tokenizers"  # DEPRECATED: ignored — use TokenizerConfig.local_dir
 
 
 class TokenizerConfig(BaseSettings):
@@ -306,20 +300,7 @@ class AppConfig(BaseSettings):
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    namespaces: dict[str, NamespaceConfig] = Field(
-        default_factory=lambda: {
-            "personal": NamespaceConfig(
-                relevance_threshold=0.1, chunk_size=512, prompt="rag_strict"
-            ),
-            "work": NamespaceConfig(
-                relevance_threshold=0.3, chunk_size=1024, prompt="rag_creative"
-            ),
-            "other": NamespaceConfig(),
-            "code": NamespaceConfig(),
-            "books": NamespaceConfig(),
-        }
-    )
-
+    namespaces: dict[str, NamespaceConfig] = Field(default_factory=dict)
     @model_validator(mode="before")
     @classmethod
     def _migrate_config_version(cls, v: Any) -> Any:

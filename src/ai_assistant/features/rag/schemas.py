@@ -29,7 +29,7 @@ class IndexRequest(BaseModel):
     )
     namespace: str | None = Field(
         default=None,
-        description="Index namespace (default, personal, work, etc.)",
+        description="Index namespace",
     )
 
 
@@ -96,7 +96,7 @@ class SaveChatRequest(BaseModel):
 
     content: str = Field(..., min_length=1, description="Chat content to save")
     namespace: str = Field(
-        default="personal",
+        default="default",
         pattern=r"^[a-z]+$",
         description="Target namespace",
     )

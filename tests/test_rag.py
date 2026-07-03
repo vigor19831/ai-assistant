@@ -94,9 +94,9 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_namespace_routing(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
-        """Given: namespace is set to 'work'.
-        When: RAGManager.query called with namespace='work'.
-        Then: vector_store.search receives namespace='work'."""
+        """Given: namespace is set to 'test-alt'.
+        When: RAGManager.query called with namespace='test-alt'.
+        Then: vector_store.search receives namespace='test-alt'."""
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(return_value=[])
         mock_reranker.rerank = AsyncMock(return_value=[])
@@ -110,12 +110,12 @@ class TestRAGManager:
             reranker=mock_reranker,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        await mgr.query("test", namespace="work")
+        await mgr.query("test", namespace="test-alt")
 
         # Verify namespace reached the vector_store port
         mock_vector_store.search.assert_awaited_once()
         call_kwargs = mock_vector_store.search.call_args.kwargs
-        assert call_kwargs.get("namespace") == "work"
+        assert call_kwargs.get("namespace") == "test-alt"
 
     @pytest.mark.asyncio
     async def test_query_prompt_and_threshold_override(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
@@ -268,7 +268,7 @@ class TestRAGManager:
         When: RAGManager.health is called.
         Then: status is 'ok', index_loaded=True, chunk_count > 0."""
         mock_vector_store.index_path = "./data/indices"
-        mock_vector_store.list_namespaces = AsyncMock(return_value=["default", "work"])
+        mock_vector_store.list_namespaces = AsyncMock(return_value=["default", "test"])
         mock_vector_store.list_by_filter = AsyncMock(return_value=[("c1", {}), ("c2", {})])
 
         mgr = RAGManager(
@@ -405,37 +405,37 @@ class TestRAGIndexing:
 
     @pytest.mark.asyncio
     async def test_reindex_background_task(self, tmp_path, mock_chunker, mock_embedder, mock_vector_store):
-        """Given: markdown files in tmp_path/sources/personal.
-        When: index_folder is called with sources pointing to personal folder.
-        Then: documents are indexed and namespace 'personal' appears in results."""
+        """Given: markdown files in tmp_path/sources/test.
+        When: index_folder is called with sources pointing to test folder.
+        Then: documents are indexed and namespace 'test' appears in results."""
         from ai_assistant.core.config import SourceConfig
 
         sources = tmp_path / "sources"
-        personal = sources / "personal"
-        personal.mkdir(parents=True)
-        (personal / "notes.md").write_text("# Hello\nThis is a test note.")
+        test = sources / "test"
+        test.mkdir(parents=True)
+        (test / "notes.md").write_text("# Hello\nThis is a test note.")
 
         # Prevent auto-save from triggering on mock config
         mock_vector_store.config.index_path = str(tmp_path / "indices")
 
         result = await index_folder(
-            folder="personal",
+            folder="test",
             clear=False,
             chunker=mock_chunker,
             embedder=mock_embedder,
             vector_store=mock_vector_store,
             sources=[
                 SourceConfig(
-                    namespace="personal",
-                    path=str(personal),
+                    namespace="test",
+                    path=str(test),
                     include=["*.md"],
                     recursive=True,
                 )
             ],
         )
         assert result["success"] is True
-        assert "personal" in result["results"]
-        assert result["results"]["personal"]["indexed"] == 1
+        assert "test" in result["results"]
+        assert result["results"]["test"]["indexed"] == 1
 
     @pytest.mark.asyncio
     async def test_index_folder_does_not_block_event_loop(
@@ -460,7 +460,7 @@ class TestRAGIndexing:
         )
 
         sources = tmp_path / "sources"
-        ns = sources / "personal"
+        ns = sources / "test"
         ns.mkdir(parents=True)
         for i in range(5):
             (ns / f"doc{i}.md").write_text("x")
@@ -477,14 +477,14 @@ class TestRAGIndexing:
         task = asyncio.create_task(_ticker())
         try:
             await index_folder(
-                folder="personal",
+                folder="test",
                 clear=False,
                 chunker=mock_chunker,
                 embedder=mock_embedder,
                 vector_store=mock_vector_store,
                 sources=[
                     SourceConfig(
-                        namespace="personal",
+                        namespace="test",
                         path=str(ns),
                         include=["*.md"],
                         recursive=True,
@@ -509,23 +509,23 @@ class TestChatNamespaceHelper:
     """Unit tests for _get_chat_namespace helper."""
 
     def test_get_chat_namespace_basic(self):
-        """Given: base namespace 'personal'.
-        Then: returns 'chat_personal'."""
+        """Given: base namespace 'test'.
+        Then: returns 'chat_test'."""
         from ai_assistant.core.config import _get_chat_namespace
-        assert _get_chat_namespace("personal") == "chat_personal"
+        assert _get_chat_namespace("test") == "chat_test"
 
-    def test_get_chat_namespace_work(self):
-        """Given: base namespace 'work'.
-        Then: returns 'chat_work'."""
+    def test_get_chat_namespace_alt(self):
+        """Given: base namespace 'test-alt'.
+        Then: returns 'chat_test-alt'."""
         from ai_assistant.core.config import _get_chat_namespace
-        assert _get_chat_namespace("work") == "chat_work"
+        assert _get_chat_namespace("test-alt") == "chat_test-alt"
 
     def test_get_chat_namespace_rejects_reserved_prefix(self):
         """Given: base namespace already starts with 'chat_'.
         Then: raises ValueError."""
         from ai_assistant.core.config import _get_chat_namespace
         with pytest.raises(ValueError) as exc_info:
-            _get_chat_namespace("chat_personal")
+            _get_chat_namespace("chat_test")
         assert "reserved prefix" in str(exc_info.value).lower()
 
     def test_chat_ns_prefix_constant(self):
@@ -564,7 +564,7 @@ class TestChatExportIsolation:
 
         req = SaveChatRequest(
             content="test chat content",
-            namespace="personal",
+            namespace="test",
             filename="test.md",
         )
 
@@ -606,7 +606,7 @@ class TestChatExportIsolation:
 
             req = SaveChatRequest(
                 content="test chat content",
-                namespace="personal",
+                namespace="test",
                 filename="test.md",
             )
 
@@ -614,25 +614,25 @@ class TestChatExportIsolation:
 
             # Assert on result state
             assert result["saved"] is True
-            assert result.get("chat_namespace") == "chat_personal"
+            assert result.get("chat_namespace") == "chat_test"
 
             # Assert on side-effect state, not just call count
             assert len(indexed_namespaces) == 1
-            assert indexed_namespaces[0] == "chat_personal"
+            assert indexed_namespaces[0] == "chat_test"
             assert len(indexed_docs) == 1
             assert indexed_docs[0]["content"] == "test chat content"
-            # source may include folder prefix (e.g., "personal/test.md")
+            # source may include folder prefix (e.g., "test/test.md")
             assert "test.md" in indexed_docs[0]["metadata"]["source"]
 
     @pytest.mark.asyncio
     async def test_chat_export_not_in_regular_namespace_query(self, mock_vector_store):
-        """Given: chat export exists in 'chat_personal' namespace.
-        When: querying regular 'personal' namespace.
+        """Given: chat export exists in 'chat_test' namespace.
+        When: querying regular 'test' namespace.
         Then: chat export chunks are NOT returned."""
         # Setup: configure mock to simulate namespace isolation
         # Regular namespace has 1 doc, chat namespace has 1 chat export
         def mock_search(query_embedding, top_k=5, namespace="default"):
-            if namespace == "personal":
+            if namespace == "test":
                 return [
                     Chunk(
                         id="doc-1",
@@ -641,7 +641,7 @@ class TestChatExportIsolation:
                         metadata=ChunkMetadata(source="doc.txt", index=0, total_chunks=1),
                     )
                 ]
-            return []  # chat_personal or other namespaces return empty
+            return []  # chat_test or other namespaces return empty
 
         mock_vector_store.search = AsyncMock(side_effect=mock_search)
 
@@ -649,7 +649,7 @@ class TestChatExportIsolation:
         results = await mock_vector_store.search(
             query_embedding=[0.1] * 384,
             top_k=10,
-            namespace="personal",
+            namespace="test",
         )
 
         # Should only find the regular doc
@@ -660,26 +660,26 @@ class TestChatExportIsolation:
         chat_results = await mock_vector_store.search(
             query_embedding=[0.1] * 384,
             top_k=10,
-            namespace="chat_personal",
+            namespace="chat_test",
         )
         assert len(chat_results) == 0
 
     @pytest.mark.asyncio
     async def test_namespace_collision_detected(self, mock_state, tmp_path):
-        """Given: user namespace 'chat_personal' already exists with documents.
-        When: saveChat called with namespace='personal'.
+        """Given: user namespace 'chat_test' already exists with documents.
+        When: saveChat called with namespace='test'.
         Then: collision detected, chat NOT indexed, error returned."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
 
         mock_state.config.rag.index_chat_exports = True
         mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
-        mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default", "personal", "chat_personal"])
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default", "test", "chat_test"])
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("doc-1", {"type": "document"})])
 
         req = SaveChatRequest(
             content="test chat content",
-            namespace="personal",
+            namespace="test",
             filename="test.md",
         )
 
@@ -691,9 +691,9 @@ class TestChatExportIsolation:
 
     @pytest.mark.asyncio
     async def test_reindex_clears_chat_namespace(self, mock_state, tmp_path):
-        """Given: chat exports indexed in 'chat_personal'.
-        When: reindex called with clear=True, namespace='personal'.
-        Then: 'chat_personal' namespace is also cleared."""
+        """Given: chat exports indexed in 'chat_test'.
+        When: reindex called with clear=True, namespace='test'.
+        Then: 'chat_test' namespace is also cleared."""
         from ai_assistant.features.rag.handlers import reindex_documents
         from ai_assistant.features.rag.schemas import ReindexRequest
         from unittest.mock import patch, AsyncMock
@@ -720,10 +720,10 @@ class TestChatExportIsolation:
         ) as mock_index:
             mock_index.return_value = {
                 "success": True,
-                "results": {"personal": {"indexed": 1}},
+                "results": {"test": {"indexed": 1}},
             }
 
-            req = ReindexRequest(folder="personal", clear=True)
+            req = ReindexRequest(folder="test", clear=True)
             await reindex_documents(req, mock_state)
 
             # Capture the background task before it completes and await it.
@@ -734,9 +734,9 @@ class TestChatExportIsolation:
             # Assert on deletion state — verify chat namespace was targeted
             chat_deletions = [
                 (ids, ns) for ids, ns in deleted_chunks
-                if ns == "chat_personal"
+                if ns == "chat_test"
             ]
-            assert len(chat_deletions) > 0, "chat_personal namespace should be cleared"
+            assert len(chat_deletions) > 0, "chat_test namespace should be cleared"
             assert chat_deletions[0][0] == ["chat-1", "chat-2"]
 
 
@@ -877,15 +877,15 @@ class TestQueryPrefixParsing:
         """Configure test namespaces with prefixes for deterministic tests."""
         from ai_assistant.core.config import NamespaceConfig
         mock_state.config.namespaces = {
-            "personal": NamespaceConfig(prefix="p", relevance_threshold=0.1, chunk_size=512, prompt="rag_strict"),
-            "work": NamespaceConfig(prefix="w", relevance_threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+            "test": NamespaceConfig(prefix="t", relevance_threshold=0.1, chunk_size=512, prompt="rag_strict"),
+            "test-alt": NamespaceConfig(prefix="a", relevance_threshold=0.3, chunk_size=1024, prompt="rag_creative"),
         }
 
     @pytest.mark.asyncio
     async def test_prefix_parsing_when_namespace_is_none(self, mock_state):
-        """Given: req.namespace is None, query contains [p] prefix.
+        """Given: req.namespace is None, query contains [t] prefix.
         When: query_rag processes the request.
-        Then: prefix is parsed and namespace switches to 'personal'."""
+        Then: prefix is parsed and namespace switches to 'test'."""
         from ai_assistant.features.rag.handlers import query_rag
         from ai_assistant.features.rag.schemas import QueryRequest
 
@@ -901,17 +901,17 @@ class TestQueryPrefixParsing:
             }
         )
 
-        req = QueryRequest(query="[p] test query")
+        req = QueryRequest(query="[t] test query")
         await query_rag(req, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
-        assert call_kwargs.get("namespace") == "personal"
+        assert call_kwargs.get("namespace") == "test"
 
     @pytest.mark.asyncio
     async def test_prefix_parsing_skipped_when_namespace_explicitly_set(self, mock_state):
-        """Given: req.namespace is explicitly 'work', query contains [p] prefix.
+        """Given: req.namespace is explicitly 'test-alt', query contains [t] prefix.
         When: query_rag processes the request.
-        Then: prefix is ignored, 'work' namespace is used."""
+        Then: prefix is ignored, 'test-alt' namespace is used."""
         from ai_assistant.features.rag.handlers import query_rag
         from ai_assistant.features.rag.schemas import QueryRequest
 
@@ -927,17 +927,17 @@ class TestQueryPrefixParsing:
             }
         )
 
-        req = QueryRequest(query="[p] test query", namespace="work")
+        req = QueryRequest(query="[t] test query", namespace="test-alt")
         await query_rag(req, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
-        assert call_kwargs.get("namespace") == "work"
+        assert call_kwargs.get("namespace") == "test-alt"
 
     @pytest.mark.asyncio
     async def test_prefix_parsing_with_explicit_default_namespace(self, mock_state):
-        """Given: req.namespace='default' (explicit), query has [p] prefix.
+        """Given: req.namespace='default' (explicit), query has [t] prefix.
         When: query_rag processes the request.
-        Then: prefix is parsed and namespace switches to 'personal'."""
+        Then: prefix is parsed and namespace switches to 'test'."""
         from ai_assistant.features.rag.handlers import query_rag
         from ai_assistant.features.rag.schemas import QueryRequest
 
@@ -953,11 +953,11 @@ class TestQueryPrefixParsing:
             }
         )
 
-        req = QueryRequest(query="[p] test query", namespace="default")
+        req = QueryRequest(query="[t] test query", namespace="default")
         await query_rag(req, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
-        assert call_kwargs.get("namespace") == "personal"
+        assert call_kwargs.get("namespace") == "test"
 
 
 class TestRAGHandlersTraceId:
@@ -1359,23 +1359,23 @@ class TestReadSources:
         from ai_assistant.core.config import SourceConfig
         from ai_assistant.features.rag.indexing import read_sources
 
-        work_dir = tmp_path / "work"
-        work_dir.mkdir()
-        (work_dir / "report.md").write_text("report")
+        alt_dir = tmp_path / "test-alt"
+        alt_dir.mkdir()
+        (alt_dir / "report.md").write_text("report")
 
-        personal_dir = tmp_path / "personal"
-        personal_dir.mkdir()
-        (personal_dir / "diary.md").write_text("diary")
+        test_dir = tmp_path / "test"
+        test_dir.mkdir()
+        (test_dir / "diary.md").write_text("diary")
 
         sources = [
-            SourceConfig(namespace="work", path=str(work_dir), include=["*.md"]),
-            SourceConfig(namespace="personal", path=str(personal_dir), include=["*.md"]),
+            SourceConfig(namespace="test-alt", path=str(alt_dir), include=["*.md"]),
+            SourceConfig(namespace="test", path=str(test_dir), include=["*.md"]),
         ]
         result = read_sources(sources)
-        assert len(result["work"]) == 1
-        assert len(result["personal"]) == 1
-        assert result["work"][0]["content"] == "report"
-        assert result["personal"][0]["content"] == "diary"
+        assert len(result["test-alt"]) == 1
+        assert len(result["test"]) == 1
+        assert result["test-alt"][0]["content"] == "report"
+        assert result["test"][0]["content"] == "diary"
 
     def test_read_sources_respects_recursive(self, tmp_path: Path) -> None:
         """Given: nested folder with recursive=False.

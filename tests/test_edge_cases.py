@@ -129,38 +129,38 @@ class TestUnicodeQueryParser:
 
     def test_cyrillic_prefix_query(self):
         """Query with Cyrillic after prefix must parse correctly."""
-        prefix_map = {"p": "personal", "w": "work"}
-        clean, ns = parse_rag_query("[p] Привет мир", prefix_map)
-        assert ns == "personal"
+        prefix_map = {"t": "test", "a": "test-alt"}
+        clean, ns = parse_rag_query("[t] Привет мир", prefix_map)
+        assert ns == "test"
         assert clean == "Привет мир"
 
     def test_quoted_text_with_brackets(self):
         """Quoted text containing brackets must not confuse parser."""
-        prefix_map = {"p": "personal"}
+        prefix_map = {"t": "test"}
         clean, ns = parse_rag_query(
-            '[p] "quoted text with [brackets] inside"', prefix_map
+            '[t] "quoted text with [brackets] inside"', prefix_map
         )
-        assert ns == "personal"
+        assert ns == "test"
         assert clean == '"quoted text with [brackets] inside"'
 
     def test_code_snippet_in_query(self):
         """Code with operators must not break prefix parsing."""
-        prefix_map = {"p": "personal", "c": "code"}
-        clean, ns = parse_rag_query("[c] x = y + z", prefix_map)
-        assert ns == "code"
+        prefix_map = {"t": "test", "d": "default"}
+        clean, ns = parse_rag_query("[d] x = y + z", prefix_map)
+        assert ns == "default"
         assert clean == "x = y + z"
 
     def test_emoji_in_query(self):
         """Emoji in query text must be preserved after prefix strip."""
-        prefix_map = {"p": "personal"}
-        clean, ns = parse_rag_query("[p] Hello 👋 World 🌍", prefix_map)
-        assert ns == "personal"
+        prefix_map = {"t": "test"}
+        clean, ns = parse_rag_query("[t] Hello 👋 World 🌍", prefix_map)
+        assert ns == "test"
         assert "👋" in clean
         assert "🌍" in clean
 
     def test_no_prefix_unicode_passthrough(self):
         """Unicode without prefix must return (text, None)."""
-        prefix_map = {"p": "personal"}
+        prefix_map = {"t": "test"}
         text = "Привет мир без префикса"
         clean, ns = parse_rag_query(text, prefix_map)
         assert ns is None

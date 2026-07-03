@@ -541,11 +541,11 @@ class TestE2ERAG:
         Then: returns list including those namespaces."""
         mock_state.config.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(
-            return_value=["personal", "work"]
+            return_value=["test", "default"]
         )
         resp = client.get("/api/v1/rag/namespaces")
         assert resp.status_code == 200
-        assert "personal" in resp.json()["namespaces"]
+        assert "test" in resp.json()["namespaces"]
 
     def test_save_chat(self, client, mock_state, tmp_path, monkeypatch):
         """Given: chat content to persist.
@@ -564,14 +564,14 @@ class TestE2ERAG:
             json={
                 "filename": "chat_test.md",
                 "content": "## User\nHello\n\n---\n\n## Assistant\nHi!",
-                "namespace": "personal",
+                "namespace": "test",
             },
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["saved"] is True
-        assert data["namespace"] == "personal"
-        assert (tmp_path / "personal" / "chat_test.md").exists()
+        assert data["namespace"] == "test"
+        assert (tmp_path / "test" / "chat_test.md").exists()
 
     def test_reindex_validation(self, client):
         """Given: reindex payload has wrong types.
@@ -601,21 +601,21 @@ class TestE2ERAG:
                 }
             )
             mock_state.config.namespaces = {
-                "work": NamespaceConfig(
+                "test-alt": NamespaceConfig(
                     threshold=0.3, chunk_size=1024, prompt="rag_creative"
                 ),
             }
 
             resp = client.post(
                 "/api/v1/rag/query",
-                json={"query": "test", "namespace": "work"},
+                json={"query": "test", "namespace": "test-alt"},
             )
             assert resp.status_code == 200
             instance.query.assert_awaited_once()
             kwargs = instance.query.call_args.kwargs
             assert kwargs["relevance_threshold"] == 0.3
             assert kwargs["prompt_name"] == "rag_creative"
-            assert kwargs["namespace"] == "work"
+            assert kwargs["namespace"] == "test-alt"
 
     def test_rag_query_llm_unavailable_returns_503(self, client, mock_state):
         """Given: RAG pipeline returns LLM_UNAVAILABLE error.
