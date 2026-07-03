@@ -13,7 +13,7 @@ class ChunkMetadata:
     total_chunks: int
     custom: dict[str, Any] = field(default_factory=dict)
     original_path: str | None = None
-    source_uri: str | None = None  # Relative path from root (documents_root / chat_exports_root), e.g. "personal/notes.md"
+    source_uri: str | None = None  # Relative path from source root or chat_exports_root, e.g. "personal/notes.md"
 
 
 @dataclass(frozen=True, slots=True)

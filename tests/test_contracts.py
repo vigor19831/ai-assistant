@@ -833,7 +833,7 @@ def test_pipelinedata_has_no_metadata_bag() -> None:
     assert "metadata" not in fields, (
         "PipelineData.metadata bag was re-introduced. "
         "Use explicit fields: embedder, vector_store, reranker, llm, "
-        "pipeline_config, query_embedding, tokenizer_model, "
+        "pipeline_config, query_embedding, "
         "rerank_filtered_out, rerank_scores"
     )
 
