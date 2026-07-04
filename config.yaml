@@ -1,0 +1,137 @@
+# AI Assistant — Personal Configuration
+# Your local settings. Do NOT commit this file.
+
+app_name: ai-assistant
+debug: false
+host: 0.0.0.0
+port: 8000
+config_version: "1"
+
+cors:
+  allow_origins:
+    - "http://localhost"
+    - "http://127.0.0.1"
+  allow_credentials: true
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+
+chat:
+  history_limit: 10
+  max_context_tokens: 4096
+
+chunker:
+  provider: simple
+  chunk_size: 512
+  chunk_overlap: 50
+
+tokenizer:
+  provider: tiktoken
+  local_dir: ./data/tokenizers
+
+embedder:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:8081/v1
+  api_key: null
+  model: embeddinggemma-300m-q8_0
+  dim: 768
+  timeout: 60.0
+  connect_timeout: 5.0
+  n_gpu_layers: 0
+  n_batch: 512
+  n_ubatch: 64
+  mmap: true
+  mlock: false
+
+llm:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:8080/v1
+  api_key: null
+  model: gemma-4-e2b-it
+  available_models:
+    - gemma-4-e2b-it
+  max_tokens: 4096
+  temperature: 0.7
+  top_p: 0.95
+  top_k: 40
+  min_p: 0.05
+  repeat_penalty: 1.1
+  presence_penalty: 0.0
+  frequency_penalty: 0.0
+  stop_sequences: []
+  timeout: 300.0
+  connect_timeout: 5.0
+  server_context_size: 4096
+  n_gpu_layers: 33
+  n_batch: 512
+  n_ubatch: 64
+  mmap: true
+  mlock: false
+
+vector_store:
+  provider: faiss
+  index_path: ./data/indices  # directory; subdirectories created per namespace
+  metric: l2
+  dim: 768
+  max_chunks: 100000
+  max_document_size: 10485760
+
+storage:
+  provider: sqlite
+  db_path: ./data/storage.db
+
+reranker:
+  provider: null
+  model: rerank-multilingual-v3.0
+  api_base: https://api.cohere.com
+  api_key: null
+  timeout: 30.0
+  threshold: 0.3
+
+rag:
+  steps:
+    - embed_query
+    - retrieve
+    - rerank
+    - build_context
+    - generate
+  prompt_version: v1
+  prompt_name: rag_strict
+  top_k: 5
+  default_namespace: "default"
+  relevance_threshold: 0.1
+  token_margin_min: 256
+  token_margin_pct: 0.1
+  sources: []
+  # Example:
+  # - namespace: docs
+  #   path: ./documents
+  #   include: ["*.md", "*.txt"]
+  #   recursive: true
+  chat_exports_root: data/chat_exports
+  index_chat_exports: false
+
+namespaces:
+  default:
+    prefix: d
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
+
+security:
+  api_key: null
+  admin_enabled: false
+  max_body_size: 10485760
+  allowed_hosts:
+    - "localhost"
+    - "127.0.0.1"
+  openai_routes_require_auth: true
+
+logging:
+  level: "INFO"
+  file: "./data/app.log"
+  format: "text"
+  max_bytes: 10485760
+  backup_count: 2
+
+ui:
+  static_path: "./ui"
