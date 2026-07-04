@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
 from typing import Any
 
@@ -27,7 +28,6 @@ from ai_assistant.features.rag import handlers as rag_handlers
 __all__ = ["assemble_routers"]
 
 # Tags for routers that stay at root (no /api/v1 prefix).
-# Admin has its own auth and admin_enabled gate.
 _ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics", "admin"})
 
 # Metrics router — no API key, Prometheus-compatible exposition format
@@ -40,7 +40,7 @@ def _load_version() -> str:
     """Read version from installed package metadata (stdlib, works in wheel)."""
     try:
         return _get_version("ai-assistant")
-    except Exception:
+    except PackageNotFoundError:
         return "unknown"
 
 
@@ -72,7 +72,8 @@ async def _metrics_json_endpoint() -> dict[str, Any]:
 
 
 # Explicit router registry — missing handlers fail immediately at import time.
-# Add new routers here when adding feature handlers.
+# WARNING: When adding a root router (no /api/v1 prefix), add its tag to
+# _ROOT_TAGS above or it will be prefixed with /api/v1 automatically.
 _ROUTERS: list[APIRouter] = [
     _metrics_router,
     admin.router,
@@ -92,7 +93,7 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
     routers = list(_ROUTERS)
 
     # Determine which root-tagged routers require protection
-    protected_root_tags: set[str] = set()
+    protected_root_tags: set[str] = {"admin"}
     if security is not None and security.openai_routes_require_auth:
         protected_root_tags.add("chat-oai")
     # Metrics always stays unprotected
@@ -120,18 +121,24 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
             wrapped.append(router)
         elif not is_root:
             # Legacy routers get /api/v1 prefix + API key + body size check
-            wrapper = APIRouter(dependencies=[
-                Depends(require_api_key),
-                Depends(_size_check),
-            ])
+            wrapper = APIRouter(
+                tags=list(router.tags),
+                dependencies=[
+                    Depends(require_api_key),
+                    Depends(_size_check),
+                ],
+            )
             wrapper.include_router(router, prefix="/api/v1")
             wrapped.append(wrapper)
         elif is_protected_root:
             # Root router that needs auth: wrap with dependency, no prefix
-            wrapper = APIRouter(dependencies=[
-                Depends(require_api_key),
-                Depends(_size_check),
-            ])
+            wrapper = APIRouter(
+                tags=list(router.tags),
+                dependencies=[
+                    Depends(require_api_key),
+                    Depends(_size_check),
+                ],
+            )
             wrapper.include_router(router)
             wrapped.append(wrapper)
         else:
