@@ -784,25 +784,30 @@ class TestSourceConfigMigration:
         assert cfg.rag.sources[0].recursive is True
         assert "*.md" in cfg.rag.sources[0].include
 
-    def test_sources_takes_precedence_over_documents_root(self) -> None:
+    def test_sources_merges_documents_root_instead_of_dropping(self) -> None:
         """Given: config with both sources and documents_root.
         When: AppConfig is loaded.
-        Then: sources is used as-is, documents_root ignored."""
+        Then: documents_root is prepended to sources — no silent data loss."""
         from ai_assistant.core.config import SourceConfig
 
         data = {
             "rag": {
                 "documents_root": "old_docs",
                 "sources": [
-                    {"namespace": "test", "path": "D:/Test", "include": ["*.md"]}
+                    {"namespace": "test", "path": "./Test", "include": ["*.md"]}
                 ],
             },
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
         cfg = AppConfig(**data)
-        assert len(cfg.rag.sources) == 1
-        assert cfg.rag.sources[0].namespace == "test"
+        assert len(cfg.rag.sources) == 2
+        # documents_root migrated source comes first
+        assert cfg.rag.sources[0].namespace == "default"
+        assert cfg.rag.sources[0].path == "old_docs"
+        # existing source preserved
+        assert cfg.rag.sources[1].namespace == "test"
+        assert cfg.rag.sources[1].path == "./Test"
 
     def test_source_config_defaults(self) -> None:
         """Given: minimal SourceConfig with only namespace and path.
@@ -810,9 +815,45 @@ class TestSourceConfigMigration:
         Then: defaults are applied correctly."""
         from ai_assistant.core.config import SourceConfig
 
-        sc = SourceConfig(namespace="test", path="/some/path")
+        sc = SourceConfig(namespace="test", path="./some/path")
         assert sc.include == ["*.md", "*.txt"]
         assert sc.recursive is True
+
+    def test_source_path_traversal_rejected(self) -> None:
+        """Given: source path contains path traversal.
+        When: SourceConfig is loaded.
+        Then: ValidationError is raised."""
+        from ai_assistant.core.config import SourceConfig
+
+        with pytest.raises(ValueError, match="traversal"):
+            SourceConfig(namespace="test", path="../../etc/passwd")
+
+    def test_source_path_absolute_rejected(self) -> None:
+        """Given: absolute source path.
+        When: SourceConfig is loaded.
+        Then: ValidationError is raised."""
+        from ai_assistant.core.config import SourceConfig
+
+        with pytest.raises(ValueError, match="relative"):
+            SourceConfig(namespace="test", path="/etc/passwd")
+
+    def test_source_path_valid_relative_accepted(self) -> None:
+        """Given: valid relative path without traversal.
+        When: SourceConfig is loaded.
+        Then: accepted."""
+        from ai_assistant.core.config import SourceConfig
+
+        sc = SourceConfig(namespace="test", path="./documents")
+        assert sc.path == "./documents"
+
+    def test_source_path_empty_rejected(self) -> None:
+        """Given: empty source path.
+        When: SourceConfig is loaded.
+        Then: ValidationError is raised."""
+        from ai_assistant.core.config import SourceConfig
+
+        with pytest.raises(ValueError, match="non-empty"):
+            SourceConfig(namespace="test", path="")
 
     def test_migrate_documents_root_stripped_from_output(self) -> None:
         """Given: config with documents_root.

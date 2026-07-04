@@ -306,6 +306,14 @@ async def save_chat(
     folder_resolved = await asyncio.to_thread(folder.resolve)
     exports_root_resolved = await asyncio.to_thread(exports_root.resolve)
 
+    # Defense in depth: also block traversal in resolved namespace path
+    if ".." in folder.as_posix().split("/"):
+        _logger.warning(
+            "Path traversal detected in save-chat namespace",
+            extra={"trace_id": trace_id, "namespace": namespace},
+        )
+        raise HTTPException(status_code=400, detail="Invalid namespace")
+
     if not folder_resolved.is_relative_to(exports_root_resolved):
         _logger.warning(
             "Invalid namespace path in save-chat",

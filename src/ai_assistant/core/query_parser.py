@@ -42,6 +42,6 @@ def build_prefix_map(namespaces: Mapping[str, object]) -> dict[str, str]:
     result: dict[str, str] = {}
     for ns_name, cfg in namespaces.items():
         prefix = getattr(cfg, "prefix", None)
-        if prefix:
+        if prefix and len(prefix) >= 1:
             result[prefix] = ns_name
     return result
