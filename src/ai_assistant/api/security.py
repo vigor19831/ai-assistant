@@ -67,6 +67,10 @@ async def check_request_size(
         request: Incoming HTTP request.
         max_sz: Maximum allowed body size in bytes. Defaults to
             SECURITY_MAX_BODY when called without an explicit limit.
+
+    NOTE: Chunked encoding (Transfer-Encoding: chunked) bypasses this
+    check because Content-Length is absent. Full protection requires
+    upstream body size limiting (e.g., nginx client_max_body_size).
     """
     cl = request.headers.get("content-length")
     if cl:
@@ -86,9 +90,7 @@ async def require_api_key(
     credentials: HTTPAuthorizationCredentials = _bearer_dependency,
 ) -> None:
     expected = get_expected_api_key()
-    if not expected:
-        raise HTTPException(status_code=401, detail="API key not configured")
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="Missing API key")
+    if not expected or credentials is None:
+        raise HTTPException(status_code=401, detail="Unauthorized")
     if not hmac.compare_digest(credentials.credentials, expected):
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        raise HTTPException(status_code=401, detail="Unauthorized")

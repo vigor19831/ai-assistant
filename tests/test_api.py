@@ -196,47 +196,47 @@ class TestAPISecurity:
     async def test_require_api_key_not_configured(self):
         """Given: no API key is configured.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised.
+        Then: HTTPException 401 is raised with generic message.
         """
         set_api_key(None)
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="anything")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(creds)
         assert exc_info.value.status_code == 401
-        assert "not configured" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     async def test_require_api_key_invalid(self):
         """Given: a bearer token that does not match the expected key.
         When: require_api_key is called with it.
-        Then: HTTPException 401 is raised.
+        Then: HTTPException 401 is raised with generic message.
         """
         set_api_key("secret")
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(creds)
         assert exc_info.value.status_code == 401
-        assert "invalid" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     async def test_require_api_key_missing_credentials(self):
         """Given: credentials object is None.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised.
+        Then: HTTPException 401 is raised with generic message.
         """
         set_api_key("secret")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(None)
         assert exc_info.value.status_code == 401
-        assert "missing" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     async def test_require_api_key_malformed_header(self):
         """Given: credentials object is not HTTPAuthorizationCredentials.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised (None triggers missing key path)."""
+        Then: HTTPException 401 is raised with generic message."""
         set_api_key("secret")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(None)
         assert exc_info.value.status_code == 401
-        assert "missing" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     # ── check_request_size ──
 
@@ -1819,6 +1819,45 @@ class TestAPIMiddleware:
         assert hist_call is not None
         assert hist_call.kwargs["labels"]["path"] == "/reindex/status/{task_id}"
 
+    def test_metrics_middleware_allowed_hosts_blocks_unknown(self):
+        """Given: MetricsMiddleware with allowed_hosts set.
+        When: request comes from disallowed host.
+        Then: 400 Bad Request is returned before reaching routes.
+        """
+        app = FastAPI()
+        app.add_middleware(
+            MetricsMiddleware,
+            allowed_hosts=["localhost", "127.0.0.1"],
+        )
+
+        @app.get("/test")
+        async def _handler() -> dict[str, str]:
+            return {"ok": "true"}
+
+        client = TestClient(app, base_url="http://evil.com")
+        resp = client.get("/test", headers={"host": "evil.com"})
+        assert resp.status_code == 400
+        assert resp.text == "Invalid host header"
+
+    def test_metrics_middleware_allowed_hosts_allows_known(self):
+        """Given: MetricsMiddleware with allowed_hosts set.
+        When: request comes from allowed host.
+        Then: route handler executes normally.
+        """
+        app = FastAPI()
+        app.add_middleware(
+            MetricsMiddleware,
+            allowed_hosts=["localhost", "127.0.0.1"],
+        )
+
+        @app.get("/test")
+        async def _handler() -> dict[str, str]:
+            return {"ok": "true"}
+
+        client = TestClient(app, base_url="http://localhost")
+        resp = client.get("/test", headers={"host": "localhost"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": "true"}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAPIAdmin

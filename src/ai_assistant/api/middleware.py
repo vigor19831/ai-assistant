@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import Response  # noqa: TC002  # BaseHTTPMiddleware dispatch uses runtime
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -19,11 +20,27 @@ __all__ = ["MetricsMiddleware"]
 class MetricsMiddleware(BaseHTTPMiddleware):
     """Count requests and record latency per path."""
 
+    def __init__(
+        self,
+        app: Callable[..., Any],
+        allowed_hosts: list[str] | None = None,
+    ) -> None:
+        super().__init__(app)
+        self.allowed_hosts = allowed_hosts or []
+
     async def dispatch(
         self,
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        if self.allowed_hosts:
+            host = request.headers.get("host", "").split(":")[0]
+            if host not in self.allowed_hosts:
+                return Response(
+                    content="Invalid host header",
+                    status_code=400,
+                )
+
         method = request.method
         path = request.url.path
         start = time.perf_counter()

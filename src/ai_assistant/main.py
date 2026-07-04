@@ -57,11 +57,16 @@ def create_app(
         allow_methods=list(cors_cfg.allow_methods),
         allow_headers=list(cors_cfg.allow_headers),
     )
-    app.add_middleware(MetricsMiddleware)
 
     security: SecurityConfig | None = None
     if state is not None:
         security = state.config.security
+
+    app.add_middleware(
+        MetricsMiddleware,
+        allowed_hosts=security.allowed_hosts if security is not None else [],
+    )
+
     for router in assemble_routers(security=security):
         app.include_router(router)
 
