@@ -38,8 +38,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     from ai_assistant.api.static import mount_static
 
-    mount_static(app, config)
-
     log_cfg = config.logging
     log_level = log_cfg.level if log_cfg else ("DEBUG" if config.debug else "INFO")
     log_file = log_cfg.file if log_cfg else None
@@ -53,6 +51,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_bytes=max_bytes,
         backup_count=backup_count,
     )
+
+    mount_static(app, config)
 
     if config.security.api_key and get_expected_api_key() is None:
         set_api_key(config.security.api_key)
@@ -116,8 +116,6 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         logger.warning("No app state found during shutdown")
         return
 
-    degraded = False
-
     # 1. Persist indices FIRST.
     #
     # WHY: Background tasks may hang (reindex timeout is 4h). If we wait for
@@ -142,25 +140,17 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
                     "Index save timed out",
                     extra={"path": index_path, "namespace": ns},
                 )
-                degraded = True
             except Exception:
                 logger.exception(
                     "Index save failed after retries",
                     extra={"path": index_path, "namespace": ns},
                 )
-                degraded = True
         logger.info(
             "Indices persisted",
             extra={"saved": saved, "total": len(namespaces)},
         )
-        if degraded:
-            logger.critical(
-                "Shutdown degraded: one or more indices failed to persist"
-            )
-            app.state.shutdown_degraded = True
     except Exception:
         logger.exception("Index save failed")
-        app.state.shutdown_degraded = True
 
     # 2. Wait for background tasks before adapter shutdown
     try:

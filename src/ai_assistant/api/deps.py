@@ -49,6 +49,7 @@ _logger = get_logger("deps")
 
 _MAX_STATUS_ENTRIES: int = 1000
 _RUNNING_TTL_SECONDS: float = 28800.0  # 8h — reindex timeout is 4h
+_COMPLETED_TTL_SECONDS: float = 604800.0  # 7d — completed/failed retention
 
 @dataclass
 class RAGState:
@@ -63,22 +64,32 @@ class RAGState:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def _cleanup_old_status(self) -> None:
-        """Evict oldest completed/failed entries when limit exceeded.
+        """Evict stale entries by age and count.
 
-        Also evict 'running' entries older than _RUNNING_TTL_SECONDS
-        to prevent unbounded growth from orphaned tasks.
+        Evicts:
+        - 'running' entries older than _RUNNING_TTL_SECONDS (orphaned tasks).
+        - 'completed'/'failed' entries older than _COMPLETED_TTL_SECONDS.
+        - Oldest completed/failed entries if total exceeds _MAX_STATUS_ENTRIES.
         """
         async with self._lock:
             now = time.time()
-            stale_cutoff = now - _RUNNING_TTL_SECONDS
+            stale_running_cutoff = now - _RUNNING_TTL_SECONDS
+            stale_completed_cutoff = now - _COMPLETED_TTL_SECONDS
 
-            # Always evict stale running entries regardless of total size
-            stale_running = [
-                tid
-                for tid, entry in self._status.items()
-                if entry.status == "running" and entry.started_at < stale_cutoff
-            ]
-            for tid in stale_running:
+            stale_ids: list[str] = []
+
+            for tid, entry in self._status.items():
+                if (
+                    entry.status == "running"
+                    and entry.started_at < stale_running_cutoff
+                ) or (
+                    entry.status in ("completed", "failed")
+                    and entry.finished_at is not None
+                    and entry.finished_at < stale_completed_cutoff
+                ):
+                    stale_ids.append(tid)
+
+            for tid in stale_ids:
                 del self._status[tid]
 
             if len(self._status) <= _MAX_STATUS_ENTRIES:
@@ -90,12 +101,13 @@ class RAGState:
                 if entry.status in ("completed", "failed")
             ]
             completed.sort(key=lambda x: x[1].finished_at or 0.0)
-            to_evict = len(self._status) - _MAX_STATUS_ENTRIES
-            for tid, _ in completed[:to_evict]:
+            excess = len(self._status) - _MAX_STATUS_ENTRIES
+            for tid, _ in completed[:excess]:
                 del self._status[tid]
 
     async def start_task(self, task_id: str) -> None:
         """Atomically register a running task."""
+        await self._cleanup_old_status()
         async with self._lock:
             self._status[task_id] = ReindexStatusEntry(
                 status="running",
@@ -128,6 +140,7 @@ class RAGState:
 
     async def get_status(self, task_id: str) -> dict[str, object] | None:
         """Return status as a JSON-compatible dict for the given task, or None."""
+        await self._cleanup_old_status()
         async with self._lock:
             info = self._status.get(task_id)
             if info is None:
@@ -309,15 +322,29 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
             "Storage adapter not available",
             extra={"provider": cfg.storage.provider},
         )
+        # Cleanup adapters already created — who creates, who closes
+        for adapter, name in (
+            (state.llm, "llm"),
+            (state.embedder, "embedder"),
+            (state.vector_store, "vector_store"),
+            (state.chunker, "chunker"),
+            (state.reranker, "reranker"),
+        ):
+            if adapter is not None:
+                try:
+                    await adapter.shutdown()
+                except Exception:
+                    _logger.exception(
+                        "Adapter shutdown failed during cleanup",
+                        extra={"adapter": name},
+                    )
+        raise RuntimeError("Storage adapter failed to initialize") from None
 
-    if state.storage is not None:
-        await state.storage.init_db()
+    await state.storage.init_db()
 
     state.task_registry = TaskRegistry()
     state.rag_state = RAGState()
 
-    if state.storage is None:
-        raise RuntimeError("Storage adapter failed to initialize")
     return InitializedAppState(
         config=cfg,
         task_registry=state.task_registry,

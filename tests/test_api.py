@@ -627,18 +627,28 @@ class TestAPIDeps:
     async def test_init_adapters_storage_raises_runtime_error(self):
         """Given: storage adapter raises ValueError.
         When: init_adapters is called.
-        Then: RuntimeError is raised after the catch block.
+        Then: RuntimeError is raised and prior adapters are shut down.
         """
         minimal_config = _make_minimal_config()
         mock_vector_store = MagicMock(spec=IVectorStore)
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
+        mock_vector_store.shutdown = AsyncMock()
+
+        mock_llm = MagicMock(spec=ILLM)
+        mock_llm.shutdown = AsyncMock()
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_embedder.shutdown = AsyncMock()
 
         def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ValueError("No storage adapter registered")
+            if port == "llm" and name == "mock":
+                return mock_llm
+            if port == "embedder" and name == "mock":
+                return mock_embedder
             port_specs = {
                 "llm": ILLM,
                 "embedder": IEmbedder,
@@ -654,6 +664,10 @@ class TestAPIDeps:
         ):
             with pytest.raises(RuntimeError, match="Storage adapter failed"):
                 await init_adapters(minimal_config)
+
+        mock_llm.shutdown.assert_awaited_once()
+        mock_embedder.shutdown.assert_awaited_once()
+        mock_vector_store.shutdown.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_init_adapters_storage_import_error(self):
@@ -858,25 +872,6 @@ class TestAPIDeps:
 
 
     # ── Step registry ──
-
-
-    def test_no_cyclic_imports_between_api_modules(self):
-        """Given: api submodules are imported.
-        When: checking import graph.
-        Then: no circular dependencies exist between security, deps, router, lifespan, admin.
-        """
-        # Re-importing after previous tests should not raise ImportError
-        import ai_assistant.api.admin as _admin
-        import ai_assistant.api.deps as _deps
-        import ai_assistant.api.lifespan as _lifespan
-        import ai_assistant.api.router as _router
-        import ai_assistant.api.security as _security
-
-        assert _admin is not None
-        assert _deps is not None
-        assert _lifespan is not None
-        assert _router is not None
-        assert _security is not None
 
 
     def test_no_cyclic_imports_between_api_modules(self):
@@ -1624,10 +1619,10 @@ class TestAPILifespan:
         assert shutdown_completed["embedder"] is True
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save_exception_sets_degraded(self):
+    async def test_async_cleanup_index_save_exception_logged(self):
         """Given: vector_store.save raises Exception.
         When: _async_cleanup runs.
-        Then: app.state.shutdown_degraded is set to True.
+        Then: exception is logged and cleanup continues.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
@@ -1645,9 +1640,8 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
+        # Should not raise — exception is caught and logged
         await _async_cleanup(app, minimal_config)
-
-        assert getattr(app.state, "shutdown_degraded", False) is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════

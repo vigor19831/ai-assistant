@@ -466,7 +466,6 @@ async def reindex_documents(
             async with asyncio.timeout(14400.0):  # 4 hours
                 async with rag_state.semaphore:
                     await rag_state.start_task(task_id)
-                    await rag_state._cleanup_old_status()
                     # If clearing, also clear associated chat namespaces
                     if clear and folder is not None:
                         chat_ns = _get_chat_namespace(folder)
