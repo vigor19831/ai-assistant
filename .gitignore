@@ -85,8 +85,8 @@ data/
 *.db-wal
 *.store.json
 
-# Local config overrides (secrets, paths)
-config.local.yaml
+# Local config — personal settings, secrets, paths. NOT in repo.
+config.yaml
 
 # Logs
 *.log
