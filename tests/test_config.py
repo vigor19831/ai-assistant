@@ -290,81 +290,48 @@ class TestYamlLoading:
     When: load_config is called.
     Then: correct behavior for missing, empty, and valid files."""
 
-    def test_load_config_deep_merge_local_overrides(self, tmp_path: Path):
-        """Given: config.yaml and config.local.yaml exist.
+    def test_load_config_reads_single_file(self, tmp_path: Path):
+        """Given: config.yaml exists with overrides.
         When: load_config is called.
-        Then: local overrides shared config via deep merge."""
-        shared = tmp_path / "config.yaml"
-        shared.write_text(
+        Then: config is loaded from that file only."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
             yaml.safe_dump({
-                "llm": {"provider": "mock", "api_key": None, "model": "gpt-4o"},
+                "llm": {"provider": "mock", "api_key": None, "model": "custom-model"},
                 "embedder": {"dim": 384, "provider": "mock"},
                 "vector_store": {"dim": 384, "provider": "memory"},
             }),
             encoding="utf-8",
         )
-        local = tmp_path / "config.local.yaml"
-        local.write_text(
-            yaml.safe_dump({
-                "llm": {"api_key": "secret-key", "model": "custom-model"},
-            }),
-            encoding="utf-8",
-        )
-        cfg = load_config(str(shared))
-        assert cfg.llm.provider == "mock"          # inherited
-        assert cfg.llm.model == "custom-model"     # overridden
-        assert cfg.llm.api_key == "secret-key"     # overridden
-        assert cfg.embedder.dim == 384             # inherited
-
-    def test_load_config_deep_merge_list_override(self, tmp_path: Path):
-        """Given: config.local.yaml overrides a list field.
-        When: load_config is called.
-        Then: list is replaced entirely, not merged element-wise."""
-        shared = tmp_path / "config.yaml"
-        shared.write_text(
-            yaml.safe_dump({
-                "rag": {
-                    "sources": [
-                        {"namespace": "default", "path": "sources", "include": ["*.md"]}
-                    ]
-                },
-                "embedder": {"dim": 384, "provider": "mock"},
-                "vector_store": {"dim": 384, "provider": "memory"},
-            }),
-            encoding="utf-8",
-        )
-        local = tmp_path / "config.local.yaml"
-        local.write_text(
-            yaml.safe_dump({
-                "rag": {
-                    "sources": [
-                        {"namespace": "test", "path": "/home/user/test", "include": ["*.txt"]}
-                    ]
-                },
-            }),
-            encoding="utf-8",
-        )
-        cfg = load_config(str(shared))
-        assert len(cfg.rag.sources) == 1
-        assert cfg.rag.sources[0].namespace == "test"   # replaced
-        assert cfg.rag.sources[0].path == "/home/user/test"
-
-    def test_load_config_local_missing_uses_shared_only(self, tmp_path: Path):
-        """Given: only config.yaml exists, no config.local.yaml.
-        When: load_config is called.
-        Then: shared config is used as-is."""
-        shared = tmp_path / "config.yaml"
-        shared.write_text(
-            yaml.safe_dump({
-                "llm": {"provider": "mock", "api_key": None},
-                "embedder": {"dim": 384, "provider": "mock"},
-                "vector_store": {"dim": 384, "provider": "memory"},
-            }),
-            encoding="utf-8",
-        )
-        cfg = load_config(str(shared))
+        cfg = load_config(str(config_file))
         assert cfg.llm.provider == "mock"
+        assert cfg.llm.model == "custom-model"
         assert cfg.llm.api_key is None
+        assert cfg.embedder.dim == 384
+
+    def test_load_config_ignores_local_yaml(self, tmp_path: Path):
+        """Given: config.local.yaml exists alongside config.yaml.
+        When: load_config is called.
+        Then: config.local.yaml is ignored (no deep merge)."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump({
+                "llm": {"provider": "mock", "model": "from-main"},
+                "embedder": {"dim": 384, "provider": "mock"},
+                "vector_store": {"dim": 384, "provider": "memory"},
+            }),
+            encoding="utf-8",
+        )
+        local = tmp_path / "config.local.yaml"
+        local.write_text(
+            yaml.safe_dump({
+                "llm": {"model": "from-local"},
+            }),
+            encoding="utf-8",
+        )
+        cfg = load_config(str(config_file))
+        # config.local.yaml is NOT merged; only config.yaml values used
+        assert cfg.llm.model == "from-main"
 
     def test_yaml_safe_load_with_none(self, tmp_path: Path):
         """Given: YAML file contains literal 'null' or is empty.
@@ -410,14 +377,13 @@ class TestYamlLoading:
         assert cfg.port == 9000
         assert cfg.debug is True
 
-    def test_load_config_missing_file_returns_defaults(self, tmp_path: Path):
+    def test_load_config_missing_file_raises(self, tmp_path: Path):
         """Given: config file does not exist.
         When: load_config is called.
-        Then: returns AppConfig with all defaults."""
+        Then: FileNotFoundError is raised with helpful message."""
         missing = tmp_path / "nonexistent.yaml"
-        cfg = load_config(missing)
-        assert isinstance(cfg, AppConfig)
-        assert cfg.host == "0.0.0.0"
+        with pytest.raises(FileNotFoundError, match="Config file not found"):
+            load_config(missing)
 
     def test_yaml_loads_logging_rotation_config(self, tmp_path: Path):
         """Given: YAML file contains logging rotation settings.
