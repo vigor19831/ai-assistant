@@ -463,38 +463,40 @@ async def reindex_documents(
 
     async def _run() -> dict[str, Any]:
         try:
-            async with asyncio.timeout(14400.0):  # 4 hours
-                async with rag_state.semaphore:
-                    await rag_state.start_task(task_id)
-                    # If clearing, also clear associated chat namespaces
-                    if clear and folder is not None:
-                        chat_ns = _get_chat_namespace(folder)
-                        try:
-                            all_chat_chunks = await state.vector_store.list_by_filter(
-                                {}, namespace=chat_ns
+            async with rag_state.semaphore:
+                await rag_state.start_task(task_id)
+                # If clearing, also clear associated chat namespaces
+                if clear:
+                    chat_ns = _get_chat_namespace(
+                        folder or state.config.rag.default_namespace
+                    )
+                    try:
+                        all_chat_chunks = await state.vector_store.list_by_filter(
+                            {}, namespace=chat_ns
+                        )
+                        if all_chat_chunks:
+                            await state.vector_store.delete(
+                                [cid for cid, _ in all_chat_chunks], namespace=chat_ns
                             )
-                            if all_chat_chunks:
-                                await state.vector_store.delete(
-                                    [cid for cid, _ in all_chat_chunks], namespace=chat_ns
-                                )
-                                _logger.info(
-                                    "Cleared chat namespace during reindex",
-                                    extra={
-                                        "trace_id": trace_id,
-                                        "namespace": folder,
-                                        "chat_namespace": chat_ns,
-                                    },
-                                )
-                        except Exception:
-                            _logger.warning(
-                                "Failed to clear chat namespace during reindex",
+                            _logger.info(
+                                "Cleared chat namespace during reindex",
                                 extra={
                                     "trace_id": trace_id,
                                     "namespace": folder,
                                     "chat_namespace": chat_ns,
                                 },
                             )
+                    except Exception:
+                        _logger.warning(
+                            "Failed to clear chat namespace during reindex",
+                            extra={
+                                "trace_id": trace_id,
+                                "namespace": folder,
+                                "chat_namespace": chat_ns,
+                            },
+                        )
 
+                async with asyncio.timeout(14400.0):  # 4 hours
                     result = await index_folder(
                         folder=folder,
                         clear=clear,
@@ -504,12 +506,12 @@ async def reindex_documents(
                         max_file_size=state.config.vector_store.max_document_size,
                         sources=state.config.rag.sources,
                     )
-                    await rag_state.complete_task(task_id, result)
-                    _logger.info(
-                        "Reindex completed",
-                        extra={"trace_id": trace_id, "task_id": task_id},
-                    )
-                    return result
+                await rag_state.complete_task(task_id, result)
+                _logger.info(
+                    "Reindex completed",
+                    extra={"trace_id": trace_id, "task_id": task_id},
+                )
+                return result
         except TimeoutError:
             _logger.error(
                 "Reindex timed out after 4 hours",

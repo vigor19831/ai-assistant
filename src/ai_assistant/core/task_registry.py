@@ -105,3 +105,15 @@ class TaskRegistry:
             for t in tasks:
                 if not t.done():
                     t.cancel()
+            # Allow cancelled tasks one event loop iteration to handle
+            # CancelledError and run their finally blocks.
+            pending = [t for t in tasks if not t.done()]
+            if pending:
+                try:
+                    async with asyncio.timeout(5.0):
+                        await asyncio.gather(*pending, return_exceptions=True)
+                except TimeoutError:
+                    _logger.warning(
+                        "Cancelled tasks did not finish within 5s",
+                        extra={"pending": len(pending)},
+                    )
