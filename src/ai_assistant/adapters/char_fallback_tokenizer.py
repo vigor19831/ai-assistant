@@ -38,15 +38,9 @@ class CharFallbackTokenizer(ITokenizer):
 
     def __init__(self, config: TokenizerConfigData) -> None:
         self.config = config
-        self._model_name = "char-fallback"
 
-    @property
-    def model_name(self) -> str:
-        """Model identifier this tokenizer was initialized for."""
-        return self._model_name
-
-    def count(self, text: str, model: str) -> int:
-        """Count tokens in text for the given model."""
+    def count(self, text: str) -> int:
+        """Count tokens in text."""
         if not text:
             return 0
         if _cjk_ratio(text) > 0.3:

@@ -60,7 +60,7 @@ class TestITokenizerPort:
         from ai_assistant.core.domain.configs import TokenizerConfigData
 
         tok = TiktokenTokenizer(TokenizerConfigData())
-        assert tok.count("", "gpt-4o") == 0
+        assert tok.count("") == 0
 
     def test_char_fallback_tokenizer_empty(self) -> None:
         """Given: empty text.
@@ -70,7 +70,7 @@ class TestITokenizerPort:
         from ai_assistant.core.domain.configs import TokenizerConfigData
 
         tok = CharFallbackTokenizer(TokenizerConfigData())
-        assert tok.count("", "any") == 0
+        assert tok.count("") == 0
 
     def test_char_fallback_ascii(self) -> None:
         """Given: ASCII text.
@@ -80,7 +80,7 @@ class TestITokenizerPort:
         from ai_assistant.core.domain.configs import TokenizerConfigData
 
         tok = CharFallbackTokenizer(TokenizerConfigData())
-        assert tok.count("hello world", "any") == 11 // 4  # 2
+        assert tok.count("hello world") == 11 // 4  # 2
 
     def test_char_fallback_cjk_high(self) -> None:
         """Given: CJK-heavy text.
@@ -91,7 +91,7 @@ class TestITokenizerPort:
 
         tok = CharFallbackTokenizer(TokenizerConfigData())
         text = "这是一个测试"
-        assert tok.count(text, "any") == len(text)
+        assert tok.count(text) == len(text)
 
     def test_char_fallback_cjk_low(self) -> None:
         """Given: low CJK ratio text.
@@ -102,7 +102,7 @@ class TestITokenizerPort:
 
         tok = CharFallbackTokenizer(TokenizerConfigData())
         text = "this is a test with one char: 这"
-        assert tok.count(text, "any") == len(text) // 4
+        assert tok.count(text) == len(text) // 4
 
     def test_tiktoken_fallback_when_no_libs(self) -> None:
         """Given: no tokenizer libraries available.
@@ -116,7 +116,7 @@ class TestITokenizerPort:
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None):
                 with pytest.raises(AdapterError, match="No tokenizer backend available"):
-                    tok.count("hello world", "gpt-4o")
+                    tok.count("hello world")
 
     def test_tiktoken_with_mock_encoder(self) -> None:
         """Given: mock encoder returning 5 tokens.
@@ -129,8 +129,8 @@ class TestITokenizerPort:
         mock_enc = MagicMock()
         mock_enc.encode.return_value = [1, 2, 3, 4, 5]
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken") as mock_tiktoken:
-            mock_tiktoken.encoding_for_model.return_value = mock_enc
-            assert tok.count("hello", "gpt-4o") == 5
+            mock_tiktoken.get_encoding.return_value = mock_enc
+            assert tok.count("hello") == 5
 
     def test_itokenizer_is_abstract(self) -> None:
         """Given: ITokenizer port.
@@ -141,43 +141,6 @@ class TestITokenizerPort:
 
         assert inspect.isabstract(ITokenizer)
         assert getattr(ITokenizer.count, "__isabstractmethod__", False)
-
-    def test_tiktoken_model_name_returns_str(self) -> None:
-        """Given: TiktokenTokenizer initialized.
-        When: model_name property is accessed.
-        Then: returns expected string."""
-        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
-        from ai_assistant.core.domain.configs import TokenizerConfigData
-
-        tok = TiktokenTokenizer(TokenizerConfigData())
-        assert tok.model_name == "tiktoken"
-        assert isinstance(tok.model_name, str)
-
-    def test_char_fallback_model_name_returns_str(self) -> None:
-        """Given: CharFallbackTokenizer initialized.
-        When: model_name property is accessed.
-        Then: returns expected string."""
-        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
-        from ai_assistant.core.domain.configs import TokenizerConfigData
-
-        tok = CharFallbackTokenizer(TokenizerConfigData())
-        assert tok.model_name == "char-fallback"
-        assert isinstance(tok.model_name, str)
-
-    def test_model_name_is_str_not_optional(self) -> None:
-        """Given: any ITokenizer implementation.
-        When: model_name property is accessed.
-        Then: returns str, not None, not Optional."""
-        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
-        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
-        from ai_assistant.core.domain.configs import TokenizerConfigData
-
-        tok1 = TiktokenTokenizer(TokenizerConfigData())
-        tok2 = CharFallbackTokenizer(TokenizerConfigData())
-        assert type(tok1.model_name) is str
-        assert type(tok2.model_name) is str
-        assert tok1.model_name is not None
-        assert tok2.model_name is not None
 
 
 class TestTokenizerAdapterRegistry:
@@ -222,14 +185,13 @@ class TestTiktokenTokenizerInternals:
         mock_enc = MagicMock()
         mock_enc.encode.return_value = [1, 2, 3, 4, 5]
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken") as mock_tiktoken:
-            mock_tiktoken.encoding_for_model.side_effect = KeyError("unknown")
             mock_tiktoken.get_encoding.return_value = mock_enc
-            result = tok.count("hello", "unknown-model")
+            result = tok.count("hello")
             assert result == 5
             mock_tiktoken.get_encoding.assert_called_once_with("cl100k_base")
 
     def test_tiktoken_both_paths_fail_raises_adapter_error(self) -> None:
-        """Given: tiktoken encoding_for_model and get_encoding both raise.
+        """Given: tiktoken get_encoding raises.
         When: count is called.
         Then: AdapterError is raised."""
         from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
@@ -238,10 +200,9 @@ class TestTiktokenTokenizerInternals:
 
         tok = TiktokenTokenizer(TokenizerConfigData())
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken") as mock_tiktoken:
-            mock_tiktoken.encoding_for_model.side_effect = KeyError("unknown")
             mock_tiktoken.get_encoding.side_effect = Exception("fail")
             with pytest.raises(AdapterError, match="tiktoken failed"):
-                tok.count("hello world", "some-model")
+                tok.count("hello world")
 
     def test_hf_tokenizer_success(self, tmp_path: Path) -> None:
         """Given: tiktoken is None but tokenizers is available with local file.
@@ -260,9 +221,9 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "gpt-4o").mkdir()
-                (tmp_path / "gpt-4o" / "tokenizer.json").write_text("{}")
-                result = tok.count("hello", "gpt-4o")
+                (tmp_path / "tiktoken").mkdir()
+                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
+                result = tok.count("hello")
                 assert result == 5
 
     def test_hf_tokenizer_from_file_fails_raises_adapter_error(self, tmp_path: Path) -> None:
@@ -279,10 +240,10 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "gpt-4o").mkdir()
-                (tmp_path / "gpt-4o" / "tokenizer.json").write_text("{}")
+                (tmp_path / "tiktoken").mkdir()
+                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
                 with pytest.raises(AdapterError, match="HF tokenizer failed"):
-                    tok.count("hello world", "gpt-4o")
+                    tok.count("hello world")
 
     def test_count_attribute_error_on_no_tokens_attr(self, tmp_path: Path) -> None:
         """Given: HF tokenizer encoder returns list (no .tokens).
@@ -300,9 +261,9 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "gpt-4o").mkdir()
-                (tmp_path / "gpt-4o" / "tokenizer.json").write_text("{}")
-                result = tok.count("hello", "gpt-4o")
+                (tmp_path / "tiktoken").mkdir()
+                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
+                result = tok.count("hello")
                 assert result == 6
 
     def test_count_hf_encode_raises_adapter_error(self, tmp_path: Path) -> None:
@@ -321,10 +282,10 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "gpt-4o").mkdir()
-                (tmp_path / "gpt-4o" / "tokenizer.json").write_text("{}")
+                (tmp_path / "tiktoken").mkdir()
+                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
                 with pytest.raises(AdapterError, match="HF tokenizer failed"):
-                    tok.count("这是一个测试", "gpt-4o")
+                    tok.count("这是一个测试")
 
     def test_count_no_tiktoken_no_tokenizers_raises_adapter_error(self) -> None:
         """Given: neither tiktoken nor tokenizers available.
@@ -338,4 +299,4 @@ class TestTiktokenTokenizerInternals:
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None):
                 with pytest.raises(AdapterError, match="No tokenizer backend available"):
-                    tok.count("hello world", "gpt-4o")
+                    tok.count("hello world")

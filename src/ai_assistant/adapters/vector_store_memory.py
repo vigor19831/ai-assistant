@@ -205,7 +205,7 @@ class MemoryVectorStore(IVectorStore):
                         source=meta.get("source", ""),
                         index=meta.get("index", 0),
                         total_chunks=meta.get("total_chunks", 0),
-                        custom=meta.get("custom", {}),
+                        custom=dict(meta.get("custom", {})) if meta.get("custom") is not None else {},
                         original_path=meta.get("original_path"),
                         source_uri=meta.get("source_uri"),  # backward compat
                     )

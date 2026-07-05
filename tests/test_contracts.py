@@ -466,33 +466,18 @@ class TestPortAbstractMethods:
         ]
         assert "count" in abstract_methods, "ITokenizer.count must be abstract"
 
-    def test_itokenizer_has_model_name_abstract(self):
+    def test_itokenizer_count_is_abstract(self):
         """Given: ITokenizer port.
-        When: abstract properties are inspected.
-        Then: model_name is abstract."""
+        When: abstract methods are inspected.
+        Then: count is abstractmethod."""
         from ai_assistant.core.ports.tokenizer import ITokenizer
 
-        abstract_properties = [
+        abstract_methods = [
             name
-            for name, prop in inspect.getmembers(ITokenizer)
-            if isinstance(prop, property) and getattr(prop.fget, "__isabstractmethod__", False)
+            for name, method in inspect.getmembers(ITokenizer, predicate=inspect.isfunction)
+            if getattr(method, "__isabstractmethod__", False)
         ]
-        assert "model_name" in abstract_properties, "ITokenizer.model_name must be abstract"
-
-    def test_all_tokenizer_implementations_expose_model_name(self):
-        """Given: all ITokenizer implementations.
-        When: model_name property is accessed.
-        Then: returns str for all."""
-        from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
-        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
-        from ai_assistant.core.domain.configs import TokenizerConfigData
-
-        tok1 = TiktokenTokenizer(TokenizerConfigData())
-        tok2 = CharFallbackTokenizer(TokenizerConfigData())
-        assert isinstance(tok1.model_name, str)
-        assert isinstance(tok2.model_name, str)
-        assert tok1.model_name == "tiktoken"
-        assert tok2.model_name == "char-fallback"
+        assert "count" in abstract_methods, "ITokenizer.count must be abstract"
 
     def test_iclosable_has_shutdown_abstract(self):
         """Given: IClosable port.

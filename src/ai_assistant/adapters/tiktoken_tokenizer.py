@@ -59,31 +59,22 @@ class TiktokenTokenizer(ITokenizer):
 
     def __init__(self, config: TokenizerConfigData) -> None:
         self.config = config
-        self._model_name = config.provider
 
-    @property
-    def model_name(self) -> str:
-        """Model identifier this tokenizer was initialized for."""
-        return self._model_name
-
-    def count(self, text: str, model: str) -> int:
-        """Count tokens in text for the given model."""
+    def count(self, text: str) -> int:
+        """Count tokens in text."""
         if not text:
             return 0
 
         if tiktoken is not None:
             try:
-                try:
-                    enc = tiktoken.encoding_for_model(model)
-                except KeyError:
-                    enc = tiktoken.get_encoding("cl100k_base")
+                enc = tiktoken.get_encoding("cl100k_base")
                 return len(enc.encode(text))
             except Exception as exc:
                 _logger.exception("tiktoken failed")
-                raise AdapterError(f"tiktoken failed for model {model}: {exc}") from exc
+                raise AdapterError(f"tiktoken failed: {exc}") from exc
 
         if tokenizers is not None:
-            tok_dir = _resolve_tokenizer_dir(model, self.config.local_dir)
+            tok_dir = _resolve_tokenizer_dir(self.config.provider, self.config.local_dir)
             if tok_dir is not None:
                 try:
                     hf_tok = tokenizers.Tokenizer.from_file(str(tok_dir / "tokenizer.json"))
@@ -94,9 +85,9 @@ class TiktokenTokenizer(ITokenizer):
                         return len(result)
                 except Exception as exc:
                     _logger.exception("HF tokenizer failed")
-                    raise AdapterError(f"HF tokenizer failed for model {model}: {exc}") from exc
+                    raise AdapterError(f"HF tokenizer failed: {exc}") from exc
 
         raise AdapterError(
-            f"No tokenizer backend available for model {model}. "
+            "No tokenizer backend available. "
             "Install tiktoken or use the 'char_fallback' tokenizer provider."
         )

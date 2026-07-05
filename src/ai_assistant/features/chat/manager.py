@@ -194,7 +194,7 @@ class ChatManager:
     async def _count_tokens(self, text: str) -> int:
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer not configured")
-        return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer.model_name)
+        return await asyncio.to_thread(self.tokenizer.count, text)
 
     async def _trim_history(
         self,

@@ -71,11 +71,12 @@ def _chunk_to_dict(chunk: Chunk) -> dict[str, Any]:
 def _chunk_from_dict(data: dict[str, Any]) -> Chunk:
     """Deserialize dict to Chunk (strict, matches domain model)."""
     meta_raw = data.get("metadata", {})
+    custom_raw = meta_raw.get("custom", {})
     meta = ChunkMetadata(
         source=meta_raw.get("source", ""),
         index=meta_raw.get("index", 0),
         total_chunks=meta_raw.get("total_chunks", 0),
-        custom=meta_raw.get("custom", {}),
+        custom=dict(custom_raw) if custom_raw is not None else {},
         original_path=meta_raw.get("original_path"),
         source_uri=meta_raw.get("source_uri"),  # backward compat: old indices have None
     )
