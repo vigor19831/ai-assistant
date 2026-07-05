@@ -96,40 +96,42 @@ def setup_logging(
     logger = logging.getLogger("ai_assistant")
     logger.setLevel(getattr(logging, upper))
 
+    formatter: logging.Formatter = (
+        _TextFormatter() if fmt == "text" else _JsonFormatter()
+    )
+
+    # Build new handlers outside the lock to minimize the swap window.
+    new_handlers: list[logging.Handler] = []
+    if not log_file:
+        console = logging.StreamHandler(sys.stdout)
+        console.setFormatter(formatter)
+        new_handlers.append(console)
+
+    if log_file:
+        path = Path(log_file)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fh = logging.handlers.RotatingFileHandler(
+                path,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding="utf-8",
+            )
+            fh.setFormatter(formatter)
+            new_handlers.append(fh)
+        except OSError as exc:
+            sys.stderr.write(f"Failed to create log file {path}: {exc}\n")
+
     with _LOCK:
-        # Clear existing handlers to allow format reconfiguration
-        for handler in logger.handlers[:]:
-            handler.close()
+        # Atomic swap: close old handlers only after new ones are ready.
+        old_handlers = logger.handlers[:]
+        for handler in old_handlers:
             logger.removeHandler(handler)
+        for handler in new_handlers:
+            logger.addHandler(handler)
 
-        formatter: logging.Formatter = (
-            _TextFormatter() if fmt == "text" else _JsonFormatter()
-        )
-
-        if log_file:
-            # File only — console output is captured by run_servers.py
-            # into server_8000.log, which duplicates app.log. Avoid double
-            # logging by writing to file only when log_file is configured.
-            pass  # file handler added below
-        else:
-            console = logging.StreamHandler(sys.stdout)
-            console.setFormatter(formatter)
-            logger.addHandler(console)
-
-        if log_file:
-            path = Path(log_file)
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                fh = logging.handlers.RotatingFileHandler(
-                    path,
-                    maxBytes=max_bytes,
-                    backupCount=backup_count,
-                    encoding="utf-8",
-                )
-                fh.setFormatter(formatter)
-                logger.addHandler(fh)
-            except OSError as exc:
-                sys.stderr.write(f"Failed to create log file {path}: {exc}\n")
+    for handler in old_handlers:
+        handler.close()
 
     return logger
 
