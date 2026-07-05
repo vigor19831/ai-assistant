@@ -45,6 +45,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
         self._max_stream_tokens: int = config.max_tokens * 2
+        self.system_message = config.system_message
         timeout = (
             httpx.Timeout(self._timeout, connect=self._connect_timeout)
             if self._connect_timeout is not None
@@ -70,6 +71,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
     def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert domain Message objects to OpenAI API message dicts."""
         out: list[dict[str, Any]] = []
+        if self.system_message is not None:
+            out.append({"role": "system", "content": self.system_message})
         for m in messages:
             if isinstance(m, UserMessage):
                 out.append({"role": "user", "content": m.text or ""})
