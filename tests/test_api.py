@@ -1771,16 +1771,17 @@ class TestAPIMiddleware:
             call_args = mock_counter.call_args
             assert call_args.kwargs["labels"]["status"] == "500"
 
-    def test_cors_rejects_evil_origin(self, client):
-        """Given: request from unauthorized origin.
-        When: sent to any endpoint.
-        Then: no CORS headers returned (browser blocks access)."""
+    def test_cors_allows_all_origins_by_default(self, client):
+        """Given: default CORS config allows all origins (no credentials).
+        When: request from any origin.
+        Then: access-control-allow-origin: * is returned."""
         resp = client.get(
             "/",
             headers={"Origin": "http://evil.com"},
         )
         headers = {k.lower(): v for k, v in resp.headers.items()}
-        assert "access-control-allow-origin" not in headers
+        assert headers.get("access-control-allow-origin") == "*"
+        assert headers.get("access-control-allow-credentials") != "true"
 
     def test_metrics_middleware_uses_route_pattern_not_raw_path(self):
         """Given: MetricsMiddleware is installed on routes with path params.

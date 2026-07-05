@@ -57,8 +57,8 @@ __all__ = [
 
 class CORSConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_CORS_", extra="forbid")
-    allow_origins: list[str] = Field(default_factory=list)
-    allow_credentials: bool = True
+    allow_origins: list[str] = Field(default_factory=lambda: ["*"])
+    allow_credentials: bool = False
     allow_methods: list[str] = Field(default_factory=lambda: ["*"])
     allow_headers: list[str] = Field(default_factory=lambda: ["*"])
 

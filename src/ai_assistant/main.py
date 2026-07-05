@@ -31,7 +31,15 @@ def _load_cors_config(state: InitializedAppState | None) -> CORSConfig:
     if state is not None:
         return state.config.cors
     config_path = os.getenv("AI_CONFIG_PATH", "config.yaml")
-    return load_config(config_path).cors
+    try:
+        return load_config(config_path).cors
+    except (FileNotFoundError, ValueError):
+        return CORSConfig(
+            allow_origins=[],
+            allow_credentials=False,
+            allow_methods=["GET"],
+            allow_headers=[],
+        )
 
 
 def create_app(
