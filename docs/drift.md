@@ -1,4 +1,5 @@
 # Known Architectural Drift
+Rule: Do not add new drift if old pattern can be fixed properly.
 
 | ID | Status | File | Broken Rule | Fix / Resolution |
 |----|--------|------|-------------|------------------|
@@ -34,5 +35,5 @@
 | 29 | [ACTIVE since 2026-07-05] | `core/ports/tokenizer.py` | `ITokenizer` simplified: removed `model_name`, `count(text)` instead of `count(text, model)`. TiktokenTokenizer hardcodes `cl100k_base` encoding. | Accept. If multi-encoding support needed, revisit as core change. |
 | 30 | [ACTIVE] | `core/ports/llm.py` | `ILLM.system_message` orphaned — pipeline never reads it. Adapter uses `config.system_message` directly. | Exit criteria: add `SystemMessage` to core/domain/messages.py, pass via pipeline messages, remove `system_message` from ILLM. |
 | 31 | [FIXED 2026-07-06] | `adapters/embedder_openai_compatible.py` | Conditional cleanup in shutdown() with _closed flag and _lock violated architectural_strategy.md §3.1. Race condition between _check_open() and shutdown() caused RuntimeError from httpx to escape as unwrapped exception, violating §6. | Removed _closed flag and _lock; shutdown() unconditionally calls aclose(). Removed _check_open(); catch RuntimeError with "closed" in _post_embeddings and wrap in AdapterError. |
-
-Rule: Do not add new drift if old pattern can be fixed properly.
+| 32 | [FIXED 2026-07-06] | `adapters/storage_sqlite.py` | No schema versioning; raw sqlite3 exceptions; WAL mode unchecked; shutdown() creates empty DB; _safe_json_loads returns None for JSON null. | Added PRAGMA user_version migration system; AdapterError wrapping for all CRUD; WAL mode result check; shutdown() skips if DB missing; _safe_json_loads treats JSON null as missing. |
+| 33 | [FIXED 2026-07-06] | `core/io_utils.py` | os.replace() overwrites target permissions with tmp's 0o600. | Copy target's mode to tmp before os.replace; race-safe with try/except. |

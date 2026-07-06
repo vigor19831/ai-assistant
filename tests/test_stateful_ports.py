@@ -377,6 +377,16 @@ async def test_sqlite_storage_shutdown_idempotent(tmp_path: Path) -> None:
     await storage.shutdown()  # must not raise
 
 
+@pytest.mark.asyncio
+async def test_sqlite_storage_shutdown_no_init_db_no_file(tmp_path: Path) -> None:
+    """shutdown() without init_db() must not create an empty .db file."""
+    tmp_db = tmp_path / f"no_init_shutdown_{uuid.uuid4().hex}.db"
+    storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
+    # Deliberately NOT calling init_db()
+    await storage.shutdown()
+    assert not tmp_db.exists()
+
+
 # ---------------------------------------------------------------------------
 # ISettingsStorage tests
 # ---------------------------------------------------------------------------

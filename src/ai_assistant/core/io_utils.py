@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import stat
 import tempfile
 from pathlib import Path
 from typing import cast
@@ -22,6 +23,9 @@ async def atomic_write(
     A sibling ``.tmp`` file is created in the same directory and moved
     into place with ``os.replace``.  On any failure the temporary file
     is removed.  The directory is fsync'd so the rename is durable.
+
+    Preserves the permissions of an existing target file.  New files
+    inherit the permissions from the temporary file (typically 0o600).
     """
     target = Path(path)
 
@@ -50,6 +54,15 @@ async def atomic_write(
                     fh.write(cast("str", content))
                     fh.flush()
                     os.fsync(fh.fileno())
+
+            # Preserve permissions of existing target file.
+            # mkstemp creates files with 0o600; os.replace swaps inodes,
+            # so the new file would inherit 0o600.  Copy the old mode
+            # to the temp file before the replace so it survives.
+            if target.exists():
+                old_mode = stat.S_IMODE(os.stat(target).st_mode)
+                os.chmod(tmp, old_mode)
+
             os.replace(tmp, target)
             # Persist directory metadata (POSIX)
             try:

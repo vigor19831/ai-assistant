@@ -457,7 +457,33 @@ class TestSQLiteStorage:
 
     @pytest.mark.asyncio
     async def test_shutdown(self, storage):
+        await storage.init_db()
         await storage.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_without_init_db_does_not_create_file(self, tmp_path):
+        """Given: SQLiteStorage without init_db().
+        When: shutdown() is called.
+        Then: no .db file is created."""
+        db_path = tmp_path / "no_init.db"
+        storage = SQLiteStorage(StorageConfigData(db_path=str(db_path)))
+        await storage.shutdown()
+        assert not db_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_crud_raises_adapter_error_not_sqlite(self, storage):
+        """Given: corrupted DB that causes sqlite3.Error.
+        When: CRUD methods are called.
+        Then: AdapterError is raised, not raw sqlite3.Error."""
+        await storage.init_db()
+        # Corrupt the DB by writing garbage to it
+        import sqlite3
+        db_path = storage.config.db_path
+        with open(db_path, "w") as f:
+            f.write("not a database")
+
+        with pytest.raises(AdapterError):
+            await storage.get_history("conv-1")
 
     @pytest.mark.asyncio
     async def test_implements_ichatstorage_and_initializable(self, storage):
@@ -484,6 +510,15 @@ class TestSQLiteStorage:
 
         result = _safe_json_loads(None, default=[])
         assert result == []
+
+    def test_safe_json_loads_null_returns_default(self):
+        """Given: JSON null string.
+        When: _safe_json_loads is called.
+        Then: default value is returned (null treated as missing)."""
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads("null", default={})
+        assert result == {}
 
     def test_safe_json_loads_valid_json_parses(self):
         """Given: valid JSON string.
