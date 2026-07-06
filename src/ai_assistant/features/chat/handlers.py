@@ -113,7 +113,7 @@ async def _stream_with_heartbeat(
                 raise item
 
             yield f"data: {item}\n\n"
-            last_activity = asyncio.get_event_loop().time()
+            last_activity = loop.time()
 
     finally:
         task.cancel()
