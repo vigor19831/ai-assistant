@@ -437,3 +437,174 @@ async def test_sqlite_settings_none_value(tmp_path: Path) -> None:
     value = await storage.get("nullable")
     assert value is None
 
+
+# ---------------------------------------------------------------------------
+# MemoryVectorStore regression tests (bugs found 2026-07-06)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_nan_query_returns_empty(tmp_path: Path) -> None:
+    """Given: store with chunks. When: search with NaN query. Then: empty results."""
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "test_ns"
+
+    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+    await store.add(chunks, namespace=namespace)
+
+    # NaN in query embedding must not return corrupt results
+    nan_query = [float("nan")] * dim
+    results = await store.search(nan_query, top_k=5, namespace=namespace)
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_inf_query_returns_empty(tmp_path: Path) -> None:
+    """Given: store with chunks. When: search with inf query. Then: empty results."""
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "test_ns"
+
+    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+    await store.add(chunks, namespace=namespace)
+
+    # inf in query embedding must not return corrupt results
+    inf_query = [float("inf")] * dim
+    results = await store.search(inf_query, top_k=5, namespace=namespace)
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_zero_query_returns_empty(tmp_path: Path) -> None:
+    """Given: store with chunks. When: search with zero vector query. Then: empty results."""
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "test_ns"
+
+    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+    await store.add(chunks, namespace=namespace)
+
+    # Zero vector query has no meaningful similarity
+    zero_query = [0.0] * dim
+    results = await store.search(zero_query, top_k=5, namespace=namespace)
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_chunk_embedding_preserved_after_load(tmp_path: Path) -> None:
+    """Given: MemoryVectorStore with chunks. When: save then load.
+    Then: Chunk.embedding is preserved (not None).
+    """
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "test_ns"
+
+    chunks = [
+        _make_chunk(0, dim=dim),
+        _make_chunk(1, dim=dim),
+        _make_chunk(2, dim=dim),
+    ]
+    await store.add(chunks, namespace=namespace)
+
+    path = str(tmp_path / "vs_persist")
+    await store.save(path, namespace=namespace)
+
+    store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    await store2.load(path, namespace=namespace)
+
+    query = [0.01] * dim
+    results = await store2.search(query, top_k=100, namespace=namespace)
+    assert len(results) == len(chunks)
+
+    for chunk in results:
+        assert chunk.embedding is not None, f"Chunk {chunk.id} lost embedding after load"
+        assert len(chunk.embedding) == dim
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_list_namespaces_includes_in_memory(tmp_path: Path) -> None:
+    """Given: namespace created in memory but not persisted.
+    When: list_namespaces called.
+    Then: in-memory namespace is included.
+    """
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "in_memory_only"
+
+    await store.add([_make_chunk(0, dim=dim)], namespace=namespace)
+
+    # list_namespaces should include the in-memory namespace
+    # even before any save() call
+    path = str(tmp_path / "vs_namespaces")
+    namespaces = await store.list_namespaces(path)
+    assert namespace in namespaces
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_delete_clears_empty_namespace(tmp_path: Path) -> None:
+    """Given: namespace with one chunk. When: delete the chunk.
+    Then: namespace is removed from _namespaces (no leak).
+    """
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "test_ns"
+
+    chunk = _make_chunk(0, dim=dim)
+    await store.add([chunk], namespace=namespace)
+    await store.delete([chunk.id], namespace=namespace)
+
+    # Namespace should be cleaned up when empty
+    path = str(tmp_path / "vs_delete")
+    namespaces = await store.list_namespaces(path)
+    assert namespace not in namespaces
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_add_invalid_chunks_no_empty_namespace(tmp_path: Path) -> None:
+    """Given: add() called with all-invalid chunks (no embeddings).
+    When: add completes.
+    Then: no empty namespace is created.
+    """
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "empty_ns"
+
+    # Chunks without embeddings
+    invalid_chunks = [
+        Chunk(
+            id="no-emb-1",
+            text="no embedding",
+            metadata=ChunkMetadata(source="test", index=0, total_chunks=1),
+        ),
+        Chunk(
+            id="no-emb-2",
+            text="also no embedding",
+            metadata=ChunkMetadata(source="test", index=1, total_chunks=1),
+        ),
+    ]
+    await store.add(invalid_chunks, namespace=namespace)
+
+    path = str(tmp_path / "vs_invalid")
+    namespaces = await store.list_namespaces(path)
+    assert namespace not in namespaces
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_shutdown_thread_safe(tmp_path: Path) -> None:
+    """Given: store with active operations. When: shutdown called.
+    Then: no race condition (shutdown acquires lock before clearing).
+    """
+    dim = 384
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    namespace = "test_ns"
+
+    await store.add([_make_chunk(0, dim=dim)], namespace=namespace)
+
+    # shutdown() must not raise and must clear state
+    await store.shutdown()
+
+    # After shutdown, store is empty
+    query = [0.01] * dim
+    results = await store.search(query, top_k=5, namespace=namespace)
+    assert results == []
+

@@ -53,17 +53,21 @@ class MemoryVectorStore(IVectorStore):
 
     def _normalize(self, v: np.ndarray) -> np.ndarray:
         norm = np.linalg.norm(v)
-        return v / norm if norm > 0 else v
+        if not np.isfinite(norm) or norm == 0:
+            return np.zeros_like(v)
+        return v / norm
 
     async def shutdown(self) -> None:
         """Release in-memory chunk data and embeddings."""
-        self._namespaces.clear()
+        async with self._lock:
+            self._namespaces.clear()
 
     async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
         if not chunks:
             return
         async with self._lock:
             ns = self._get_ns(namespace)
+            valid_added = False
             for chunk in chunks:
                 if chunk.embedding is None:
                     continue
@@ -83,6 +87,9 @@ class MemoryVectorStore(IVectorStore):
                 ns.metadata[chunk.id] = meta
                 ns._track(chunk.id)
                 ns._evict()
+                valid_added = True
+            if not valid_added and namespace in self._namespaces and not ns.chunks:
+                self._namespaces.pop(namespace, None)
 
     async def search(
         self,
@@ -103,12 +110,23 @@ class MemoryVectorStore(IVectorStore):
                 return []
 
             q = self._normalize(np.array(query_embedding, dtype=np.float32))
+            if np.all(q == 0):
+                return []
+
             ids = list(ns.embeddings.keys())
             matrix = np.stack([ns.embeddings[i] for i in ids])
             scores = matrix @ q
 
-            sorted_order = np.argsort(scores)[::-1]
-            top_indices = sorted_order[:top_k]
+            # Filter out NaN scores to prevent corrupt results
+            valid_mask = np.isfinite(scores)
+            if not np.any(valid_mask):
+                return []
+
+            valid_scores = scores[valid_mask]
+            valid_indices = np.where(valid_mask)[0]
+            sorted_order = np.argsort(valid_scores)[::-1]
+            top_count = min(top_k, len(sorted_order))
+            top_indices = valid_indices[sorted_order[:top_count]]
 
             return [ns.chunks[ids[i]] for i in top_indices]
 
@@ -128,6 +146,11 @@ class MemoryVectorStore(IVectorStore):
                 ns.metadata.pop(cid, None)
                 if cid in ns._order:
                     ns._order.remove(cid)
+
+            # Clean up empty namespace to prevent memory leak
+            if not ns.chunks:
+                self._namespaces.pop(namespace, None)
+                return
 
             try:
                 await self._save_unlocked(self.index_path, namespace=namespace)
@@ -156,6 +179,7 @@ class MemoryVectorStore(IVectorStore):
                 cid: {
                     "id": c.id,
                     "text": c.text,
+                    "embedding": c.embedding,
                     "metadata": (
                         {
                             "source": c.metadata.source,
@@ -200,6 +224,7 @@ class MemoryVectorStore(IVectorStore):
             cid: Chunk(
                 id=c["id"],
                 text=c["text"],
+                embedding=c.get("embedding"),
                 metadata=(
                     ChunkMetadata(
                         source=meta.get("source", ""),
@@ -207,7 +232,7 @@ class MemoryVectorStore(IVectorStore):
                         total_chunks=meta.get("total_chunks", 0),
                         custom=dict(meta.get("custom", {})) if meta.get("custom") is not None else {},
                         original_path=meta.get("original_path"),
-                        source_uri=meta.get("source_uri"),  # backward compat
+                        source_uri=meta.get("source_uri"),
                     )
                     if (meta := c.get("metadata"))
                     else None
@@ -309,16 +334,21 @@ class MemoryVectorStore(IVectorStore):
 
     async def list_namespaces(self, path: str) -> list[str]:
         p = Path(path)
-        if not await asyncio.to_thread(p.exists):
-            return []
-        entries = await asyncio.to_thread(lambda: list(p.iterdir()))
-        result: list[str] = []
-        for d in entries:
-            is_dir = await asyncio.to_thread(d.is_dir)
-            has_store = await asyncio.to_thread((d / "memory_store.json").exists)
-            if is_dir and has_store:
-                result.append(d.name)
-        return result
+        result: set[str] = set(self._namespaces.keys())
+        if await asyncio.to_thread(p.exists):
+            try:
+                entries = await asyncio.to_thread(lambda: list(p.iterdir()))
+                for d in entries:
+                    try:
+                        is_dir = await asyncio.to_thread(d.is_dir)
+                        has_store = await asyncio.to_thread((d / "memory_store.json").exists)
+                        if is_dir and has_store:
+                            result.add(d.name)
+                    except OSError:
+                        continue
+            except OSError:
+                pass
+        return sorted(result)
 
 
 class _NamespaceData:
