@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -70,15 +71,15 @@ def _chunk_to_dict(chunk: Chunk) -> dict[str, Any]:
 
 def _chunk_from_dict(data: dict[str, Any]) -> Chunk:
     """Deserialize dict to Chunk (strict, matches domain model)."""
-    meta_raw = data.get("metadata", {})
-    custom_raw = meta_raw.get("custom", {})
+    meta_raw = data.get("metadata") or {}
+    custom_raw = meta_raw.get("custom") or {}
     meta = ChunkMetadata(
         source=meta_raw.get("source", ""),
         index=meta_raw.get("index", 0),
         total_chunks=meta_raw.get("total_chunks", 0),
         custom=dict(custom_raw) if custom_raw is not None else {},
         original_path=meta_raw.get("original_path"),
-        source_uri=meta_raw.get("source_uri"),  # backward compat: old indices have None
+        source_uri=meta_raw.get("source_uri"),
     )
     return Chunk(
         id=data["id"],
@@ -120,7 +121,11 @@ class FaissVectorStore(IVectorStore):
         return faiss.IndexFlatL2(dim)
 
     async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
-        """Add chunks with embeddings to a namespace."""
+        """Add chunks with embeddings to a namespace.
+
+        If the total would exceed max_chunks, raises AdapterError
+        rather than silently evicting old data.
+        """
         if not chunks:
             return
         async with self._lock:
@@ -133,7 +138,7 @@ class FaissVectorStore(IVectorStore):
                 if chunk.embedding is None:
                     continue
                 if len(chunk.embedding) != dim:
-                    _logger.exception(
+                    _logger.error(
                         "Dimension mismatch in FAISS add",
                         extra={
                             "expected": dim,
@@ -151,9 +156,38 @@ class FaissVectorStore(IVectorStore):
             if not embeddings:
                 return
 
+            # Reject if adding would exceed max_chunks
+            projected = len(ns.chunks) + len(valid_chunks)
+            max_chunks = self.config.max_chunks
+            if projected > max_chunks:
+                _logger.error(
+                    "FAISS add would exceed max_chunks",
+                    extra={
+                        "namespace": namespace,
+                        "current": len(ns.chunks),
+                        "adding": len(valid_chunks),
+                        "projected": projected,
+                        "max_chunks": max_chunks,
+                    },
+                )
+                raise AdapterError(
+                    f"Cannot add {len(valid_chunks)} chunks to namespace "
+                    f"'{namespace}': would exceed max_chunks ({max_chunks}). "
+                    f"Current: {len(ns.chunks)}. "
+                    f"Delete old chunks or increase max_chunks."
+                )
+
             vectors = np.array(embeddings, dtype=np.float32)
             if self.config.metric.lower() == "cosine":
-                faiss.normalize_L2(vectors)
+                norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+                zero_mask = norms == 0
+                if np.any(zero_mask):
+                    _logger.warning(
+                        "Zero-length embedding detected, skipping normalization",
+                        extra={"namespace": namespace, "count": int(np.sum(zero_mask))},
+                    )
+                norms[zero_mask] = 1.0
+                vectors = vectors / norms
 
             if ns.index is None:
                 ns.index = self._make_index(dim)
@@ -163,30 +197,6 @@ class FaissVectorStore(IVectorStore):
             for chunk in valid_chunks:
                 ns.chunks[ns.next_id] = chunk
                 ns.next_id += 1
-
-            # FIFO eviction if max_chunks exceeded
-            max_chunks = self.config.max_chunks
-            evicted = 0
-            if len(ns.chunks) > max_chunks:
-                while len(ns.chunks) > max_chunks:
-                    oldest = min(ns.chunks.keys())
-                    del ns.chunks[oldest]
-                    evicted += 1
-                # Rebuild index to stay consistent with chunks dict.
-                # FAISS IndexFlat* does not support per-vector deletion,
-                # so we rebuild from remaining chunks. This is O(n) but
-                # eviction is rare (only when max_chunks is exceeded).
-                ns.index, ns.chunks, ns.next_id = self._rebuild_index(
-                    list(ns.chunks.values())
-                )
-                _logger.info(
-                    "FAISS FIFO eviction triggered rebuild",
-                    extra={
-                        "namespace": namespace,
-                        "evicted": evicted,
-                        "remaining": len(ns.chunks),
-                    },
-                )
 
     async def search(
         self,
@@ -214,7 +224,9 @@ class FaissVectorStore(IVectorStore):
                 )
             q = np.array([query_embedding], dtype=np.float32)
             if self.config.metric.lower() == "cosine":
-                faiss.normalize_L2(q)
+                norm = np.linalg.norm(q)
+                if norm > 0:
+                    q = q / norm
             distances, indices = ns.index.search(q, top_k)  # type: ignore[union-attr]
             results: list[Chunk] = []
             for idx in indices[0]:
@@ -243,6 +255,14 @@ class FaissVectorStore(IVectorStore):
             if chunk.embedding is None:
                 continue
             if len(chunk.embedding) != dim:
+                _logger.error(
+                    "Dimension mismatch during rebuild, skipping chunk",
+                    extra={
+                        "chunk_id": chunk.id,
+                        "expected": dim,
+                        "got": len(chunk.embedding),
+                    },
+                )
                 continue
             embeddings.append(chunk.embedding)
             valid_chunks.append(chunk)
@@ -250,7 +270,10 @@ class FaissVectorStore(IVectorStore):
         if embeddings:
             vectors = np.array(embeddings, dtype=np.float32)
             if self.config.metric.lower() == "cosine":
-                faiss.normalize_L2(vectors)
+                norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+                zero_mask = norms == 0
+                norms[zero_mask] = 1.0
+                vectors = vectors / norms
             index.add(vectors)
 
         for chunk in valid_chunks:
@@ -263,14 +286,23 @@ class FaissVectorStore(IVectorStore):
         """Delete chunks by ID from a namespace and persist atomically.
 
         FAISS does not support true deletion without rebuilding the index.
-        The rebuild is atomic under the namespace lock. The index is saved
-        immediately; if save fails, the in-memory state is rolled back by
-        reloading from disk.
+        The rebuild and save are atomic under the namespace lock. If save
+        fails, the in-memory state is rolled back by restoring the previous
+        index and chunks dict.
         """
+        if not chunk_ids:
+            return
+
         async with self._lock:
             ns = self._get_ns(namespace)
             if ns.index is None:
                 return
+
+            # Snapshot current state for rollback
+            old_index = ns.index
+            old_chunks = dict(ns.chunks)
+            old_next_id = ns.next_id
+
             ids_to_remove = set(chunk_ids)
             remaining = [
                 chunk for chunk in ns.chunks.values() if chunk.id not in ids_to_remove
@@ -280,21 +312,18 @@ class FaissVectorStore(IVectorStore):
             ns.chunks = new_chunks
             ns.next_id = next_id
 
-        try:
-            await self.save(self.index_path, namespace=namespace)
-        except Exception:
-            _logger.exception(
-                "delete save failed, rolling back",
-                extra={"namespace": namespace},
-            )
             try:
-                await self.load(self.index_path, namespace=namespace)
+                await self._save_unlocked(self.index_path, namespace)
             except Exception:
                 _logger.exception(
-                    "delete rollback failed",
+                    "delete save failed, rolling back",
                     extra={"namespace": namespace},
                 )
-            raise
+                # Restore in-memory state from snapshot
+                ns.index = old_index
+                ns.chunks = old_chunks
+                ns.next_id = old_next_id
+                raise
 
     def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
         """Write FAISS index atomically via temp file + os.replace.
@@ -336,51 +365,55 @@ class FaissVectorStore(IVectorStore):
         """Persist namespace index + metadata atomically.
 
         Writes both files into a temporary directory, then renames them
-        into place. If a crash occurs during save(), the previous files
-        remain intact because the rename is the final step.
+        into place. If a crash occurs between the two renames, the next
+        load() will detect the inconsistency (ntotal != chunk_count) and
+        raise AdapterError, requiring a reindex. This is intentional:
+        detectable corruption is preferred over silent data loss.
         """
         async with self._lock:
-            ns = self._get_ns(namespace)
-            if ns.index is None:
-                return
-            base = anyio.Path(path)
-            await base.mkdir(parents=True, exist_ok=True)
-            index_file = base / f"{namespace}.faiss"
-            store_file = base / f"{namespace}.store.json"
+            await self._save_unlocked(path, namespace)
 
-            # Prepare data
-            store_data = {
-                "dim": self.config.dim,
-                "metric": self.config.metric,
-                "chunks": [_chunk_to_dict(c) for c in ns.chunks.values()],
-            }
+    async def _save_unlocked(self, path: str, namespace: str) -> None:
+        """Internal save — caller must hold self._lock."""
+        ns = self._get_ns(namespace)
+        if ns.index is None:
+            return
+        base = anyio.Path(path)
+        await base.mkdir(parents=True, exist_ok=True)
+        index_file = base / f"{namespace}.faiss"
+        store_file = base / f"{namespace}.store.json"
 
-            # Write both files into a temp directory, then rename into place
-            tmp_dir = base / f".{namespace}.tmp"
-            await tmp_dir.mkdir(parents=True, exist_ok=True)
-            tmp_index = tmp_dir / f"{namespace}.faiss"
-            tmp_store = tmp_dir / f"{namespace}.store.json"
+        # Prepare data
+        store_data = {
+            "dim": self.config.dim,
+            "metric": self.config.metric,
+            "chunks": [_chunk_to_dict(c) for c in ns.chunks.values()],
+        }
 
-            try:
-                await asyncio.to_thread(
-                    self._atomic_write_faiss, ns.index, str(tmp_index)
-                )
-                await atomic_write(
-                    str(tmp_store), json.dumps(store_data, ensure_ascii=False)
-                )
-                # Atomic rename: old files replaced only after both are ready
-                await asyncio.to_thread(os.replace, str(tmp_index), str(index_file))
-                await asyncio.to_thread(os.replace, str(tmp_store), str(store_file))
-            except Exception:
-                # Clean up temp files on failure; leave original files untouched
-                with contextlib.suppress(OSError):
-                    await tmp_index.unlink(missing_ok=True)
-                with contextlib.suppress(OSError):
-                    await tmp_store.unlink(missing_ok=True)
-                raise
-            finally:
-                with contextlib.suppress(OSError):
-                    await tmp_dir.rmdir()
+        # Write both files into a temp directory, then rename into place
+        tmp_dir = base / f".{namespace}.tmp.{os.getpid()}"
+        await tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp_index = tmp_dir / f"{namespace}.faiss"
+        tmp_store = tmp_dir / f"{namespace}.store.json"
+
+        try:
+            await asyncio.to_thread(
+                self._atomic_write_faiss, ns.index, str(tmp_index)
+            )
+            await atomic_write(
+                str(tmp_store), json.dumps(store_data, ensure_ascii=False)
+            )
+            # Sequential rename: small window of inconsistency.
+            # If crash between renames, load() detects ntotal mismatch.
+            await asyncio.to_thread(os.replace, str(tmp_index), str(index_file))
+            await asyncio.to_thread(os.replace, str(tmp_store), str(store_file))
+        except Exception:
+            raise
+        finally:
+            # Clean up temp directory recursively
+            with contextlib.suppress(OSError):
+                if await tmp_dir.exists():
+                    await asyncio.to_thread(shutil.rmtree, str(tmp_dir))
 
     async def load(self, path: str, namespace: str = "default") -> None:
         """Load namespace index + metadata. Validate version.
@@ -598,32 +631,66 @@ class FaissVectorStore(IVectorStore):
     async def list_namespaces(self, path: str) -> list[str]:
         """Return list of available namespace names from store.json files."""
         base = anyio.Path(path)
-        if not await base.exists():
-            return []
+        try:
+            if not await base.exists():
+                return []
+        except OSError as exc:
+            _logger.error(
+                "list_namespaces: failed to check path existence",
+                extra={"path": str(base), "error": str(exc)},
+            )
+            raise AdapterError(
+                f"Failed to check index path {base}: {exc}"
+            ) from exc
+
         namespaces: list[str] = []
-        async for f in base.iterdir():
-            if not await f.is_file():
-                continue
-            name = f.name
-            # Detect valid namespace pairs: {namespace}.store.json + {namespace}.faiss
-            if name.endswith(".store.json"):
-                ns_name = name[:-11]  # strip ".store.json"
-                faiss_file = base / f"{ns_name}.faiss"
-                if await faiss_file.exists():
-                    namespaces.append(ns_name)
-                else:
-                    _logger.warning(
-                        "Orphaned metadata file detected (no matching .faiss)",
-                        extra={"namespace": ns_name, "path": str(f)},
-                    )
-            elif name.endswith(".faiss"):
-                ns_name = name[:-6]  # strip ".faiss"
-                store_file = base / f"{ns_name}.store.json"
-                if not await store_file.exists():
-                    _logger.warning(
-                        "Orphaned FAISS index file detected (no matching store.json)",
-                        extra={"namespace": ns_name, "path": str(f)},
-                    )
+        try:
+            async for f in base.iterdir():
+                try:
+                    if not await f.is_file():
+                        continue
+                except OSError:
+                    continue
+                name = f.name
+                # Detect valid namespace pairs: {namespace}.store.json + {namespace}.faiss
+                if name.endswith(".store.json"):
+                    ns_name = name[:-11]  # strip ".store.json"
+                    faiss_file = base / f"{ns_name}.faiss"
+                    try:
+                        if await faiss_file.exists():
+                            namespaces.append(ns_name)
+                        else:
+                            _logger.warning(
+                                "Orphaned metadata file detected (no matching .faiss)",
+                                extra={"namespace": ns_name, "path": str(f)},
+                            )
+                    except OSError as exc:
+                        _logger.warning(
+                            "list_namespaces: failed to check .faiss file",
+                            extra={"namespace": ns_name, "error": str(exc)},
+                        )
+                elif name.endswith(".faiss"):
+                    ns_name = name[:-6]  # strip ".faiss"
+                    store_file = base / f"{ns_name}.store.json"
+                    try:
+                        if not await store_file.exists():
+                            _logger.warning(
+                                "Orphaned FAISS index file detected (no matching store.json)",
+                                extra={"namespace": ns_name, "path": str(f)},
+                            )
+                    except OSError as exc:
+                        _logger.warning(
+                            "list_namespaces: failed to check .store.json file",
+                            extra={"namespace": ns_name, "error": str(exc)},
+                        )
+        except OSError as exc:
+            _logger.error(
+                "list_namespaces: failed to iterate directory",
+                extra={"path": str(base), "error": str(exc)},
+            )
+            raise AdapterError(
+                f"Failed to list namespaces in {base}: {exc}"
+            ) from exc
         return sorted(set(namespaces))
 
     async def shutdown(self) -> None:
