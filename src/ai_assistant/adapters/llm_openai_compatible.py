@@ -34,6 +34,17 @@ class OpenAICompatibleLLM(ILLM, IClosable):
 
     def __init__(self, config: LLMConfigData) -> None:
         super().__init__(config)
+        # Create resources FIRST so shutdown() is safe even if __init__ fails later.
+        self._closed: bool = False
+        self._lock: asyncio.Lock = asyncio.Lock()
+        self._timeout: float = config.timeout
+        self._connect_timeout: float | None = config.connect_timeout
+        timeout = (
+            httpx.Timeout(self._timeout, connect=self._connect_timeout)
+            if self._connect_timeout is not None
+            else self._timeout
+        )
+        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
         self.model: str = config.model
         self.api_base: str = config.api_base
         if config.api_key is not None:
@@ -42,18 +53,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             self.api_key = os.getenv("AI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
         self.max_tokens: int = config.max_tokens
         self.temperature: float = config.temperature
-        self._timeout: float = config.timeout
-        self._connect_timeout: float | None = config.connect_timeout
         self._max_stream_tokens: int = config.max_tokens * 2
         self.system_message = config.system_message
-        timeout = (
-            httpx.Timeout(self._timeout, connect=self._connect_timeout)
-            if self._connect_timeout is not None
-            else self._timeout
-        )
-        self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
-        self._closed: bool = False
-        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def shutdown(self) -> None:
         """Close HTTP client. Idempotent."""
@@ -242,10 +243,20 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 "POST", url, headers=headers, json=payload
             ) as resp:
                 resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "")
+                if not content_type.startswith("text/event-stream"):
+                    _logger.warning(
+                        "Expected SSE, got %s",
+                        content_type,
+                        extra={"url": url},
+                    )
+                    raise AdapterError(
+                        f"Expected text/event-stream, got {content_type}"
+                    )
                 token_count = 0
                 async for line in resp.aiter_lines():
                     if not line or line.startswith(":"):
-                        continue
+                       continue
                     if not line.startswith("data: "):
                         _logger.debug(
                             "Unexpected SSE line",
