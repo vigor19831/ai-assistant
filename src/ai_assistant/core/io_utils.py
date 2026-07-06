@@ -75,6 +75,8 @@ async def atomic_write(
             else:
                 try:
                     os.fsync(dir_fd)
+                except OSError:
+                    pass  # filesystem does not support fsync on directories
                 finally:
                     os.close(dir_fd)
         finally:
