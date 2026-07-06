@@ -357,11 +357,12 @@ class TestNullReranker:
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_ignores_top_k(self):
+    async def test_respects_top_k(self):
         reranker = NullReranker(RerankerConfigData())
         chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
         results = await reranker.rerank("q", chunks, top_k=1)
-        assert len(results) == 2
+        assert len(results) == 1
+        assert results[0].chunk.id == "c1"
 
     @pytest.mark.asyncio
     async def test_shutdown(self):

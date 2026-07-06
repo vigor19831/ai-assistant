@@ -67,7 +67,7 @@ class APIReranker(IReranker):
             "model": self.model,
             "query": query,
             "documents": docs,
-            "top_n": top_k or len(chunks),
+            "top_n": len(chunks) if top_k is None else min(top_k, len(chunks)),
             "return_documents": False,
         }
 
