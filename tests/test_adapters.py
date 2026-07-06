@@ -17,6 +17,7 @@ import pytest
 
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
+from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
@@ -128,6 +129,16 @@ class TestMockEmbedder:
     async def test_shutdown(self):
         emb = MockEmbedder(EmbedderConfigData(dim=384))
         await emb.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_embed_deterministic_across_runs(self):
+        """Same text must produce same vector regardless of PYTHONHASHSEED."""
+        emb = MockEmbedder(EmbedderConfigData(dim=384))
+        result1 = await emb.embed(["hello", "world"])
+        result2 = await emb.embed(["hello", "world"])
+        assert result1 == result2
+        assert len(result1) == 2
+        assert len(result1[0]) == 384
 
 
 # ── TestMemoryVectorStore ──
@@ -924,6 +935,74 @@ class TestFactoryRegistry:
         assert "null" in reranker
 
 
+
+
+# ── TestOpenAICompatibleEmbedder ──
+
+
+class TestOpenAICompatibleEmbedder:
+    """Given: OpenAICompatibleEmbedder with mocked HTTP client.
+    When: embed() is called with various inputs.
+    Then: correct batching, payload, and error handling.
+    """
+
+    @pytest.fixture
+    def embedder(self):
+        return OpenAICompatibleEmbedder(EmbedderConfigData(
+            api_key="sk-test",
+            model="text-embedding-3-small",
+            api_base="http://test/v1",
+            dim=384,
+            timeout=60.0,
+            connect_timeout=5.0,
+        ))
+
+    @pytest.mark.asyncio
+    async def test_embed_batches_large_input(self, embedder):
+        """Input larger than _DEFAULT_BATCH_SIZE must be split into multiple POSTs."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        async def _mock_post(*args, **kwargs):
+            payload = kwargs.get("json", {})
+            texts = payload.get("input", [])
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "data": [{"embedding": [0.1] * 384} for _ in texts]
+            }
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.text = "ok"
+            return mock_resp
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=_mock_post) as mock_post:
+            texts = ["text"] * 250
+            result = await embedder.embed(texts)
+
+            assert len(result) == 250
+            assert mock_post.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_embed_count_mismatch_raises(self, embedder):
+        """Server returning fewer embeddings than input texts must raise AdapterError."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [{"embedding": [0.1] * 384}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.text = "ok"
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
+            with pytest.raises(AdapterError, match="count mismatch"):
+                await embedder.embed(["hello", "world"])
+
+    @pytest.mark.asyncio
+    async def test_shutdown_unconditional(self, embedder):
+        """shutdown must close client unconditionally; post-shutdown embed raises AdapterError."""
+        await embedder.shutdown()
+        await embedder.shutdown()
+        with pytest.raises(AdapterError, match="shutting down"):
+            await embedder.embed(["hello"])
 
 
 # ── TestAsyncPostJson ──
