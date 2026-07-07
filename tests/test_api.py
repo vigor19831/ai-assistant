@@ -1267,10 +1267,11 @@ class TestAPILifespan:
         app = FastAPI()
 
         save_attempted = {"count": 0}
+        hang_forever = asyncio.Event()
 
         async def slow_save(*args, **kwargs):
             save_attempted["count"] += 1
-            await asyncio.sleep(20)
+            await hang_forever.wait()  # Never set — simulates infinite hang
 
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
@@ -1558,9 +1559,10 @@ class TestAPILifespan:
         app = FastAPI()
 
         shutdown_completed = {"embedder": False}
+        hang_forever = asyncio.Event()
 
         async def hanging_shutdown():
-            await asyncio.sleep(999)
+            await hang_forever.wait()  # Never set — simulates infinite hang
 
         async def embedder_shutdown():
             shutdown_completed["embedder"] = True
@@ -1718,14 +1720,25 @@ class TestAPIMiddleware:
         app = FastAPI()
         app.add_middleware(MetricsMiddleware)
 
+        ready = asyncio.Event()
+
         @app.get("/slow")
         async def slow_endpoint():
-            await asyncio.sleep(0.05)
+            await ready.wait()
             return {"ok": True}
 
         with patch.object(metrics, "observe_histogram") as mock_histogram:
             client = TestClient(app)
-            client.get("/slow")
+            # Start request in background, then release
+            import threading
+            result = {"done": False}
+            def do_request():
+                client.get("/slow")
+                result["done"] = True
+            t = threading.Thread(target=do_request)
+            t.start()
+            ready.set()
+            t.join(timeout=5.0)
 
             hist_args = mock_histogram.call_args
             assert hist_args.kwargs["value"] > 0.0

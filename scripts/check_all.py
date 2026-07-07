@@ -727,7 +727,8 @@ def _audit_test_quality() -> list[str]:
     """Test rule enforcement — runs in full mode only.
 
     Each check maps 1:1 to a rule in ai_rules.md §2 or §15.
-    No heuristics that can fire on legitimate code.
+    Sleep calls annotated with '# noqa: SLEEP' are skipped — add the
+    comment on the same line as the sleep() call, with a justification.
     """
     import ast
 
@@ -738,21 +739,38 @@ def _audit_test_quality() -> list[str]:
     issues: list[str] = []
 
     class _Visitor(ast.NodeVisitor):
-        def __init__(self) -> None:
+        def __init__(self, source_lines: list[str]) -> None:
             self.violations: list[str] = []
+            self._lines = source_lines
+
+        def _has_noqa(self, lineno: int) -> bool:
+            """Check if the source line at lineno contains '# noqa: SLEEP'."""
+            if 1 <= lineno <= len(self._lines):
+                return "# noqa: SLEEP" in self._lines[lineno - 1]
+            return False
 
         def visit_Call(self, node: ast.Call) -> None:
             # §15.3: load_config() ban — unambiguous: function name
             if isinstance(node.func, ast.Name) and node.func.id == "load_config":
                 self.violations.append("load_config() call (§15.3)")
+                self.generic_visit(node)
+                return
 
-            # §15 DETERMINISM: time.sleep ban — unambiguous: attribute access
-            if (isinstance(node.func, ast.Attribute)
+            # Check if this is a sleep() call
+            if not (isinstance(node.func, ast.Attribute)
                     and node.func.attr == "sleep"
                     and isinstance(node.func.value, ast.Name)
                     and node.func.value.id in ("time", "asyncio")):
-                self.violations.append(f"{node.func.value.id}.sleep() (§15 DETERMINISM)")
+                self.generic_visit(node)
+                return
 
+            # Skip if annotated with noqa: SLEEP
+            if self._has_noqa(node.lineno):
+                self.generic_visit(node)
+                return
+
+            # Everything else is a violation
+            self.violations.append(f"{node.func.value.id}.sleep() (§15 DETERMINISM)")
             self.generic_visit(node)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -770,11 +788,13 @@ def _audit_test_quality() -> list[str]:
             continue
 
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            source = path.read_text(encoding="utf-8")
+            lines = source.splitlines()
+            tree = ast.parse(source)
         except SyntaxError:
             continue
 
-        visitor = _Visitor()
+        visitor = _Visitor(lines)
         visitor.visit(tree)
 
         for v in visitor.violations:

@@ -274,20 +274,20 @@ class TestE2EStream:
         assert "data: [DONE]" in resp.text
 
     def test_stream_interruption_by_client(self, mock_state):
-        """Given: server is producing a slow SSE stream.
+        """Given: server is producing an SSE stream.
         When: client disconnects after reading a few chunks.
         Then: handler does not crash; cancellation is handled gracefully."""
         from ai_assistant.features.chat.handlers import _get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
-        async def slow_stream(*args, **kwargs):
-            for i in range(100):
-                await asyncio.sleep(0.01)
+        async def endless_stream(*args, **kwargs):
+            """Yield chunks immediately; client disconnects mid-stream."""
+            for i in range(10000):
                 yield f"chunk {i}"
 
         mock_mgr = MagicMock()
-        mock_mgr.stream_chat = slow_stream
+        mock_mgr.stream_chat = endless_stream
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)

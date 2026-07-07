@@ -28,8 +28,10 @@ async def test_spawn_creates_task(registry: TaskRegistry) -> None:
 
 
 async def test_get_tasks_returns_snapshot(registry: TaskRegistry) -> None:
+    done = asyncio.Event()
+
     async def _coro() -> None:
-        await asyncio.sleep(0.05)
+        await done.wait()
 
     task = registry.spawn(_coro, trace_id="t2", name="sleepy")
     tasks = registry.get_tasks()
@@ -39,10 +41,9 @@ async def test_get_tasks_returns_snapshot(registry: TaskRegistry) -> None:
     assert record.trace_id == "t2"
     assert record.name == "sleepy"
     assert record.started_at > 0
-    # Cancel to avoid dangling task
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    # Signal completion to avoid dangling task
+    done.set()
+    await task
 
 
 async def test_spawn_logs_exception_on_failure(
@@ -68,21 +69,25 @@ async def test_spawn_logs_exception_on_failure(
 
 async def test_shutdown_waits_for_tasks(registry: TaskRegistry) -> None:
     completed = False
+    done = asyncio.Event()
 
     async def _slow_coro() -> None:
         nonlocal completed
-        await asyncio.sleep(0.01)
+        await done.wait()
         completed = True
 
     registry.spawn(_slow_coro, trace_id="t4", name="slow")
+    done.set()
     await registry.shutdown(wait_for=1.0)
     assert completed is True
     assert len(registry.get_tasks()) == 0
 
 
 async def test_shutdown_cancels_on_timeout(registry: TaskRegistry) -> None:
+    forever = asyncio.Event()
+
     async def _forever_coro() -> None:
-        await asyncio.sleep(3600)
+        await forever.wait()  # Never set — simulates infinite work
 
     task = registry.spawn(_forever_coro, trace_id="t5", name="forever")
     await registry.shutdown(wait_for=0.01)

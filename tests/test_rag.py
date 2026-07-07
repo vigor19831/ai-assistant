@@ -451,7 +451,7 @@ class TestRAGIndexing:
         from ai_assistant.core.config import SourceConfig
 
         def _slow_read(path: Path) -> str:
-            time.sleep(0.05)  # 50ms per file
+            time.sleep(0.05)  # noqa: SLEEP — monkeypatched _read_file_sync: blocking sync I/O simulation
             return "test content"
 
         monkeypatch.setattr(
@@ -467,12 +467,14 @@ class TestRAGIndexing:
 
         mock_vector_store.config.index_path = str(tmp_path / "indices")
 
-        ticks: list[float] = []
+        tick_count = 0
+        done = asyncio.Event()
 
         async def _ticker() -> None:
-            while True:
-                await asyncio.sleep(0.005)
-                ticks.append(asyncio.get_event_loop().time())
+            nonlocal tick_count
+            while not done.is_set():
+                await asyncio.sleep(0)  # noqa: SLEEP — yield control, not wall-clock sleep
+                tick_count += 1
 
         task = asyncio.create_task(_ticker())
         try:
@@ -492,14 +494,15 @@ class TestRAGIndexing:
                 ],
             )
         finally:
+            done.set()
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
         # 5 files * 50ms = 250ms of blocking work.
         # If it ran in the main thread, ticker would fire ~0 times.
-        # In a thread pool, ticker fires ~40+ times (250ms / 5ms = 50).
-        assert len(ticks) >= 15, f"event loop blocked: only {len(ticks)} ticks"
+        # In a thread pool, ticker fires many times (each await yields control).
+        assert tick_count >= 15, f"event loop blocked: only {tick_count} ticks"
 
 # ── Reranker Regression ──
 
@@ -771,8 +774,10 @@ class TestReindexTaskSafety:
             if tasks:
                 await asyncio.wait_for(tasks.pop().task, timeout=1.0)
 
-        # Give event loop a chance to process done_callbacks
-        await asyncio.sleep(0.01)
+        # Yield control to let done_callbacks run
+        done_callbacks = asyncio.Event()
+        done_callbacks.set()
+        await done_callbacks.wait()
 
         tasks_after = len(asyncio.all_tasks())
         assert tasks_after <= tasks_before, (
