@@ -170,10 +170,12 @@ async def index_folder(
 
     all_results: dict[str, Any] = {}
     all_errors: list[str] = []
+    processed_any = False
 
     for namespace, docs in docs_by_ns.items():
         if folder and namespace != folder:
             continue
+        processed_any = True
 
         if clear:
             try:
@@ -202,10 +204,20 @@ async def index_folder(
                 "Could not list existing chunks for dedup: %s", exc
             )
 
-        new_docs = [
-            d for d in docs
-            if d.get("metadata", {}).get("source_uri") not in existing_uris
-        ]
+        # Deduplicate: skip documents whose source_uri already exists in index
+        # OR was already seen earlier in this batch (prevents duplicates from
+        # multiple SourceConfig entries pointing to the same file).
+        seen_uris: set[str] = set()
+        new_docs: list[dict[str, Any]] = []
+        for d in docs:
+            uri = d.get("metadata", {}).get("source_uri")
+            if uri is None:
+                new_docs.append(d)
+                continue
+            if uri in existing_uris or uri in seen_uris:
+                continue
+            seen_uris.add(uri)
+            new_docs.append(d)
         skipped = len(docs) - len(new_docs)
         if skipped:
             _logger.info(
@@ -238,6 +250,14 @@ async def index_folder(
             _logger.exception("Indexing failed for namespace %s", namespace)
             all_errors.append(f"Indexing failed for {namespace}: {exc}")
             all_results[namespace] = {"indexed": 0, "chunks": 0}
+
+    if folder and not processed_any:
+        all_errors.append(f"Folder '{folder}' not found in configured sources")
+        return {
+            "success": False,
+            "results": all_results,
+            "errors": all_errors,
+        }
 
     return {
         "success": not any("failed" in e for e in all_errors),

@@ -908,10 +908,10 @@ class TestQueryPrefixParsing:
         assert call_kwargs.get("namespace") == "test"
 
     @pytest.mark.asyncio
-    async def test_prefix_parsing_skipped_when_namespace_explicitly_set(self, mock_state):
+    async def test_prefix_parsing_strips_text_when_namespace_explicitly_set(self, mock_state):
         """Given: req.namespace is explicitly 'test-alt', query contains [t] prefix.
         When: query_rag processes the request.
-        Then: prefix is ignored, 'test-alt' namespace is used."""
+        Then: prefix is stripped from text, but 'test-alt' namespace is preserved."""
         from ai_assistant.features.rag.handlers import query_rag
         from ai_assistant.features.rag.schemas import QueryRequest
 
@@ -932,12 +932,13 @@ class TestQueryPrefixParsing:
 
         call_kwargs = mock_manager.query.call_args.kwargs
         assert call_kwargs.get("namespace") == "test-alt"
+        assert call_kwargs.get("query_text") == "test query"
 
     @pytest.mark.asyncio
     async def test_prefix_parsing_with_explicit_default_namespace(self, mock_state):
         """Given: req.namespace='default' (explicit), query has [t] prefix.
         When: query_rag processes the request.
-        Then: prefix is parsed and namespace switches to 'test'."""
+        Then: prefix is stripped from text, but explicit namespace is preserved."""
         from ai_assistant.features.rag.handlers import query_rag
         from ai_assistant.features.rag.schemas import QueryRequest
 
@@ -957,11 +958,49 @@ class TestQueryPrefixParsing:
         await query_rag(req, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
-        assert call_kwargs.get("namespace") == "test"
+        # Explicit namespace is preserved; only text is stripped
+        assert call_kwargs.get("namespace") == "default"
+        assert call_kwargs.get("query_text") == "test query"
 
 
 class TestRAGHandlersTraceId:
     """All _logger calls in RAG handlers must include extra={"trace_id": ...}."""
+
+    @pytest.mark.asyncio
+    async def test_index_documents_empty_list_returns_error(self, caplog, mock_state):
+        """Given: empty documents list.
+        When: index_documents handler called.
+        Then: returns indexed_count=0 with 'No documents provided' error."""
+        from ai_assistant.features.rag.handlers import index_documents
+        from ai_assistant.features.rag.schemas import IndexRequest
+
+        mock_state.vector_store.save = AsyncMock()
+
+        req = IndexRequest(documents=[], namespace="test")
+        resp = await index_documents(req, mock_state)
+
+        assert resp.indexed_count == 0
+        assert resp.chunk_count == 0
+        assert any("No documents provided" in e for e in resp.errors)
+
+    @pytest.mark.asyncio
+    async def test_index_documents_missing_content_rejected(self, caplog, mock_state):
+        """Given: document without content field.
+        When: index_documents called.
+        Then: document is rejected with error, not indexed as empty string."""
+        from ai_assistant.features.rag.handlers import index_documents
+        from ai_assistant.features.rag.schemas import IndexRequest
+
+        mock_state.vector_store.save = AsyncMock()
+
+        req = IndexRequest(
+            documents=[{"id": "d1", "metadata": {"source": "test.txt"}}],
+            namespace="test",
+        )
+        resp = await index_documents(req, mock_state)
+
+        assert resp.indexed_count == 0
+        assert any("no content" in e.lower() for e in resp.errors)
 
     @pytest.mark.asyncio
     async def test_index_documents_logs_trace_id(self, caplog, mock_state):
@@ -1434,6 +1473,37 @@ class TestReadSources:
         )
         assert result["success"] is False
         assert result["errors"] == ["No sources configured"]
+
+    @pytest.mark.asyncio
+    async def test_index_folder_nonexistent_folder_returns_error(self, tmp_path, mock_chunker, mock_embedder, mock_vector_store):
+        """Given: folder name that does not match any configured namespace.
+        When: index_folder called with that folder.
+        Then: returns success=False with descriptive error."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import index_folder
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "note.md").write_text("hello")
+
+        mock_vector_store.config.index_path = str(tmp_path / "indices")
+
+        result = await index_folder(
+            folder="nonexistent",
+            clear=False,
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+            sources=[
+                SourceConfig(
+                    namespace="test",
+                    path=str(docs_dir),
+                    include=["*.md"],
+                )
+            ],
+        )
+        assert result["success"] is False
+        assert "nonexistent" in result["errors"][0]
 
     @pytest.mark.asyncio
     async def test_index_folder_idempotent(self, tmp_path, mock_chunker, mock_embedder):
