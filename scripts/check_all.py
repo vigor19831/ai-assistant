@@ -723,6 +723,83 @@ def _show_coverage_results(issues: list):
     return False
 
 
+def _audit_test_quality() -> list[str]:
+    """Test rule enforcement — runs in full mode only.
+
+    Each check maps 1:1 to a rule in ai_rules.md §2 or §15.
+    No heuristics that can fire on legitimate code.
+    """
+    import ast
+
+    tests_dir = TESTS
+    if not tests_dir.exists():
+        return []
+
+    issues: list[str] = []
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.violations: list[str] = []
+
+        def visit_Call(self, node: ast.Call) -> None:
+            # §15.3: load_config() ban — unambiguous: function name
+            if isinstance(node.func, ast.Name) and node.func.id == "load_config":
+                self.violations.append("load_config() call (§15.3)")
+
+            # §15 DETERMINISM: time.sleep ban — unambiguous: attribute access
+            if (isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "sleep"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id in ("time", "asyncio")):
+                self.violations.append(f"{node.func.value.id}.sleep() (§15 DETERMINISM)")
+
+            self.generic_visit(node)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            # §6: inline mock ban — whitelist exact names, no regex
+            ALLOWED_MOCKS = frozenset({
+                "MockLLM", "MockEmbedder", "Mock", "AsyncMock", "MagicMock",
+                "NonCallableMock", "PropertyMock",
+            })
+            if node.name.endswith("Mock") and node.name not in ALLOWED_MOCKS:
+                self.violations.append(f"inline mock class '{node.name}' (§6)")
+            self.generic_visit(node)
+
+    for path in tests_dir.rglob("*.py"):
+        if path.name in ("conftest.py", "test_config.py"):
+            continue
+
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+
+        visitor = _Visitor()
+        visitor.visit(tree)
+
+        for v in visitor.violations:
+            rel = path.relative_to(ROOT)
+            issues.append(f"  {rel}: {v}")
+
+    return issues
+
+
+def _show_test_audit_results(issues: list[str]) -> bool:
+    print(f"\n{'='*60}")
+    print("  TEST QUALITY AUDIT")
+    print(f"{'='*60}")
+
+    if not issues:
+        print("\n  [OK] No test quality violations.")
+        return True
+
+    print(f"\n  [!] {len(issues)} violation(s):\n")
+    for issue in issues:
+        print(issue)
+    print("\n  Rules: §15 ISOLATION, §15 DETERMINISM, §6 Mock adapters.")
+    return False
+
+
 def main() -> int:
     # Always log to file in project root
     log = setup_logging()
@@ -792,8 +869,9 @@ def main() -> int:
 
             cov_ok = _show_coverage_results(run_coverage_audit())
             ast_ok = _show_ast_results(*run_ast_audit(SRC))
+            test_ok = _show_test_audit_results(_audit_test_quality())
 
-            ok &= cov_ok and ast_ok
+            ok &= cov_ok and ast_ok and test_ok
 
         else:
             print(f"\n  [ERR] Unknown choice: {choice}")
