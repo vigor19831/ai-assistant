@@ -97,7 +97,7 @@ def _get_config(data: PipelineData) -> PipelineConfig:
 
 
 async def _estimate_tokens(text: str, tokenizer: ITokenizer) -> int:
-    return await asyncio.to_thread(tokenizer.count, text, tokenizer.model_name)
+    return await asyncio.to_thread(tokenizer.count, text)
 
 
 # --- retry helpers for network calls ----------------------------------------

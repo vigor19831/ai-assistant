@@ -28,7 +28,12 @@ class NullReranker(IReranker):
         chunks: list[Chunk],
         top_k: int | None = None,
     ) -> list[RerankResult]:
-        """Return all chunks with score 1.0, preserving original order."""
+        """Return chunks with score 1.0, preserving original order.
+
+        Honors top_k contract: returns at most top_k chunks.
+        """
+        if top_k is not None:
+            chunks = chunks[:top_k]
         return [RerankResult(chunk=c, score=1.0) for c in chunks]
 
     async def shutdown(self) -> None:

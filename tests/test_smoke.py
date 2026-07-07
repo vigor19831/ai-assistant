@@ -707,19 +707,18 @@ def test_pipeline_steps_no_kwargs_smoke() -> None:
 
 @pytest.mark.smoke
 class TestConfigLoads:
-    """Smoke: config loads correctly."""
+    """Smoke: AppConfig constructs correctly with matching dimensions."""
 
     def test_config_loads(self):
-        """Given: config.test.yaml exists.
-        When: load_config is called.
-        Then: returns valid AppConfig with matching dimensions."""
-        from ai_assistant.core.config import load_config, AppConfig
+        """Given: inline AppConfig with matching dimensions.
+        When: constructed directly.
+        Then: embedder.dim equals vector_store.dim."""
+        from ai_assistant.core.config import AppConfig
 
-        config_path = _project_root() / "tests" / "config.test.yaml"
-        if not config_path.exists():
-            pytest.skip("config.test.yaml not found")
-        cfg = load_config(str(config_path))
-        assert isinstance(cfg, AppConfig)
+        cfg = AppConfig(
+            embedder={"dim": 768, "provider": "mock"},
+            vector_store={"dim": 768, "provider": "memory"},
+        )
         assert cfg.embedder.dim == cfg.vector_store.dim
 
 

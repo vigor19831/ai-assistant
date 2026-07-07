@@ -75,12 +75,30 @@ async def index_documents(
         vector_store=state.vector_store,
     )
 
-    # -- Resource guard: document size --
+    # -- Resource guard: document size and content presence --
+    if not req.documents:
+        _logger.info(
+            "Index documents: no documents provided",
+            extra={"trace_id": trace_id, "namespace": namespace},
+        )
+        return IndexResponse(
+            indexed_count=0,
+            chunk_count=0,
+            namespace=namespace,
+            errors=["No documents provided"],
+        )
+
     max_doc_size = state.config.vector_store.max_document_size
     filtered_docs: list[dict[str, Any]] = []
     pre_errors: list[str] = []
     for doc in req.documents:
-        content = doc.get("content") or ""
+        content = doc.get("content")
+        if content is None:
+            doc_id = doc.get("id", "unknown")
+            pre_errors.append(
+                f"Document {doc_id} has no content field"
+            )
+            continue
         size = len(content.encode("utf-8"))
         if size > max_doc_size:
             doc_id = doc.get("id", "unknown")
@@ -147,13 +165,14 @@ async def query_rag(
     ns = req.namespace or cfg.default_namespace
     query_text = req.query
 
-    # Fallback: if namespace equals default, try parsing from query text
-    if ns == cfg.default_namespace:
-        prefix_map = build_prefix_map(state.config.namespaces)
-        parsed_text, parsed_ns = parse_rag_query(req.query, prefix_map)
-        if parsed_ns is not None:
-            query_text = parsed_text
-            ns = parsed_ns
+    # Always strip prefix from query text; use parsed namespace only if
+    # no explicit namespace was requested (req.namespace is None).
+    prefix_map = build_prefix_map(state.config.namespaces)
+    parsed_text, parsed_ns = parse_rag_query(req.query, prefix_map)
+    if parsed_text != req.query:
+        query_text = parsed_text
+    if parsed_ns is not None and req.namespace is None:
+        ns = parsed_ns
     ns_cfg = state.config.namespaces.get(ns)
 
     # Per-namespace overrides with global fallback
@@ -223,7 +242,7 @@ async def delete_chunks(
             )
             to_delete = []
             for chunk_id, meta in all_chunks:
-                if meta.get("source") in req.document_ids:
+                if meta.get("source") in req.document_ids or meta.get("source_uri") in req.document_ids:
                     to_delete.append(chunk_id)
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
@@ -306,6 +325,14 @@ async def save_chat(
     folder_resolved = await asyncio.to_thread(folder.resolve)
     exports_root_resolved = await asyncio.to_thread(exports_root.resolve)
 
+    # Defense in depth: also block traversal in resolved namespace path
+    if ".." in folder.as_posix().split("/"):
+        _logger.warning(
+            "Path traversal detected in save-chat namespace",
+            extra={"trace_id": trace_id, "namespace": namespace},
+        )
+        raise HTTPException(status_code=400, detail="Invalid namespace")
+
     if not folder_resolved.is_relative_to(exports_root_resolved):
         _logger.warning(
             "Invalid namespace path in save-chat",
@@ -351,12 +378,11 @@ async def save_chat(
     )
     chat_namespace = _get_chat_namespace(namespace)
     if chat_namespace in existing_namespaces:
-        # Check if it's actually a user-created namespace (not our chat export)
-        # by looking for any non-chat_export type chunks
-        non_chat_chunks = await state.vector_store.list_by_filter(
-            {"type": "document"}, namespace=chat_namespace
+        # Check if namespace already has any chunks (regardless of type)
+        any_chunks = await state.vector_store.list_by_filter(
+            {}, namespace=chat_namespace
         )
-        if non_chat_chunks:
+        if any_chunks:
             _logger.warning(
                 "Namespace collision detected",
                 extra={
@@ -455,13 +481,26 @@ async def reindex_documents(
 
     async def _run() -> dict[str, Any]:
         try:
-            async with asyncio.timeout(14400.0):  # 4 hours
-                async with rag_state.semaphore:
-                    await rag_state.start_task(task_id)
-                    await rag_state._cleanup_old_status()
-                    # If clearing, also clear associated chat namespaces
-                    if clear and folder is not None:
-                        chat_ns = _get_chat_namespace(folder)
+            async with rag_state.semaphore:
+                await rag_state.start_task(task_id)
+                # If clearing, also clear associated chat namespaces
+                if clear:
+                    if folder is not None:
+                        chat_namespaces = [_get_chat_namespace(folder)]
+                    else:
+                        # Clear chat namespaces for ALL existing namespaces
+                        try:
+                            all_namespaces = await state.vector_store.list_namespaces(
+                                state.config.vector_store.index_path
+                            )
+                        except Exception:
+                            all_namespaces = []
+                        chat_namespaces = [
+                            _get_chat_namespace(ns)
+                            for ns in all_namespaces
+                            if not ns.startswith("chat_")
+                        ]
+                    for chat_ns in chat_namespaces:
                         try:
                             all_chat_chunks = await state.vector_store.list_by_filter(
                                 {}, namespace=chat_ns
@@ -488,6 +527,7 @@ async def reindex_documents(
                                 },
                             )
 
+                async with asyncio.timeout(14400.0):  # 4 hours
                     result = await index_folder(
                         folder=folder,
                         clear=clear,
@@ -497,12 +537,12 @@ async def reindex_documents(
                         max_file_size=state.config.vector_store.max_document_size,
                         sources=state.config.rag.sources,
                     )
-                    await rag_state.complete_task(task_id, result)
-                    _logger.info(
-                        "Reindex completed",
-                        extra={"trace_id": trace_id, "task_id": task_id},
-                    )
-                    return result
+                await rag_state.complete_task(task_id, result)
+                _logger.info(
+                    "Reindex completed",
+                    extra={"trace_id": trace_id, "task_id": task_id},
+                )
+                return result
         except TimeoutError:
             _logger.error(
                 "Reindex timed out after 4 hours",
@@ -510,6 +550,13 @@ async def reindex_documents(
             )
             await rag_state.fail_task(task_id, "Reindex timed out after 4 hours")
             return {"error": "Reindex timed out after 4 hours"}
+        except asyncio.CancelledError:
+            _logger.warning(
+                "Reindex cancelled",
+                extra={"trace_id": trace_id, "task_id": task_id},
+            )
+            await rag_state.fail_task(task_id, "Reindex cancelled")
+            raise
         except Exception as exc:
             _logger.exception(
                 "Background reindex failed",

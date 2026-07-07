@@ -57,5 +57,10 @@ class RAGPipeline:
         """
         required: set[str] = set()
         for step_func in self.steps:
-            required |= getattr(step_func, "_step_requires", set())
+            step_requires = getattr(step_func, "_step_requires", None)
+            if step_requires is None:
+                raise ConfigurationError(
+                    f"Step {step_func.__name__} is not decorated with @step"
+                )
+            required |= step_requires
         return required

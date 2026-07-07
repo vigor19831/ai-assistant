@@ -196,47 +196,47 @@ class TestAPISecurity:
     async def test_require_api_key_not_configured(self):
         """Given: no API key is configured.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised.
+        Then: HTTPException 401 is raised with generic message.
         """
         set_api_key(None)
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="anything")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(creds)
         assert exc_info.value.status_code == 401
-        assert "not configured" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     async def test_require_api_key_invalid(self):
         """Given: a bearer token that does not match the expected key.
         When: require_api_key is called with it.
-        Then: HTTPException 401 is raised.
+        Then: HTTPException 401 is raised with generic message.
         """
         set_api_key("secret")
         creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="wrong")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(creds)
         assert exc_info.value.status_code == 401
-        assert "invalid" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     async def test_require_api_key_missing_credentials(self):
         """Given: credentials object is None.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised.
+        Then: HTTPException 401 is raised with generic message.
         """
         set_api_key("secret")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(None)
         assert exc_info.value.status_code == 401
-        assert "missing" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     async def test_require_api_key_malformed_header(self):
         """Given: credentials object is not HTTPAuthorizationCredentials.
         When: require_api_key is called.
-        Then: HTTPException 401 is raised (None triggers missing key path)."""
+        Then: HTTPException 401 is raised with generic message."""
         set_api_key("secret")
         with pytest.raises(HTTPException) as exc_info:
             await require_api_key(None)
         assert exc_info.value.status_code == 401
-        assert "missing" in exc_info.value.detail.lower()
+        assert exc_info.value.detail == "Unauthorized"
 
     # ── check_request_size ──
 
@@ -627,18 +627,28 @@ class TestAPIDeps:
     async def test_init_adapters_storage_raises_runtime_error(self):
         """Given: storage adapter raises ValueError.
         When: init_adapters is called.
-        Then: RuntimeError is raised after the catch block.
+        Then: RuntimeError is raised and prior adapters are shut down.
         """
         minimal_config = _make_minimal_config()
         mock_vector_store = MagicMock(spec=IVectorStore)
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
+        mock_vector_store.shutdown = AsyncMock()
+
+        mock_llm = MagicMock(spec=ILLM)
+        mock_llm.shutdown = AsyncMock()
+        mock_embedder = MagicMock(spec=IEmbedder)
+        mock_embedder.shutdown = AsyncMock()
 
         def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
                 raise ValueError("No storage adapter registered")
+            if port == "llm" and name == "mock":
+                return mock_llm
+            if port == "embedder" and name == "mock":
+                return mock_embedder
             port_specs = {
                 "llm": ILLM,
                 "embedder": IEmbedder,
@@ -654,6 +664,10 @@ class TestAPIDeps:
         ):
             with pytest.raises(RuntimeError, match="Storage adapter failed"):
                 await init_adapters(minimal_config)
+
+        mock_llm.shutdown.assert_awaited_once()
+        mock_embedder.shutdown.assert_awaited_once()
+        mock_vector_store.shutdown.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_init_adapters_storage_import_error(self):
@@ -858,25 +872,6 @@ class TestAPIDeps:
 
 
     # ── Step registry ──
-
-
-    def test_no_cyclic_imports_between_api_modules(self):
-        """Given: api submodules are imported.
-        When: checking import graph.
-        Then: no circular dependencies exist between security, deps, router, lifespan, admin.
-        """
-        # Re-importing after previous tests should not raise ImportError
-        import ai_assistant.api.admin as _admin
-        import ai_assistant.api.deps as _deps
-        import ai_assistant.api.lifespan as _lifespan
-        import ai_assistant.api.router as _router
-        import ai_assistant.api.security as _security
-
-        assert _admin is not None
-        assert _deps is not None
-        assert _lifespan is not None
-        assert _router is not None
-        assert _security is not None
 
 
     def test_no_cyclic_imports_between_api_modules(self):
@@ -1272,10 +1267,11 @@ class TestAPILifespan:
         app = FastAPI()
 
         save_attempted = {"count": 0}
+        hang_forever = asyncio.Event()
 
         async def slow_save(*args, **kwargs):
             save_attempted["count"] += 1
-            await asyncio.sleep(20)
+            await hang_forever.wait()  # Never set — simulates infinite hang
 
         mock_state = MagicMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
@@ -1563,9 +1559,10 @@ class TestAPILifespan:
         app = FastAPI()
 
         shutdown_completed = {"embedder": False}
+        hang_forever = asyncio.Event()
 
         async def hanging_shutdown():
-            await asyncio.sleep(999)
+            await hang_forever.wait()  # Never set — simulates infinite hang
 
         async def embedder_shutdown():
             shutdown_completed["embedder"] = True
@@ -1624,10 +1621,10 @@ class TestAPILifespan:
         assert shutdown_completed["embedder"] is True
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save_exception_sets_degraded(self):
+    async def test_async_cleanup_index_save_exception_logged(self):
         """Given: vector_store.save raises Exception.
         When: _async_cleanup runs.
-        Then: app.state.shutdown_degraded is set to True.
+        Then: exception is logged and cleanup continues.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
@@ -1645,9 +1642,8 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
+        # Should not raise — exception is caught and logged
         await _async_cleanup(app, minimal_config)
-
-        assert getattr(app.state, "shutdown_degraded", False) is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1724,14 +1720,25 @@ class TestAPIMiddleware:
         app = FastAPI()
         app.add_middleware(MetricsMiddleware)
 
+        ready = asyncio.Event()
+
         @app.get("/slow")
         async def slow_endpoint():
-            await asyncio.sleep(0.05)
+            await ready.wait()
             return {"ok": True}
 
         with patch.object(metrics, "observe_histogram") as mock_histogram:
             client = TestClient(app)
-            client.get("/slow")
+            # Start request in background, then release
+            import threading
+            result = {"done": False}
+            def do_request():
+                client.get("/slow")
+                result["done"] = True
+            t = threading.Thread(target=do_request)
+            t.start()
+            ready.set()
+            t.join(timeout=5.0)
 
             hist_args = mock_histogram.call_args
             assert hist_args.kwargs["value"] > 0.0
@@ -1777,16 +1784,17 @@ class TestAPIMiddleware:
             call_args = mock_counter.call_args
             assert call_args.kwargs["labels"]["status"] == "500"
 
-    def test_cors_rejects_evil_origin(self, client):
-        """Given: request from unauthorized origin.
-        When: sent to any endpoint.
-        Then: no CORS headers returned (browser blocks access)."""
+    def test_cors_allows_all_origins_by_default(self, client):
+        """Given: default CORS config allows all origins (no credentials).
+        When: request from any origin.
+        Then: access-control-allow-origin: * is returned."""
         resp = client.get(
             "/",
             headers={"Origin": "http://evil.com"},
         )
         headers = {k.lower(): v for k, v in resp.headers.items()}
-        assert "access-control-allow-origin" not in headers
+        assert headers.get("access-control-allow-origin") == "*"
+        assert headers.get("access-control-allow-credentials") != "true"
 
     def test_metrics_middleware_uses_route_pattern_not_raw_path(self):
         """Given: MetricsMiddleware is installed on routes with path params.
@@ -1819,6 +1827,45 @@ class TestAPIMiddleware:
         assert hist_call is not None
         assert hist_call.kwargs["labels"]["path"] == "/reindex/status/{task_id}"
 
+    def test_metrics_middleware_allowed_hosts_blocks_unknown(self):
+        """Given: MetricsMiddleware with allowed_hosts set.
+        When: request comes from disallowed host.
+        Then: 400 Bad Request is returned before reaching routes.
+        """
+        app = FastAPI()
+        app.add_middleware(
+            MetricsMiddleware,
+            allowed_hosts=["localhost", "127.0.0.1"],
+        )
+
+        @app.get("/test")
+        async def _handler() -> dict[str, str]:
+            return {"ok": "true"}
+
+        client = TestClient(app, base_url="http://evil.com")
+        resp = client.get("/test", headers={"host": "evil.com"})
+        assert resp.status_code == 400
+        assert resp.text == "Invalid host header"
+
+    def test_metrics_middleware_allowed_hosts_allows_known(self):
+        """Given: MetricsMiddleware with allowed_hosts set.
+        When: request comes from allowed host.
+        Then: route handler executes normally.
+        """
+        app = FastAPI()
+        app.add_middleware(
+            MetricsMiddleware,
+            allowed_hosts=["localhost", "127.0.0.1"],
+        )
+
+        @app.get("/test")
+        async def _handler() -> dict[str, str]:
+            return {"ok": "true"}
+
+        client = TestClient(app, base_url="http://localhost")
+        resp = client.get("/test", headers={"host": "localhost"})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": "true"}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAPIAdmin

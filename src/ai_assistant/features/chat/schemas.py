@@ -25,14 +25,6 @@ class ChatResponse(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class ChatStreamChunk(BaseModel):
-    """SSE stream chunk."""
-
-    delta: str
-    conversation_id: str
-    finished: bool = False
-
-
 # --- OpenAI-compatible schemas ---
 
 
@@ -95,7 +87,6 @@ class OAIModelList(BaseModel):
 __all__ = [
     "ChatRequest",
     "ChatResponse",
-    "ChatStreamChunk",
     "OAIChatMessage",
     "OAIChatCompletionRequest",
     "OAIChoice",

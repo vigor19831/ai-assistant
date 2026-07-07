@@ -170,7 +170,8 @@ File review checklist (output findings only, skip if clean):
 - MOCKS: Port mocks use `spec=` or `autospec=`
 - ENCAPSULATION: No access to `_private` fields in assertions
 - DETERMINISM: No `time.sleep()`, no wall-clock asserts without monkeypatch
-- BEHAVIOR: Asserts state/result, not just mock call counts
+- BEHAVIOR: Asserts state/result, not just `assert_called_once()`.
+- MIGRATION: Config backward-compat loaders must have tests with inline old-format dicts; never depend on real `config.yaml`.
 
 ## 10. Decision Hierarchy
 

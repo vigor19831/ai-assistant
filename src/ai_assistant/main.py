@@ -31,7 +31,15 @@ def _load_cors_config(state: InitializedAppState | None) -> CORSConfig:
     if state is not None:
         return state.config.cors
     config_path = os.getenv("AI_CONFIG_PATH", "config.yaml")
-    return load_config(config_path).cors
+    try:
+        return load_config(config_path).cors
+    except (FileNotFoundError, ValueError):
+        return CORSConfig(
+            allow_origins=[],
+            allow_credentials=False,
+            allow_methods=["GET"],
+            allow_headers=[],
+        )
 
 
 def create_app(
@@ -57,11 +65,16 @@ def create_app(
         allow_methods=list(cors_cfg.allow_methods),
         allow_headers=list(cors_cfg.allow_headers),
     )
-    app.add_middleware(MetricsMiddleware)
 
     security: SecurityConfig | None = None
     if state is not None:
         security = state.config.security
+
+    app.add_middleware(
+        MetricsMiddleware,
+        allowed_hosts=security.allowed_hosts if security is not None else [],
+    )
+
     for router in assemble_routers(security=security):
         app.include_router(router)
 

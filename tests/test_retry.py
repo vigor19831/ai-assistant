@@ -11,7 +11,6 @@ test cases.
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import Callable
 from typing import Any
 
@@ -37,13 +36,6 @@ class _CallTracker:
         if len(self.calls) <= self.fail_n:
             raise self.exc(f"fail #{len(self.calls)}")
         return "success"
-
-    def sync_call(self, *args: Any, **kwargs: Any) -> str:
-        self.calls.append((args, kwargs))
-        if len(self.calls) <= self.fail_n:
-            raise self.exc(f"fail #{len(self.calls)}")
-        return "success"
-
 
 # ---------------------------------------------------------------------------
 # Async tests
@@ -172,71 +164,75 @@ async def test_retry_backoff_increases_delay():
 # Sync tests
 # ---------------------------------------------------------------------------
 
-def test_retry_sync_version():
-    """Given: synchronous function with transient failures.
+@pytest.mark.asyncio
+async def test_retry_async_version():
+    """Given: async function with transient failures.
     When: decorated with @with_retry.
-    Then: retries work identically to async version.
+    Then: retries work.
     """
     tracker = _CallTracker(fail_n=2)
 
     @with_retry(max_retries=3, delay=0.01)
-    def fn() -> str:
-        return tracker.sync_call()
+    async def fn() -> str:
+        return await tracker.async_call()
 
-    result = fn()
+    result = await fn()
     assert result == "success"
     assert len(tracker.calls) == 3
 
 
-def test_retry_max_delay_cap():
+@pytest.mark.asyncio
+async def test_retry_max_delay_cap():
     """Given: backoff would exceed max_delay.
     When: delay=1.0, backoff=10.0, max_delay=5.0.
     Then: delays are capped at 5.0.
     """
     tracker = _CallTracker(fail_n=7)
     delays: list[float] = []
-    original_sleep = time.sleep
+    original_sleep = asyncio.sleep
 
-    def _instrumented_sleep(delay: float) -> None:
+    async def _instrumented_sleep(delay: float) -> None:
         delays.append(delay)
-        # no actual sleep to keep test fast
+        await original_sleep(0.001)  # keep test fast
 
     @with_retry(max_retries=6, delay=1.0, backoff=10.0, max_delay=5.0)
-    def fn() -> str:
-        return tracker.sync_call()
+    async def fn() -> str:
+        return await tracker.async_call()
 
-    time.sleep = _instrumented_sleep  # type: ignore[assignment]
+    asyncio.sleep = _instrumented_sleep  # type: ignore[assignment]
     try:
         with pytest.raises(RuntimeError):
-            fn()
+            await fn()
     finally:
-        time.sleep = original_sleep  # type: ignore[assignment]
+        asyncio.sleep = original_sleep  # type: ignore[assignment]
 
     assert all(d <= 5.0 for d in delays)
 
 
-def test_retry_jitter_bounds():
+@pytest.mark.asyncio
+async def test_retry_jitter_bounds():
     """Given: jitter=True.
     When: function fails.
     Then: actual delay is in [0, nominal_delay] for each retry.
     """
     tracker = _CallTracker(fail_n=5)
     delays: list[float] = []
-    original_sleep = time.sleep
+    original_sleep = asyncio.sleep
 
-    def _instrumented_sleep(delay: float) -> None:
+    async def _instrumented_sleep(delay: float) -> None:
         delays.append(delay)
+        await original_sleep(0.001)  # keep test fast
 
     @with_retry(max_retries=4, delay=1.0, jitter=True)
-    def fn() -> str:
-        return tracker.sync_call()
+    async def fn() -> str:
+        return await tracker.async_call()
 
-    time.sleep = _instrumented_sleep  # type: ignore[assignment]
+    asyncio.sleep = _instrumented_sleep  # type: ignore[assignment]
     try:
         with pytest.raises(RuntimeError):
-            fn()
+            await fn()
     finally:
-        time.sleep = original_sleep  # type: ignore[assignment]
+        asyncio.sleep = original_sleep  # type: ignore[assignment]
 
     assert len(delays) == 4
     # Jitter: each delay is in [0, current_delay]
@@ -251,7 +247,8 @@ def test_retry_jitter_bounds():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("exc_cls", _PERMANENT_ERRORS)
-def test_all_permanent_errors_are_non_retryable(exc_cls: type[Exception]) -> None:
+@pytest.mark.asyncio
+async def test_all_permanent_errors_are_non_retryable(exc_cls: type[Exception]) -> None:
     """Given: any exception in _PERMANENT_ERRORS.
     When: raised by decorated function.
     Then: no retries occur.
@@ -259,12 +256,12 @@ def test_all_permanent_errors_are_non_retryable(exc_cls: type[Exception]) -> Non
     calls: list[int] = []
 
     @with_retry(max_retries=5)
-    def fn() -> str:
+    async def fn() -> str:
         calls.append(len(calls) + 1)
         raise exc_cls("permanent")
 
     with pytest.raises(exc_cls):
-        fn()
+        await fn()
     assert len(calls) == 1
 
 
@@ -272,7 +269,8 @@ def test_all_permanent_errors_are_non_retryable(exc_cls: type[Exception]) -> Non
 # Edge cases
 # ---------------------------------------------------------------------------
 
-def test_retry_zero_max_retries():
+@pytest.mark.asyncio
+async def test_retry_zero_max_retries():
     """Given: max_retries=0.
     When: function fails.
     Then: raises after 1 attempt.
@@ -280,11 +278,11 @@ def test_retry_zero_max_retries():
     tracker = _CallTracker(fail_n=1)
 
     @with_retry(max_retries=0, delay=0.01)
-    def fn() -> str:
-        return tracker.sync_call()
+    async def fn() -> str:
+        return await tracker.async_call()
 
     with pytest.raises(RuntimeError):
-        fn()
+        await fn()
     assert len(tracker.calls) == 1
 
 

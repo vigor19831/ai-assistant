@@ -57,8 +57,8 @@ __all__ = [
 
 class CORSConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_CORS_", extra="forbid")
-    allow_origins: list[str] = Field(default_factory=list)
-    allow_credentials: bool = True
+    allow_origins: list[str] = Field(default_factory=lambda: ["*"])
+    allow_credentials: bool = False
     allow_methods: list[str] = Field(default_factory=lambda: ["*"])
     allow_headers: list[str] = Field(default_factory=lambda: ["*"])
 
@@ -181,6 +181,19 @@ class SourceConfig(BaseModel):
     include: list[str] = Field(default_factory=lambda: ["*.md", "*.txt"])
     recursive: bool = True
 
+    @field_validator("path")
+    @classmethod
+    def _reject_traversal_and_absolute(cls, v: str) -> str:
+        """Reject absolute paths and path traversal in source paths."""
+        v = v.strip()
+        if not v:
+            raise ValueError("path must be non-empty")
+        if v.startswith("/") or v.startswith("\\") or v.startswith("~"):
+            raise ValueError(f"path must be relative, got: {v}")
+        if ".." in Path(v).parts:
+            raise ValueError(f"path contains traversal, got: {v}")
+        return v
+
 
 class RAGConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_RAG_", extra="forbid")
@@ -212,23 +225,31 @@ class RAGConfig(BaseSettings):
 
         If 'sources' is absent but 'documents_root' is present,
         create a single SourceConfig from documents_root with default filters.
+        If both are present, append documents_root as an additional source
+        to prevent silent data loss.
         Always strips documents_root to satisfy extra="forbid".
         """
         if type(v) is not dict:
             return v
         if "documents_root" in v:
-            if "sources" not in v:
+            migrated_source = {
+                "namespace": "default",
+                "path": v["documents_root"],
+                "include": ["*.md", "*.txt", "*.py", "*.json", "*.yaml", "*.yml", "*.csv", "*.log"],
+                "recursive": True,
+            }
+            existing_sources = v.get("sources")
+            if type(existing_sources) is list:
+                # Prepend migrated source so old path is not lost
+                v = {
+                    **v,
+                    "sources": [migrated_source, *existing_sources],
+                }
+            else:
                 # Migrate old flat folder to new source format
                 v = {
                     **v,
-                    "sources": [
-                        {
-                            "namespace": "default",
-                            "path": v["documents_root"],
-                            "include": ["*.md", "*.txt", "*.py", "*.json", "*.yaml", "*.yml", "*.csv", "*.log"],
-                            "recursive": True,
-                        }
-                    ],
+                    "sources": [migrated_source],
                 }
             # Always remove the old key so extra="forbid" doesn't choke
             v = {k: val for k, val in v.items() if k != "documents_root"}
@@ -237,12 +258,16 @@ class RAGConfig(BaseSettings):
     @field_validator("chat_exports_root")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
-        """Normalize path: strip trailing slashes, reject absolute paths."""
+        """Normalize path: strip trailing slashes, reject absolute paths and traversal."""
         v = v.strip()
         if not v:
             raise ValueError("path must be non-empty")
         if v.startswith("/") or v.startswith("\\") or v.startswith("~"):
             raise ValueError(f"path must be relative, got: {v}")
+        # Reject path traversal attempts before they reach filesystem
+        normalized = Path(v).as_posix()
+        if ".." in normalized.split("/"):
+            raise ValueError(f"path contains traversal, got: {v}")
         return v.rstrip("/").rstrip("\\")
 
 
@@ -264,7 +289,11 @@ class NamespaceConfig(BaseModel):
     relevance_threshold: float = Field(default=0.1, validation_alias="threshold")
     chunk_size: int = 512
     prompt: str = "rag_strict"
-    prefix: str | None = None
+    prefix: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Single-character prefix for RAG query routing. Empty string is not allowed.",
+    )
 
 
 class LoggingConfig(BaseSettings):

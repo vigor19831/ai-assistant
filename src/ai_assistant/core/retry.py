@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import inspect
 import random
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
@@ -53,7 +51,7 @@ async def _async_retry_loop(
     for attempt in range(max_retries + 1):
         try:
             return await coro()
-        except (SystemExit, KeyboardInterrupt):
+        except (SystemExit, KeyboardInterrupt, TimeoutError):
             raise
         except _PERMANENT_ERRORS:
             raise
@@ -93,33 +91,7 @@ def with_retry(
                 jitter=jitter,
             )
 
-        @functools.wraps(func)
-        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception: Exception | None = None
-            current_delay = delay
-            for attempt in range(max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except (SystemExit, KeyboardInterrupt):
-                    raise
-                except _PERMANENT_ERRORS:
-                    raise
-                except Exception as e:
-                    last_exception = e
-                    if attempt < max_retries:
-                        sleep_for = current_delay
-                        if jitter:
-                            sleep_for = random.uniform(0, sleep_for)
-                        if max_delay is not None:
-                            sleep_for = min(sleep_for, max_delay)
-                        time.sleep(sleep_for)
-                        current_delay *= backoff
-            if last_exception is None:
-                raise RuntimeError("last_exception is None after retry loop")
-            raise last_exception
-
-        wrapper = async_wrapper if inspect.iscoroutinefunction(func) else sync_wrapper
-        return cast("F", wrapper)
+        return cast("F", async_wrapper)
 
     return decorator
 

@@ -22,8 +22,10 @@ def parse_rag_query(text: str, prefix_map: dict[str, str]) -> tuple[str, str | N
     Returns:
         (clean_text, namespace). namespace is None when no prefix matches.
     """
-    if not text or not prefix_map:
+    if not text:
         return ("", None)
+    if not prefix_map:
+        return (text, None)
 
     escaped = [re.escape(k) for k in prefix_map]
     pattern = re.compile(r"^\[(" + "|".join(escaped) + r")\]\s*(.*)", re.IGNORECASE)
@@ -42,6 +44,6 @@ def build_prefix_map(namespaces: Mapping[str, object]) -> dict[str, str]:
     result: dict[str, str] = {}
     for ns_name, cfg in namespaces.items():
         prefix = getattr(cfg, "prefix", None)
-        if prefix:
-            result[prefix] = ns_name
+        if prefix and len(prefix) >= 1:
+            result[prefix.lower()] = ns_name
     return result

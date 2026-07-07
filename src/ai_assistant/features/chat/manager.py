@@ -118,7 +118,6 @@ class ChatManager:
         reranker: IReranker,
         storage: IChatStorage | None = None,
         history_limit: int = 10,
-        max_history_messages: int = 10_000,
         max_context_tokens: int | None = None,
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
@@ -134,7 +133,6 @@ class ChatManager:
         self.reranker = reranker
         self.storage = storage
         self.history_limit = history_limit
-        self.max_history_messages = max_history_messages
         self.max_context_tokens = max_context_tokens
         self.embedder = embedder
         self.vector_store = vector_store
@@ -194,7 +192,7 @@ class ChatManager:
     async def _count_tokens(self, text: str) -> int:
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer not configured")
-        return await asyncio.to_thread(self.tokenizer.count, text, self.tokenizer.model_name)
+        return await asyncio.to_thread(self.tokenizer.count, text)
 
     async def _trim_history(
         self,
@@ -317,7 +315,7 @@ class ChatManager:
             try:
                 history = await self.storage.get_history(
                     conversation_id,
-                    limit=min(self.history_limit, self.max_history_messages),
+                    limit=self.history_limit,
                     offset=0,
                 )
                 try:

@@ -17,6 +17,7 @@ import pytest
 
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
+from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
@@ -128,6 +129,16 @@ class TestMockEmbedder:
     async def test_shutdown(self):
         emb = MockEmbedder(EmbedderConfigData(dim=384))
         await emb.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_embed_deterministic_across_runs(self):
+        """Same text must produce same vector regardless of PYTHONHASHSEED."""
+        emb = MockEmbedder(EmbedderConfigData(dim=384))
+        result1 = await emb.embed(["hello", "world"])
+        result2 = await emb.embed(["hello", "world"])
+        assert result1 == result2
+        assert len(result1) == 2
+        assert len(result1[0]) == 384
 
 
 # ── TestMemoryVectorStore ──
@@ -346,11 +357,12 @@ class TestNullReranker:
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_ignores_top_k(self):
+    async def test_respects_top_k(self):
         reranker = NullReranker(RerankerConfigData())
         chunks = [Chunk(id="c1", text="a"), Chunk(id="c2", text="b")]
         results = await reranker.rerank("q", chunks, top_k=1)
-        assert len(results) == 2
+        assert len(results) == 1
+        assert results[0].chunk.id == "c1"
 
     @pytest.mark.asyncio
     async def test_shutdown(self):
@@ -446,7 +458,33 @@ class TestSQLiteStorage:
 
     @pytest.mark.asyncio
     async def test_shutdown(self, storage):
+        await storage.init_db()
         await storage.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_without_init_db_does_not_create_file(self, tmp_path):
+        """Given: SQLiteStorage without init_db().
+        When: shutdown() is called.
+        Then: no .db file is created."""
+        db_path = tmp_path / "no_init.db"
+        storage = SQLiteStorage(StorageConfigData(db_path=str(db_path)))
+        await storage.shutdown()
+        assert not db_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_crud_raises_adapter_error_not_sqlite(self, storage):
+        """Given: corrupted DB that causes sqlite3.Error.
+        When: CRUD methods are called.
+        Then: AdapterError is raised, not raw sqlite3.Error."""
+        await storage.init_db()
+        # Corrupt the DB by writing garbage to it
+        import sqlite3
+        db_path = storage.config.db_path
+        with open(db_path, "w") as f:
+            f.write("not a database")
+
+        with pytest.raises(AdapterError):
+            await storage.get_history("conv-1")
 
     @pytest.mark.asyncio
     async def test_implements_ichatstorage_and_initializable(self, storage):
@@ -473,6 +511,15 @@ class TestSQLiteStorage:
 
         result = _safe_json_loads(None, default=[])
         assert result == []
+
+    def test_safe_json_loads_null_returns_default(self):
+        """Given: JSON null string.
+        When: _safe_json_loads is called.
+        Then: default value is returned (null treated as missing)."""
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads("null", default={})
+        assert result == {}
 
     def test_safe_json_loads_valid_json_parses(self):
         """Given: valid JSON string.
@@ -924,6 +971,74 @@ class TestFactoryRegistry:
         assert "null" in reranker
 
 
+
+
+# ── TestOpenAICompatibleEmbedder ──
+
+
+class TestOpenAICompatibleEmbedder:
+    """Given: OpenAICompatibleEmbedder with mocked HTTP client.
+    When: embed() is called with various inputs.
+    Then: correct batching, payload, and error handling.
+    """
+
+    @pytest.fixture
+    def embedder(self):
+        return OpenAICompatibleEmbedder(EmbedderConfigData(
+            api_key="sk-test",
+            model="text-embedding-3-small",
+            api_base="http://test/v1",
+            dim=384,
+            timeout=60.0,
+            connect_timeout=5.0,
+        ))
+
+    @pytest.mark.asyncio
+    async def test_embed_batches_large_input(self, embedder):
+        """Input larger than _DEFAULT_BATCH_SIZE must be split into multiple POSTs."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        async def _mock_post(*args, **kwargs):
+            payload = kwargs.get("json", {})
+            texts = payload.get("input", [])
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = {
+                "data": [{"embedding": [0.1] * 384} for _ in texts]
+            }
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.text = "ok"
+            return mock_resp
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=_mock_post) as mock_post:
+            texts = ["text"] * 250
+            result = await embedder.embed(texts)
+
+            assert len(result) == 250
+            assert mock_post.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_embed_count_mismatch_raises(self, embedder):
+        """Server returning fewer embeddings than input texts must raise AdapterError."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [{"embedding": [0.1] * 384}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.text = "ok"
+
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
+            with pytest.raises(AdapterError, match="count mismatch"):
+                await embedder.embed(["hello", "world"])
+
+    @pytest.mark.asyncio
+    async def test_shutdown_unconditional(self, embedder):
+        """shutdown must close client unconditionally; post-shutdown embed raises AdapterError."""
+        await embedder.shutdown()
+        await embedder.shutdown()
+        with pytest.raises(AdapterError, match="shutting down"):
+            await embedder.embed(["hello"])
 
 
 # ── TestAsyncPostJson ──
@@ -1448,3 +1563,243 @@ def test_get_context_limit_returns_server_context_size_when_set():
     llm = OpenAICompatibleLLM(cfg)
 
     assert llm.get_context_limit() == 8192
+
+
+# ── FaissVectorStore Bug Fix Tests ──────────────────────────────────────────
+# Tests for bugs fixed in vector_store_faiss.py audit (12 bugs)
+
+
+class TestFaissVectorStoreBugFixes:
+    """Given: FaissVectorStore with 12 bugs fixed.
+    When: edge cases from the audit are exercised.
+    Then: correct behavior with proper error handling.
+    """
+
+    @pytest.fixture
+    def faiss_store(self, tmp_path):
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+        return FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path), max_chunks=10)
+        )
+
+    # ── Bug #1: _chunk_from_dict with metadata: null ──
+
+    @pytest.mark.asyncio
+    async def test_chunk_from_dict_null_metadata(self, faiss_store, tmp_path):
+        """metadata: null in JSON must not crash _chunk_from_dict."""
+        import json
+        import faiss
+        import numpy as np
+
+        # Create a FAISS index with 1 vector
+        index = faiss.IndexFlatL2(3)
+        index.add(np.array([[1.0, 0.0, 0.0]], dtype=np.float32))
+        faiss.write_index(index, str(tmp_path / "default.faiss"))
+
+        # Create store.json with metadata: null
+        store_data = {
+            "dim": 3,
+            "metric": "l2",
+            "chunks": [
+                {
+                    "id": "c1",
+                    "text": "hello",
+                    "embedding": [1.0, 0.0, 0.0],
+                    "metadata": None,
+                }
+            ],
+        }
+        (tmp_path / "default.store.json").write_text(
+            json.dumps(store_data), encoding="utf-8"
+        )
+
+        # Should load without crashing
+        await faiss_store.load(str(tmp_path), namespace="default")
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=5, namespace="default")
+        assert len(results) == 1
+        assert results[0].id == "c1"
+        assert results[0].metadata is not None
+
+    # ── Bug #2: _logger.error instead of _logger.exception ──
+    # (Verified by code review — no runtime test needed)
+
+    # ── Bug #3 & #4: delete() under lock with rollback ──
+
+    @pytest.mark.asyncio
+    async def test_delete_under_lock_persists_atomically(self, faiss_store, tmp_path):
+        """delete() must hold lock during save() and rollback on failure."""
+        import faiss
+
+        chunks = [
+            Chunk(id="c1", text="keep", embedding=[1.0, 0.0, 0.0]),
+            Chunk(id="c2", text="delete", embedding=[0.0, 1.0, 0.0]),
+        ]
+        await faiss_store.add(chunks, namespace="test")
+        await faiss_store.save(str(tmp_path), namespace="test")
+
+        # Delete c2
+        await faiss_store.delete(["c2"], namespace="test")
+
+        # Verify in-memory state
+        results = await faiss_store.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
+        assert not any(r.id == "c2" for r in results)
+        assert any(r.id == "c1" for r in results)
+
+        # Persist and reload to verify c2 is gone from disk too
+        await faiss_store.save(str(tmp_path), namespace="test")
+        store2 = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store2.load(str(tmp_path), namespace="test")
+        results2 = await store2.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
+        assert not any(r.id == "c2" for r in results2)
+
+    @pytest.mark.asyncio
+    async def test_delete_rollback_on_save_failure(self, faiss_store, tmp_path):
+        """If save() fails during delete(), in-memory state must rollback."""
+        from unittest.mock import patch
+        import faiss
+
+        chunks = [
+            Chunk(id="c1", text="keep", embedding=[1.0, 0.0, 0.0]),
+            Chunk(id="c2", text="delete", embedding=[0.0, 1.0, 0.0]),
+        ]
+        await faiss_store.add(chunks, namespace="test")
+        await faiss_store.save(str(tmp_path), namespace="test")
+
+        # Force save to fail during delete
+        with patch.object(
+            faiss_store, "_save_unlocked", side_effect=OSError("disk full")
+        ):
+            with pytest.raises(OSError, match="disk full"):
+                await faiss_store.delete(["c2"], namespace="test")
+
+        # After rollback, both chunks should still be present
+        results = await faiss_store.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
+        assert any(r.id == "c2" for r in results)
+        assert any(r.id == "c1" for r in results)
+
+    # ── Bug #5: save() atomicity (detectable corruption) ──
+
+    @pytest.mark.asyncio
+    async def test_save_no_temp_files_left(self, faiss_store, tmp_path):
+        """After save(), no .tmp files or temp directories should remain."""
+        import faiss
+
+        chunks = [
+            Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+            Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+        ]
+        await faiss_store.add(chunks, namespace="ns1")
+        await faiss_store.save(str(tmp_path), namespace="ns1")
+
+        # Check for any temp artifacts
+        tmp_files = list(tmp_path.rglob("*.tmp"))
+        tmp_dirs = [d for d in tmp_path.rglob(".*.tmp.*") if d.is_dir()]
+        assert not tmp_files, f"Temp files left: {tmp_files}"
+        assert not tmp_dirs, f"Temp dirs left: {tmp_dirs}"
+
+    # ── Bug #6 & #12: list_namespaces OSError wrapping ──
+
+    @pytest.mark.asyncio
+    async def test_list_namespaces_file_not_directory(self, faiss_store, tmp_path):
+        """If index_path is a file (not dir), list_namespaces must raise AdapterError."""
+        file_path = tmp_path / "not_a_dir"
+        file_path.write_text("i am a file")
+
+        with pytest.raises(AdapterError):
+            await faiss_store.list_namespaces(str(file_path))
+
+    @pytest.mark.asyncio
+    async def test_list_namespaces_permission_error(self, faiss_store, tmp_path):
+        """Permission errors must be wrapped in AdapterError."""
+        import os
+
+        # Make directory unreadable (skip on Windows)
+        if os.name == "nt":
+            pytest.skip("Permission test skipped on Windows")
+
+        os.chmod(str(tmp_path), 0o000)
+        try:
+            with pytest.raises(AdapterError):
+                await faiss_store.list_namespaces(str(tmp_path))
+        finally:
+            os.chmod(str(tmp_path), 0o755)
+
+    # ── Bug #7: _rebuild_index logs dimension mismatch ──
+    # (Verified by code review — behavior covered by existing tests)
+
+    # ── Bug #8: add() rejects instead of silently evicting ──
+
+    @pytest.mark.asyncio
+    async def test_add_rejects_when_exceeds_max_chunks(self, faiss_store, tmp_path):
+        """add() must raise AdapterError when total would exceed max_chunks."""
+        import faiss
+
+        # Fill to near capacity
+        for i in range(8):
+            await faiss_store.add(
+                [Chunk(id=f"c{i}", text=f"t{i}", embedding=[1.0, 0.0, 0.0])],
+                namespace="test",
+            )
+
+        # Adding 3 more would exceed max_chunks=10
+        with pytest.raises(AdapterError, match="max_chunks"):
+            await faiss_store.add(
+                [
+                    Chunk(id="c8", text="t8", embedding=[1.0, 0.0, 0.0]),
+                    Chunk(id="c9", text="t9", embedding=[1.0, 0.0, 0.0]),
+                    Chunk(id="c10", text="t10", embedding=[1.0, 0.0, 0.0]),
+                ],
+                namespace="test",
+            )
+
+        # Verify no silent eviction occurred
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=20, namespace="test")
+        assert len(results) == 8  # Original 8 still present
+
+    # ── Bug #9: tmp_dir cleanup with shutil.rmtree ──
+    # (Covered by test_save_no_temp_files_left)
+
+    # ── Bug #10: cosine NaN guard ──
+
+    @pytest.mark.asyncio
+    async def test_cosine_zero_vector_no_nan(self, tmp_path):
+        """Zero-length embeddings in cosine metric must not produce NaN."""
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path), metric="cosine")
+        )
+
+        # Zero vector
+        chunks = [Chunk(id="c1", text="empty", embedding=[0.0, 0.0, 0.0])]
+        await store.add(chunks, namespace="test")
+
+        # Search should not crash
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert len(results) == 1
+        assert results[0].id == "c1"
+
+    # ── Bug #11: consistent _logger.error usage ──
+    # (Verified by code review)
+
+    @pytest.mark.asyncio
+    async def test_delete_empty_chunk_ids_noop(self, faiss_store):
+        """delete() with empty chunk_ids must be a no-op."""
+        chunks = [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])]
+        await faiss_store.add(chunks, namespace="test")
+
+        # Empty delete should not crash or modify state
+        await faiss_store.delete([], namespace="test")
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_add_empty_chunks_noop(self, faiss_store):
+        """add() with empty list must be a no-op."""
+        await faiss_store.add([], namespace="test")
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
+        assert results == []

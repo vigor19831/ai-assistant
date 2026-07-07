@@ -21,9 +21,11 @@ __all__ = ["OpenAICompatibleEmbedder"]
 
 _logger = get_logger("embedder_openai_compatible")
 
+_DEFAULT_BATCH_SIZE: int = 100
+
 
 def _extract_embeddings(
-    data: dict[str, Any], expected_dim: int, model: str
+    data: dict[str, Any], expected_dim: int, model: str, expected_count: int
 ) -> list[list[float]]:
     try:
         embeddings = [item["embedding"] for item in data["data"]]
@@ -33,6 +35,20 @@ def _extract_embeddings(
             extra={"model": model},
         )
         raise AdapterError(f"Unexpected response shape from {model!r}: {exc}") from exc
+
+    if len(embeddings) != expected_count:
+        _logger.error(
+            "Embedding count mismatch",
+            extra={
+                "expected_count": expected_count,
+                "got_count": len(embeddings),
+                "model": model,
+            },
+        )
+        raise AdapterError(
+            f"Embedding count mismatch: expected {expected_count}, "
+            f"got {len(embeddings)} (model={model!r})"
+        )
 
     for i, emb in enumerate(embeddings):
         if len(emb) != expected_dim:
@@ -74,21 +90,10 @@ class OpenAICompatibleEmbedder(IEmbedder):
             else self._timeout
         )
         self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
-        self._closed: bool = False
-        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def shutdown(self) -> None:
-        """Close HTTP client. Idempotent."""
-        async with self._lock:
-            if self._closed:
-                return
-            self._closed = True
+        """Close HTTP client unconditionally."""
         await self._client.aclose()
-
-    def _check_open(self) -> None:
-        """Raise AdapterError if adapter has been shut down."""
-        if self._closed:
-            raise AdapterError("Embedder adapter is shutting down")
 
     @property
     def dimension(self) -> int:
@@ -97,29 +102,37 @@ class OpenAICompatibleEmbedder(IEmbedder):
     @with_retry(max_retries=3, delay=1.0, jitter=True, max_delay=30.0)
     async def _post_embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Execute HTTP POST to embeddings endpoint (retryable)."""
-        self._check_open()
         url = f"{self.api_base}/embeddings"
         headers: dict[str, str] = {
             "Content-Type": "application/json",
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        return await async_post_json(self._client, url, headers, payload)
+        try:
+            return await async_post_json(self._client, url, headers, payload)
+        except RuntimeError as exc:
+            if "closed" in str(exc).lower():
+                raise AdapterError("Embedder adapter is shutting down") from exc
+            raise
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        """Request embeddings from remote API.
+        """Request embeddings from remote API with batching.
 
         Raises:
-            AdapterError: On dimension mismatch or HTTP failure.
+            AdapterError: On dimension mismatch, count mismatch, or HTTP failure.
         """
         if not texts:
             return []
-        payload = {
-            "model": self.model,
-            "input": texts,
-        }
-        data = await self._post_embeddings(payload)
-        embeddings = await asyncio.to_thread(
-            _extract_embeddings, data, self._dim, self.model
-        )
-        return embeddings
+        result: list[list[float]] = []
+        for i in range(0, len(texts), _DEFAULT_BATCH_SIZE):
+            batch = texts[i:i + _DEFAULT_BATCH_SIZE]
+            payload = {
+                "model": self.model,
+                "input": batch,
+            }
+            data = await self._post_embeddings(payload)
+            embeddings = await asyncio.to_thread(
+                _extract_embeddings, data, self._dim, self.model, len(batch)
+            )
+            result.extend(embeddings)
+        return result

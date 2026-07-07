@@ -11,6 +11,11 @@ from ai_assistant.core.ports.embedder import IEmbedder
 __all__ = ["MockEmbedder"]
 
 
+def _text_seed(text: str) -> int:
+    """Return deterministic seed from text, stable across Python runs."""
+    return sum(ord(c) * (i + 7) for i, c in enumerate(text))
+
+
 @register("embedder", "mock")
 class MockEmbedder(IEmbedder):
     """Deterministic fake embedder for testing."""
@@ -29,6 +34,6 @@ class MockEmbedder(IEmbedder):
     async def embed(self, texts: list[str]) -> list[list[float]]:
         result: list[list[float]] = []
         for t in texts:
-            rng = random.Random(abs(hash(t)))
+            rng = random.Random(_text_seed(t))
             result.append([rng.random() for _ in range(self._dim)])
         return result
