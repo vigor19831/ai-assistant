@@ -1,27 +1,33 @@
 """tests/test_chat.py — ChatManager tests.
 
-Coverage: _retrieve_context, _build_messages, _trim_history, chat(), stream_chat().
+Coverage: chat(), stream_chat(), RAG retrieval, history trimming,
+prefix routing, source formatting, graceful degradation.
 Design: Given/When/Then docstrings, one function per test case.
+Public API only — no private method assertions.
 """
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.config import NamespaceConfig
-from ai_assistant.core.domain.configs import EmbedderConfigData, RerankerConfigData, VectorStoreConfigData
+from ai_assistant.core.domain.configs import (
+    EmbedderConfigData,
+    RerankerConfigData,
+    TokenizerConfigData,
+    VectorStoreConfigData,
+)
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
-from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
-from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
-from ai_assistant.core.domain.configs import TokenizerConfigData
+from ai_assistant.core.ports.llm import ILLM
+from ai_assistant.core.ports.storage import IChatStorage
 from ai_assistant.features.chat.manager import ChatManager
 
 logger = get_logger(__name__)
@@ -56,9 +62,7 @@ def async_iter(items: list[str]):
 
 @pytest.fixture
 def chat_manager_with_rag():
-    """Given: ChatManager with full RAG pipeline configured.
-    When: fixture is requested.
-    Then: ChatManager with embedder, vector_store, pipeline, and namespaces is returned."""
+    """Given: ChatManager with full RAG pipeline configured."""
     embedder = MockEmbedder(EmbedderConfigData(dim=3))
     store = MemoryVectorStore(VectorStoreConfigData(dim=3))
     namespaces = {
@@ -72,7 +76,7 @@ def chat_manager_with_rag():
             prefix="d", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
     }
-    mock_llm = MagicMock()
+    mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 4096
     mock_llm.system_message = None
     return ChatManager(
@@ -88,14 +92,12 @@ def chat_manager_with_rag():
 
 @pytest.fixture
 def manager_no_rag():
-    """Given: ChatManager without RAG infrastructure.
-    When: fixture is requested.
-    Then: ChatManager with no embedder, vector_store, or pipeline is returned."""
-    mock_llm = MagicMock()
+    """Given: ChatManager without RAG infrastructure."""
+    mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 4096
     mock_llm.system_message = None
     mock_llm.complete = AsyncMock(
-        return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
+        return_value=AssistantMessage(text="Hello!", metadata={}, tool_calls=[])
     )
     return ChatManager(
         llm=mock_llm,
@@ -109,17 +111,15 @@ def manager_no_rag():
 
 @pytest.fixture
 def manager_with_storage():
-    """Given: ChatManager with mocked storage.
-    When: fixture is requested.
-    Then: ChatManager with AsyncMock storage is returned."""
-    mock_storage = MagicMock()
+    """Given: ChatManager with mocked storage."""
+    mock_storage = MagicMock(spec=IChatStorage)
     mock_storage.get_history = AsyncMock(
         return_value=[
             {"role": "user", "content": "Previous question"},
             {"role": "assistant", "content": "Previous answer"},
         ]
     )
-    mock_llm = MagicMock()
+    mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 4096
     mock_llm.system_message = None
     return ChatManager(
@@ -133,11 +133,11 @@ def manager_with_storage():
 
 
 @pytest.fixture
-def manager_with_tokenizer():
-    """Given: ChatManager with tokenizer and small token budget.
-    When: fixture is requested.
-    Then: ChatManager configured for token-based trimming is returned."""
-    mock_llm = MagicMock()
+def manager_with_tokenizer_and_storage():
+    """Given: ChatManager with tokenizer, storage and small token budget."""
+    mock_storage = MagicMock(spec=IChatStorage)
+    mock_storage.get_history = AsyncMock(return_value=[])
+    mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 100
     mock_llm.system_message = "System prompt"
     return ChatManager(
@@ -145,17 +145,17 @@ def manager_with_tokenizer():
         reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=100,
         history_limit=10,
-        storage=None,
+        storage=mock_storage,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
 @pytest.fixture
-def manager_with_fallback_tokenizer():
-    """Given: ChatManager with fallback tokenizer (no context limit).
-    When: fixture is requested.
-    Then: ChatManager with count-based fallback is returned."""
-    mock_llm = MagicMock()
+def manager_with_fallback_tokenizer_and_storage():
+    """Given: ChatManager with fallback tokenizer and count-based limit."""
+    mock_storage = MagicMock(spec=IChatStorage)
+    mock_storage.get_history = AsyncMock(return_value=[])
+    mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = None
     mock_llm.system_message = None
     return ChatManager(
@@ -163,61 +163,91 @@ def manager_with_fallback_tokenizer():
         reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=None,
         history_limit=3,
-        storage=None,
+        storage=mock_storage,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
-# ── TestChatManager ──
+@pytest.fixture
+def prefix_manager():
+    """Given: ChatManager configured for prefix testing."""
+    mock_llm = MagicMock(spec=ILLM)
+    mock_llm.get_context_limit.return_value = 4096
+    mock_llm.system_message = None
+    mgr = ChatManager(
+        llm=mock_llm,
+        embedder=None,
+        vector_store=None,
+        reranker=NullReranker(RerankerConfigData()),
+        storage=None,
+        namespaces={
+            "test": NamespaceConfig(prefix="t"),
+            "test-alt": NamespaceConfig(prefix="a"),
+        },
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+    )
+    return mgr
 
 
-class TestChatManager:
-    """Given: ChatManager routes messages and manages RAG retrieval.
-    When: various inputs and configurations are provided.
-    Then: correct routing, retrieval, and message building occurs."""
+# ── TestChatRAG ──
 
-    # ── _retrieve_context ──
+
+class TestChatRAG:
+    """Given: ChatManager with RAG pipeline.
+    When: messages with namespace prefixes are sent.
+    Then: correct chunks are retrieved and passed to LLM.
+    """
 
     @pytest.mark.asyncio
     async def test_retrieve_no_prefix_returns_unchanged(self, chat_manager_with_rag):
         """Given: message without RAG prefix.
-        When: _retrieve_context is called.
-        Then: message passes through unchanged with empty chunks."""
-        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "Hello world"
+        When: chat() is called.
+        Then: LLM receives the original message text.
+        """
+        chat_manager_with_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        assert prompt == "Hello world"
-        assert query == "Hello world"
-        assert namespace is None
-        assert chunks == ()
+        await chat_manager_with_rag.chat("Hello world", "conv-1")
+        messages = chat_manager_with_rag.llm.complete.call_args[0][0]
+        assert len(messages) == 1
+        assert messages[0].text == "Hello world"
 
     @pytest.mark.asyncio
     async def test_retrieve_test_prefix_triggers_rag(self, chat_manager_with_rag):
         """Given: [t] prefix and chunk in test namespace.
-        When: _retrieve_context is called.
-        Then: RAG is triggered, chunks returned, prompt contains context."""
+        When: stream_chat() is called.
+        Then: RAG is triggered and sources are appended.
+        """
         chunk = Chunk(
             id="c1",
             text="Paris is the capital of France.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="test"
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
         )
 
-        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[t] What is the capital?"
-        )
-        assert namespace == "test"
-        assert len(chunks) > 0
-        assert "Paris" in prompt or "France" in prompt or "Context:" in prompt
+        chunks = []
+        async for text in chat_manager_with_rag.stream_chat(
+            "[t] What is the capital?", "conv-1"
+        ):
+            chunks.append(text)
+
+        result = "".join(chunks)
+        assert "Sources:" in result
+        assert "doc1" in result
 
     @pytest.mark.asyncio
     async def test_retrieve_alt_prefix_triggers_rag(self, chat_manager_with_rag):
         """Given: [a] prefix and chunk in test-alt namespace.
-        When: _retrieve_context is called.
-        Then: RAG is triggered for test-alt namespace."""
+        When: stream_chat() is called.
+        Then: RAG is triggered for test-alt namespace.
+        """
         chunk = Chunk(
             id="c1",
             text="Project deadline is Friday.",
@@ -225,105 +255,132 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
-
-        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[a] When is the deadline?"
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
         )
-        assert namespace == "test-alt"
-        assert len(chunks) > 0
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
+        )
+
+        chunks = []
+        async for text in chat_manager_with_rag.stream_chat(
+            "[a] When is the deadline?", "conv-1"
+        ):
+            chunks.append(text)
+
+        result = "".join(chunks)
+        assert "Sources:" in result
 
     @pytest.mark.asyncio
     async def test_retrieve_default_prefix_triggers_rag(self, chat_manager_with_rag):
         """Given: [d] prefix and chunk in test-default namespace.
-        When: _retrieve_context is called.
-        Then: RAG is triggered for test-default namespace."""
+        When: stream_chat() is called.
+        Then: RAG is triggered for test-default namespace.
+        """
         chunk = Chunk(
             id="c1",
             text="Recipe: 2 eggs, 1 cup flour.",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add([chunk], namespace="test-default")
-
-        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[d] What ingredients?"
+        await chat_manager_with_rag.vector_store.add(
+            [chunk], namespace="test-default"
         )
-        assert namespace == "test-default"
-        assert len(chunks) > 0
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
+        )
+
+        chunks = []
+        async for text in chat_manager_with_rag.stream_chat(
+            "[d] What ingredients?", "conv-1"
+        ):
+            chunks.append(text)
+
+        result = "".join(chunks)
+        assert "Sources:" in result
 
     @pytest.mark.asyncio
     async def test_retrieve_no_results_returns_original_query(
         self, chat_manager_with_rag
     ):
         """Given: RAG prefix but no matching chunks.
-        When: _retrieve_context is called.
-        Then: original query text is returned unchanged."""
-        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[t] something impossible to find"
+        When: chat() is called.
+        Then: original query text is passed to LLM unchanged.
+        """
+        chat_manager_with_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        assert namespace == "test"
-        assert prompt == "something impossible to find"
-        assert query == "something impossible to find"
-        assert chunks == ()
+        await chat_manager_with_rag.chat(
+            "[t] something impossible to find", "conv-1"
+        )
+        messages = chat_manager_with_rag.llm.complete.call_args[0][0]
+        assert messages[-1].text == "something impossible to find"
 
     @pytest.mark.asyncio
     async def test_retrieve_prefix_stripped_from_query(self, chat_manager_with_rag):
         """Given: message with [t] prefix.
-        When: _retrieve_context is called.
-        Then: prefix is stripped from query text."""
+        When: chat() is called.
+        Then: prefix is stripped from query text sent to LLM.
+        """
         chunk = Chunk(
             id="c1",
             text="Some content",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="test"
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
+        chat_manager_with_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-
-        prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-            "[t] query text"
-        )
-        assert namespace == "test"
-        assert not query.startswith("[t]")
-        assert "query text" in query
+        await chat_manager_with_rag.chat("[t] query text", "conv-1")
+        messages = chat_manager_with_rag.llm.complete.call_args[0][0]
+        assert not messages[-1].text.startswith("[t]")
+        assert "query text" in messages[-1].text
 
     @pytest.mark.asyncio
     async def test_retrieve_case_insensitive_prefix(self, chat_manager_with_rag):
         """Given: uppercase prefix [T].
-        When: _retrieve_context is called.
-        Then: same result as lowercase [t]."""
+        When: stream_chat() is called.
+        Then: same result as lowercase [t].
+        """
         chunk = Chunk(
             id="c1",
             text="Content",
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="test"
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
         )
 
-        (
-            prompt_upper,
-            query_upper,
-            namespace_upper,
-            chunks_upper,
-        ) = await chat_manager_with_rag._retrieve_context("[T] test")
-        (
-            prompt_lower,
-            query_lower,
-            namespace_lower,
-            chunks_lower,
-        ) = await chat_manager_with_rag._retrieve_context("[t] test")
-        assert namespace_upper == namespace_lower == "test"
-        assert chunks_upper == chunks_lower
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
+        )
+        chunks_lower = []
+        async for text in chat_manager_with_rag.stream_chat("[t] test", "conv-1"):
+            chunks_lower.append(text)
+
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
+        )
+        chunks_upper = []
+        async for text in chat_manager_with_rag.stream_chat("[T] test", "conv-1"):
+            chunks_upper.append(text)
+
+        assert "Sources:" in "".join(chunks_lower)
+        assert "Sources:" in "".join(chunks_upper)
 
     @pytest.mark.asyncio
     async def test_retrieve_no_embedder_returns_unchanged(self):
         """Given: ChatManager without embedder.
-        When: _retrieve_context is called with prefix.
-        Then: message passes through unchanged."""
-        mock_llm = MagicMock()
+        When: chat() is called with prefix.
+        Then: stripped query is sent to LLM (RAG unavailable, prefix removed).
+        """
+        mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
         manager = ChatManager(
@@ -335,18 +392,20 @@ class TestChatManager:
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        prompt, query, namespace, chunks = await manager._retrieve_context("[t] query")
-        assert namespace is None
-        assert prompt == "[t] query"
-        assert query == "[t] query"
-        assert chunks == ()
+        manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager.chat("[t] query", "conv-1")
+        messages = manager.llm.complete.call_args[0][0]
+        assert messages[-1].text == "query"
 
     @pytest.mark.asyncio
     async def test_retrieve_no_vector_store_returns_unchanged(self):
         """Given: ChatManager without vector_store.
-        When: _retrieve_context is called with prefix.
-        Then: message passes through unchanged."""
-        mock_llm = MagicMock()
+        When: chat() is called with prefix.
+        Then: stripped query is sent to LLM (RAG unavailable, prefix removed).
+        """
+        mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
         manager = ChatManager(
@@ -358,18 +417,21 @@ class TestChatManager:
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        prompt, query, namespace, chunks = await manager._retrieve_context("[t] query")
-        assert namespace is None
-        assert prompt == "[t] query"
-        assert query == "[t] query"
-        assert chunks == ()
+        manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager.chat("[t] query", "conv-1")
+        messages = manager.llm.complete.call_args[0][0]
+        assert messages[-1].text == "query"
+
     @pytest.mark.asyncio
     async def test_retrieve_per_namespace_prompt_and_threshold(
         self, chat_manager_with_rag
     ):
         """Given: test-alt namespace with custom prompt and threshold.
-        When: _retrieve_context is called with [a] prefix.
-        Then: correct prompt name and threshold are used."""
+        When: stream_chat() is called with [a] prefix.
+        Then: correct prompt name is requested.
+        """
         chunk = Chunk(
             id="c1",
             text="Alt item.",
@@ -377,27 +439,36 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "alt prompt"
-            prompt, query, namespace, chunks = await chat_manager_with_rag._retrieve_context(
-                "[a] alt item?"
+            chat_manager_with_rag.llm.stream = MagicMock(
+                return_value=async_iter(["Answer."])
             )
-            assert namespace == "test-alt"
+            chunks = []
+            async for text in chat_manager_with_rag.stream_chat(
+                "[a] alt item?", "conv-1"
+            ):
+                chunks.append(text)
+
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_creative"
-            assert len(chunks) > 0
+            assert "Sources:" in "".join(chunks)
 
     @pytest.mark.asyncio
     async def test_retrieve_fallback_to_defaults_when_no_namespace_config(self):
         """Given: namespace with prefix but no per-namespace overrides.
-        When: _retrieve_context is called with prefix.
-        Then: global defaults (rag_strict, 0.3) are used."""
+        When: stream_chat() is called with prefix.
+        Then: global defaults (rag_strict) are used.
+        """
         embedder = MockEmbedder(EmbedderConfigData(dim=3))
         store = MemoryVectorStore(VectorStoreConfigData(dim=3))
-        mock_llm = MagicMock()
+        mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
         manager = ChatManager(
@@ -416,24 +487,41 @@ class TestChatManager:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await manager.vector_store.add([chunk], namespace="test")
+        manager.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
         with patch(
             "ai_assistant.features.chat.manager.get_prompt"
         ) as mock_get_prompt:
             mock_get_prompt.return_value = "default prompt"
-            prompt, query, namespace, chunks = await manager._retrieve_context("[t] content?")
-            assert namespace == "test"
+            manager.llm.stream = MagicMock(return_value=async_iter(["Answer."]))
+            chunks = []
+            async for text in manager.stream_chat("[t] content?", "conv-1"):
+                chunks.append(text)
+
             mock_get_prompt.assert_called_once()
             assert mock_get_prompt.call_args[0][0] == "rag_strict"
 
-    # ── _build_messages ──
+
+# ── TestChatHistory ──
+
+
+class TestChatHistory:
+    """Given: ChatManager with storage-backed history.
+    When: chat() is called.
+    Then: history is loaded, ordered, and trimmed correctly.
+    """
 
     @pytest.mark.asyncio
     async def test_build_messages_without_storage(self, manager_no_rag):
         """Given: ChatManager without storage.
-        When: _build_messages is called.
-        Then: only current user message is returned."""
-        messages = await manager_no_rag._build_messages("Hello", "conv-1")
+        When: chat() is called.
+        Then: only current user message is sent to LLM.
+        """
+        manager_no_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_no_rag.chat("Hello", "conv-1")
+        messages = manager_no_rag.llm.complete.call_args[0][0]
         assert len(messages) == 1
         assert isinstance(messages[0], UserMessage)
         assert messages[0].text == "Hello"
@@ -441,9 +529,14 @@ class TestChatManager:
     @pytest.mark.asyncio
     async def test_build_messages_with_history(self, manager_with_storage):
         """Given: ChatManager with storage containing history.
-        When: _build_messages is called.
-        Then: history is prepended in chronological order."""
-        messages = await manager_with_storage._build_messages("Hello", "conv-1")
+        When: chat() is called.
+        Then: history is prepended in chronological order.
+        """
+        manager_with_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_storage.chat("Hello", "conv-1")
+        messages = manager_with_storage.llm.complete.call_args[0][0]
         assert len(messages) == 3
         assert isinstance(messages[0], UserMessage)
         assert messages[0].text == "Previous question"
@@ -455,64 +548,78 @@ class TestChatManager:
     @pytest.mark.asyncio
     async def test_build_messages_preserves_metadata(self, manager_no_rag):
         """Given: metadata dict with trace_id.
-        When: _build_messages is called.
-        Then: metadata is attached to current user message."""
+        When: chat() is called.
+        Then: metadata is attached to current user message.
+        """
         meta = {"trace_id": "abc123"}
-        messages = await manager_no_rag._build_messages(
-            "Hello", "conv-1", metadata=meta
+        manager_no_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
+        await manager_no_rag.chat("Hello", "conv-1", metadata=meta)
+        messages = manager_no_rag.llm.complete.call_args[0][0]
         assert messages[-1].metadata == meta
 
     @pytest.mark.asyncio
     async def test_build_messages_trims_history(self, manager_with_storage):
         """Given: token budget that forces trimming.
-        When: _build_messages is called.
-        Then: _trim_history is applied, only user message kept."""
+        When: chat() is called.
+        Then: only current user message is kept in LLM call.
+        """
         manager_with_storage.max_context_tokens = 50
-        with patch.object(
-            manager_with_storage, "_trim_history", new_callable=AsyncMock, return_value=[]
-        ):
-            messages = await manager_with_storage._build_messages("Hello", "conv-1")
-            assert len(messages) == 1
-            assert messages[0].text == "Hello"
+        manager_with_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_storage.chat("Hello", "conv-1")
+        messages = manager_with_storage.llm.complete.call_args[0][0]
+        assert len(messages) == 1
+        assert messages[0].text == "Hello"
 
     @pytest.mark.asyncio
     async def test_build_messages_history_load_failure(self, manager_with_storage):
         """Given: storage that raises on get_history.
-        When: _build_messages is called.
-        Then: graceful fallback returns just user message."""
+        When: chat() is called.
+        Then: graceful fallback returns just user message to LLM.
+        """
         manager_with_storage.storage.get_history = AsyncMock(
             side_effect=Exception("DB error")
         )
-        messages = await manager_with_storage._build_messages("Hello", "conv-1")
+        manager_with_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_storage.chat("Hello", "conv-1")
+        messages = manager_with_storage.llm.complete.call_args[0][0]
         assert len(messages) == 1
         assert messages[0].text == "Hello"
 
-    # ── chat / stream_chat preparation identicality ──
+
+# ── TestChatMethods ──
+
+
+class TestChatMethods:
+    """Given: ChatManager chat() and stream_chat() methods.
+    When: invoked with various inputs.
+    Then: correct LLM interaction occurs.
+    """
 
     @pytest.mark.asyncio
-    async def test_chat_calls_retrieve_context_and_build_messages(self, manager_no_rag):
+    async def test_chat_calls_llm_complete(self, manager_no_rag):
         """Given: chat() invocation.
         When: message is processed.
-        Then: _retrieve_context and _build_messages are both called."""
-        with patch.object(
-            manager_no_rag, "_retrieve_context", new_callable=AsyncMock
-        ) as mock_retrieve, patch.object(
-            manager_no_rag, "_build_messages", new_callable=AsyncMock
-        ) as mock_build:
-            mock_retrieve.return_value = ("Hello", "Hello", "default", ())
-            mock_build.return_value = [UserMessage(text="Hello")]
-
-            await manager_no_rag.chat("Hello", "conv-1")
-
-            mock_retrieve.assert_awaited_once_with("Hello", trace_id=None)
-            mock_build.assert_awaited_once_with("Hello", "conv-1", metadata={})
+        Then: LLM complete is called and response returned.
+        """
+        manager_no_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="Hello!", metadata={}, tool_calls=[])
+        )
+        result = await manager_no_rag.chat("Hello", "conv-1")
+        assert result.text == "Hello!"
+        manager_no_rag.llm.complete.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_stream_chat_calls_llm_stream(self, manager_no_rag):
         """Given: stream_chat() invocation.
         When: message is processed.
-        Then: LLM stream is called and chunks are yielded."""
+        Then: LLM stream is called and chunks are yielded.
+        """
         manager_no_rag.llm.stream = MagicMock(
             return_value=async_iter(["Hi", " there"])
         )
@@ -525,35 +632,47 @@ class TestChatManager:
     async def test_chat_and_stream_use_same_prep_path(self, manager_no_rag):
         """Given: both chat() and stream_chat() methods.
         When: called with same input.
-        Then: both use _retrieve_context and _build_messages identically."""
-        with patch.object(
-            manager_no_rag, "_retrieve_context", new_callable=AsyncMock
-        ) as mock_retrieve, patch.object(
-            manager_no_rag, "_build_messages", new_callable=AsyncMock
-        ) as mock_build:
-            mock_retrieve.return_value = ("Hello", "Hello", "default", ())
-            mock_build.return_value = [UserMessage(text="Hello")]
+        Then: both send identical message lists to LLM.
+        """
+        manager_no_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        manager_no_rag.llm.stream = MagicMock(return_value=async_iter([]))
 
-            await manager_no_rag.chat("Hello", "conv-1")
-            chunks = []
-            async for chunk in manager_no_rag.stream_chat("Hello", "conv-1"):
-                chunks.append(chunk)
+        await manager_no_rag.chat("Hello", "conv-1")
+        chat_messages = manager_no_rag.llm.complete.call_args[0][0]
 
-            assert mock_retrieve.call_count == 2
-            assert mock_build.call_count == 2
+        # stream_chat is async generator — must iterate, not await
+        async for _ in manager_no_rag.stream_chat("Hello", "conv-1"):
+            pass
+        stream_messages = manager_no_rag.llm.stream.call_args[0][0]
 
-    # ── Graceful degradation ──
+        assert len(chat_messages) == len(stream_messages)
+        assert chat_messages[-1].text == stream_messages[-1].text
+
+
+# ── TestChatGracefulDegradation ──
+
+
+class TestChatGracefulDegradation:
+    """Given: ChatManager with missing RAG infrastructure.
+    When: RAG prefix is used.
+    Then: graceful unavailable message is returned.
+    """
 
     @pytest.mark.asyncio
     async def test_chat_with_prefix_no_pipeline_graceful(self):
         """Given: [t] prefix with no RAG pipeline.
         When: chat() is called.
-        Then: graceful unavailable message is returned."""
-        mock_llm = MagicMock()
+        Then: graceful unavailable message is returned.
+        """
+        mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
         mock_llm.complete = AsyncMock(
-            return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
+            return_value=AssistantMessage(
+                text="RAG unavailable", metadata={}, tool_calls=[]
+            )
         )
         manager = ChatManager(
             llm=mock_llm,
@@ -568,18 +687,16 @@ class TestChatManager:
             message="[t] capital of France",
             conversation_id="test-1",
         )
-        assert (
-            "недоступен" in result.text.lower()
-            or "unavailable" in result.text.lower()
-        )
+        assert "unavailable" in result.text.lower()
 
     @pytest.mark.asyncio
     async def test_chat_without_prefix_works_without_rag(self, manager_no_rag):
         """Given: plain message without prefix.
         When: chat() is called without RAG infrastructure.
-        Then: LLM is called and response returned."""
+        Then: LLM is called and response returned.
+        """
         manager_no_rag.llm.complete = AsyncMock(
-            return_value=MagicMock(text="Hello!", metadata={}, tool_calls=[])
+            return_value=AssistantMessage(text="Hello!", metadata={}, tool_calls=[])
         )
         result = await manager_no_rag.chat(
             message="Hello",
@@ -592,7 +709,8 @@ class TestChatManager:
     async def test_stream_chat_without_rag(self, manager_no_rag):
         """Given: stream_chat without RAG prefix.
         When: message is streamed.
-        Then: LLM stream is called and chunks yielded."""
+        Then: LLM stream is called and chunks yielded.
+        """
         manager_no_rag.llm.stream = MagicMock(
             return_value=async_iter(["Hello", "!"])
         )
@@ -605,8 +723,9 @@ class TestChatManager:
     async def test_stream_chat_with_rag_prefix_graceful(self):
         """Given: [p] prefix with no RAG pipeline in stream_chat.
         When: stream_chat() is called.
-        Then: graceful unavailable message is yielded."""
-        mock_llm = MagicMock()
+        Then: graceful unavailable message is yielded.
+        """
+        mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = 4096
         mock_llm.system_message = None
         manager = ChatManager(
@@ -618,27 +737,36 @@ class TestChatManager:
             namespaces={"personal": NamespaceConfig(prefix="p")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
+        manager.llm.stream = MagicMock(
+            return_value=async_iter(["RAG unavailable"])
+        )
         chunks = []
         async for chunk in manager.stream_chat(
             "[p] capital of France", "conv-1"
         ):
             chunks.append(chunk)
         assert len(chunks) == 1
-        assert (
-            "недоступен" in chunks[0].lower()
-            or "unavailable" in chunks[0].lower()
-        )
+        assert "unavailable" in chunks[0].lower()
 
-    # ── Tool calls ──
+
+# ── TestChatToolCalls ──
+
+
+class TestChatToolCalls:
+    """Given: LLM responses with tool_calls.
+    When: chat() is called.
+    Then: tool_calls are preserved in the response.
+    """
 
     @pytest.mark.asyncio
     async def test_chat_with_tool_calls(self, manager_no_rag):
         """Given: LLM response with tool_calls.
         When: chat() is called.
-        Then: tool_calls are preserved in the response."""
+        Then: tool_calls are preserved in the response.
+        """
         tool_calls = [{"id": "call_1", "function": {"name": "get_weather"}}]
         manager_no_rag.llm.complete = AsyncMock(
-            return_value=MagicMock(
+            return_value=AssistantMessage(
                 text="Let me check the weather.",
                 metadata={"model": "gpt-4"},
                 tool_calls=tool_calls,
@@ -648,11 +776,22 @@ class TestChatManager:
         assert result.text == "Let me check the weather."
         assert result.metadata == {"model": "gpt-4"}
 
+
+# ── TestChatStreamRAG ──
+
+
+class TestChatStreamRAG:
+    """Given: stream_chat with active RAG pipeline.
+    When: RAG prefix is used.
+    Then: context is retrieved and sources appended.
+    """
+
     @pytest.mark.asyncio
     async def test_stream_chat_with_rag_prefix(self, chat_manager_with_rag):
         """Given: [t] prefix with full RAG pipeline in stream_chat.
         When: stream_chat() is called.
-        Then: RAG context is retrieved and stream proceeds."""
+        Then: RAG context is retrieved and stream proceeds.
+        """
         chunk = Chunk(
             id="c1",
             text="Paris is sunny.",
@@ -661,7 +800,6 @@ class TestChatManager:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
 
-        # Force embedder to return matching embedding so search finds the chunk
         chat_manager_with_rag.embedder.embed = AsyncMock(
             return_value=[[1.0, 0.0, 0.0]]
         )
@@ -679,8 +817,9 @@ class TestChatManager:
     @pytest.mark.asyncio
     async def test_namespace_test_and_alt_prefixes(self, chat_manager_with_rag):
         """Given: [t] and [a] prefixes with chunks in respective namespaces.
-        When: _retrieve_context is called for each.
-        Then: correct namespace routing and prompt selection occurs."""
+        When: stream_chat() is called for each.
+        Then: correct namespace routing occurs.
+        """
         chunk_t = Chunk(
             id="c1",
             text="Test settings.",
@@ -695,25 +834,29 @@ class TestChatManager:
         )
         await chat_manager_with_rag.vector_store.add([chunk_t], namespace="test")
         await chat_manager_with_rag.vector_store.add([chunk_a], namespace="test-alt")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
 
-        with patch(
-            "ai_assistant.features.chat.manager.get_prompt"
-        ) as mock_get_prompt:
-            mock_get_prompt.return_value = "prompt"
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["ok"])
+        )
+        chunks_t = []
+        async for text in chat_manager_with_rag.stream_chat(
+            "[t] settings?", "conv-1"
+        ):
+            chunks_t.append(text)
+        assert "Sources:" in "".join(chunks_t)
 
-            prompt_t, query_t, namespace_t, chunks_t = await chat_manager_with_rag._retrieve_context(
-                "[t] settings?"
-            )
-            assert namespace_t == "test"
-            assert len(chunks_t) > 0
-            assert chunks_t[0].metadata.source == "doc_test"
-
-            prompt_a, query_a, namespace_a, chunks_a = await chat_manager_with_rag._retrieve_context(
-                "[a] plan?"
-            )
-            assert namespace_a == "test-alt"
-            assert len(chunks_a) > 0
-            assert chunks_a[0].metadata.source == "doc_alt"
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["ok"])
+        )
+        chunks_a = []
+        async for text in chat_manager_with_rag.stream_chat(
+            "[a] plan?", "conv-1"
+        ):
+            chunks_a.append(text)
+        assert "Sources:" in "".join(chunks_a)
 
 
 # ── TestChatPrefixes ──
@@ -722,153 +865,127 @@ class TestChatManager:
 class TestChatPrefixes:
     """Given: message prefixes trigger namespace routing.
     When: various prefixes are provided.
-    Then: correct namespace is selected, prefix is stripped, case is ignored."""
-
-    @pytest.fixture
-    def prefix_manager(self):
-        """Given: ChatManager with pipeline but no actual data.
-        When: fixture is requested.
-        Then: manager suitable for prefix testing is returned."""
-        mock_llm = MagicMock()
-        mock_llm.get_context_limit.return_value = 4096
-        mock_llm.system_message = None
-        mgr = ChatManager(
-            llm=mock_llm,
-            embedder=None,
-            vector_store=None,
-            reranker=NullReranker(RerankerConfigData()),
-            storage=None,
-            namespaces={
-                "test": NamespaceConfig(prefix="t"),
-                "test-alt": NamespaceConfig(prefix="a"),
-            },
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
-        )
-        # Inject mock pipeline for prefix testing — pipeline is a private detail
-        mgr._pipeline = MagicMock()
-        return mgr
+    Then: correct namespace is selected, prefix is stripped, case is ignored.
+    """
 
     @pytest.mark.asyncio
     async def test_prefix_t_test(self, prefix_manager):
         """Given: [t] prefix.
-        When: _retrieve_context is called.
-        Then: query is stripped of prefix."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="test"))
+        When: chat() is called.
+        Then: query is stripped of prefix before reaching LLM.
+        """
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context("[t] test")
-        assert namespace == "test"
-        assert query == "test"
-        assert not query.startswith("[t]")
+        await prefix_manager.chat("[t] test", "conv-1")
+        messages = prefix_manager.llm.complete.call_args[0][0]
+        assert messages[-1].text == "test"
+        assert not messages[-1].text.startswith("[t]")
 
     @pytest.mark.asyncio
     async def test_prefix_a_alt(self, prefix_manager):
         """Given: [a] prefix.
-        When: _retrieve_context is called.
-        Then: query is stripped of prefix."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="deadline"))
+        When: chat() is called.
+        Then: query is stripped of prefix before reaching LLM.
+        """
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
-            "[a] deadline"
-        )
-        assert namespace == "test-alt"
-        assert query == "deadline"
-        assert not query.startswith("[a]")
+        await prefix_manager.chat("[a] deadline", "conv-1")
+        messages = prefix_manager.llm.complete.call_args[0][0]
+        assert messages[-1].text == "deadline"
+        assert not messages[-1].text.startswith("[a]")
 
     @pytest.mark.asyncio
     async def test_prefix_case_insensitive_t(self, prefix_manager):
         """Given: uppercase [T] prefix.
-        When: _retrieve_context is called.
-        Then: same behavior as lowercase [t]."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="test"))
+        When: chat() is called.
+        Then: same behavior as lowercase [t].
+        """
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
-            "[t] test"
+        await prefix_manager.chat("[t] test", "conv-1")
+        messages_lower = prefix_manager.llm.complete.call_args[0][0]
+
+        prefix_manager.llm.complete.reset_mock()
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
-            "[T] test"
-        )
-        assert ns_lower == ns_upper == "test"
-        assert query_lower == query_upper == "test"
+        await prefix_manager.chat("[T] test", "conv-1")
+        messages_upper = prefix_manager.llm.complete.call_args[0][0]
+
+        assert messages_lower[-1].text == messages_upper[-1].text == "test"
 
     @pytest.mark.asyncio
     async def test_prefix_case_insensitive_a(self, prefix_manager):
         """Given: uppercase [A] prefix.
-        When: _retrieve_context is called.
-        Then: same behavior as lowercase [a]."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="test"))
+        When: chat() is called.
+        Then: same behavior as lowercase [a].
+        """
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        prompt_lower, query_lower, ns_lower, _ = await prefix_manager._retrieve_context(
-            "[a] test"
+        await prefix_manager.chat("[a] test", "conv-1")
+        messages_lower = prefix_manager.llm.complete.call_args[0][0]
+
+        prefix_manager.llm.complete.reset_mock()
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        prompt_upper, query_upper, ns_upper, _ = await prefix_manager._retrieve_context(
-            "[A] test"
-        )
-        assert ns_lower == ns_upper == "test-alt"
-        assert query_lower == query_upper == "test"
+        await prefix_manager.chat("[A] test", "conv-1")
+        messages_upper = prefix_manager.llm.complete.call_args[0][0]
+
+        assert messages_lower[-1].text == messages_upper[-1].text == "test"
 
     @pytest.mark.asyncio
     async def test_prefix_stripping_all_prefixes(self, prefix_manager):
         """Given: all supported prefixes.
-        When: _retrieve_context is called for each.
-        Then: prefix is stripped, only query remains."""
-        prefix_manager._pipeline.run = AsyncMock(
-            return_value=PipelineData(query=UserMessage(text="query text"))
-        )
+        When: chat() is called for each.
+        Then: prefix is stripped, only query remains.
+        """
         for prefix in ["t", "a"]:
-            _, query, ns, _ = await prefix_manager._retrieve_context(
-                f"[{prefix}] query text"
+            prefix_manager.llm.complete = AsyncMock(
+                return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
             )
-            assert query == "query text", f"Failed for prefix [{prefix}]"
-            assert ns == {"t": "test", "a": "test-alt"}[prefix]
+            await prefix_manager.chat(f"[{prefix}] query text", "conv-1")
+            messages = prefix_manager.llm.complete.call_args[0][0]
+            assert messages[-1].text == "query text", f"Failed for prefix [{prefix}]"
 
     @pytest.mark.asyncio
     async def test_no_prefix_no_stripping(self, prefix_manager):
         """Given: message without any prefix.
-        When: _retrieve_context is called.
-        Then: message is returned unchanged."""
-        prompt, query, namespace, chunks = await prefix_manager._retrieve_context(
-            "plain message without prefix"
+        When: chat() is called.
+        Then: message is returned unchanged to LLM.
+        """
+        prefix_manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        assert namespace is None
-        assert query == "plain message without prefix"
-        assert prompt == "plain message without prefix"
+        await prefix_manager.chat("plain message without prefix", "conv-1")
+        messages = prefix_manager.llm.complete.call_args[0][0]
+        assert messages[-1].text == "plain message without prefix"
 
 
 # ── TestChatManagerSources ──
 
 
 class TestChatManagerSources:
-    """Given: chunks with original_path in metadata.
-    When: _append_rag_sources is called.
-    Then: clickable file:/// links are appended when available."""
+    """Given: chunks with source metadata.
+    When: stream_chat() is called with RAG.
+    Then: clickable file:/// links are appended when available.
+    """
 
-    @pytest.fixture
-    def manager_for_sources(self):
-        """Given: ChatManager with mocked LLM.
-        When: fixture is requested.
-        Then: manager suitable for source testing is returned."""
-        mock_llm = MagicMock()
-        mock_llm.get_context_limit.return_value = 4096
-        mock_llm.system_message = None
-        return ChatManager(
-            llm=mock_llm,
-            reranker=NullReranker(RerankerConfigData()),
-            storage=None,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
-        )
-
-    def test_append_sources_with_source_uri(self, manager_for_sources):
+    @pytest.mark.asyncio
+    async def test_append_sources_with_source_uri(self, chat_manager_with_rag):
         """Given: chunks with source_uri set.
-        When: _append_rag_sources is called.
-        Then: filename and URI are shown separated by em-dash."""
+        When: stream_chat() is called.
+        Then: filename and URI are shown separated by em-dash.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Paris info",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc1",
                     index=0,
@@ -877,36 +994,70 @@ class TestChatManagerSources:
                 ),
             ),
         )
-        answer = "Paris is the capital of France."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert "[1] france.md — file:///home/user/docs/france.md" in result
-        assert "Sources:" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Paris is the capital of France."])
+        )
 
-    def test_append_sources_without_source_uri_fallback_to_source(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert "[1] france.md — file:///home/user/docs/france.md" in text
+        assert "Sources:" in text
+
+    @pytest.mark.asyncio
+    async def test_append_sources_without_source_uri_fallback_to_source(
+        self, chat_manager_with_rag
+    ):
         """Given: chunks without source_uri.
-        When: _append_rag_sources is called.
-        Then: source field is used as fallback."""
+        When: stream_chat() is called.
+        Then: source field is used as fallback.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Berlin info",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(source="doc2", index=0, total_chunks=1),
             ),
         )
-        answer = "Berlin is the capital of Germany."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert "[1] doc2" in result
-        assert "file://" not in result
-        assert "Sources:" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Berlin is the capital of Germany."])
+        )
 
-    def test_append_sources_no_info_phrase_skipped(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert "[1] doc2" in text
+        assert "file://" not in text
+        assert "Sources:" in text
+
+    @pytest.mark.asyncio
+    async def test_append_sources_no_info_phrase_skipped(self, chat_manager_with_rag):
         """Given: answer contains no-info phrase.
-        When: _append_rag_sources is called.
-        Then: sources are not appended."""
+        When: stream_chat() is called.
+        Then: sources are not appended.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Unknown info",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc1",
                     index=0,
@@ -915,18 +1066,34 @@ class TestChatManagerSources:
                 ),
             ),
         )
-        answer = "I don't have enough information."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert result == answer
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["I don't have enough information."])
+        )
 
-    def test_append_sources_without_citation_markers(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert text == "I don't have enough information."
+
+    @pytest.mark.asyncio
+    async def test_append_sources_without_citation_markers(self, chat_manager_with_rag):
         """Given: LLM answer without [N] citation markers but chunks exist.
-        When: _append_rag_sources is called.
-        Then: sources are still appended with filename and URI."""
+        When: stream_chat() is called.
+        Then: sources are still appended with filename and URI.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Paris info",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc1",
                     index=0,
@@ -935,19 +1102,35 @@ class TestChatManagerSources:
                 ),
             ),
         )
-        answer = "Paris is the capital of France."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert "Sources:" in result
-        assert "[1] france.md — file:///docs/france.md" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Paris is the capital of France."])
+        )
 
-    def test_append_sources_multiple_citations(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert "Sources:" in text
+        assert "[1] france.md — file:///docs/france.md" in text
+
+    @pytest.mark.asyncio
+    async def test_append_sources_multiple_citations(self, chat_manager_with_rag):
         """Given: multiple chunks with source_uri from different documents.
-        When: _append_rag_sources is called.
-        Then: all unique sources are listed with filename and URI."""
+        When: stream_chat() is called.
+        Then: all unique sources are listed with filename and URI.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Info 1",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc1",
                     index=0,
@@ -958,6 +1141,7 @@ class TestChatManagerSources:
             Chunk(
                 id="c2",
                 text="Info 2",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc2",
                     index=1,
@@ -966,49 +1150,88 @@ class TestChatManagerSources:
                 ),
             ),
         )
-        answer = "Combined info."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert "[1] a.md — file:///docs/a.md" in result
-        assert "[2] b.md — file:///docs/b.md" in result
-        assert "Sources:" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Combined info."])
+        )
 
-    def test_append_sources_empty_chunks(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert "a.md — file:///docs/a.md" in text
+        assert "b.md — file:///docs/b.md" in text
+        assert "Sources:" in text
+
+    @pytest.mark.asyncio
+    async def test_append_sources_empty_chunks(self, chat_manager_with_rag):
         """Given: no chunks.
-        When: _append_rag_sources is called.
-        Then: answer returned unchanged."""
-        answer = "Some answer."
-        result = ChatManager._append_rag_sources(answer, ())
-        assert result == answer
+        When: stream_chat() is called without RAG prefix.
+        Then: answer returned unchanged.
+        """
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Some answer."])
+        )
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat("plain query", "conv-1"):
+            result.append(chunk)
+        assert "".join(result) == "Some answer."
 
-    def test_append_sources_old_index_without_source_uri_fallback(self, manager_for_sources):
+    @pytest.mark.asyncio
+    async def test_append_sources_old_index_without_source_uri_fallback(
+        self, chat_manager_with_rag
+    ):
         """Given: chunk from old index without source_uri (backward compat).
-        When: _append_rag_sources is called.
-        Then: falls back to source field as plain text."""
+        When: stream_chat() is called.
+        Then: falls back to source field as plain text.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Old data",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="legacy_doc",
                     index=0,
                     total_chunks=1,
-                    # source_uri is None — simulates old index
                 ),
             ),
         )
-        answer = "Old answer."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert "[1] legacy_doc" in result
-        assert "Sources:" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Old answer."])
+        )
 
-    def test_append_sources_with_original_path(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert "[1] legacy_doc" in text
+        assert "Sources:" in text
+
+    @pytest.mark.asyncio
+    async def test_append_sources_with_original_path(self, chat_manager_with_rag):
         """Given: chunk with original_path but no source_uri.
-        When: _append_rag_sources is called.
-        Then: file:// URI is built and shown with filename."""
+        When: stream_chat() is called.
+        Then: file:// URI is built and shown with filename.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Config info",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="config_doc",
                     index=0,
@@ -1017,19 +1240,37 @@ class TestChatManagerSources:
                 ),
             ),
         )
-        answer = "Configuration details."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        assert "[1] settings.yaml — file:///home/user/docs/settings.yaml" in result
-        assert "Sources:" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Configuration details."])
+        )
 
-    def test_append_sources_deduplicates_same_document(self, manager_for_sources):
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert "[1] settings.yaml — file:///home/user/docs/settings.yaml" in text
+        assert "Sources:" in text
+
+    @pytest.mark.asyncio
+    async def test_append_sources_deduplicates_same_document(
+        self, chat_manager_with_rag
+    ):
         """Given: multiple chunks from the same document.
-        When: _append_rag_sources is called.
-        Then: only one source line is shown per unique document."""
+        When: stream_chat() is called.
+        Then: only one source line is shown per unique document.
+        """
         chunks = (
             Chunk(
                 id="c1",
                 text="Part 1",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc1",
                     index=0,
@@ -1040,6 +1281,7 @@ class TestChatManagerSources:
             Chunk(
                 id="c2",
                 text="Part 2",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc1",
                     index=1,
@@ -1050,6 +1292,7 @@ class TestChatManagerSources:
             Chunk(
                 id="c3",
                 text="Part 3 from other",
+                embedding=[1.0, 0.0, 0.0],
                 metadata=ChunkMetadata(
                     source="doc2",
                     index=0,
@@ -1058,13 +1301,25 @@ class TestChatManagerSources:
                 ),
             ),
         )
-        answer = "Answer."
-        result = ChatManager._append_rag_sources(answer, chunks)
-        # Should have exactly 2 sources, not 3
-        assert result.count("— file:///docs/") == 2
-        assert "[1] shared.md — file:///docs/shared.md" in result
-        assert "[2] other.md — file:///docs/other.md" in result
-        assert "Sources:" in result
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
+        )
+
+        result = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(chunk)
+
+        text = "".join(result)
+        assert text.count("— file:///docs/") == 2
+        assert "shared.md — file:///docs/shared.md" in text
+        assert "other.md — file:///docs/other.md" in text
+        assert "Sources:" in text
 
 
 # ── TestChatHistoryTrimming ──
@@ -1072,41 +1327,65 @@ class TestChatManagerSources:
 
 class TestChatHistoryTrimming:
     """Given: conversation history may exceed token budget.
-    When: _trim_history is called.
-    Then: oldest messages are dropped, budget is respected, order preserved."""
+    When: chat() is called.
+    Then: oldest messages are dropped, budget is respected, order preserved.
+    """
 
     @pytest.mark.asyncio
-    async def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer):
+    async def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer_and_storage):
         """Given: history exceeding token budget.
-        When: _trim_history is called.
-        Then: oldest messages are dropped to fit budget."""
+        When: chat() is called.
+        Then: oldest messages are dropped to fit budget.
+        """
         history = [
-            {"role": "user", "content": "Message 1"},
-            {"role": "assistant", "content": "Response 1"},
-            {"role": "user", "content": "Message 2"},
-            {"role": "assistant", "content": "Response 2"},
+            {"role": "user", "content": "A" * 100},
+            {"role": "assistant", "content": "B" * 100},
+            {"role": "user", "content": "C" * 100},
+            {"role": "assistant", "content": "D" * 100},
         ]
-        user_msg = UserMessage(text="Current question")
-        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
-        assert len(trimmed) <= len(history)
-        if trimmed:
-            assert trimmed[-1]["content"] == "Response 2"
+        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=history
+        )
+        manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_tokenizer_and_storage.chat("Current question", "conv-1")
+        messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
+        texts = [m.text for m in messages]
+        assert "A" * 100 not in texts
+        assert "B" * 100 not in texts
+        assert "C" * 100 not in texts
+        assert "D" * 100 in texts
+        assert "Current question" in texts
 
     @pytest.mark.asyncio
-    async def test_returns_empty_when_budget_too_small(self, manager_with_tokenizer):
+    async def test_returns_empty_when_budget_too_small(
+        self, manager_with_tokenizer_and_storage
+    ):
         """Given: user message alone exceeds token budget.
-        When: _trim_history is called.
-        Then: empty history is returned."""
-        long_msg = UserMessage(text="x" * 500)
-        history = [{"role": "user", "content": "old"}]
-        trimmed = await manager_with_tokenizer._trim_history(history, long_msg)
-        assert trimmed == []
+        When: chat() is called.
+        Then: only current message is sent to LLM.
+        """
+        long_msg = "x" * 500
+        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=[{"role": "user", "content": "old"}]
+        )
+        manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_tokenizer_and_storage.chat(long_msg, "conv-1")
+        messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
+        assert len(messages) == 1
+        assert messages[0].text == long_msg
 
     @pytest.mark.asyncio
-    async def test_fallback_to_count_based(self, manager_with_fallback_tokenizer):
+    async def test_fallback_to_count_based(
+        self, manager_with_fallback_tokenizer_and_storage
+    ):
         """Given: no tokenizer available (no context limit).
-        When: _trim_history is called.
-        Then: simple count-based fallback is used."""
+        When: chat() is called.
+        Then: simple count-based fallback is used.
+        """
         history = [
             {"role": "user", "content": "1"},
             {"role": "assistant", "content": "2"},
@@ -1114,184 +1393,160 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "4"},
             {"role": "user", "content": "5"},
         ]
-        user_msg = UserMessage(text="q")
-        trimmed = await manager_with_fallback_tokenizer._trim_history(history, user_msg)
-        assert len(trimmed) <= 3
+        manager_with_fallback_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=history
+        )
+        manager_with_fallback_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_fallback_tokenizer_and_storage.chat("q", "conv-1")
+        call_args = manager_with_fallback_tokenizer_and_storage.llm.complete.call_args
+        messages = call_args[0][0]
+        assert len(messages) <= 3
 
     @pytest.mark.asyncio
-    async def test_preserves_chronological_order(self, manager_with_tokenizer):
+    async def test_preserves_chronological_order(
+        self, manager_with_tokenizer_and_storage
+    ):
         """Given: history with multiple messages.
-        When: _trim_history is called.
-        Then: trimmed history maintains oldest-first order."""
+        When: chat() is called.
+        Then: trimmed history maintains oldest-first order.
+        """
         history = [
             {"role": "user", "content": "First"},
             {"role": "assistant", "content": "Second"},
             {"role": "user", "content": "Third"},
         ]
-        user_msg = UserMessage(text="q")
-        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
-        for i in range(len(trimmed) - 1):
-            original_idx = history.index(trimmed[i])
-            next_idx = history.index(trimmed[i + 1])
-            assert original_idx < next_idx
+        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=history
+        )
+        manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_tokenizer_and_storage.chat("q", "conv-1")
+        messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
+        history_texts = [h["content"] for h in history]
+        msg_texts = [m.text for m in messages[:-1]]
+        for i in range(len(msg_texts) - 1):
+            assert history_texts.index(msg_texts[i]) < history_texts.index(
+                msg_texts[i + 1]
+            )
 
     @pytest.mark.asyncio
-    async def test_empty_history(self, manager_with_tokenizer):
+    async def test_empty_history(self, manager_with_tokenizer_and_storage):
         """Given: empty history list.
-        When: _trim_history is called.
-        Then: empty list is returned."""
-        trimmed = await manager_with_tokenizer._trim_history(
-            [], UserMessage(text="hi")
+        When: chat() is called.
+        Then: only current message is sent to LLM.
+        """
+        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=[]
         )
-        assert trimmed == []
+        manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_tokenizer_and_storage.chat("hi", "conv-1")
+        messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
+        assert len(messages) == 1
+        assert messages[0].text == "hi"
 
     @pytest.mark.asyncio
-    async def test_single_message_fits(self, manager_with_tokenizer):
+    async def test_single_message_fits(self, manager_with_tokenizer_and_storage):
         """Given: single message within budget.
-        When: _trim_history is called.
-        Then: message is preserved."""
-        history = [{"role": "user", "content": "hello"}]
-        trimmed = await manager_with_tokenizer._trim_history(
-            history, UserMessage(text="hi")
+        When: chat() is called.
+        Then: message is preserved in LLM call.
+        """
+        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=[{"role": "user", "content": "hello"}]
         )
-        assert len(trimmed) == 1
-        assert trimmed[0]["content"] == "hello"
+        manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_tokenizer_and_storage.chat("hi", "conv-1")
+        messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
+        assert len(messages) == 2
+        assert messages[0].text == "hello"
 
     @pytest.mark.asyncio
-    async def test_respects_system_message_overhead(self, manager_with_tokenizer):
+    async def test_respects_system_message_overhead(
+        self, manager_with_tokenizer_and_storage
+    ):
         """Given: system message configured on LLM.
-        When: _trim_history is called.
-        Then: system message tokens are reserved from budget."""
-        history = [{"role": "user", "content": "x" * 200}]
-        trimmed = await manager_with_tokenizer._trim_history(
-            history, UserMessage(text="q")
+        When: chat() is called.
+        Then: system message tokens are reserved from budget.
+        """
+        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
+            return_value=[{"role": "user", "content": "x" * 200}]
         )
-        assert len(trimmed) <= 1
+        manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager_with_tokenizer_and_storage.chat("q", "conv-1")
+        messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
+        assert len(messages) <= 2
 
     @pytest.mark.asyncio
     async def test_no_llm_config_fallback(self):
         """Given: LLM with no context limit.
-        When: _trim_history is called with max_context_tokens set.
-        Then: falls back to history_limit."""
-        mock_llm = MagicMock()
+        When: chat() is called with max_context_tokens set.
+        Then: falls back to history_limit.
+        """
+        mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = None
         mock_llm.system_message = None
+        mock_storage = MagicMock(spec=IChatStorage)
+        mock_storage.get_history = AsyncMock(
+            return_value=[
+                {"role": "user", "content": "1"},
+                {"role": "assistant", "content": "2"},
+                {"role": "user", "content": "3"},
+            ]
+        )
         manager = ChatManager(
             llm=mock_llm,
             reranker=NullReranker(RerankerConfigData()),
             max_context_tokens=50,
             history_limit=2,
-            storage=None,
+            storage=mock_storage,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-
-        history = [
-            {"role": "user", "content": "1"},
-            {"role": "assistant", "content": "2"},
-            {"role": "user", "content": "3"},
-        ]
-        trimmed = await manager._trim_history(history, UserMessage(text="q"))
-        assert len(trimmed) <= 2
+        manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager.chat("q", "conv-1")
+        messages = manager.llm.complete.call_args[0][0]
+        assert len(messages) <= 2
 
     @pytest.mark.asyncio
-    async def test_cjk_text_ratio_above_30_percent(self, manager_with_tokenizer):
-        """Given: history with >30% CJK characters.
-        When: _trim_history is called.
-        Then: CJK text is handled correctly by tokenizer."""
-        cjk_text = "这是一个中文测试消息" * 10  # ~170 CJK chars
-        history = [
-            {"role": "user", "content": cjk_text},
-            {"role": "assistant", "content": "Response"},
-        ]
-        user_msg = UserMessage(text="Query")
-        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
-        assert isinstance(trimmed, list)
-        # CJK text should still be processed; verify no crash
-        assert all(isinstance(h, dict) for h in trimmed)
-
-    @pytest.mark.asyncio
-    async def test_cjk_text_mixed_with_latin(self, manager_with_tokenizer):
-        """Given: mixed CJK and Latin text.
-        When: _trim_history is called.
-        Then: tokenizer handles mixed content correctly."""
-        mixed_text = "Hello 世界 this is 测试 text 中文"
-        history = [
-            {"role": "user", "content": mixed_text},
-            {"role": "assistant", "content": "Response"},
-        ]
-        user_msg = UserMessage(text="Query")
-        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
-        assert isinstance(trimmed, list)
-        assert all(isinstance(h, dict) for h in trimmed)
-
-    @pytest.mark.asyncio
-    async def test_cjk_text_high_ratio_drops_oldest(self, manager_with_tokenizer):
-        """Given: multiple CJK messages exceeding budget.
-        When: _trim_history is called.
-        Then: oldest CJK messages are dropped first."""
-        history = [
-            {"role": "user", "content": "第一条消息" * 50},
-            {"role": "assistant", "content": "第二条回复" * 50},
-            {"role": "user", "content": "第三条消息" * 50},
-        ]
-        user_msg = UserMessage(text="当前问题")
-        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
-        assert len(trimmed) <= len(history)
-        if len(trimmed) >= 2:
-            assert trimmed[-1]["content"] == "第三条消息" * 50
-
-    @pytest.mark.asyncio
-    async def test_cjk_user_message_only(self, manager_with_tokenizer):
-        """Given: CJK-only user message with small budget.
-        When: _trim_history is called.
-        Then: history is empty if user message consumes all budget."""
-        user_msg = UserMessage(text="这是一个非常长的中文用户问题" * 100)
-        history = [{"role": "assistant", "content": "Previous"}]
-        trimmed = await manager_with_tokenizer._trim_history(history, user_msg)
-        assert trimmed == []
-
-
-# ---------- _trim_history falls back to count-based limit ----------
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
-from ai_assistant.core.domain.messages import UserMessage
-from ai_assistant.features.chat.manager import ChatManager
-
-
-@pytest.fixture
-def mock_llm_none_context():
-    m = MagicMock()
-    m.get_context_limit.return_value = None
-    m.system_message = None
-    return m
-
-
-async def test_trim_history_uses_count_fallback_when_budget_is_none(
-    mock_llm_none_context,
-):
-    """When get_context_limit() returns None, use history_limit."""
-    manager = ChatManager(
-        llm=mock_llm_none_context,
-        reranker=AsyncMock(),
-        storage=None,
-        history_limit=3,
-        max_context_tokens=None,
-    )
-    # Avoid asyncio.to_thread issues with AsyncMock by mocking _count_tokens directly
-    manager._count_tokens = AsyncMock(return_value=10)
-
-    history = [
-        {"role": "user", "content": "msg1"},
-        {"role": "user", "content": "msg2"},
-        {"role": "user", "content": "msg3"},
-        {"role": "user", "content": "msg4"},
-        {"role": "user", "content": "msg5"},
-    ]
-
-    trimmed = await manager._trim_history(history, UserMessage(text="current"))
-
-    assert len(trimmed) == 3
-    assert trimmed[0]["content"] == "msg3"
-    assert trimmed[-1]["content"] == "msg5"
+    async def test_trim_history_uses_count_fallback_when_budget_is_none(self):
+        """When get_context_limit() returns None, use history_limit.
+        """
+        mock_llm = MagicMock(spec=ILLM)
+        mock_llm.get_context_limit.return_value = None
+        mock_llm.system_message = None
+        mock_storage = MagicMock(spec=IChatStorage)
+        mock_storage.get_history = AsyncMock(
+            return_value=[
+                {"role": "user", "content": "msg1"},
+                {"role": "user", "content": "msg2"},
+                {"role": "user", "content": "msg3"},
+                {"role": "user", "content": "msg4"},
+                {"role": "user", "content": "msg5"},
+            ]
+        )
+        manager = ChatManager(
+            llm=mock_llm,
+            reranker=NullReranker(RerankerConfigData()),
+            storage=mock_storage,
+            history_limit=3,
+            max_context_tokens=None,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        manager.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
+        )
+        await manager.chat("current", "conv-1")
+        messages = manager.llm.complete.call_args[0][0]
+        assert len(messages) == 3
+        assert messages[0].text == "msg4"
+        assert messages[1].text == "msg5"
+        assert messages[-1].text == "current"

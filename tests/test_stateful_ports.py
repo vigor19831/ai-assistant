@@ -51,7 +51,7 @@ def _make_chunk(idx: int, text: str = "test", dim: int = 384) -> Chunk:
             source="test",
             index=idx,
             total_chunks=1,
-            source_uri=f"file:///tmp/test_{idx}.md",
+            source_uri=f"test://doc/{idx}",
         ),
         embedding=[0.01 * (idx % 100)] * dim,
     )
@@ -132,6 +132,15 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
         if namespace in self._expected:
             self._expected[namespace].discard(chunk_id)
 
+    def teardown(self) -> None:
+        """Unconditionally shutdown the store to release resources."""
+        if self._store is not None:
+            try:
+                _run_async(self._store.shutdown())
+            except Exception:
+                pass  # Best-effort cleanup; do not let teardown fail
+        super().teardown()
+
     @invariant()
     def store_initialized_or_none(self) -> None:
         """Invariant: store is either None or initialized."""
@@ -167,12 +176,20 @@ class ChatStorageStateMachine(RuleBasedStateMachine):
         os.close(fd)
 
     def teardown(self) -> None:
-        """Remove the temp DB file to avoid accumulation."""
+        """Close storage and remove the temp DB file to avoid accumulation."""
         try:
-            os.unlink(self._db_path)
-        except OSError:
-            pass
-        super().teardown()
+            if self._storage is not None:
+                try:
+                    _run_async(self._storage.shutdown())
+                except Exception:
+                    pass  # Best-effort; still unlink files below
+        finally:
+            for suffix in ("", "-wal", "-shm"):
+                try:
+                    os.unlink(self._db_path + suffix)
+                except OSError:
+                    pass
+            super().teardown()
 
     def _init_storage(self) -> IChatStorage:
         """Create a fresh SQLiteStorage using the instance temp file."""
@@ -223,9 +240,12 @@ class ChatStorageStateMachine(RuleBasedStateMachine):
             start = max(0, total - limit - offset)
             end = total - offset
             expected_slice = expected[start:end]
+            assert len(history) == len(expected_slice)
             for i, msg in enumerate(history):
                 assert msg["role"] == expected_slice[i]["role"]
                 assert msg["content"] == expected_slice[i]["content"]
+        else:
+            assert history == []
 
     @invariant()
     def storage_initialized_or_none(self) -> None:
@@ -250,29 +270,35 @@ async def test_vector_store_save_load_preserves_state(tmp_path: Path) -> None:
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
 
-    chunks = [
-        _make_chunk(0, dim=dim),
-        _make_chunk(1, dim=dim),
-        _make_chunk(2, dim=dim),
-    ]
-    await store.add(chunks, namespace=namespace)
+    try:
+        chunks = [
+            _make_chunk(0, dim=dim),
+            _make_chunk(1, dim=dim),
+            _make_chunk(2, dim=dim),
+        ]
+        await store.add(chunks, namespace=namespace)
 
-    path = str(tmp_path / "vs_persist")
-    await store.save(path, namespace=namespace)
+        path = str(tmp_path / "vs_persist")
+        await store.save(path, namespace=namespace)
 
-    store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
-    await store2.load(path, namespace=namespace)
+        store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+        await store2.load(path, namespace=namespace)
 
-    query = [0.01] * dim
-    results = await store2.search(query, top_k=100, namespace=namespace)
-    result_ids = {r.id for r in results}
-    expected_ids = {c.id for c in chunks}
-    assert result_ids == expected_ids
+        try:
+            query = [0.01] * dim
+            results = await store2.search(query, top_k=100, namespace=namespace)
+            result_ids = {r.id for r in results}
+            expected_ids = {c.id for c in chunks}
+            assert result_ids == expected_ids
 
-    for r in results:
-        assert r.metadata is not None
-        assert r.metadata.source_uri is not None
-        assert r.metadata.source_uri.startswith("file:///")
+            for r in results:
+                assert r.metadata is not None
+                assert r.metadata.source_uri is not None
+                assert r.metadata.source_uri.startswith("test://")
+        finally:
+            await store2.shutdown()
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -290,8 +316,12 @@ async def test_vector_store_save_load_version_mismatch(tmp_path: Path) -> None:
     await store.save(path, namespace=namespace)
 
     store2 = MemoryVectorStore(VectorStoreConfigData(dim=128))
-    with pytest.raises(VersionMismatchError):
-        await store2.load(path, namespace=namespace)
+    try:
+        with pytest.raises(VersionMismatchError):
+            await store2.load(path, namespace=namespace)
+    finally:
+        await store.shutdown()
+        await store2.shutdown()
 
 
 @pytest.mark.asyncio
@@ -307,19 +337,25 @@ async def test_vector_store_delete_auto_persists(tmp_path: Path) -> None:
     )
     namespace = "test_ns"
 
-    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
-    await store.add(chunks, namespace=namespace)
-    await store.save(path, namespace=namespace)
+    try:
+        chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+        await store.add(chunks, namespace=namespace)
+        await store.save(path, namespace=namespace)
 
-    await store.delete([chunks[0].id], namespace=namespace)
+        await store.delete([chunks[0].id], namespace=namespace)
 
-    store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
-    await store2.load(path, namespace=namespace)
-    query = [0.01] * dim
-    results = await store2.search(query, top_k=100, namespace=namespace)
-    result_ids = {r.id for r in results}
-    assert chunks[0].id not in result_ids
-    assert chunks[1].id in result_ids
+        store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+        try:
+            await store2.load(path, namespace=namespace)
+            query = [0.01] * dim
+            results = await store2.search(query, top_k=100, namespace=namespace)
+            result_ids = {r.id for r in results}
+            assert chunks[0].id not in result_ids
+            assert chunks[1].id in result_ids
+        finally:
+            await store2.shutdown()
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -332,14 +368,21 @@ async def test_chat_storage_persistence(tmp_path: Path) -> None:
     storage = SQLiteStorage(StorageConfigData(db_path=str(db_path)))
     await storage.init_db()
 
-    await storage.save_message("conv-1", {"role": "user", "content": "hello"})
-    await storage.save_message("conv-1", {"role": "assistant", "content": "hi"})
+    try:
+        await storage.save_message("conv-1", {"role": "user", "content": "hello"})
+        await storage.save_message("conv-1", {"role": "assistant", "content": "hi"})
+        await storage.shutdown()
+    finally:
+        await storage.shutdown()  # Idempotent safety net
 
     storage2 = SQLiteStorage(StorageConfigData(db_path=str(db_path)))
-    history = await storage2.get_history("conv-1")
-    assert len(history) == 2
-    assert history[0]["content"] == "hello"
-    assert history[1]["content"] == "hi"
+    try:
+        history = await storage2.get_history("conv-1")
+        assert len(history) == 2
+        assert history[0]["content"] == "hello"
+        assert history[1]["content"] == "hi"
+    finally:
+        await storage2.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -349,38 +392,44 @@ async def test_chat_storage_persistence(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_sqlite_storage_shutdown_wal_checkpoint(tmp_path: Path) -> None:
     """shutdown() must flush WAL and not leave orphaned *.db-wal/*.db-shm."""
-    tmp_db = tmp_path / f"shutdown_test_{uuid.uuid4().hex}.db"
+    tmp_db = tmp_path / "shutdown_test.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
     await storage.init_db()
 
     await storage.save_message("conv-1", {"role": "user", "content": "hello"})
     await storage.shutdown()
 
+    # WAL must be either checkpointed-and-removed, or empty
     wal_path = str(tmp_db) + "-wal"
     if os.path.exists(wal_path):
-        assert os.path.getsize(wal_path) == 0
+        assert os.path.getsize(wal_path) == 0, "WAL not checkpointed"
 
+    # Durability: reload must see committed data
     storage2 = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
-    history = await storage2.get_history("conv-1")
-    assert len(history) == 1
-    assert history[0]["content"] == "hello"
+    try:
+        history = await storage2.get_history("conv-1")
+        assert len(history) == 1
+        assert history[0]["content"] == "hello"
+    finally:
+        await storage2.shutdown()
 
 
 @pytest.mark.asyncio
 async def test_sqlite_storage_shutdown_idempotent(tmp_path: Path) -> None:
     """shutdown() must be safe to call multiple times."""
-    tmp_db = tmp_path / f"idempotent_test_{uuid.uuid4().hex}.db"
+    tmp_db = tmp_path / "idempotent_test.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
     await storage.init_db()
 
     await storage.shutdown()
     await storage.shutdown()  # must not raise
+    await storage.shutdown()  # third call also safe
 
 
 @pytest.mark.asyncio
 async def test_sqlite_storage_shutdown_no_init_db_no_file(tmp_path: Path) -> None:
     """shutdown() without init_db() must not create an empty .db file."""
-    tmp_db = tmp_path / f"no_init_shutdown_{uuid.uuid4().hex}.db"
+    tmp_db = tmp_path / "no_init_shutdown.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_db)))
     # Deliberately NOT calling init_db()
     await storage.shutdown()
@@ -398,8 +447,11 @@ async def test_sqlite_settings_get_default(tmp_path: Path) -> None:
     db = tmp_path / "settings_default.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
     await storage.init_db()
-    value = await storage.get("nonexistent_key", default="fallback")
-    assert value == "fallback"
+    try:
+        value = await storage.get("nonexistent_key", default="fallback")
+        assert value == "fallback"
+    finally:
+        await storage.shutdown()
 
 
 @pytest.mark.asyncio
@@ -408,9 +460,12 @@ async def test_sqlite_settings_set_and_get(tmp_path: Path) -> None:
     db = tmp_path / "settings_basic.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
     await storage.init_db()
-    await storage.set("theme", "dark")
-    value = await storage.get("theme")
-    assert value == "dark"
+    try:
+        await storage.set("theme", "dark")
+        value = await storage.get("theme")
+        assert value == "dark"
+    finally:
+        await storage.shutdown()
 
 
 @pytest.mark.asyncio
@@ -419,10 +474,13 @@ async def test_sqlite_settings_overwrite(tmp_path: Path) -> None:
     db = tmp_path / "settings_overwrite.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
     await storage.init_db()
-    await storage.set("key1", "first")
-    await storage.set("key1", "second")
-    value = await storage.get("key1")
-    assert value == "second"
+    try:
+        await storage.set("key1", "first")
+        await storage.set("key1", "second")
+        value = await storage.get("key1")
+        assert value == "second"
+    finally:
+        await storage.shutdown()
 
 
 @pytest.mark.asyncio
@@ -431,10 +489,13 @@ async def test_sqlite_settings_complex_value(tmp_path: Path) -> None:
     db = tmp_path / "settings_complex.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
     await storage.init_db()
-    data = {"nested": {"a": [1, 2, 3]}, "flag": True}
-    await storage.set("config", data)
-    value = await storage.get("config")
-    assert value == data
+    try:
+        data = {"nested": {"a": [1, 2, 3]}, "flag": True}
+        await storage.set("config", data)
+        value = await storage.get("config")
+        assert value == data
+    finally:
+        await storage.shutdown()
 
 
 @pytest.mark.asyncio
@@ -443,9 +504,13 @@ async def test_sqlite_settings_none_value(tmp_path: Path) -> None:
     db = tmp_path / "settings_none.db"
     storage = SQLiteStorage(StorageConfigData(db_path=str(db)))
     await storage.init_db()
-    await storage.set("nullable", None)
-    value = await storage.get("nullable")
-    assert value is None
+    try:
+        await storage.set("nullable", None)
+        # Use non-None default to distinguish stored null from missing key
+        value = await storage.get("nullable", default="missing")
+        assert value is None
+    finally:
+        await storage.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -459,13 +524,16 @@ async def test_memory_vector_store_nan_query_returns_empty(tmp_path: Path) -> No
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
 
-    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
-    await store.add(chunks, namespace=namespace)
+    try:
+        chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+        await store.add(chunks, namespace=namespace)
 
-    # NaN in query embedding must not return corrupt results
-    nan_query = [float("nan")] * dim
-    results = await store.search(nan_query, top_k=5, namespace=namespace)
-    assert results == []
+        # NaN in query embedding must not return corrupt results
+        nan_query = [float("nan")] * dim
+        results = await store.search(nan_query, top_k=5, namespace=namespace)
+        assert results == []
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -475,13 +543,16 @@ async def test_memory_vector_store_inf_query_returns_empty(tmp_path: Path) -> No
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
 
-    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
-    await store.add(chunks, namespace=namespace)
+    try:
+        chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+        await store.add(chunks, namespace=namespace)
 
-    # inf in query embedding must not return corrupt results
-    inf_query = [float("inf")] * dim
-    results = await store.search(inf_query, top_k=5, namespace=namespace)
-    assert results == []
+        # inf in query embedding must not return corrupt results
+        inf_query = [float("inf")] * dim
+        results = await store.search(inf_query, top_k=5, namespace=namespace)
+        assert results == []
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -491,13 +562,16 @@ async def test_memory_vector_store_zero_query_returns_empty(tmp_path: Path) -> N
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
 
-    chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
-    await store.add(chunks, namespace=namespace)
+    try:
+        chunks = [_make_chunk(0, dim=dim), _make_chunk(1, dim=dim)]
+        await store.add(chunks, namespace=namespace)
 
-    # Zero vector query has no meaningful similarity
-    zero_query = [0.0] * dim
-    results = await store.search(zero_query, top_k=5, namespace=namespace)
-    assert results == []
+        # Zero vector query has no meaningful similarity
+        zero_query = [0.0] * dim
+        results = await store.search(zero_query, top_k=5, namespace=namespace)
+        assert results == []
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -509,26 +583,32 @@ async def test_memory_vector_store_chunk_embedding_preserved_after_load(tmp_path
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
 
-    chunks = [
-        _make_chunk(0, dim=dim),
-        _make_chunk(1, dim=dim),
-        _make_chunk(2, dim=dim),
-    ]
-    await store.add(chunks, namespace=namespace)
+    try:
+        chunks = [
+            _make_chunk(0, dim=dim),
+            _make_chunk(1, dim=dim),
+            _make_chunk(2, dim=dim),
+        ]
+        await store.add(chunks, namespace=namespace)
 
-    path = str(tmp_path / "vs_persist")
-    await store.save(path, namespace=namespace)
+        path = str(tmp_path / "vs_persist")
+        await store.save(path, namespace=namespace)
 
-    store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
-    await store2.load(path, namespace=namespace)
+        store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+        await store2.load(path, namespace=namespace)
 
-    query = [0.01] * dim
-    results = await store2.search(query, top_k=100, namespace=namespace)
-    assert len(results) == len(chunks)
+        try:
+            query = [0.01] * dim
+            results = await store2.search(query, top_k=100, namespace=namespace)
+            assert len(results) == len(chunks)
 
-    for chunk in results:
-        assert chunk.embedding is not None, f"Chunk {chunk.id} lost embedding after load"
-        assert len(chunk.embedding) == dim
+            for chunk in results:
+                assert chunk.embedding is not None, f"Chunk {chunk.id} lost embedding after load"
+                assert len(chunk.embedding) == dim
+        finally:
+            await store2.shutdown()
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -541,13 +621,16 @@ async def test_memory_vector_store_list_namespaces_includes_in_memory(tmp_path: 
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "in_memory_only"
 
-    await store.add([_make_chunk(0, dim=dim)], namespace=namespace)
+    try:
+        await store.add([_make_chunk(0, dim=dim)], namespace=namespace)
 
-    # list_namespaces should include the in-memory namespace
-    # even before any save() call
-    path = str(tmp_path / "vs_namespaces")
-    namespaces = await store.list_namespaces(path)
-    assert namespace in namespaces
+        # list_namespaces should include the in-memory namespace
+        # even before any save() call
+        path = str(tmp_path / "vs_namespaces")
+        namespaces = await store.list_namespaces(path)
+        assert namespace in namespaces
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -559,14 +642,17 @@ async def test_memory_vector_store_delete_clears_empty_namespace(tmp_path: Path)
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
 
-    chunk = _make_chunk(0, dim=dim)
-    await store.add([chunk], namespace=namespace)
-    await store.delete([chunk.id], namespace=namespace)
+    try:
+        chunk = _make_chunk(0, dim=dim)
+        await store.add([chunk], namespace=namespace)
+        await store.delete([chunk.id], namespace=namespace)
 
-    # Namespace should be cleaned up when empty
-    path = str(tmp_path / "vs_delete")
-    namespaces = await store.list_namespaces(path)
-    assert namespace not in namespaces
+        # Namespace should be cleaned up when empty
+        path = str(tmp_path / "vs_delete")
+        namespaces = await store.list_namespaces(path)
+        assert namespace not in namespaces
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
@@ -579,30 +665,33 @@ async def test_memory_vector_store_add_invalid_chunks_no_empty_namespace(tmp_pat
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "empty_ns"
 
-    # Chunks without embeddings
-    invalid_chunks = [
-        Chunk(
-            id="no-emb-1",
-            text="no embedding",
-            metadata=ChunkMetadata(source="test", index=0, total_chunks=1),
-        ),
-        Chunk(
-            id="no-emb-2",
-            text="also no embedding",
-            metadata=ChunkMetadata(source="test", index=1, total_chunks=1),
-        ),
-    ]
-    await store.add(invalid_chunks, namespace=namespace)
+    try:
+        # Chunks without embeddings
+        invalid_chunks = [
+            Chunk(
+                id="no-emb-1",
+                text="no embedding",
+                metadata=ChunkMetadata(source="test", index=0, total_chunks=1),
+            ),
+            Chunk(
+                id="no-emb-2",
+                text="also no embedding",
+                metadata=ChunkMetadata(source="test", index=1, total_chunks=1),
+            ),
+        ]
+        await store.add(invalid_chunks, namespace=namespace)
 
-    path = str(tmp_path / "vs_invalid")
-    namespaces = await store.list_namespaces(path)
-    assert namespace not in namespaces
+        path = str(tmp_path / "vs_invalid")
+        namespaces = await store.list_namespaces(path)
+        assert namespace not in namespaces
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_memory_vector_store_shutdown_thread_safe(tmp_path: Path) -> None:
-    """Given: store with active operations. When: shutdown called.
-    Then: no race condition (shutdown acquires lock before clearing).
+async def test_memory_vector_store_shutdown_clears_state(tmp_path: Path) -> None:
+    """Given: store with chunks. When: shutdown called.
+    Then: state is cleared and subsequent operations see empty store.
     """
     dim = 384
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
@@ -617,4 +706,3 @@ async def test_memory_vector_store_shutdown_thread_safe(tmp_path: Path) -> None:
     query = [0.01] * dim
     results = await store.search(query, top_k=5, namespace=namespace)
     assert results == []
-

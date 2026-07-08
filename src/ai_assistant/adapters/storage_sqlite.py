@@ -29,16 +29,15 @@ _MIGRATIONS: dict[int, list[str]] = {}
 
 
 def _safe_json_loads(value: str | None, default: Any) -> Any:
-    """Parse JSON with fallback to *default* on any failure.
+    """Parse JSON with fallback to *default* on empty input or parse error.
 
-    Returns *default* for None, empty string, or any parse error.
+    Returns *default* for None/empty string or any parse error.
+    Preserves JSON null as Python None.
     """
     if not value:
         return default
     try:
-        result = json.loads(value)
-        # Treat JSON null as "missing" so callers always get a usable dict.
-        return default if result is None else result
+        return json.loads(value)
     except (json.JSONDecodeError, TypeError, ValueError):
         _logger.warning(
             "JSON decode failed in storage",
@@ -181,15 +180,20 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                     (conversation_id, limit, offset),
                 )
                 rows = list(await cur.fetchall())
-                return [
-                    {
-                        "role": r["role"],
-                        "content": r["content"],
-                        "metadata": _safe_json_loads(r["metadata"], {}),
-                        "created_at": r["created_at"],
-                    }
-                    for r in reversed(rows)
-                ]
+                messages = []
+                for r in reversed(rows):
+                    meta = _safe_json_loads(r["metadata"], {})
+                    if meta is None:
+                        meta = {}
+                    messages.append(
+                        {
+                            "role": r["role"],
+                            "content": r["content"],
+                            "metadata": meta,
+                            "created_at": r["created_at"],
+                        }
+                    )
+                return messages
         except (sqlite3.Error, aiosqlite.Error) as exc:
             _logger.exception(
                 "get_history failed", extra={"db_path": self.db_path}

@@ -167,6 +167,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         (state.storage, "storage"),
         (state.reranker, "reranker"),
         (state.chunker, "chunker"),
+        (state.tokenizer, "tokenizer"),
     )
 
     for adapter, name in adapters:

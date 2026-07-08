@@ -46,10 +46,7 @@ def _collect_files_sync(
     root = Path(source.path).expanduser().resolve()
 
     if not root.exists():
-        _logger.warning(
-            "Source path does not exist, skipping: %s",
-            root,
-        )
+        _logger.warning(f"Source path does not exist, skipping: {root}")
         return docs
 
     iterator = root.rglob("*") if source.recursive else root.iterdir()
@@ -66,10 +63,8 @@ def _collect_files_sync(
                 file_size = file_path.stat().st_size
                 if file_size > max_file_size:
                     _logger.warning(
-                        "Skipping oversized file %s (%d > %d bytes)",
-                        file_path,
-                        file_size,
-                        max_file_size,
+                        f"Skipping oversized file {file_path} "
+                        f"({file_size} > {max_file_size} bytes)"
                     )
                     continue
             except OSError:
@@ -116,11 +111,9 @@ def read_sources(
         if docs:
             existing = result.get(source.namespace, [])
             result[source.namespace] = existing + docs
+            n_docs = len(docs)
             _logger.info(
-                "Source '%s': %d documents from %s",
-                source.namespace,
-                len(docs),
-                source.path,
+                f"Source {source.namespace}: {n_docs} docs from {source.path}"
             )
     return result
 
@@ -133,6 +126,7 @@ async def index_folder(
     vector_store: Any,
     max_file_size: int | None = None,
     sources: list[SourceConfig] | None = None,
+    index_path: str | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -183,11 +177,10 @@ async def index_folder(
                 to_delete = [cid for cid, _meta in existing]
                 if to_delete:
                     await vector_store.delete(to_delete, namespace=namespace)
-                    _logger.info(
-                        "Cleared %d chunks from namespace %s", len(to_delete), namespace
-                    )
+                    n_cleared = len(to_delete)
+                    _logger.info(f"Cleared {n_cleared} chunks from {namespace}")
             except Exception as exc:
-                _logger.warning("Failed to clear namespace %s: %s", namespace, exc)
+                _logger.warning(f"Failed to clear namespace {namespace}: {exc}")
                 all_errors.append(f"Clear failed for {namespace}: {exc}")
 
         # Deduplicate: skip documents whose source_uri already exists in index.
@@ -200,9 +193,7 @@ async def index_folder(
                 if uri:
                     existing_uris.add(uri)
         except Exception as exc:
-            _logger.warning(
-                "Could not list existing chunks for dedup: %s", exc
-            )
+            _logger.warning(f"Could not list existing chunks for dedup: {exc}")
 
         # Deduplicate: skip documents whose source_uri already exists in index
         # OR was already seen earlier in this batch (prevents duplicates from
@@ -221,8 +212,8 @@ async def index_folder(
         skipped = len(docs) - len(new_docs)
         if skipped:
             _logger.info(
-                "Skipped %d documents (source_uri already in index) for namespace %s",
-                skipped, namespace,
+                f"Skipped {skipped} documents "
+                f"(source_uri already in index) for namespace {namespace}"
             )
 
         if not new_docs:
@@ -238,16 +229,15 @@ async def index_folder(
             if result.get("errors"):
                 all_errors.extend(result["errors"])
 
-            index_path = vector_store.index_path
             if index_path:
                 try:
                     await vector_store.save(index_path, namespace=namespace)
                 except Exception as exc:
-                    _logger.warning("Auto-save failed for %s: %s", namespace, exc)
+                    _logger.warning(f"Auto-save failed for {namespace}: {exc}")
                     all_errors.append(f"Auto-save failed for {namespace}: {exc}")
 
         except Exception as exc:
-            _logger.exception("Indexing failed for namespace %s", namespace)
+            _logger.exception(f"Indexing failed for namespace {namespace}")
             all_errors.append(f"Indexing failed for {namespace}: {exc}")
             all_results[namespace] = {"indexed": 0, "chunks": 0}
 

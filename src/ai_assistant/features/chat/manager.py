@@ -205,9 +205,10 @@ class ChatManager:
         """
         budget = self.max_context_tokens or self.llm.get_context_limit()
         if not budget:
+            limit = max(1, self.history_limit - 1)
             return (
-                history[-self.history_limit :]
-                if len(history) > self.history_limit
+                history[-limit:]
+                if len(history) > limit
                 else history
             )
 
@@ -245,6 +246,9 @@ class ChatManager:
         message unchanged with empty chunks.
         """
         if not self._pipeline:
+            query_text, namespace = parse_rag_query(message, self._prefix_map)
+            if namespace is not None:
+                return query_text, query_text, namespace, ()
             return message, message, None, ()
 
         query_text, namespace = parse_rag_query(message, self._prefix_map)
@@ -361,13 +365,6 @@ class ChatManager:
             },
         )
 
-        # Graceful degradation: RAG requested but infrastructure unavailable
-        _clean, _ns = parse_rag_query(message, self._prefix_map)
-        if _ns is not None and not self._pipeline:
-            return AssistantMessage(
-                text="Document search (RAG) temporarily unavailable."
-            )
-
         (
             prompt_for_llm,
             original_query,
@@ -456,12 +453,6 @@ class ChatManager:
             },
         )
 
-        # Graceful degradation: RAG requested but infrastructure unavailable
-        _clean, _ns = parse_rag_query(message, self._prefix_map)
-        if _ns is not None and not self._pipeline:
-            yield "Document search (RAG) temporarily unavailable."
-            return
-
         (
             prompt_for_llm,
             original_query,
@@ -507,9 +498,9 @@ class ChatManager:
         )
 
         # Yield sources block so the client sees them in the stream
-        sources_text = self._append_rag_sources("", rag_chunks)
-        if sources_text:
-            yield sources_text
+        sources_text = self._append_rag_sources(full_response, rag_chunks)
+        if sources_text != full_response:
+            yield sources_text[len(full_response):]
 
         # Save to history after streaming completes
         if self.storage:

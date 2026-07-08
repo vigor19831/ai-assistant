@@ -14,8 +14,14 @@ Invariants:
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
+from ai_assistant.adapters.chunker_simple import SimpleChunker
+from ai_assistant.adapters.embedder_mock import MockEmbedder
+from ai_assistant.adapters.llm_mock import MockLLM
+from ai_assistant.adapters.reranker_null import NullReranker
+from ai_assistant.core.domain.configs import ChunkerConfigData, EmbedderConfigData, LLMConfigData, RerankerConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.ports.chunker import IChunker
@@ -28,27 +34,24 @@ from ai_assistant.core.ports.reranker import IReranker
 # Fixtures: parametrized over ALL adapter implementations
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(params=["mock"])
-def embedder_impl(request):
+@pytest_asyncio.fixture(params=["mock"])
+async def embedder_impl(request):
     """Yield concrete IEmbedder implementations for property tests."""
-    from ai_assistant.adapters.embedder_mock import MockEmbedder
-    from ai_assistant.core.domain.configs import EmbedderConfigData
-
     if request.param == "mock":
-        return MockEmbedder(
+        adapter = MockEmbedder(
             EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
         )
-    raise ValueError(f"Unknown embedder: {request.param}")
+    else:
+        raise ValueError(f"Unknown embedder: {request.param}")
+    yield adapter
+    await adapter.shutdown()
 
 
-@pytest.fixture(params=["mock"])
-def llm_impl(request):
+@pytest_asyncio.fixture(params=["mock"])
+async def llm_impl(request):
     """Yield concrete ILLM implementations for property tests."""
-    from ai_assistant.adapters.llm_mock import MockLLM
-    from ai_assistant.core.domain.configs import LLMConfigData
-
     if request.param == "mock":
-        return MockLLM(
+        adapter = MockLLM(
             LLMConfigData(
                 model="mock",
                 api_base="",
@@ -57,33 +60,36 @@ def llm_impl(request):
                 temperature=0.7,
             )
         )
-    raise ValueError(f"Unknown llm: {request.param}")
+    else:
+        raise ValueError(f"Unknown llm: {request.param}")
+    yield adapter
+    await adapter.shutdown()
 
 
-@pytest.fixture(params=["null"])
-def reranker_impl(request):
+@pytest_asyncio.fixture(params=["null"])
+async def reranker_impl(request):
     """Yield concrete IReranker implementations for property tests."""
-    from ai_assistant.adapters.reranker_null import NullReranker
-    from ai_assistant.core.domain.configs import RerankerConfigData
-
     if request.param == "null":
-        return NullReranker(
+        adapter = NullReranker(
             RerankerConfigData(model="null", api_base="", api_key="")
         )
-    raise ValueError(f"Unknown reranker: {request.param}")
+    else:
+        raise ValueError(f"Unknown reranker: {request.param}")
+    yield adapter
+    await adapter.shutdown()
 
 
-@pytest.fixture(params=["simple"])
-def chunker_impl(request):
+@pytest_asyncio.fixture(params=["simple"])
+async def chunker_impl(request):
     """Yield concrete IChunker implementations for property tests."""
-    from ai_assistant.adapters.chunker_simple import SimpleChunker
-    from ai_assistant.core.domain.configs import ChunkerConfigData
-
     if request.param == "simple":
-        return SimpleChunker(
+        adapter = SimpleChunker(
             ChunkerConfigData(chunk_size=100, chunk_overlap=0)
         )
-    raise ValueError(f"Unknown chunker: {request.param}")
+    else:
+        raise ValueError(f"Unknown chunker: {request.param}")
+    yield adapter
+    await adapter.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -122,10 +128,8 @@ class TestEmbedderProperties:
             assert len(vec) == dim
 
     @pytest.mark.asyncio
-    @given(st.text(min_size=0, max_size=1000))
-    @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
     async def test_embed_empty_list_returns_empty(
-        self, embedder_impl: IEmbedder, text: str
+        self, embedder_impl: IEmbedder
     ) -> None:
         """Given: empty texts list.
         When: embed([]) is called.
@@ -193,7 +197,6 @@ class TestRerankerProperties:
         results = await reranker_impl.rerank(query, chunks, top_k=top_k)
         # NullReranker returns all chunks regardless of top_k
         # APIReranker respects top_k
-        assert len(results) >= 0
         assert len(results) <= len(chunks)
 
     @pytest.mark.asyncio
@@ -280,25 +283,28 @@ class TestChunkerProperties:
         fresh_chunker = type(chunker_impl)(
             ChunkerConfigData(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         )
-        doc = Document(id="prop-test", content=text, metadata={})
-        chunks = await fresh_chunker.chunk(doc)
+        try:
+            doc = Document(id="prop-test", content=text, metadata={})
+            chunks = await fresh_chunker.chunk(doc)
 
-        # Invariant: empty text -> empty or single empty chunk
-        if not text:
-            assert len(chunks) <= 1
-            return
+            # Invariant: empty text -> empty or single empty chunk
+            if not text:
+                assert len(chunks) <= 1
+                return
 
-        # Invariant: each chunk has non-empty text (except edge cases)
-        for c in chunks:
-            assert len(c.text) <= chunk_size + chunk_overlap  # generous bound
+            # Invariant: each chunk has non-empty text (except edge cases)
+            for c in chunks:
+                assert len(c.text) <= chunk_size + chunk_overlap  # generous bound
 
-        # Invariant: chunk IDs are unique
-        ids = [c.id for c in chunks]
-        assert len(ids) == len(set(ids))
+            # Invariant: chunk IDs are unique
+            ids = [c.id for c in chunks]
+            assert len(ids) == len(set(ids))
 
-        # Invariant: metadata.total_chunks is consistent
-        for c in chunks:
-            assert c.metadata.total_chunks == len(chunks)
+            # Invariant: metadata.total_chunks is consistent
+            for c in chunks:
+                assert c.metadata.total_chunks == len(chunks)
+        finally:
+            await fresh_chunker.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +331,7 @@ class TestLLMProperties:
         messages = [UserMessage(text=t) for t in texts]
         result = await llm_impl.complete(messages, max_tokens=max_tokens, temperature=temperature)
         assert isinstance(result, AssistantMessage)
-        assert hasattr(result, "text")
+        assert isinstance(result.text, str)
 
     @pytest.mark.asyncio
     @given(texts=st.lists(st.text(min_size=0, max_size=500), min_size=1, max_size=3))
@@ -343,7 +349,6 @@ class TestLLMProperties:
             assert isinstance(chunk, str)
             chunks.append(chunk)
         # Mock may yield empty stream — that is ok for this invariant
-        assert all(isinstance(c, str) for c in chunks)
 
     def test_get_context_limit_non_negative_or_none(
         self, llm_impl: ILLM

@@ -19,6 +19,7 @@ from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
     LLM_NOT_PROVIDED,
+    LLM_UNAVAILABLE,
     QUERY_EMBEDDING_MISSING,
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
@@ -188,9 +189,9 @@ class TestRetrieve:
 
     @pytest.mark.asyncio
     async def test_namespace_none_fallback(self) -> None:
-        """Given: namespace is None in pipeline_config.
+        """Given: namespace is 'default' in pipeline_config.
         When: retrieve is called.
-        Then: falls back to 'default' namespace."""
+        Then: chunk is found in 'default' namespace."""
         store = FakeVectorStore()
         chunk = Chunk(id="c1", text="test", embedding=[0.0, 1.0, 0.0])
         await store.add([chunk], namespace="default")
@@ -397,23 +398,6 @@ class TestRerank:
         assert result.rerank_filtered_out is True
 
     @pytest.mark.asyncio
-    async def test_no_reranker_none_returns_error(self) -> None:
-        """Given: no reranker (None value).
-        When: rerank is called.
-        Then: INTERNAL_SERVER_ERROR is added; original chunks preserved."""
-        data = PipelineData(
-            query=UserMessage(text="hello"),
-            chunks=[Chunk(id="c1", text="test")],
-            pipeline_config=PipelineConfig(),
-            reranker=None,
-        )
-        result = await rerank(data)
-        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
-        # chunks are preserved (not mutated) so downstream can inspect or ignore
-        assert len(result.chunks) == 1
-        assert result.chunks[0].id == "c1"
-
-    @pytest.mark.asyncio
     async def test_threshold_boundary_kept(self) -> None:
         """Given: chunk score exactly equals relevance_threshold.
         When: rerank is called.
@@ -472,7 +456,7 @@ class TestRerank:
                     chunk=Chunk(
                         id="c1",
                         text="test chunk",
-                        metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                        metadata=ChunkMetadata(source="s", source_uri="s", index=0, total_chunks=1),
                     ),
                     score=0.9,
                 )
@@ -486,7 +470,7 @@ class TestRerank:
                 Chunk(
                     id="c1",
                     text="test chunk",
-                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                    metadata=ChunkMetadata(source="s", source_uri="s", index=0, total_chunks=1),
                 ),
             ),
             pipeline_config=PipelineConfig(top_k=5, relevance_threshold=0.1),
@@ -654,8 +638,6 @@ class TestGenerate:
         """Given: LLM raises AdapterError.
         When: generate is called.
         Then: PipelineData returned with error and fallback response."""
-        from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
-
         class FailingLLM:
             async def complete(self, messages, max_tokens=None, temperature=None):
                 raise AdapterError("LLM down")

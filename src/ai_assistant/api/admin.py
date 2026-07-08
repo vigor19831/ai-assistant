@@ -61,8 +61,7 @@ async def update_api_key(
     set_api_key(req.api_key)
     source = "runtime_override" if req.api_key is not None else "env_var_or_none"
     _admin_logger.warning(
-        "SECURITY_AUDIT: api_key_changed actor=admin_endpoint source=%s",
-        source,
+        f"SECURITY_AUDIT: api_key_changed actor=admin_endpoint source={source}",
         extra={
             "security_event": "api_key_changed",
             "actor": "admin_endpoint",

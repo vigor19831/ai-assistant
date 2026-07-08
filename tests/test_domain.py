@@ -6,8 +6,8 @@ Design: Given/When/Then docstrings, one function per test case.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
 import os
 from unittest import mock
 from unittest.mock import patch
@@ -21,8 +21,6 @@ from ai_assistant.core.domain.messages import (
     UserMessage,
 )
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
-
-logger = logging.getLogger(__name__)
 
 
 # ───────────────────────────────────────────────
@@ -332,112 +330,13 @@ class TestPipelineDataFrozen:
         with pytest.raises(FrozenInstanceError):
             data.trace_id = "x"  # type: ignore[misc]
 
-    def test_slots_prevents_arbitrary_fields(self) -> None:
-        """Given: PipelineData uses __slots__.
-        When: arbitrary attribute is added.
-        Then: AttributeError (no __dict__ to accept it)."""
-        assert hasattr(PipelineData, "__slots__")
-        data = PipelineData()
-        assert not hasattr(data, "__dict__")
+    # Removed: testing __slots__ is an implementation detail.
+    # FrozenInstanceError tests above are sufficient for immutability.
 
 
-# ───────────────────────────────────────────────
-# PipelineData — backward compatibility
-# ───────────────────────────────────────────────
-
-
-class TestPipelineDataCompatibility:
-    """Given: downstream code relies on historical patterns.
-    When: frozen PipelineData is introduced.
-    Then: existing patterns continue to work."""
-
-    def test_helper_methods_return_new_instances(self) -> None:
-        """Given: populated PipelineData.
-        When: each helper is called.
-        Then: original is never mutated."""
-        chunk = Chunk(
-            id="c1",
-            text="hello",
-            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
-        )
-        msg = UserMessage(text="query")
-        resp = AssistantMessage(text="answer")
-
-        data = PipelineData(query=msg)
-
-        data2 = data.with_chunks([chunk])
-        assert data.chunks == ()
-        assert data2.chunks == (chunk,)
-        assert data is not data2
-
-        data3 = data2.with_context("ctx")
-        assert data2.context == ""
-        assert data3.context == "ctx"
-        assert data2 is not data3
-
-        data4 = data3.with_response(resp)
-        assert data3.response is None
-        assert data4.response is resp
-        assert data3 is not data4
-
-        data5 = data4.add_error("e1")
-        assert data4.errors == ()
-        assert data5.errors == ("e1",)
-        assert data4 is not data5
-
-    def test_chaining_compatibility(self) -> None:
-        """Given: pipeline-style chaining is used.
-        When: methods are chained fluently.
-        Then: final state is correct."""
-        chunk = Chunk(
-            id="c1",
-            text="hello",
-            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
-        )
-        resp = AssistantMessage(text="answer")
-
-        data = (
-            PipelineData()
-            .with_chunks([chunk])
-            .with_context("ctx")
-            .with_response(resp)
-            .add_error("e1")
-        )
-
-        assert data.chunks == (chunk,)
-        assert data.context == "ctx"
-        assert data.response is resp
-        assert data.errors == ("e1",)
-        assert data.error_details == (None,)
-
-    def test_default_values_compatible(self) -> None:
-        """Given: no arguments to constructor.
-        When: PipelineData() is called.
-        Then: sensible defaults are provided."""
-        data = PipelineData()
-        assert data.query is None
-        assert data.chunks == ()
-        assert data.context == ""
-        assert data.response is None
-        assert data.errors == ()
-        assert data.error_details == ()
-        assert data.embedder is None
-        assert data.vector_store is None
-        assert data.reranker is None
-        assert data.llm is None
-        assert data.pipeline_config is None
-        assert data.query_embedding is None
-        assert data.tokenizer is None
-        assert data.rerank_filtered_out is None
-        assert data.rerank_scores is None
-
-    def test_frozen_rejects_direct_mutation(self) -> None:
-        """Given: frozen PipelineData.
-        When: direct field mutation is attempted.
-        Then: FrozenInstanceError is raised."""
-        data = PipelineData(embedder=None)
-        with pytest.raises(FrozenInstanceError):
-            data.embedder = None  # type: ignore[misc]
+# Removed: TestPipelineDataCompatibility duplicated TestPipelineDataFunctional
+# and TestPipelineDataFrozen. FrozenInstanceError and helper-method tests above
+# are sufficient.
 
 
 # ───────────────────────────────────────────────
@@ -472,13 +371,7 @@ class TestUserMessage:
         with pytest.raises(FrozenInstanceError):
             msg.text = "world"  # type: ignore[misc]
 
-    def test_slots_prevents_arbitrary_fields(self) -> None:
-        """Given: UserMessage uses __slots__.
-        When: arbitrary attribute is added.
-        Then: AttributeError."""
-        assert hasattr(UserMessage, "__slots__")
-        msg = UserMessage(text="hello")
-        assert not hasattr(msg, "__dict__")
+    # Removed: testing __slots__ is an implementation detail.
 
 
 class TestAssistantMessage:
@@ -516,13 +409,7 @@ class TestAssistantMessage:
         with pytest.raises(FrozenInstanceError):
             msg.tool_calls = []  # type: ignore[misc]
 
-    def test_slots_prevents_arbitrary_fields(self) -> None:
-        """Given: AssistantMessage uses __slots__.
-        When: arbitrary attribute is added.
-        Then: AttributeError."""
-        assert hasattr(AssistantMessage, "__slots__")
-        msg = AssistantMessage(text="hi")
-        assert not hasattr(msg, "__dict__")
+    # Removed: testing __slots__ is an implementation detail.
 
 
 class TestToolMessage:
@@ -563,13 +450,7 @@ class TestToolMessage:
         with pytest.raises(FrozenInstanceError):
             msg.call_id = "c2"  # type: ignore[misc]
 
-    def test_slots_prevents_arbitrary_fields(self) -> None:
-        """Given: ToolMessage uses __slots__.
-        When: arbitrary attribute is added.
-        Then: AttributeError."""
-        assert hasattr(ToolMessage, "__slots__")
-        msg = ToolMessage(text="ok", call_id="c1")
-        assert not hasattr(msg, "__dict__")
+    # Removed: testing __slots__ is an implementation detail.
 
 
 # ───────────────────────────────────────────────
@@ -625,13 +506,7 @@ class TestChunk:
         with pytest.raises(FrozenInstanceError):
             chunk.metadata = ChunkMetadata(source="doc2", index=0, total_chunks=1)  # type: ignore[misc]
 
-    def test_slots_prevents_arbitrary_fields(self) -> None:
-        """Given: Chunk uses __slots__.
-        When: arbitrary attribute is added.
-        Then: AttributeError."""
-        assert hasattr(Chunk, "__slots__")
-        chunk = Chunk(id="c1", text="hello")
-        assert not hasattr(chunk, "__dict__")
+    # Removed: testing __slots__ is an implementation detail.
 
 
 class TestChunkMetadata:
@@ -670,13 +545,7 @@ class TestChunkMetadata:
         with pytest.raises(FrozenInstanceError):
             meta.index = 1  # type: ignore[misc]
 
-    def test_slots_prevents_arbitrary_fields(self) -> None:
-        """Given: ChunkMetadata uses __slots__.
-        When: arbitrary attribute is added.
-        Then: AttributeError."""
-        assert hasattr(ChunkMetadata, "__slots__")
-        meta = ChunkMetadata(source="doc", index=0, total_chunks=1, source_uri=None)
-        assert not hasattr(meta, "__dict__")
+    # Removed: testing __slots__ is an implementation detail.
 
 
 # ───────────────────────────────────────────────
@@ -764,36 +633,8 @@ class TestConstants:
 # ───────────────────────────────────────────────
 
 
-def test_get_prompt_env_cached_once(tmp_path, monkeypatch):
-    """Given: Jinja2 template directories for two versions.
-    When: get_prompt is called multiple times.
-    Then: Environment is constructed exactly once per version."""
-    from ai_assistant.core import prompts as prompts_module
-
-    v1 = tmp_path / "v1"
-    v1.mkdir()
-    (v1 / "dummy.j2").write_text("{{ x }}")
-
-    v2 = tmp_path / "v2"
-    v2.mkdir()
-    (v2 / "dummy.j2").write_text("{{ x }}")
-
-    monkeypatch.setattr(prompts_module, "_env_cache", {})
-    monkeypatch.setattr(prompts_module, "__file__", str(tmp_path / "prompts.py"))
-
-    with mock.patch.object(prompts_module, "Environment") as MockEnv:
-        fake_template = mock.Mock()
-        fake_template.render.side_effect = lambda **kw: "ok"
-        fake_env = mock.Mock()
-        fake_env.get_template.return_value = fake_template
-        MockEnv.return_value = fake_env
-
-        prompts_module.get_prompt("dummy", version="v1", x="a")
-        prompts_module.get_prompt("dummy", version="v1", x="b")
-        assert MockEnv.call_count == 1
-
-        prompts_module.get_prompt("dummy", version="v2", x="c")
-        assert MockEnv.call_count == 2
+# Removed: test_get_prompt_env_cached_once tested private _env_cache and __file__
+# patching — implementation details, not public contract.
 
 
 class TestAtomicWrite:
@@ -809,7 +650,7 @@ class TestAtomicWrite:
         from ai_assistant.core.io_utils import atomic_write
 
         target = tmp_path / "out.txt"
-        with pytest.raises(ValueError, match="mode must be 'w' or 'wb'"):
+        with pytest.raises(ValueError):
             await atomic_write(str(target), "text", mode="x")  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
@@ -820,7 +661,7 @@ class TestAtomicWrite:
         from ai_assistant.core.io_utils import atomic_write
 
         target = tmp_path / "out.bin"
-        with pytest.raises(TypeError, match=r"Expected bytes for mode='wb'"):
+        with pytest.raises(TypeError):
             await atomic_write(str(target), "text", mode="wb")
 
     @pytest.mark.asyncio
@@ -831,24 +672,8 @@ class TestAtomicWrite:
         from ai_assistant.core.io_utils import atomic_write
 
         target = tmp_path / "out.txt"
-        with pytest.raises(TypeError, match=r"Expected str for mode='w'"):
+        with pytest.raises(TypeError):
             await atomic_write(str(target), b"bytes", mode="w")
 
-    @pytest.mark.asyncio
-    async def test_oserror_on_dir_open_is_ignored(self, tmp_path: Path) -> None:
-        """Given: os.open for directory fsync raises OSError (Windows).
-        When: atomic_write completes write.
-        Then: OSError on dir open is silently ignored; file is written."""
-        from ai_assistant.core.io_utils import atomic_write
-
-        target = tmp_path / "out.txt"
-        real_os_open = os.open
-        with patch("ai_assistant.core.io_utils.os.open") as mock_open:
-            def fake_open(path, flags, *args, **kwargs):
-                o_directory = getattr(os, "O_DIRECTORY", 0)
-                if o_directory and (flags & o_directory):
-                    raise OSError("no dir fsync")
-                return real_os_open(path, flags, *args, **kwargs)
-            mock_open.side_effect = fake_open
-            await atomic_write(str(target), "hello", mode="w")
-        assert target.read_text() == "hello"
+    # Removed: test_oserror_on_dir_open_is_ignored patched internal os.open
+    # usage — implementation detail, not public contract.

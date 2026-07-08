@@ -49,14 +49,33 @@ def _resolve_py_file(rel_path: str) -> Path:
     pytest.skip(f"Source file not found: {rel_path}")
 
 
+def _scan_src(
+    directory: Path,
+    *,
+    predicate: Any,
+) -> list[tuple[str, int, str]]:
+    """Generic src scanner: applies predicate(source, filename) to each .py file."""
+    hits: list[tuple[str, int, str]] = []
+    if not directory.exists():
+        pytest.skip(f"Directory not found: {directory}")
+    for py_file in directory.rglob("*.py"):
+        if py_file.name.startswith("test_"):
+            continue
+        source = py_file.read_text(encoding="utf-8")
+        file_hits = predicate(source, str(py_file))
+        for lineno, detail in file_hits:
+            hits.append((str(py_file), lineno, detail))
+    return hits
+
+
 # ═══════════════════════════════════════════════════════════════════════════
-# TestImportsNoCycles
+# TestImportsClean
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 @pytest.mark.smoke
-class TestImportsNoCycles:
-    """Smoke: key modules import without circular dependencies."""
+class TestImportsClean:
+    """Smoke: key modules import without errors at top level."""
 
     def test_api_static_imports(self):
         """Given: api.static module.
@@ -242,23 +261,32 @@ class TestModuleLevelImports:
         """Given: api/lifespan.py source.
         When: AST is scanned for main.py imports.
         Then: no import from main.py found (avoids circular dependency)."""
+        import ast
         import inspect
 
         from ai_assistant.api import lifespan
 
         source = inspect.getsource(lifespan)
-        assert "from ai_assistant.main import" not in source, (
-            "lifespan.py imports from main.py — circular entry point dependency"
-        )
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                if "ai_assistant.main" in module:
+                    pytest.fail("lifespan.py imports from main.py — circular entry point dependency")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "ai_assistant.main":
+                        pytest.fail("lifespan.py imports main.py module directly")
 
     def test_router_assembles_at_import(self):
         """Given: api.router module.
         When: imported.
-        Then: assemble_routers is callable and _ROUTERS is populated."""
-        from ai_assistant.api.router import _ROUTERS, assemble_routers
+        Then: assemble_routers is callable and returns >=4 routers."""
+        from ai_assistant.api.router import assemble_routers
 
+        routers = assemble_routers()
         assert callable(assemble_routers)
-        assert len(_ROUTERS) >= 4
+        assert len(routers) >= 4
 
     def test_factory_create_adapter_exported(self):
         """Given: adapters.factory module.
@@ -278,7 +306,8 @@ class TestModuleLevelImports:
 class TestNoPrintPprintAST:
     """Smoke: no print()/pprint() in production source via AST scan."""
 
-    def _find_print_calls(self, source: str, filename: str) -> list[tuple[int, str]]:
+    @staticmethod
+    def _find_print_calls(source: str, filename: str) -> list[tuple[int, str]]:
         tree = ast.parse(source, filename=filename)
         hits: list[tuple[int, str]] = []
         for node in ast.walk(tree):
@@ -287,24 +316,11 @@ class TestNoPrintPprintAST:
                     hits.append((node.lineno, ast.unparse(node)))
         return hits
 
-    def _scan_directory(self, directory: Path) -> list[tuple[str, int, str]]:
-        hits: list[tuple[str, int, str]] = []
-        if not directory.exists():
-            pytest.skip(f"Directory not found: {directory}")
-        for py_file in directory.rglob("*.py"):
-            if py_file.name.startswith("test_"):
-                continue
-            source = py_file.read_text(encoding="utf-8")
-            file_hits = self._find_print_calls(source, str(py_file))
-            for lineno, code in file_hits:
-                hits.append((str(py_file), lineno, code))
-        return hits
-
     def test_src_no_print_pprint(self):
         """Given: all .py files in src/ai_assistant.
         When: AST-scanned for print()/pprint().
         Then: zero hits (production code uses logger)."""
-        hits = self._scan_directory(_src_dir())
+        hits = _scan_src(_src_dir(), predicate=self._find_print_calls)
         assert not hits, f"print()/pprint() found in production code: {hits[:5]}"
 
 
@@ -321,9 +337,27 @@ class TestLoggingFormat:
     """
 
     def _find_positional_logging(self, source: str, filename: str) -> list[tuple[int, str]]:
-        """AST-scan for logger.* calls with %s or positional args beyond message."""
+        """AST-scan for logger.* calls with % format specifiers or positional args.
+
+        Detects all variables assigned from get_logger(), not just 'logger'.
+        """
         tree = ast.parse(source, filename=filename)
         hits: list[tuple[int, str]] = []
+        logger_names: set[str] = {"logger"}  # default common name
+
+        # Phase 1: discover logger variable names (e.g. log = get_logger(...))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                if (
+                    len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Name)
+                    and node.value.func.id == "get_logger"
+                ):
+                    logger_names.add(node.targets[0].id)
+
+        # Phase 2: scan for logger.* calls
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -332,37 +366,27 @@ class TestLoggingFormat:
                 continue
             if func.attr not in ("info", "debug", "warning", "error", "exception", "critical"):
                 continue
-            if not isinstance(func.value, ast.Name) or func.value.id != "logger":
+            if not isinstance(func.value, ast.Name) or func.value.id not in logger_names:
                 continue
-            # Check for %s in message string (first positional arg)
+            # Check for % format specifiers in message string (exclude %% escapes)
             if node.args:
                 first_arg = node.args[0]
                 if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                    if "%" in first_arg.value:
-                        hits.append((node.lineno, first_arg.value))
+                    msg = first_arg.value
+                    # Match %s, %d, %f, %(name)s, etc. but not %% escape sequences
+                    cleaned = msg.replace("%%", "")
+                    if "%" in cleaned:
+                        hits.append((node.lineno, f"percent-format: {msg[:40]}"))
             # Check for positional args beyond message (extra= should be keyword)
             if len(node.args) > 1:
-                hits.append((node.lineno, ast.unparse(node)))
-        return hits
-
-    def _scan_directory(self, directory: Path) -> list[tuple[str, int, str]]:
-        hits: list[tuple[str, int, str]] = []
-        if not directory.exists():
-            pytest.skip(f"Directory not found: {directory}")
-        for py_file in directory.rglob("*.py"):
-            if py_file.name.startswith("test_"):
-                continue
-            source = py_file.read_text(encoding="utf-8")
-            file_hits = self._find_positional_logging(source, str(py_file))
-            for lineno, detail in file_hits:
-                hits.append((str(py_file), lineno, detail))
+                hits.append((node.lineno, f"extra-positional: {ast.unparse(node)[:60]}"))
         return hits
 
     def test_src_no_positional_logging(self):
         """Given: all .py files in src/ai_assistant.
         When: AST-scanned for logger.* with %s or positional args.
         Then: zero hits (use logger.info('msg', extra={'key': val}))."""
-        hits = self._scan_directory(_src_dir())
+        hits = _scan_src(_src_dir(), predicate=self._find_positional_logging)
         assert not hits, f"Positional logging found: {hits[:5]}"
 
 
@@ -371,11 +395,13 @@ class TestLoggingFormat:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _I18N_PATHS = {"i18n", "locale", "translations"}
+_CONSTANTS_NAMES = {"constants"}
 
 
 def _should_skip_cyrillic_check(path: Path) -> bool:
     parts = set(path.parts)
-    return bool(parts & _I18N_PATHS)
+    name = path.stem.lower()
+    return bool(parts & _I18N_PATHS) or name in _CONSTANTS_NAMES
 
 
 @pytest.mark.smoke
@@ -407,15 +433,13 @@ class TestNoCyrillic:
     def test_src_no_cyrillic(self):
         """Given: all .py files in src/ai_assistant.
         When: scanned for Cyrillic characters.
-        Then: zero hits outside i18n dirs (use i18n/translation files instead)."""
+        Then: zero hits outside i18n dirs and noqa-marked lines."""
         hits = self._scan_directory(_src_dir())
         filtered = [
             (f, ln, line)
             for f, ln, line in hits
             if not _should_skip_cyrillic_check(Path(f))
-            and "constants.py" not in f
-            and "FIX" not in line
-            and "# " not in line
+            and "# noqa: cyrillic" not in line
         ]
         assert not filtered, f"Cyrillic characters found in source: {filtered[:5]}"
 
@@ -449,7 +473,7 @@ class TestRuffRules:
     def test_ruff_target_version(self):
         """Given: pyproject.toml.
         When: ruff target-version is read.
-        Then: py313 or higher."""
+        Then: equals py311."""
         import tomllib
 
         pyproject_path = _project_root() / "pyproject.toml"
@@ -487,7 +511,7 @@ class TestMypyStrict:
     def test_mypy_python_version(self):
         """Given: pyproject.toml.
         When: mypy python_version is read.
-        Then: 3.13 or higher."""
+        Then: equals 3.11."""
         import tomllib
 
         pyproject_path = _project_root() / "pyproject.toml"
@@ -520,6 +544,7 @@ class TestFrozenVersions:
 
     def _parse_requirement(self, req: str) -> tuple[str, str | None, str | None]:
         """Parse name, lower bound, upper bound from PEP 508 string."""
+        pytest.importorskip("packaging", reason="packaging library required for PEP 508 parsing")
         from packaging.requirements import Requirement
 
         try:
@@ -680,6 +705,10 @@ def test_pipeline_steps_no_kwargs_smoke() -> None:
     """
     import ast
 
+    from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+
+    step_registry_names: set[str] = set(STEP_REGISTRY.keys())
+
     steps_path = _src_dir() / "core" / "pipeline_steps.py"
     if not steps_path.exists():
         pytest.skip("pipeline_steps.py not found")
@@ -687,13 +716,9 @@ def test_pipeline_steps_no_kwargs_smoke() -> None:
     tree = ast.parse(source)
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef):
-            is_step = any(
-                (isinstance(d, ast.Call) and getattr(d.func, "id", None) == "step")
-                or (isinstance(d, ast.Name) and d.id == "step")
-                for d in node.decorator_list
-            )
-            if is_step and node.args.kwarg is not None:
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+            # Check if function name is in STEP_REGISTRY (regardless of decorator alias)
+            if node.name in step_registry_names and node.args.kwarg is not None:
                 pytest.fail(
                     f"Step function {node.name!r} uses **kwargs. "
                     f"Use StepContext instead."
@@ -793,6 +818,17 @@ class TestSecurityKeyResolution:
 class TestLoggingSetup:
     """Smoke: setup_logging accepts rotation parameters without error."""
 
+    @pytest.fixture(autouse=True)
+    def _cleanup_logging(self):
+        """Cleanup root logger handlers after each test to prevent accumulation."""
+        import logging
+
+        yield
+        root = logging.getLogger("ai_assistant")
+        for handler in root.handlers:
+            handler.close()
+        root.handlers.clear()
+
     def test_setup_logging_with_defaults(self):
         """Given: default parameters. When: setup_logging is called.
         Then: returns logger without error."""
@@ -823,7 +859,7 @@ class TestLoggingSetup:
         assert file_handlers[0].backupCount == 3
 
     def test_setup_logging_json_format(self):
-        """Given: fmt='json'. When: setup_logging is called.
+        """Given: fmt="json". When: setup_logging is called.
         Then: returns logger without error."""
         from ai_assistant.core.logger import setup_logging
 

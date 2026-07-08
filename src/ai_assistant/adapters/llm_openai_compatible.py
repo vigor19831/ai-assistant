@@ -42,7 +42,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         timeout = (
             httpx.Timeout(self._timeout, connect=self._connect_timeout)
             if self._connect_timeout is not None
-            else self._timeout
+            else httpx.Timeout(self._timeout)
         )
         self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
         self.model: str = config.model
@@ -246,8 +246,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 content_type = resp.headers.get("content-type", "")
                 if not content_type.startswith("text/event-stream"):
                     _logger.warning(
-                        "Expected SSE, got %s",
-                        content_type,
+                        f"Expected SSE, got {content_type}",
                         extra={"url": url},
                     )
                     raise AdapterError(
@@ -280,8 +279,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                             token_count += 1
                             if token_count > self._max_stream_tokens:
                                 _logger.warning(
-                                    "Stream limit (%d) reached",
-                                    self._max_stream_tokens,
+                                    f"Stream limit ({self._max_stream_tokens}) reached",
                                 )
                                 return
                             yield content

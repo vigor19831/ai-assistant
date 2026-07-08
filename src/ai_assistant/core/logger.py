@@ -121,6 +121,9 @@ def setup_logging(
             new_handlers.append(fh)
         except OSError as exc:
             sys.stderr.write(f"Failed to create log file {path}: {exc}\n")
+            console = logging.StreamHandler(sys.stdout)
+            console.setFormatter(formatter)
+            new_handlers.append(console)
 
     with _LOCK:
         # Atomic swap: close old handlers only after new ones are ready.
