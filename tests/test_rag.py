@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
-from ai_assistant.core.domain.messages import UserMessage
+from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.domain.pipeline import PipelineData
@@ -77,7 +77,7 @@ class TestRAGManager:
             ), score=0.95)
         ])
         mock_llm.get_context_limit = MagicMock(return_value=8192)
-        mock_llm.complete = AsyncMock(return_value=MagicMock(text="Paris"))
+        mock_llm.complete = AsyncMock(return_value=AssistantMessage(text="Paris"))
 
         mgr = RAGManager(
             llm=mock_llm,
@@ -101,7 +101,7 @@ class TestRAGManager:
         mock_vector_store.search = AsyncMock(return_value=[])
         mock_reranker.rerank = AsyncMock(return_value=[])
         mock_llm.get_context_limit = MagicMock(return_value=8192)
-        mock_llm.complete = AsyncMock(return_value=MagicMock(text=""))
+        mock_llm.complete = AsyncMock(return_value=AssistantMessage(text=""))
 
         mgr = RAGManager(
             llm=mock_llm,
@@ -140,7 +140,7 @@ class TestRAGManager:
             ), score=0.95)
         ])
         mock_llm.get_context_limit = MagicMock(return_value=8192)
-        mock_llm.complete = AsyncMock(return_value=MagicMock(text=""))
+        mock_llm.complete = AsyncMock(return_value=AssistantMessage(text=""))
 
         mgr = RAGManager(
             llm=mock_llm,
@@ -225,7 +225,6 @@ class TestRAGManager:
         assert "LLM service temporarily unavailable" in result["answer"]
 
         # Simulate handler check
-        from ai_assistant.features.rag.handlers import router
         with pytest.raises(HTTPException) as exc_info:
             for err in result.get("errors", []):
                 if err.startswith(LLM_UNAVAILABLE):
@@ -252,24 +251,26 @@ class TestRAGManager:
             reranker=mock_reranker,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        # Simulate a bug in pipeline orchestration (e.g. missing required field check)
-        async def buggy_run(data):
-            raise ConfigurationError("simulated pipeline bug")
-
-        mgr.pipeline.run = buggy_run
-
         # The bug should propagate, not be swallowed
-        with pytest.raises(ConfigurationError, match="simulated pipeline bug"):
-            await mgr.query("anything")
+        with patch.object(
+            mgr.pipeline,
+            "run",
+            side_effect=ConfigurationError("simulated pipeline bug"),
+        ):
+            with pytest.raises(ConfigurationError, match="simulated pipeline bug"):
+                await mgr.query("anything")
 
     @pytest.mark.asyncio
-    async def test_health_index_loaded(self, mock_vector_store):
+    async def test_health_index_loaded(self, mock_vector_store, tmp_path):
         """Given: vector store has namespaces with chunks.
         When: RAGManager.health is called.
         Then: status is 'ok', index_loaded=True, chunk_count > 0."""
-        mock_vector_store.index_path = "./data/indices"
+        mock_vector_store.index_path = str(tmp_path / "indices")
         mock_vector_store.list_namespaces = AsyncMock(return_value=["default", "test"])
-        mock_vector_store.list_by_filter = AsyncMock(return_value=[("c1", {}), ("c2", {})])
+        mock_vector_store.list_by_filter = AsyncMock(return_value=[
+            ("c1", ChunkMetadata(source="s1", index=0, total_chunks=1)),
+            ("c2", ChunkMetadata(source="s2", index=0, total_chunks=1)),
+        ])
 
         mgr = RAGManager(
             llm=MagicMock(spec=ILLM),
@@ -283,11 +284,11 @@ class TestRAGManager:
         assert health["chunk_count"] == 4
 
     @pytest.mark.asyncio
-    async def test_health_empty_index(self, mock_vector_store):
+    async def test_health_empty_index(self, mock_vector_store, tmp_path):
         """Given: vector store has no namespaces.
         When: RAGManager.health is called.
         Then: status is 'empty', index_loaded=False, chunk_count is 0."""
-        mock_vector_store.index_path = "./data/indices"
+        mock_vector_store.index_path = str(tmp_path / "indices")
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
 
         mgr = RAGManager(
@@ -346,7 +347,7 @@ class TestRAGIndexing:
         doc = chunked_documents[0]
         assert doc.id == "d1"
         assert doc.content == "hello world"
-        assert doc.metadata.get("source") == "test.txt"
+        assert doc.metadata["source"] == "test.txt"
 
     @pytest.mark.asyncio
     async def test_delete_by_chunk_id(self, mock_vector_store):
@@ -377,9 +378,9 @@ class TestRAGIndexing:
         Then: only chunks belonging to those documents are removed."""
         mock_vector_store.list_by_filter = AsyncMock(
             return_value=[
-                ("c1", {"source": "d1"}),
-                ("c2", {"source": "d1"}),
-                ("c3", {"source": "d2"}),
+                ("c1", ChunkMetadata(source="d1", index=0, total_chunks=1)),
+                ("c2", ChunkMetadata(source="d1", index=0, total_chunks=1)),
+                ("c3", ChunkMetadata(source="d2", index=0, total_chunks=1)),
             ]
         )
 
@@ -393,7 +394,7 @@ class TestRAGIndexing:
 
         doc_ids = ["d1"]
         existing = await mock_vector_store.list_by_filter({}, namespace="test")
-        to_delete = [cid for cid, meta in existing if meta.get("source") in doc_ids]
+        to_delete = [cid for cid, meta in existing if meta.source in doc_ids]
 
         await mock_vector_store.delete(to_delete, namespace="test")
 
@@ -415,9 +416,6 @@ class TestRAGIndexing:
         test.mkdir(parents=True)
         (test / "notes.md").write_text("# Hello\nThis is a test note.")
 
-        # Prevent auto-save from triggering on mock config
-        mock_vector_store.config.index_path = str(tmp_path / "indices")
-
         result = await index_folder(
             folder="test",
             clear=False,
@@ -432,6 +430,7 @@ class TestRAGIndexing:
                     recursive=True,
                 )
             ],
+            index_path=str(tmp_path / "indices"),
         )
         assert result["success"] is True
         assert "test" in result["results"]
@@ -465,8 +464,6 @@ class TestRAGIndexing:
         for i in range(5):
             (ns / f"doc{i}.md").write_text("x")
 
-        mock_vector_store.config.index_path = str(tmp_path / "indices")
-
         tick_count = 0
         done = asyncio.Event()
 
@@ -492,6 +489,7 @@ class TestRAGIndexing:
                         recursive=True,
                     )
                 ],
+                index_path=str(tmp_path / "indices"),
             )
         finally:
             done.set()
@@ -678,7 +676,7 @@ class TestChatExportIsolation:
         mock_state.config.rag.index_chat_exports = True
         mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default", "test", "chat_test"])
-        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("doc-1", {"type": "document"})])
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("doc-1", ChunkMetadata(source="doc", index=0, total_chunks=1))])
 
         req = SaveChatRequest(
             content="test chat content",
@@ -711,8 +709,8 @@ class TestChatExportIsolation:
             deleted_chunks.append((chunk_ids, namespace))
 
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[
-            ("chat-1", {"type": "chat_export"}),
-            ("chat-2", {"type": "chat_export"}),
+            ("chat-1", ChunkMetadata(source="chat", index=0, total_chunks=1)),
+            ("chat-2", ChunkMetadata(source="chat", index=0, total_chunks=1)),
         ])
         mock_state.vector_store.delete = AsyncMock(side_effect=track_delete)
 
@@ -772,12 +770,8 @@ class TestReindexTaskSafety:
             # Wait for background task to complete
             tasks = list(mock_state.task_registry.get_tasks())
             if tasks:
-                await asyncio.wait_for(tasks.pop().task, timeout=1.0)
-
-        # Yield control to let done_callbacks run
-        done_callbacks = asyncio.Event()
-        done_callbacks.set()
-        await done_callbacks.wait()
+                # gather ensures done-callback runs before state inspection
+                await asyncio.gather(tasks.pop().task, return_exceptions=True)
 
         tasks_after = len(asyncio.all_tasks())
         assert tasks_after <= tasks_before, (
@@ -810,7 +804,8 @@ class TestReindexTaskSafety:
             # Wait for background task
             tasks = list(mock_state.task_registry.get_tasks())
             assert len(tasks) == 1
-            await asyncio.wait_for(tasks.pop().task, timeout=1.0)
+            # gather ensures done-callback runs before caplog inspection
+            await asyncio.gather(tasks.pop().task, return_exceptions=True)
 
         # Exception is caught inside handlers.py::_run() and logged via
         # ai_assistant.rag.handlers logger. TaskRegistry._on_done does not
@@ -823,8 +818,8 @@ class TestReindexTaskSafety:
 
         # Verify structured logging fields
         for record in error_logs:
-            assert hasattr(record, "trace_id"), "Log record missing trace_id"
-            assert record.trace_id is not None
+            trace_id = getattr(record, "trace_id", None)
+            assert trace_id is not None, "Log record missing trace_id"
 
 
 class TestRerankerRegression:
@@ -864,13 +859,11 @@ def _assert_all_logs_have_trace_id(caplog: pytest.LogCaptureFixture) -> None:
     rag_records = [r for r in caplog.records if r.name == "ai_assistant.rag.handlers"]
     assert rag_records, "Expected at least one log record from rag.handlers"
     for record in rag_records:
-        assert hasattr(record, "trace_id"), (
+        trace_id = getattr(record, "trace_id", None)
+        assert trace_id is not None, (
             f"Log record '{record.getMessage()}' missing trace_id"
         )
-        assert record.trace_id is not None, (
-            f"Log record '{record.getMessage()}' has None trace_id"
-        )
-        assert len(record.trace_id) == 32, (
+        assert len(trace_id) == 32, (
             f"Log record '{record.getMessage()}' has invalid trace_id length"
         )
 
@@ -1182,7 +1175,7 @@ class TestRAGHandlersTraceId:
         _assert_all_logs_have_trace_id(caplog)
 
     @pytest.mark.asyncio
-    async def test_save_chat_invalid_namespace_rejected_by_schema(self, caplog, mock_state):
+    async def test_save_chat_invalid_namespace_rejected_by_schema(self, caplog):
         caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
 
         # Pydantic rejects invalid namespace before handler runs
@@ -1471,9 +1464,9 @@ class TestReadSources:
         result = await index_folder(
             folder=None,
             clear=False,
-            chunker=AsyncMock(),
-            embedder=AsyncMock(),
-            vector_store=AsyncMock(),
+            chunker=AsyncMock(spec=IChunker),
+            embedder=AsyncMock(spec=IEmbedder),
+            vector_store=AsyncMock(spec=IVectorStore),
             sources=[],
         )
         assert result["success"] is False
@@ -1491,8 +1484,6 @@ class TestReadSources:
         docs_dir.mkdir()
         (docs_dir / "note.md").write_text("hello")
 
-        mock_vector_store.config.index_path = str(tmp_path / "indices")
-
         result = await index_folder(
             folder="nonexistent",
             clear=False,
@@ -1506,6 +1497,7 @@ class TestReadSources:
                     include=["*.md"],
                 )
             ],
+            index_path=str(tmp_path / "indices"),
         )
         assert result["success"] is False
         assert "nonexistent" in result["errors"][0]

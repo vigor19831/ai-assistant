@@ -8,13 +8,12 @@ Then: end-to-end RAG flows complete without mutation.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 import respx
 from httpx import Response
 
+from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
@@ -26,21 +25,19 @@ from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.api.deps import InitializedAppState, init_adapters
-from ai_assistant.core.config import AppConfig, EmbedderConfig, LLMConfig
+from ai_assistant.core.config import AppConfig
 from ai_assistant.core.domain.configs import (
     ChunkerConfigData,
     EmbedderConfigData,
     LLMConfigData,
     RerankerConfigData,
     StorageConfigData,
+    TokenizerConfigData,
     VectorStoreConfigData,
 )
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
-from ai_assistant.core.domain.pipeline import PipelineData
-from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
-from ai_assistant.core.domain.configs import TokenizerConfigData
-from ai_assistant.core.logger import get_logger
+from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import (
     build_context,
@@ -50,8 +47,6 @@ from ai_assistant.core.pipeline_steps import (
     rerank,
     retrieve,
 )
-
-_logger = get_logger(__name__)
 
 
 @pytest.mark.integration
@@ -70,6 +65,7 @@ class TestIntegrationAdapters:
         assert len(chunks) > 1
         assert all(c.metadata.source == "d1" for c in chunks)
         assert all(c.metadata.total_chunks == len(chunks) for c in chunks)
+        await chunker.shutdown()
 
     @pytest.mark.asyncio
     async def test_embedder_mock_real(self):
@@ -81,14 +77,14 @@ class TestIntegrationAdapters:
         assert len(result) == 2
         assert len(result[0]) == 384
         assert result[0] != result[1]
+        await embedder.shutdown()
 
     @pytest.mark.asyncio
     async def test_embedder_openai_compatible_real(self):
         """Given: OpenAI-compatible embedder config.
         When: HTTP endpoint returns embeddings.
         Then: vectors match expected dimensions."""
-        config = EmbedderConfig(
-            provider="openai_compatible",
+        config = EmbedderConfigData(
             api_base="https://api.integration.test/v1",
             api_key="integration-key",
             dim=1536,
@@ -104,6 +100,7 @@ class TestIntegrationAdapters:
             result = await embedder.embed(["a", "b"])
             assert len(result) == 2
             assert len(result[0]) == 1536
+        await embedder.shutdown()
 
     @pytest.mark.asyncio
     async def test_llm_mock_real(self):
@@ -114,14 +111,14 @@ class TestIntegrationAdapters:
         result = await llm.complete([UserMessage(text="integration")])
         assert isinstance(result, AssistantMessage)
         assert "integration" in result.text
+        await llm.shutdown()
 
     @pytest.mark.asyncio
     async def test_llm_openai_compatible_real(self):
         """Given: OpenAI-compatible LLM config.
         When: HTTP endpoint returns completion.
         Then: parsed AssistantMessage has correct text."""
-        config = LLMConfig(
-            provider="openai_compatible",
+        config = LLMConfigData(
             api_base="https://api.integration.test/v1",
             api_key="integration-key",
             max_tokens=50,
@@ -137,6 +134,7 @@ class TestIntegrationAdapters:
             )
             result = await llm.complete([UserMessage(text="hi")])
             assert result.text == "Integrated"
+        await llm.shutdown()
 
     @pytest.mark.asyncio
     async def test_vector_store_faiss_real(self, tmp_path):
@@ -152,6 +150,7 @@ class TestIntegrationAdapters:
         results = await store.search([1.0, 0.0, 0.0], top_k=1, namespace="ns")
         assert len(results) == 1
         assert results[0].id == "c1"
+        await store.shutdown()
 
     @pytest.mark.asyncio
     async def test_vector_store_memory_real(self):
@@ -164,6 +163,7 @@ class TestIntegrationAdapters:
         results = await store.search([1.0, 0.0, 0.0], top_k=1, namespace="ns")
         assert len(results) == 1
         assert results[0].id == "c1"
+        await store.shutdown()
 
     @pytest.mark.asyncio
     async def test_reranker_api_real(self):
@@ -192,6 +192,7 @@ class TestIntegrationAdapters:
             results = await reranker.rerank("q", chunks, top_k=5)
             assert len(results) == 1
             assert results[0].chunk.id == "c1"
+        await reranker.shutdown()
 
     @pytest.mark.asyncio
     async def test_reranker_null_real(self):
@@ -204,6 +205,7 @@ class TestIntegrationAdapters:
         assert len(results) == 2
         assert results[0].score == 1.0
         assert results[1].score == 1.0
+        await reranker.shutdown()
 
     @pytest.mark.asyncio
     async def test_storage_sqlite_real(self, tmp_path):
@@ -218,6 +220,7 @@ class TestIntegrationAdapters:
         history = await storage.get_history("conv-1", limit=10)
         assert len(history) == 1
         assert history[0]["content"] == "hi"
+        await storage.shutdown()
 
 
 @pytest.mark.integration
@@ -258,8 +261,6 @@ class TestIntegrationChatRAG:
         query = UserMessage(text="[p] What is the capital of France?")
 
         # Act: build PipelineData with explicit typed fields
-        from ai_assistant.core.domain.pipeline import PipelineConfig
-
         data = PipelineData(
             query=query,
             embedder=embedder,
@@ -287,6 +288,11 @@ class TestIntegrationChatRAG:
         assert data.embedder is embedder
         assert data.vector_store is vector_store
         assert data.context == ""
+
+        await embedder.shutdown()
+        await vector_store.shutdown()
+        await llm.shutdown()
+        await reranker.shutdown()
 
 
 @pytest.mark.integration
@@ -328,7 +334,12 @@ class TestIntegrationNamespaceIsolation:
         alt_ids = {c.id for c in results_alt}
         assert not test_ids & alt_ids
 
+        await embedder.shutdown()
+        await vector_store.shutdown()
 
+
+@pytest.mark.integration
+@pytest.mark.slow
 class TestIntegrationFullRAG:
     """Full RAG: index → query → hyde → retrieve → rerank → generate."""
 
@@ -363,8 +374,6 @@ class TestIntegrationFullRAG:
 
         query = UserMessage(text="Tell me about Python")
 
-        from ai_assistant.core.domain.pipeline import PipelineConfig
-
         data = PipelineData(
             query=query,
             embedder=embedder,
@@ -397,6 +406,11 @@ class TestIntegrationFullRAG:
         assert data.vector_store is vector_store
         assert data.context == ""
 
+        await embedder.shutdown()
+        await vector_store.shutdown()
+        await llm.shutdown()
+        await reranker.shutdown()
+
 
 @pytest.mark.integration
 @pytest.mark.slow
@@ -404,7 +418,7 @@ class TestIntegrationAPIInit:
     """init_adapters with real adapters and pipeline construction."""
 
     @pytest.mark.asyncio
-    async def test_init_adapters_real_pipeline(self, monkeypatch, tmp_path):
+    async def test_init_adapters_real_pipeline(self, tmp_path):
         """Given: AppConfig with real providers and temp paths.
         When: init_adapters assembles AppState.
         Then: pipeline runs embed_query → retrieve → build_context → generate."""
@@ -468,9 +482,6 @@ class TestIntegrationAPIInit:
         state.llm.get_context_limit = lambda: 4096
 
         query = UserMessage(text="What is capital of Italy?")
-        from ai_assistant.core.domain.pipeline import PipelineConfig
-        from ai_assistant.core.pipeline import RAGPipeline
-        from ai_assistant.core.pipeline_steps import embed_query, retrieve, rerank, build_context, generate
 
         pipeline = RAGPipeline([embed_query, retrieve, rerank, build_context, generate])
 
@@ -489,15 +500,25 @@ class TestIntegrationAPIInit:
                 prompt_name="rag_default",
             ),
         )
-        result = await pipeline.run(data)
 
-        assert result.response is not None
-        assert isinstance(result.response, AssistantMessage)
-        assert len(result.chunks) == 1
-        assert result.chunks[0].id == "c1"
+        try:
+            result = await pipeline.run(data)
+
+            assert result.response is not None
+            assert isinstance(result.response, AssistantMessage)
+            assert len(result.chunks) == 1
+            assert result.chunks[0].id == "c1"
+        finally:
+            await state.llm.shutdown()
+            await state.embedder.shutdown()
+            await state.vector_store.shutdown()
+            await state.reranker.shutdown()
+            await state.storage.shutdown()
+            await state.tokenizer.shutdown()
+            await state.chunker.shutdown()
 
     @pytest.mark.asyncio
-    async def test_init_adapters_with_hyde_pipeline(self, monkeypatch, tmp_path):
+    async def test_init_adapters_with_hyde_pipeline(self, tmp_path):
         """Given: AppConfig with hyde_query step.
         When: init_adapters builds pipeline and runs it.
         Then: hyde embedding drives retrieval."""
@@ -552,9 +573,6 @@ class TestIntegrationAPIInit:
         state.llm.get_context_limit = lambda: 4096
 
         query = UserMessage(text="Tell me about Go")
-        from ai_assistant.core.domain.pipeline import PipelineConfig
-        from ai_assistant.core.pipeline import RAGPipeline
-        from ai_assistant.core.pipeline_steps import hyde_query, retrieve, rerank, build_context, generate
 
         pipeline = RAGPipeline([hyde_query, retrieve, rerank, build_context, generate])
 
@@ -574,20 +592,27 @@ class TestIntegrationAPIInit:
             ),
         )
 
-        result = await pipeline.run(data)
+        try:
+            result = await pipeline.run(data)
 
-        assert result.response is not None
-        assert isinstance(result.response, AssistantMessage)
-        assert result.query_embedding is not None
-        assert len(result.chunks) > 0
+            assert result.response is not None
+            assert isinstance(result.response, AssistantMessage)
+            assert result.query_embedding is not None
+            assert len(result.chunks) > 0
+        finally:
+            await state.llm.shutdown()
+            await state.embedder.shutdown()
+            await state.vector_store.shutdown()
+            await state.reranker.shutdown()
+            await state.storage.shutdown()
+            await state.tokenizer.shutdown()
+            await state.chunker.shutdown()
 
     @pytest.mark.asyncio
     async def test_chunk_metadata_original_path_backward_compat(self):
         """Given: ChunkMetadata without original_path (old data).
         When: instantiated and serialized.
         Then: defaults to None, does not break pipeline."""
-        from ai_assistant.core.domain.documents import ChunkMetadata
-
         meta = ChunkMetadata(source="legacy_doc", index=0, total_chunks=1)
         assert meta.original_path is None
 

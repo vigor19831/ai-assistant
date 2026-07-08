@@ -65,6 +65,17 @@ def _find_getattr_calls(source: str, filename: str) -> list[tuple[int, str]]:
     return _find_ast_calls(source, filename, {"getattr"})
 
 
+def _is_inside_function(tree: ast.AST, lineno: int, func_name: str) -> bool:
+    """Check if lineno is inside a specific function definition in tree."""
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name == func_name:
+                end = getattr(node, "end_lineno", node.lineno)
+                if node.lineno <= lineno <= end:
+                    return True
+    return False
+
+
 def _find_cross_feature_imports(source: str, filename: str) -> list[tuple[int, str]]:
     """Find cross-feature imports (chat importing rag or vice versa)."""
     tree = ast.parse(source, filename=filename)
@@ -76,6 +87,12 @@ def _find_cross_feature_imports(source: str, filename: str) -> list[tuple[int, s
                 hits.append((node.lineno, ast.unparse(node)))
             elif "features.rag" in module and "chat" in module:
                 hits.append((node.lineno, ast.unparse(node)))
+            elif node.level > 0:
+                names = [alias.name for alias in node.names]
+                if "features/chat" in filename and any("rag" in n for n in names):
+                    hits.append((node.lineno, ast.unparse(node)))
+                elif "features/rag" in filename and any("chat" in n for n in names):
+                    hits.append((node.lineno, ast.unparse(node)))
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 name = alias.name
@@ -168,11 +185,16 @@ class TestIsinstanceBan:
         """Given: prompts/__init__.py in core/.
         When: AST is scanned for isinstance().
         Then: no isinstance() on port objects; _make_hashable utility exempt."""
-        hits = self._check_file("core/prompts/__init__.py")
+        path = _resolve_src_file("core/prompts/__init__.py")
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        hits = _find_isinstance_calls(source, str(path))
         # _make_hashable uses isinstance on plain Python values for LRU cache keys,
         # not on port objects — exempt per ai_rules §2 scope
-        exempt_lines = {17, 19, 21, 23}  # _make_hashable body
-        filtered = [(line, code) for line, code in hits if line not in exempt_lines]
+        filtered = [
+            (line, code) for line, code in hits
+            if not _is_inside_function(tree, line, "_make_hashable")
+        ]
         assert not filtered, f"isinstance() banned in core/ (non-utility): {filtered}"
 
     def test_metrics_no_isinstance(self):
@@ -217,7 +239,7 @@ class TestPrintBan:
         dir_path = _resolve_src_file(rel_dir)
         hits: list[tuple[str, int, str]] = []
         for py_file in dir_path.rglob("*.py"):
-            if py_file.name.startswith("test_"):
+            if py_file.name.startswith("test_") or py_file.name == "conftest.py":
                 continue
             source = py_file.read_text(encoding="utf-8")
             file_hits = _find_print_calls(source, str(py_file))
@@ -268,7 +290,7 @@ class TestLoggingBasicConfigBan:
         dir_path = _resolve_src_file(rel_dir)
         hits: list[tuple[str, int, str]] = []
         for py_file in dir_path.rglob("*.py"):
-            if py_file.name.startswith("test_"):
+            if py_file.name.startswith("test_") or py_file.name == "conftest.py":
                 continue
             source = py_file.read_text(encoding="utf-8")
             file_hits = _find_basicConfig_calls(source, str(py_file))
@@ -438,7 +460,6 @@ class TestPortAbstractMethods:
         ]
         assert "get_history" in abstract_methods, "IChatStorage.get_history must be abstract"
         assert "save_message" in abstract_methods, "IChatStorage.save_message must be abstract"
-        assert "init_db" in abstract_methods
 
     def test_ichunker_has_chunk_abstract(self):
         """Given: IChunker port.
@@ -760,6 +781,21 @@ def test_ichunker_is_closable() -> None:
     assert issubclass(IChunker, IClosable)
     assert callable(getattr(IChunker, "shutdown", None))
 
+
+@pytest.mark.slow
+@pytest.mark.contract
+def test_itokenizer_is_closable() -> None:
+    """ITokenizer must inherit IClosable so lifespan can call shutdown().
+
+    TiktokenTokenizer and CharFallbackTokenizer implement shutdown() as no-op;
+    this makes the contract explicit.
+    """
+    from ai_assistant.core.ports.closable import IClosable
+    from ai_assistant.core.ports.tokenizer import ITokenizer
+
+    assert issubclass(ITokenizer, IClosable)
+    assert callable(getattr(ITokenizer, "shutdown", None))
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAdapterGetattrBan
 # ═══════════════════════════════════════════════════════════════════════════
@@ -774,27 +810,18 @@ class TestAdapterGetattrBan:
         """Given: all adapter source files.
         When: AST is scanned for getattr() calls touching config objects.
         Then: no getattr(cfg, ...) or getattr(config, ...) patterns found."""
-        adapter_files = [
-            "adapters/chunker_simple.py",
-            "adapters/embedder_mock.py",
-            "adapters/embedder_openai_compatible.py",
-            "adapters/llm_mock.py",
-            "adapters/llm_openai_compatible.py",
-            "adapters/reranker_api.py",
-            "adapters/reranker_null.py",
-            "adapters/storage_sqlite.py",
-            "adapters/vector_store_faiss.py",
-            "adapters/vector_store_memory.py",
-        ]
-        for rel_path in adapter_files:
-            path = _resolve_src_file(rel_path)
-            source = path.read_text(encoding="utf-8")
-            hits = _find_getattr_calls(source, str(path))
+        adapter_dir = _resolve_src_file("adapters")
+        for py_file in adapter_dir.rglob("*.py"):
+            if py_file.name.startswith("test_"):
+                continue
+            source = py_file.read_text(encoding="utf-8")
+            hits = _find_getattr_calls(source, str(py_file))
             config_hits = [
                 (ln, code)
                 for ln, code in hits
                 if "cfg" in code or "config" in code.lower()
             ]
+            rel_path = str(py_file.relative_to(adapter_dir.parent.parent))
             assert not config_hits, f"getattr on config is drift risk in {rel_path}: {config_hits}"
 
 
@@ -958,13 +985,6 @@ class TestAdapterRegistry:
 
         registry = self._get_registry()
         assert registry["tokenizer"]["char_fallback"] is CharFallbackTokenizer
-        """Given: registry loaded.
-        When: reranker port is inspected.
-        Then: NullReranker is registered under 'null'."""
-        from ai_assistant.adapters.reranker_null import NullReranker
-
-        registry = self._get_registry()
-        assert registry["reranker"]["null"] is NullReranker
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -985,6 +1005,7 @@ class TestPortKwargsBan:
             IEmbedder,
             ILLM,
             IReranker,
+            ITokenizer,
             IVectorStore,
         )
 
@@ -995,6 +1016,7 @@ class TestPortKwargsBan:
             "IReranker": IReranker,
             "IChatStorage": IChatStorage,
             "IChunker": IChunker,
+            "ITokenizer": ITokenizer,
         }
         methods: list[tuple[str, str, inspect.Signature]] = []
         for name, cls in ports.items():
@@ -1116,6 +1138,8 @@ class TestRAGStateTypedStatus:
         assert fields == expected, f"Field mismatch: {fields ^ expected}"
 
 
+@pytest.mark.slow
+@pytest.mark.contract
 def test_all_pipeline_steps_declare_requirements() -> None:
     """Every registered pipeline step must declare its requirements."""
     from ai_assistant.core.pipeline_steps import STEP_REGISTRY

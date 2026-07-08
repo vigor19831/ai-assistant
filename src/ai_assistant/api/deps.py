@@ -329,6 +329,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
             (state.vector_store, "vector_store"),
             (state.chunker, "chunker"),
             (state.reranker, "reranker"),
+            (state.tokenizer, "tokenizer"),
         ):
             if adapter is not None:
                 try:

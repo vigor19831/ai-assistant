@@ -18,6 +18,7 @@ from ai_assistant.core.config import (
     RAGConfig,
     RAGStep,
     SecurityConfig,
+    SourceConfig,
     UIConfig,
     VectorStoreConfig,
     load_config,
@@ -310,9 +311,9 @@ class TestYamlLoading:
         assert cfg.embedder.dim == 384
 
     def test_load_config_ignores_local_yaml(self, tmp_path: Path):
-        """Given: config.local.yaml exists alongside config.yaml.
+        """Given: a neighboring yaml file exists alongside config.yaml.
         When: load_config is called.
-        Then: config.local.yaml is ignored (no deep merge)."""
+        Then: only the requested file is loaded (no deep merge)."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
             yaml.safe_dump({
@@ -449,14 +450,6 @@ class TestResourceLimits:
         assert cfg.max_history_messages == 10_000
 
     def test_rag_config_default_token_margins(self):
-        """Given: no env overrides.
-        When: RAGConfig is instantiated.
-        Then: token_margin_min and token_margin_pct have expected defaults."""
-        cfg = RAGConfig()
-        assert cfg.token_margin_min == 256
-        assert cfg.token_margin_pct == 0.1
-
-    def test_rag_config_token_margin_defaults(self):
         """Given: no env overrides.
         When: RAGConfig is instantiated.
         Then: token_margin_min and token_margin_pct have expected defaults."""
@@ -871,11 +864,3 @@ class TestSourceConfigMigration:
         assert "documents_root" not in dumped["rag"]
         assert "sources" in dumped["rag"]
 
-# ---------- TokenizerConfig.local_dir is source of truth ----------
-from ai_assistant.core.config import TokenizerConfig
-
-
-def test_tokenizer_config_is_source_of_truth():
-    """TokenizerConfig.local_dir is the actual source of truth."""
-    cfg = TokenizerConfig(local_dir="./real/tokenizers")
-    assert cfg.local_dir == "./real/tokenizers"

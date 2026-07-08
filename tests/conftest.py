@@ -78,7 +78,9 @@ def mock_llm():
     """Given: LLM dependency is needed.
     When: test requests mock_llm.
     Then: deterministic mock with streaming and completion support is returned."""
-    m = MagicMock()
+    from ai_assistant.core.ports.llm import ILLM
+
+    m = MagicMock(spec=ILLM)
     m.complete = AsyncMock(
         return_value=MagicMock(
             text="Mocked AI response",
@@ -104,7 +106,9 @@ def mock_embedder():
     """Given: embedder dependency is needed.
     When: test requests mock_embedder.
     Then: deterministic 384-dim mock vectors are returned."""
-    m = MagicMock()
+    from ai_assistant.core.ports.embedder import IEmbedder
+
+    m = MagicMock(spec=IEmbedder)
     m.embed = AsyncMock(return_value=[[0.1] * 384])
     m.dimension = 384
     return m
@@ -115,9 +119,9 @@ def mock_reranker():
     """Given: reranker dependency is needed.
     When: test requests mock_reranker.
     Then: transparent pass-through mock is returned."""
-    from ai_assistant.core.ports.reranker import RerankResult
+    from ai_assistant.core.ports.reranker import IReranker, RerankResult
 
-    m = MagicMock()
+    m = MagicMock(spec=IReranker)
 
     async def _rerank(query, chunks, top_k=None):
         results = [RerankResult(chunk=c, score=1.0) for c in chunks]
@@ -132,7 +136,9 @@ def mock_vector_store():
     """Given: vector store dependency is needed.
     When: test requests mock_vector_store.
     Then: mock with namespace support is returned."""
-    m = MagicMock()
+    from ai_assistant.core.ports.vector_store import IVectorStore
+
+    m = MagicMock(spec=IVectorStore)
     m.add = AsyncMock(return_value=None)
     m.search = AsyncMock(return_value=[])
     m.delete = AsyncMock(return_value=None)
@@ -150,7 +156,9 @@ def mock_storage():
     """Given: storage dependency is needed.
     When: test requests mock_storage.
     Then: mock with history tracking is returned."""
-    m = MagicMock()
+    from ai_assistant.core.ports.storage import IChatStorage
+
+    m = MagicMock(spec=IChatStorage)
     m.get_history = AsyncMock(return_value=[])
     m.save_message = AsyncMock(return_value=None)
     m.get = AsyncMock(return_value=None)
@@ -165,8 +173,9 @@ def mock_chunker():
     When: test requests mock_chunker.
     Then: single-chunk mock is returned."""
     from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+    from ai_assistant.core.ports.chunker import IChunker
 
-    m = MagicMock()
+    m = MagicMock(spec=IChunker)
     m.chunk = AsyncMock(
         return_value=[
             Chunk(
@@ -207,13 +216,22 @@ def build_mock_state() -> MagicMock:
     state = MagicMock(spec=InitializedAppState)
     state.config = config  # real AppConfig, not MagicMock(spec=AppConfig)
 
-    # Adapter fields — AsyncMock for test isolation
-    state.llm = AsyncMock()
-    state.embedder = AsyncMock()
-    state.vector_store = AsyncMock()
-    state.chunker = AsyncMock()
-    state.storage = AsyncMock()
-    state.reranker = AsyncMock()
+    # Adapter fields — spec-constrained mocks for contract safety.
+    # AsyncMock(spec=...) keeps unconfigured async methods awaitable,
+    # while still blocking calls to attributes outside the port contract.
+    from ai_assistant.core.ports.llm import ILLM
+    from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.vector_store import IVectorStore
+    from ai_assistant.core.ports.chunker import IChunker
+    from ai_assistant.core.ports.storage import IChatStorage
+    from ai_assistant.core.ports.reranker import IReranker
+
+    state.llm = AsyncMock(spec=ILLM)
+    state.embedder = AsyncMock(spec=IEmbedder)
+    state.vector_store = AsyncMock(spec=IVectorStore)
+    state.chunker = AsyncMock(spec=IChunker)
+    state.storage = AsyncMock(spec=IChatStorage)
+    state.reranker = AsyncMock(spec=IReranker)
     state.tokenizer = CharFallbackTokenizer(TokenizerConfigData())
     state.task_registry = TaskRegistry()
     state.rag_state = RAGState()
@@ -289,15 +307,8 @@ def isolated_app_state(tmp_path):
     return state
 
 
-@pytest.fixture(autouse=True)
-def _reset_rag_globals():
-    """Given: RAG handler globals may leak between tests.
-    When: each test starts.
-    Then: no-op — globals were removed, RAGState is per-instance.
-
-    Kept as autouse sentinel to document the architectural change.
-    """
-    yield
+# _reset_rag_globals removed: globals were eliminated in drift #26.
+# RAGState is per-instance; no sentinel needed.
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +337,23 @@ def _build_chat_manager_mock() -> MagicMock:
     return mgr
 
 
+def _build_test_client(state, raise_server_exceptions: bool = True) -> TestClient:
+    """Build a TestClient with mock state, auth header, and ChatManager override."""
+    from ai_assistant.main import create_app
+    from ai_assistant.api.security import set_api_key
+    from ai_assistant.features.chat.handlers import _get_chat_manager
+
+    set_api_key("test-e2e-key")
+    app = create_app(state=state)
+    chat_mgr_mock = _build_chat_manager_mock()
+    app.dependency_overrides[_get_chat_manager] = lambda: chat_mgr_mock
+    return TestClient(
+        app,
+        raise_server_exceptions=raise_server_exceptions,
+        headers={"Authorization": "Bearer test-e2e-key"},
+    )
+
+
 @pytest.fixture
 def client(mock_state):
     """Return a TestClient with mock state and auth header.
@@ -334,19 +362,7 @@ def client(mock_state):
     fresh state and mutations inside the test body affect the same object
     that the app uses.
     """
-    from ai_assistant.main import create_app
-    from ai_assistant.api.security import set_api_key
-    from ai_assistant.features.chat.handlers import _get_chat_manager
-
-    set_api_key("test-e2e-key")
-
-    app = create_app(state=mock_state)
-
-    # Override the ChatManager dependency to use our mock
-    chat_mgr_mock = _build_chat_manager_mock()
-    app.dependency_overrides[_get_chat_manager] = lambda: chat_mgr_mock
-
-    return TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+    return _build_test_client(mock_state)
 
 
 @pytest.fixture
@@ -355,19 +371,7 @@ def client_no_raise(mock_state):
 
     Use this fixture for tests that expect 500 status codes.
     """
-    from ai_assistant.main import create_app
-    from ai_assistant.api.security import set_api_key
-    from ai_assistant.features.chat.handlers import _get_chat_manager
-
-    set_api_key("test-e2e-key")
-
-    app = create_app(state=mock_state)
-
-    # Override the ChatManager dependency to use our mock
-    chat_mgr_mock = _build_chat_manager_mock()
-    app.dependency_overrides[_get_chat_manager] = lambda: chat_mgr_mock
-
-    return TestClient(app, raise_server_exceptions=False, headers={"Authorization": "Bearer test-e2e-key"})
+    return _build_test_client(mock_state, raise_server_exceptions=False)
 
 
 # ---------------------------------------------------------------------------

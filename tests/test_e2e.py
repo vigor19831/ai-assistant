@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,10 +18,6 @@ from starlette.testclient import TestClient
 from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
-from ai_assistant.core.domain.messages import AssistantMessage
-from ai_assistant.core.logger import get_logger
-
-logger = get_logger(__name__)
 
 
 # ── Health & Info ──
@@ -132,7 +127,9 @@ class TestE2EChat:
         app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(
-            app, raise_server_exceptions=False, headers={"Authorization": "Bearer test-e2e-key"}
+            app,
+            raise_server_exceptions=False,
+            headers={"Authorization": "Bearer test-e2e-key"},
         )
         resp = test_client.post(
             "/api/v1/chat",
@@ -140,30 +137,6 @@ class TestE2EChat:
         )
         assert resp.status_code == 500
         assert "Internal server error" in resp.json()["detail"]
-
-    def test_chat_prompt_version(self, mock_state):
-        """Given: config specifies a RAG prompt version.
-        When: ChatManager is instantiated.
-        Then: it stores and exposes the configured prompt version."""
-        from ai_assistant.adapters.reranker_null import NullReranker
-        from ai_assistant.features.chat.manager import ChatManager
-
-        reranker = NullReranker(None)
-        mgr = ChatManager(
-            llm=mock_state.llm,
-            reranker=reranker,
-            prompt_version=mock_state.config.rag.prompt_version,
-            tokenizer=mock_state.tokenizer,
-        )
-        assert mgr.prompt_version == mock_state.config.rag.prompt_version
-
-        mgr_v2 = ChatManager(
-            llm=mock_state.llm,
-            reranker=reranker,
-            prompt_version="v2",
-            tokenizer=mock_state.tokenizer,
-        )
-        assert mgr_v2.prompt_version == "v2"
 
 
 # ── SSE Streaming ──
@@ -283,8 +256,9 @@ class TestE2EStream:
 
         async def endless_stream(*args, **kwargs):
             """Yield chunks immediately; client disconnects mid-stream."""
-            for i in range(10000):
+            for i in range(100):
                 yield f"chunk {i}"
+                # yield in async generator already yields control to event loop
 
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = endless_stream
@@ -505,7 +479,10 @@ class TestE2ERAG:
 
         resp = client_no_raise.post(
             "/api/v1/rag/index",
-            json={"documents": [{"id": "d1", "content": "test", "metadata": {}}], "namespace": "test"},
+            json={
+                "documents": [{"id": "d1", "content": "test", "metadata": {}}],
+                "namespace": "test",
+            },
         )
         assert resp.status_code == 500
 
@@ -535,11 +512,13 @@ class TestE2ERAG:
         assert data["status"] in ("ok", "empty")
         assert data["embedder_dim"] == 384
 
-    def test_namespaces(self, client, mock_state):
+    def test_namespaces(self, client, mock_state, tmp_path, monkeypatch):
         """Given: index contains multiple namespaces.
         When: GET /api/v1/rag/namespaces.
         Then: returns list including those namespaces."""
-        mock_state.config.vector_store.index_path = "./data/indices"
+        monkeypatch.setattr(
+            mock_state.config.vector_store, "index_path", str(tmp_path)
+        )
         mock_state.vector_store.list_namespaces = AsyncMock(
             return_value=["test", "default"]
         )

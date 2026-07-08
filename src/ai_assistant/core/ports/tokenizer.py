@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+
+from ai_assistant.core.ports.closable import IClosable
 
 __all__ = ["ITokenizer"]
 
 
-class ITokenizer(ABC):
+class ITokenizer(IClosable):
     """Abstract tokenizer for counting tokens in text.
 
     Implementations may use BPE tokenizers (tiktoken, HuggingFace)

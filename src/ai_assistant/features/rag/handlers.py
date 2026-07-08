@@ -536,6 +536,7 @@ async def reindex_documents(
                         vector_store=state.vector_store,
                         max_file_size=state.config.vector_store.max_document_size,
                         sources=state.config.rag.sources,
+                        index_path=state.config.vector_store.index_path,
                     )
                 await rag_state.complete_task(task_id, result)
                 _logger.info(

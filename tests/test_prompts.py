@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-import logging
+from ai_assistant.core.logger import get_logger
 from pathlib import Path
 from unittest import mock
 
@@ -16,7 +16,7 @@ from ai_assistant.core.prompts import (
     get_prompt,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class TestPromptVersion:
@@ -272,8 +272,8 @@ class TestJinja2EnvironmentConfig:
             MockEnv.assert_called_once()
             call_kwargs = MockEnv.call_args.kwargs
             assert "loader" in call_kwargs
-            assert call_kwargs.get("trim_blocks") is True
-            assert call_kwargs.get("lstrip_blocks") is True
+            assert call_kwargs["trim_blocks"] is True
+            assert call_kwargs["lstrip_blocks"] is True
 
     def test_template_rendering_with_blocks(self, tmp_path: Path, monkeypatch):
         """Given: template with Jinja2 block syntax.
@@ -296,12 +296,6 @@ class TestJinja2EnvironmentConfig:
         # With trim_blocks=True and lstrip_blocks=True, output should be compact
         assert "a" in result
         assert "b" in result
-
-
-# ---------- circular references in _make_hashable ----------
-import dataclasses
-
-from ai_assistant.core.prompts import _make_hashable
 
 
 @dataclasses.dataclass

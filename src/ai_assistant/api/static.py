@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,7 +23,10 @@ def mount_static(app: FastAPI, config: AppConfig) -> None:
     ui_cfg = config.ui
     static_dir = Path(ui_cfg.static_path)
     if not static_dir.is_absolute():
-        static_dir = Path(__file__).parent.parent / static_dir
+        _module_file = getattr(sys.modules.get(__name__), "__file__", None)
+        if _module_file is None:
+            return
+        static_dir = Path(_module_file).parent.parent / static_dir
 
     # Reject path traversal: normalize and check for .. components
     normalized = static_dir.as_posix()

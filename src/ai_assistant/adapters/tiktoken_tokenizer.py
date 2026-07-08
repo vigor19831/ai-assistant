@@ -60,6 +60,9 @@ class TiktokenTokenizer(ITokenizer):
     def __init__(self, config: TokenizerConfigData) -> None:
         self.config = config
 
+    async def shutdown(self) -> None:
+        """No-op: tokenizer holds no external resources."""
+
     def count(self, text: str) -> int:
         """Count tokens in text."""
         if not text:
