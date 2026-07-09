@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ai_assistant.api.deps import InitializedAppState, get_state
-from ai_assistant.core.domain.errors import AdapterError
+from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG, AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.chat.schemas import (
@@ -39,7 +39,7 @@ def _raise_llm_unavailable(exc: AdapterError) -> None:
     """Map adapter-level failure to 503 Service Unavailable."""
     raise HTTPException(
         status_code=503,
-        detail="LLM service temporarily unavailable. Please try again later.",
+        detail=LLM_UNAVAILABLE_MSG,
     ) from exc
 
 
@@ -200,7 +200,7 @@ async def chat_stream(
         except AdapterError:
             payload = json.dumps(
                 {
-                    "error": "LLM service temporarily unavailable. Please try again later."
+                    "error": LLM_UNAVAILABLE_MSG
                 }
             )
             yield f"data: {payload}\n\n"
@@ -290,7 +290,7 @@ async def openai_chat_completions(
             except AdapterError:
                 payload = json.dumps(
                     {
-                        "error": "LLM service temporarily unavailable. Please try again later."
+                        "error": LLM_UNAVAILABLE_MSG
                     }
                 )
                 yield f"data: {payload}\n\n"

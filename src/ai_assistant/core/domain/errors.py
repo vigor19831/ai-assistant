@@ -9,6 +9,7 @@ __all__ = [
     "INTERNAL_SERVER_ERROR",
     "LLM_NOT_PROVIDED",
     "LLM_UNAVAILABLE",
+    "LLM_UNAVAILABLE_MSG",
     "QUERY_EMBEDDING_MISSING",
     "QUERY_MISSING",
     "QUERY_TEXT_MISSING",
@@ -38,3 +39,4 @@ LLM_NOT_PROVIDED = "generate: llm not provided"
 QUERY_MISSING = "generate: no query"
 INTERNAL_SERVER_ERROR = "Internal server error"
 LLM_UNAVAILABLE = "generate: LLM unavailable"
+LLM_UNAVAILABLE_MSG = "LLM service temporarily unavailable. Please try again later."
