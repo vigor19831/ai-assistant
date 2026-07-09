@@ -99,7 +99,6 @@ scripts/*.log
 /*.pid
 
 # User content (never commit)
-sources/
 vendor/
 chat_exports/
 
