@@ -821,14 +821,17 @@ class TestSourceConfigMigration:
         with pytest.raises(ValueError, match="traversal"):
             SourceConfig(namespace="test", path="../../etc/passwd")
 
-    def test_source_path_absolute_rejected(self) -> None:
+    def test_source_path_absolute_accepted(self) -> None:
         """Given: absolute source path.
         When: SourceConfig is loaded.
-        Then: ValidationError is raised."""
+        Then: accepted (absolute paths allowed for external drives)."""
         from ai_assistant.core.config import SourceConfig
 
-        with pytest.raises(ValueError, match="relative"):
-            SourceConfig(namespace="test", path="/etc/passwd")
+        sc = SourceConfig(namespace="test", path="/etc/passwd")
+        assert sc.path == "/etc/passwd"
+
+        sc_win = SourceConfig(namespace="test", path="D:\\rag\\test")
+        assert sc_win.path == "D:\\rag\\test"
 
     def test_source_path_valid_relative_accepted(self) -> None:
         """Given: valid relative path without traversal.

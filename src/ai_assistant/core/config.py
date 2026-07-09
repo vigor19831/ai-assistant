@@ -183,13 +183,11 @@ class SourceConfig(BaseModel):
 
     @field_validator("path")
     @classmethod
-    def _reject_traversal_and_absolute(cls, v: str) -> str:
-        """Reject absolute paths and path traversal in source paths."""
+    def _reject_traversal(cls, v: str) -> str:
+        """Reject path traversal in source paths."""
         v = v.strip()
         if not v:
             raise ValueError("path must be non-empty")
-        if v.startswith("/") or v.startswith("\\") or v.startswith("~"):
-            raise ValueError(f"path must be relative, got: {v}")
         if ".." in Path(v).parts:
             raise ValueError(f"path contains traversal, got: {v}")
         return v

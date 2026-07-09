@@ -2,6 +2,7 @@
 """Standalone RAG diagnostic — checks REAL end-to-end RAG flow."""
 
 import asyncio
+import fnmatch
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -77,7 +78,21 @@ async def main() -> int:
     # ── 3. Init REAL embedder (not mock!) ──
     print(f"\n  --- Initializing REAL embedder ---")
     try:
-        embedder = create_adapter("embedder", cfg.embedder.provider, cfg.embedder)
+        from ai_assistant.core.domain.configs import EmbedderConfigData
+        embedder_cfg = EmbedderConfigData(
+            model=cfg.embedder.model,
+            api_base=cfg.embedder.api_base,
+            api_key=cfg.embedder.api_key,
+            dim=cfg.embedder.dim,
+            timeout=cfg.embedder.timeout,
+            connect_timeout=cfg.embedder.connect_timeout,
+            n_gpu_layers=cfg.embedder.n_gpu_layers,
+            n_batch=cfg.embedder.n_batch,
+            n_ubatch=cfg.embedder.n_ubatch,
+            mmap=cfg.embedder.mmap,
+            mlock=cfg.embedder.mlock,
+        )
+        embedder = create_adapter("embedder", cfg.embedder.provider, embedder_cfg)
         print(f"[OK]   Embedder: {type(embedder).__name__}, dim={embedder.dimension}")
     except Exception as exc:
         print(f"[FAIL] Embedder init failed: {exc}")
@@ -95,8 +110,16 @@ async def main() -> int:
     # ── 4. Init vector store ──
     print(f"\n  --- Initializing vector store ---")
     try:
+        from ai_assistant.core.domain.configs import VectorStoreConfigData
+        vs_cfg = VectorStoreConfigData(
+            dim=cfg.vector_store.dim,
+            index_path=cfg.vector_store.index_path,
+            metric=cfg.vector_store.metric,
+            max_chunks=cfg.vector_store.max_chunks,
+            max_document_size=cfg.vector_store.max_document_size,
+        )
         vector_store = create_adapter(
-            "vector_store", cfg.vector_store.provider, cfg.vector_store
+            "vector_store", cfg.vector_store.provider, vs_cfg
         )
         print(f"[OK]   VectorStore: {type(vector_store).__name__}")
     except Exception as exc:

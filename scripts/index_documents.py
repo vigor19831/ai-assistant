@@ -126,6 +126,7 @@ async def main() -> int:
             vector_store=state.vector_store,
             max_file_size=config.vector_store.max_document_size,
             sources=config.rag.sources,
+            index_path=config.vector_store.index_path,
         )
     except Exception as exc:
         print(f"[ERROR] Indexing failed: {exc}")
