@@ -1,15 +1,11 @@
 # AI Assistant
 
-**Solo-maintained. No contributions accepted.**
-This project is developed for personal use by a non-programmer. AI writes the code; I set the direction.
-
-This repository is published as-is.
-I do not review issues, discussions, or pull requests.
-
-## What is this
-
 Local AI assistant framework. FastAPI + RAG with namespaces.
 Offline-first, OpenAI-compatible LLM/embedder adapters.
+
+**Solo-maintained.** This project is developed for personal use. AI writes the code; I set the direction. Published as-is — no contributions accepted.
+
+## What is this
 
 - **LLM**: any OpenAI-compatible server (llama.cpp, Ollama, vLLM, etc.)
 - **Embedder**: any OpenAI-compatible server (nomic-embed-text, etc.)
@@ -18,111 +14,325 @@ Offline-first, OpenAI-compatible LLM/embedder adapters.
 - **Storage**: SQLite
 - **API**: OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/models`) + native endpoints
 
+![Chat - example](docs/screenshot.png)
+
 ## Requirements
 
 - Python 3.11+
-- LLM server: llama.cpp (local GGUF), Ollama, vLLM, or any OpenAI-compatible endpoint
-- Embedder server: any OpenAI-compatible endpoint
+- LLM server running (llama.cpp, Ollama, vLLM, or any OpenAI-compatible endpoint)
+- Embedder server running (any OpenAI-compatible endpoint)
 
 ## Quick Start
 
 ### 1. Install
 
-```bash
-# Create virtual environment
+**Windows (PowerShell):**
+```powershell
 python -m venv .venv
-
-# Activate
-# Windows:
-.venv\Scripts\activate
-# macOS / Linux:
-source .venv/bin/activate
-
-# Install dependencies
+.venv\Scripts\Activate.ps1
 pip install .
-
 # Optional: FAISS for persistent vector store
 pip install .[faiss]
 ```
+
+**macOS / Linux:**
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install .
+# Optional: FAISS for persistent vector store
+pip install .[faiss]
+```
+
+> **Windows note:** If `pip install .` fails with `Microsoft Visual C++ 14.0 is required`, install [Build Tools for Visual Studio](https://visualstudio.microsoft.com/visual-cpp-build-tools/) or use pre-built wheels.
 
 ### 2. Configure
 
 ```bash
 # Copy example config
 cp config.example.yaml config.yaml
+# Windows: Copy-Item config.example.yaml config.yaml
+```
 
-# Edit config.yaml with your model names, API keys, and paths
+Edit `config.yaml`. Minimum required changes:
+
+```yaml
+# 1. LLM endpoint and model
+llm:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:8080/v1
+  model: your-model-name
+
+# 2. Embedder endpoint and model (must match vector_store.dim!)
+embedder:
+  provider: openai_compatible
+  api_base: http://127.0.0.1:8081/v1
+  model: your-embedder-model
+  dim: 768
+
+# 3. Vector store (must match embedder.dim!)
+vector_store:
+  provider: faiss
+  dim: 768
+
+# 4. Document sources for RAG
+#    Supported formats: .md, .txt (plain text files only)
+rag:
+  sources:
+    - namespace: mydocs
+      path: /path/to/your/documents   # Windows: D:\path\to\docs
+      include: ["*.md", "*.txt"]
+      recursive: true
+
+# 5. Namespace prefix for chat
+#    prefix: single character used in chat, e.g. [m] query
+#    threshold: minimum relevance score (0.0-1.0), lower = more results
+#    prompt: rag_strict | rag_default | rag_creative
+namespaces:
+  mydocs:
+    prefix: m
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
 ```
 
 ### 3. Download Tokenizers (local models only)
 
-```bash
-python run_scripts.py  # select download_tokenizers.py
-```
-
 Required for local models (Llama, Qwen, Gemma, Phi, etc.). Skip for cloud OpenAI models.
+
+```bash
+python run_scripts.py  # interactive menu → select download_tokenizers.py
+```
 
 ### 4. Download Engine and Models (local llama.cpp only)
 
-**Engine:** Download `llama-server` from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) and place in `vendor/llama/` (or use Ollama, vLLM, etc.)
+Skip this step if using Ollama, vLLM, or cloud OpenAI.
+
+**Engine:** Download `llama-server` from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) and place in `vendor/llama/`.
 
 **Models:** Place GGUF models in `vendor/models/`. Download from [HuggingFace](https://huggingface.co/models).
 
-### 5. Start
+### 5. Start Servers
 
+**If using local llama.cpp models** (starts LLM + embedder + API in one command):
 ```bash
-# If using local llama.cpp models, start servers first:
 python run_servers.py
+```
 
-# Or start only the API (if using external servers):
+> **Note:** `run_servers.py` expects `vendor/llama/llama-server` and models in `vendor/models/`.
+
+**If using external servers** (starts API only; assumes LLM/embedder already running):
+```bash
 python -m uvicorn ai_assistant.main:create_app --reload
+```
+
+### 6. Verify Installation
+
+With servers running, test the connections:
+
+**Check LLM:**
+```bash
+python run_scripts.py  # interactive menu → select check_llm.py
+```
+
+**Check RAG pipeline:**
+```bash
+python run_scripts.py  # interactive menu → select check_rag.py
+```
+
+> **Note:** `run_scripts.py` shows an interactive menu. Use arrow keys to select, Enter to run.
+
+**Quick API test (PowerShell):**
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/chat/completions" -Method Post -ContentType "application/json" -Body '{"model":"your-model-name","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+**Quick API test (curl):**
+```bash
+curl -X POST http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"your-model-name","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 Open http://localhost:8000/ui in your browser.
 
-## Configuration
+> **Auth note:** Legacy endpoints (`/api/v1/*`) require `Authorization: Bearer <key>` if `security.api_key` is set in `config.yaml`. OpenAI-compatible endpoints (`/v1/*`) do not require a key by default.
 
-Edit `config.yaml` (copied from `config.example.yaml`). Key sections:
+## Configuration Reference
 
-- `llm` -- model, API endpoint, sampling parameters
-- `embedder` -- embedding model, dimension (must match `vector_store.dim`)
-- `reranker` -- optional reranking API config (set `provider: null` to disable)
-- `vector_store` -- FAISS or memory, index path, dimension
-- `chunker` -- document splitting strategy
-- `chat` -- history limit, max context tokens
-- `rag` -- pipeline steps, top_k, thresholds, document `sources`
-- `namespaces` -- per-namespace prefix, chunk size, threshold, prompt override
-- `storage` -- SQLite database path
-- `security` -- API key, `admin_enabled`, body size limits
-- `logging` -- level, format (text/json), rotation
-- `cors` / `ui` -- cross-origin and static file settings
+Key sections in `config.yaml`:
+
+| Section | Purpose |
+|---------|---------|
+| `llm` | Model, API endpoint, sampling parameters |
+| `embedder` | Embedding model, dimension (must match `vector_store.dim`) |
+| `reranker` | Optional reranking API (set `provider: null` to disable) |
+| `vector_store` | FAISS or memory, index path, dimension |
+| `chunker` | Document splitting strategy |
+| `chat` | History limit, max context tokens |
+| `rag` | Pipeline steps, top_k, thresholds, document `sources` |
+| `namespaces` | Per-namespace prefix, chunk size, threshold, prompt override |
+| `storage` | SQLite database path |
+| `security` | API key, `admin_enabled`, body size limits |
+| `logging` | Level, format (text/json), rotation |
+| `cors` / `ui` | Cross-origin and static file settings |
 
 `config.yaml` is git-ignored. `config.example.yaml` is the template in repo.
 
 ## Daily Use
 
-**RAG Namespaces:** RAG is opt-in. Start a message with a namespace prefix (e.g., `[d] what is...`) to search documents. Messages without a prefix go directly to LLM. Configure prefixes per namespace in `config.yaml` under `namespaces.<name>.prefix`.
+### First-Time Indexing
 
-**Chat Exports:** Save and index chat history via `/api/v1/rag/save-chat`. Toggle in `config.yaml` via `rag.index_chat_exports`.
+After configuring `rag.sources`, create the initial index:
 
-**Admin Endpoints:** Disabled by default. Set `security.admin_enabled: true` to expose `/api/v1/admin/*`.
+```bash
+python run_scripts.py  # interactive menu → select index_documents.py
+```
 
-**Helper scripts** (run via `run_scripts.py`):
+Repeat this whenever you add or change document sources.
+
+### RAG Namespaces
+
+RAG is opt-in. Start a message with a namespace prefix to search documents:
+
+```
+[m] what is the architecture?   → searches "mydocs" namespace
+```
+
+Messages without a prefix go directly to LLM.
+
+Configure prefixes per namespace in `config.yaml`:
+
+```yaml
+namespaces:
+  mydocs:
+    prefix: m
+    threshold: 0.1
+    chunk_size: 512
+    prompt: rag_strict
+```
+
+### Index Documents
+
+After adding or editing `rag.sources`:
+
+```bash
+python run_scripts.py  # interactive menu → select index_documents.py
+```
+
+Or via API (if `security.api_key` is set, add `-H "Authorization: Bearer <key>"`):
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/rag/reindex \
+  -H "Content-Type: application/json" \
+  -d '{"folder": "mydocs"}'
+```
+
+### Chat Exports
+
+Save and index chat history via `/api/v1/rag/save-chat`. Toggle in `config.yaml` via `rag.index_chat_exports`.
+
+### Admin Endpoints
+
+Disabled by default. Set `security.admin_enabled: true` to expose `/admin/*`.
+
+## API Examples
+
+### OpenAI-Compatible Chat
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/chat/completions" -Method Post -ContentType "application/json" -Body '{"model":"your-model-name","messages":[{"role":"user","content":"[m] what is this?"}]}'
+```
+
+**curl:**
+```bash
+curl -X POST http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"your-model-name","messages":[{"role":"user","content":"[m] what is this?"}]}'
+```
+
+### Native RAG Query
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{"query":"[m] what is this?", "namespace":"mydocs"}'
+```
+
+### List Namespaces
+
+```bash
+curl http://127.0.0.1:8000/api/v1/rag/namespaces
+```
+
+## Helper Scripts
+
+Run via `python run_scripts.py` (interactive menu):
 
 | Script | When to run |
 |--------|-------------|
-| `index_documents.py` | After updating `rag.sources` in `config.yaml` (requires running servers) |
-| `download_tokenizers.py` | After adding a new model (HF only) |
-| `kill.py` | Emergency shutdown -- stops all running servers |
-| `check_llm.py` | [dev] Verifies LLM connection and basic generation |
-| `check_rag.py` | [dev] Tests the full RAG pipeline |
-| `check_all.py` | [dev] Runs all checks |
-| `clean_cache.py` | [dev] Remove temporary / cache files |
-| `context_build.py` | [dev] Build project context for AI assistance |
-| `open_shell.py` | [dev] Open interactive shell with project imports |
-| `structure.py` | [dev] Print project file structure |
+| `index_documents.py` | After updating `rag.sources` in `config.yaml` |
+| `download_tokenizers.py` | After adding a new local model |
+| `check_llm.py` | Verify LLM connection |
+| `check_rag.py` | Test full RAG pipeline |
+| `check_all.py` | Run all checks |
+| `kill.py` | Emergency shutdown of all servers |
+| `clean_cache.py` | Remove temporary / cache files |
+| `context_build.py` | Build project context for AI assistance |
+| `open_shell.py` | Interactive shell with project imports |
+| `structure.py` | Print project file structure |
 
-**Background Reindex:** `POST /api/v1/rag/reindex` returns immediately, runs in background. Check status with `GET /api/v1/rag/reindex/status/{task_id}`. Tasks time out after 4 hours. Only one reindex runs at a time.
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'faiss'`
+
+Install FAISS separately:
+```bash
+pip install faiss-cpu
+```
+
+### `Connection refused` to LLM or embedder
+
+Verify servers are running:
+```bash
+# Check LLM
+curl http://127.0.0.1:8080/v1/models
+
+# Check embedder
+curl http://127.0.0.1:8081/v1/models
+```
+
+### `embedder.dim != vector_store.dim`
+
+Edit `config.yaml` — both must match:
+```yaml
+embedder:
+  dim: 768
+vector_store:
+  dim: 768
+```
+
+### RAG returns "I do not have enough information"
+
+1. Check indices exist: `curl http://127.0.0.1:8000/api/v1/rag/namespaces`
+2. Check `namespaces` in `config.yaml` is not empty and has a `prefix`
+3. Re-index: `python run_scripts.py` → `index_documents.py`
+4. Check prefix matches: `[m]` must match `namespaces.mydocs.prefix: m`
+
+### `401 Unauthorized` on `/api/v1/*` endpoints
+
+Legacy endpoints require API key. Either:
+- Set `security.api_key: your-key` in `config.yaml`
+- Or use OpenAI-compatible endpoint `/v1/chat/completions` (no key required by default)
+
+### Background reindex never completes
+
+Check status:
+```bash
+curl http://127.0.0.1:8000/api/v1/rag/reindex/status/your-task-id
+```
+
+Tasks time out after 4 hours. Only one reindex runs at a time.
 
 ## License
 
