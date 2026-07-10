@@ -122,6 +122,11 @@
         .message a:hover { text-decoration: underline; }
         .message blockquote { border-left: 3px solid var(--border); padding-left: 12px; margin: 8px 0; color: #8b949e; }
         .message hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+        .message table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; }
+        .message th, .message td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+        .message th { background: var(--surface-hover); font-weight: 600; }
+        .message tr:nth-child(even) { background: rgba(48,54,61,0.3); }
+        .message del { text-decoration: line-through; color: #8b949e; }
 
         .message.collapsible { max-height: 400px; overflow: hidden; position: relative; }
         .message.collapsible::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 60px; background: linear-gradient(transparent, var(--surface)); pointer-events: none; }
@@ -187,6 +192,11 @@
         }
         .scroll-to-bottom.visible { display: flex; }
         .scroll-to-bottom:hover { background: var(--surface-hover); color: var(--text-bright); }
+        .scroll-to-bottom .new-dot {
+            position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
+            background: var(--accent); border-radius: 50%; border: 2px solid var(--bg); display: none;
+        }
+        .scroll-to-bottom.has-new .new-dot { display: block; }
 
         /* Empty state */
         .empty-state { text-align: center; padding: 60px 20px; color: #8b949e; display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -276,8 +286,8 @@
             </div>
         </div>
 
-        <div class="namespace-hint">
-            Prefix: <code>[p]</code> personal <code>[w]</code> work <code>[c]</code> code <code>[t]</code> test <code>[o]</code> other
+        <div class="namespace-hint" id="namespaceHint">
+            <span>Use <code>[prefix]</code> to switch namespace context</span>
             <span>Press <code>Ctrl+Enter</code> to send · <code>Esc</code> to cancel</span>
         </div>
 
@@ -292,6 +302,7 @@
         <div class="typing-indicator" id="typingIndicator"><span></span><span></span><span></span></div>
 
         <button class="scroll-to-bottom" id="scrollBtn" onclick="forceScrollToBottom()" title="Scroll to bottom">
+            <span class="new-dot" id="newDot"></span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
 
@@ -341,6 +352,7 @@
     <div class="toast" id="toast"></div>
 
     <script>
+
         // ===== Storage Keys =====
         const SETTINGS_KEY = 'ai_chat_settings_v2';
         const SESSIONS_KEY = 'ai_chat_sessions_v2';
@@ -354,6 +366,8 @@
         let abortController = null;
         let currentNs = 'default';
         let attachedFiles = []; // {name, type, content}
+        let userScrolledUp = false;      // true when user manually scrolled away from bottom
+        let hasNewContent = false;       // true when new content arrived while scrolled up
 
         const settings = {
             apiBase: '', apiKey: 'sk-local-api-key', model: 'local',
@@ -365,6 +379,7 @@
         const container = document.getElementById('chatContainer');
         const nsBadge = document.getElementById('currentNs');
         const scrollBtn = document.getElementById('scrollBtn');
+        const newDot = document.getElementById('newDot');
         const emptyState = document.getElementById('emptyState');
         const typingIndicator = document.getElementById('typingIndicator');
         const toastEl = document.getElementById('toast');
@@ -374,7 +389,7 @@
         const sidebarOverlay = document.getElementById('sidebarOverlay');
         const dragOverlay = document.getElementById('dragOverlay');
 
-        // ===== Scroll Constants (must be declared before any function calls that use them) =====
+        // ===== Scroll Constants =====
         const SCROLL_THRESHOLD = 100;
 
         // ===== Init =====
@@ -415,7 +430,6 @@
 
         function saveSessionMessages(id, msgs) {
             localStorage.setItem(getMessagesKey(id), JSON.stringify(msgs));
-            // Update session meta
             const s = sessions.find(x => x.id === id);
             if (s) {
                 s.messageCount = msgs.length;
@@ -510,21 +524,80 @@
             location.reload();
         }
 
-        // ===== Scroll =====
+        // ===== Scroll (fixed: respects user scroll during streaming) =====
         function isNearBottom() {
             return container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_THRESHOLD;
         }
-        function scrollToBottomIfNeeded() { if (isNearBottom()) container.scrollTop = container.scrollHeight; updateScrollButton(); }
-        function forceScrollToBottom() { container.scrollTop = container.scrollHeight; updateScrollButton(); }
-        function updateScrollButton() { scrollBtn.classList.toggle('visible', !isNearBottom()); }
+
+        function scrollToBottomIfNeeded() {
+            if (!userScrolledUp) {
+                container.scrollTop = container.scrollHeight;
+            } else {
+                hasNewContent = true;
+                scrollBtn.classList.add('has-new');
+            }
+            updateScrollButton();
+        }
+
+        function forceScrollToBottom() {
+            container.scrollTop = container.scrollHeight;
+            userScrolledUp = false;
+            hasNewContent = false;
+            scrollBtn.classList.remove('has-new');
+            updateScrollButton();
+        }
+
+        function updateScrollButton() {
+            const nearBottom = isNearBottom();
+            scrollBtn.classList.toggle('visible', !nearBottom);
+            if (nearBottom) {
+                userScrolledUp = false;
+                hasNewContent = false;
+                scrollBtn.classList.remove('has-new');
+            }
+        }
+
         function setupScrollHandling() {
-            container.addEventListener('scroll', updateScrollButton);
+            let ticking = false;
+            container.addEventListener('scroll', () => {
+                if (!ticking) {
+                    requestAnimationFrame(() => {
+                        const nearBottom = isNearBottom();
+                        if (!nearBottom && !userScrolledUp) {
+                            userScrolledUp = true;
+                        }
+                        if (nearBottom && userScrolledUp) {
+                            userScrolledUp = false;
+                            hasNewContent = false;
+                            scrollBtn.classList.remove('has-new');
+                        }
+                        updateScrollButton();
+                        ticking = false;
+                    });
+                    ticking = true;
+                }
+            });
             window.addEventListener('resize', updateScrollButton);
         }
 
-        // ===== Markdown =====
+        // ===== Markdown (improved: tables, strikethrough) =====
         function renderMarkdown(text) {
             text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+            // Tables
+            const tableRegex = /^((?:\|[^\n]*)+\n)(\|[-:\s|]+\|\n)((?:\|[^\n]*\n)+)/gm;
+            text = text.replace(tableRegex, (match, header, sep, rows) => {
+                const parseRow = (row) => row.trim().slice(1, -1).split('|').map(c => c.trim());
+                const headers = parseRow(header);
+                const bodyRows = rows.trim().split('\n').map(parseRow);
+                let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+                bodyRows.forEach(row => {
+                    html += '<tr>' + row.map(c => `<td>${c}</td>`).join('') + '</tr>';
+                });
+                html += '</tbody></table>';
+                return html;
+            });
+
             const codeBlocks = [];
             text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
                 const id = codeBlocks.length;
@@ -540,6 +613,9 @@
             text = text.replace(/^---+$/gm, '<hr>').replace(/^\*\*\*+$/gm, '<hr>');
             text = text.replace(/^#### (.*$)/gim, '<h4>$1</h4>').replace(/^### (.*$)/gim, '<h3>$1</h3>')
                        .replace(/^## (.*$)/gim, '<h2>$1</h2>').replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+            // Strikethrough
+            text = text.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
 
             // Blockquotes
             const lines = text.split('\n'), result = [];
@@ -574,7 +650,7 @@
             const blocks = text.split(/\n\n+/);
             text = blocks.map(block => {
                 block = block.trim(); if (!block) return '';
-                if (/^<(h[1-4]|pre|ul|ol|li|blockquote|hr)/.test(block)) return block;
+                if (/^<(h[1-4]|pre|ul|ol|li|blockquote|hr|table)/.test(block)) return block;
                 if (block.includes('\n')) return '<p>' + block.replace(/\n/g, '<br>') + '</p>';
                 return '<p>' + block + '</p>';
             }).filter(Boolean).join('');
@@ -675,10 +751,10 @@
 
         // ===== Namespace =====
         function detectNamespace(text) {
-            const match = text.match(/^\[(p|w|c|b|o)\]\s*/i);
+            const match = text.match(/^\[(\w+)\]\s*/i);
             if (match) {
-                const map = {p: 'personal', w: 'work', c: 'code', b: 'books', o: 'other'};
-                return map[match[1].toLowerCase()] || 'default';
+                const ns = match[1].toLowerCase();
+                return ns;
             }
             return 'default';
         }
@@ -708,11 +784,13 @@
                         attachedFiles.push({name: file.name, type: 'image', content: e.target.result});
                         insertAtCursor(`\n![${file.name}](${e.target.result})\n`);
                     } else {
-                        // Text file
                         attachedFiles.push({name: file.name, type: 'text', content: e.target.result});
                         insertAtCursor(`\n\`\`\`${file.name}\n${e.target.result}\n\`\`\`\n`);
                     }
                     renderAttachments();
+                    input.style.height = 'auto';
+                    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+                    updateTokenCount();
                 };
                 if (file.type.startsWith('image/')) reader.readAsDataURL(file);
                 else reader.readAsText(file);
@@ -744,7 +822,7 @@
             input.dispatchEvent(new Event('input'));
         }
 
-        // ===== Send / Stream =====
+        // ===== Send / Stream (fixed: respects user scroll, cleans up on error) =====
         async function sendMessage() {
             let text = input.value.trim();
             if (!text || isStreaming) return;
@@ -752,7 +830,6 @@
             currentNs = detectNamespace(text);
             nsBadge.textContent = currentNs;
 
-            // If new session and empty, set title
             if (messages.length === 0) {
                 const s = sessions.find(x => x.id === currentSessionId);
                 if (s) {
@@ -768,6 +845,10 @@
             attachedFiles = [];
             renderAttachments();
             updateTokenCount();
+
+            userScrolledUp = false;
+            hasNewContent = false;
+            scrollBtn.classList.remove('has-new');
 
             isStreaming = true;
             document.getElementById('sendBtn').style.display = 'none';
@@ -826,6 +907,9 @@
                     assistantDiv.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
                     assistantDiv.classList.remove('streaming');
                 }
+            } finally {
+                attachedFiles = [];
+                renderAttachments();
             }
 
             isStreaming = false;
@@ -914,13 +998,14 @@
 
         // ===== Keyboard =====
         document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); /* search placeholder */ }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); }
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') { e.preventDefault(); newChat(); }
             if (e.key === 'Escape') { closeSettings(); if (sidebar.classList.contains('open')) toggleSidebar(); }
         });
         document.querySelectorAll('.modal-overlay').forEach(el => {
             el.addEventListener('click', (e) => { if (e.target === el) el.classList.remove('active'); });
         });
+
     </script>
 </body>
 </html>
