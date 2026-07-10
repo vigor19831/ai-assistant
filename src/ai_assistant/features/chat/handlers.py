@@ -61,6 +61,7 @@ def _get_chat_manager(
         token_margin_min=state.config.rag.token_margin_min,
         token_margin_pct=state.config.rag.token_margin_pct,
         tokenizer=state.tokenizer,
+        system_message=state.config.llm.system_message,
     )
 
 

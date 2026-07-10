@@ -6,21 +6,24 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 from ai_assistant.core.domain.configs import LLMConfigData
-from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
+from ai_assistant.core.domain.messages import (
+    AssistantMessage,
+    SystemMessage,
+    ToolMessage,
+    UserMessage,
+)
 from ai_assistant.core.ports.closable import IClosable
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-Message = UserMessage | AssistantMessage | ToolMessage
+Message = UserMessage | AssistantMessage | ToolMessage | SystemMessage
 
 __all__ = ["ILLM", "Message"]
 
 
 class ILLM(IClosable, ABC):
     """Language model interface."""
-
-    system_message: str | None = None
 
     def __init__(self, config: LLMConfigData) -> None:
         self.config = config

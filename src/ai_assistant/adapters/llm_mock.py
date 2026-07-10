@@ -32,8 +32,8 @@ class MockLLM(ILLM):
             last = "..."
         else:
             msg = messages[-1]
-            # Duck typing: ToolMessage has .content, UserMessage/AssistantMessage have .text
-            last = getattr(msg, "content", None) or getattr(msg, "text", None) or "..."
+            # All message types have .text; ToolMessage has .text too
+            last = getattr(msg, "text", None) or getattr(msg, "content", None) or "..."
         return AssistantMessage(text=f"[MOCK LLM] Echo: {last}")
 
     def stream(

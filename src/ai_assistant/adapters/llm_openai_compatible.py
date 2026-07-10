@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from typing import TYPE_CHECKING, Any
@@ -16,7 +15,12 @@ from ai_assistant.adapters._http import async_post_json
 from ai_assistant.adapters._registry import register
 from ai_assistant.core.domain.configs import LLMConfigData
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.core.domain.messages import AssistantMessage, ToolMessage, UserMessage
+from ai_assistant.core.domain.messages import (
+    AssistantMessage,
+    SystemMessage,
+    ToolMessage,
+    UserMessage,
+)
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.closable import IClosable
 from ai_assistant.core.ports.llm import ILLM, Message
@@ -34,9 +38,6 @@ class OpenAICompatibleLLM(ILLM, IClosable):
 
     def __init__(self, config: LLMConfigData) -> None:
         super().__init__(config)
-        # Create resources FIRST so shutdown() is safe even if __init__ fails later.
-        self._closed: bool = False
-        self._lock: asyncio.Lock = asyncio.Lock()
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
         timeout = (
@@ -54,26 +55,18 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         self.max_tokens: int = config.max_tokens
         self.temperature: float = config.temperature
         self._max_stream_tokens: int = config.max_tokens * 2
-        self.system_message = config.system_message
 
     async def shutdown(self) -> None:
-        """Close HTTP client. Idempotent."""
-        async with self._lock:
-            if self._closed:
-                return
-            self._closed = True
+        """Close HTTP client unconditionally."""
         await self._client.aclose()
 
-    def _check_open(self) -> None:
-        """Raise AdapterError if adapter has been shut down."""
-        if self._closed:
-            raise AdapterError("LLM adapter is shutting down")
+    def _is_closed(self) -> bool:
+        """Check if httpx client has been closed."""
+        return bool(self._client.is_closed)
 
     def _build_messages(self, messages: list[Message]) -> list[dict[str, Any]]:
         """Convert domain Message objects to OpenAI API message dicts."""
         out: list[dict[str, Any]] = []
-        if self.system_message is not None:
-            out.append({"role": "system", "content": self.system_message})
         for m in messages:
             if isinstance(m, UserMessage):
                 out.append({"role": "user", "content": m.text or ""})
@@ -93,6 +86,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                         "tool_call_id": m.call_id,
                     }
                 )
+            elif isinstance(m, SystemMessage):
+                out.append({"role": "system", "content": m.text or ""})
             else:
                 _logger.warning(
                     "Unknown message type in _build_messages",
@@ -166,7 +161,6 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AssistantMessage:
-        self._check_open()
         url = f"{self.api_base}/chat/completions"
         headers: dict[str, str] = {
             "Content-Type": "application/json",
@@ -203,6 +197,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         temperature: float | None = None,
     ) -> AssistantMessage:
         """Non-streaming completion with retry."""
+        if self._is_closed():
+            raise AdapterError("LLM adapter is shutting down")
         return await self._complete_impl(
             messages,
             max_tokens=max_tokens,
@@ -220,7 +216,6 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         Tool calls in streaming mode are ignored — IToolRegistry is
         not implemented. Only text content is yielded.
         """
-        self._check_open()
         url = f"{self.api_base}/chat/completions"
         headers: dict[str, str] = {
             "Content-Type": "application/json",

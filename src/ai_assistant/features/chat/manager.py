@@ -128,11 +128,13 @@ class ChatManager:
         token_margin_pct: float = 0.1,
         tokenizer: ITokenizer | None = None,
         rag_steps: list[RAGStep] | None = None,
+        system_message: str | None = None,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
         self.storage = storage
         self.history_limit = history_limit
+        self.system_message = system_message
         self.max_context_tokens = max_context_tokens
         self.embedder = embedder
         self.vector_store = vector_store
@@ -213,7 +215,7 @@ class ChatManager:
             )
 
         user_tokens = await self._count_tokens(user_msg.text or "")
-        system_message = self.llm.system_message
+        system_message = self.system_message
         system_tokens = await self._count_tokens(
             str(system_message) if system_message else ""
         )
