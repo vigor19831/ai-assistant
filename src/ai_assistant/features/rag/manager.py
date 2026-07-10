@@ -168,6 +168,8 @@ class RAGManager:
         )
         data = PipelineData(
             query=UserMessage(text=query_text),
+            original_query=UserMessage(text=query_text),
+            chat_history=(),
             llm=self.llm,
             embedder=self.embedder,
             vector_store=self.vector_store,

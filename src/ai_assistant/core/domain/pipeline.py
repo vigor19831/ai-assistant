@@ -78,6 +78,13 @@ class PipelineData:
     rerank_filtered_out: bool | None = None
     rerank_scores: list[float] | None = None
 
+    # Chat history for query condensation (last N message pairs)
+    # Format: tuple of (role, text) pairs. Explicit contract avoids
+    # runtime type introspection (see drift #35).
+    chat_history: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    # Preserved original query when condensation rewrites query.text
+    original_query: UserMessage | None = None
+
     def with_chunks(self, chunks: list[Chunk] | tuple[Chunk, ...]) -> PipelineData:
         """Return a new PipelineData with updated chunks."""
         return replace(self, chunks=tuple(chunks))
@@ -115,3 +122,11 @@ class PipelineData:
     def with_rerank_scores(self, rerank_scores: list[float] | None) -> PipelineData:
         """Return a new PipelineData with updated rerank_scores."""
         return replace(self, rerank_scores=rerank_scores)
+
+    def with_query(self, query: UserMessage | None) -> PipelineData:
+        """Return a new PipelineData with updated query."""
+        return replace(self, query=query)
+
+    def with_original_query(self, original_query: UserMessage | None) -> PipelineData:
+        """Return a new PipelineData with updated original_query."""
+        return replace(self, original_query=original_query)

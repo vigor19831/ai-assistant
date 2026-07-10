@@ -897,7 +897,7 @@ class TestChatManagerStepValidation:
         )
         pipeline = manager._build_pipeline()
         assert pipeline is not None
-        assert len(pipeline.steps) == 4  # embed, retrieve, rerank, build_context
+        assert len(pipeline.steps) == 5  # condense, embed, retrieve, rerank, build_context
 
     @pytest.mark.asyncio
     async def test_custom_steps_skip_generate(self) -> None:

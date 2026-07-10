@@ -54,6 +54,15 @@ __all__: list[str] = [
 
 _logger = get_logger("pipeline.steps")
 
+_CONDENSE_PROMPT_TEMPLATE: str = (
+    "Given the following conversation and a follow-up question, "
+    "rewrite the follow-up question as a standalone question that includes "
+    "all necessary context from the conversation.\n\n"
+    "Conversation:\n{history}\n\n"
+    "Follow-up question: {question}\n\n"
+    "Standalone question:"
+)
+
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
 
 
@@ -140,6 +149,86 @@ async def _call_rerank(
     return await retry_with_config(
         lambda: reranker.rerank(query, list(chunks), top_k=top_k),
         config,
+    )
+
+
+@step("condense_question", requires={"llm"})
+async def condense_question(data: PipelineData) -> PipelineData:
+    """Rewrite follow-up question using conversation history.
+
+    Field contract:
+        IN:  llm (ILLM) — required.
+             chat_history — tuple of Messages, last 8 used.
+        OUT: query.text — rewritten standalone question.
+             original_query — preserved original for final answer.
+    """
+    _logger.debug(
+        "condense_question start", extra={"trace_id": data.trace_id}
+    )
+    if data.query is None:
+        _logger.warning(
+            "condense_question: no query", extra={"trace_id": data.trace_id}
+        )
+        return data
+
+    if not data.chat_history:
+        _logger.debug(
+            "condense_question: no history, skipping",
+            extra={"trace_id": data.trace_id},
+        )
+        return data
+
+    llm = data.llm
+    if llm is None:
+        _logger.warning(
+            "condense_question: no llm", extra={"trace_id": data.trace_id}
+        )
+        return data.add_error(LLM_NOT_PROVIDED)
+
+    original_question = data.query.text
+    history_lines = []
+    for role, text in data.chat_history[-8:]:
+        history_lines.append(f"{role}: {text}")
+    history_text = "\n".join(history_lines)
+
+    prompt = _CONDENSE_PROMPT_TEMPLATE.format(
+        history=history_text,
+        question=original_question,
+    )
+
+    cfg = _get_config(data)
+    retry_cfg = cfg.retry
+
+    try:
+        response = await _call_llm(
+            llm, [UserMessage(text=prompt)], retry_cfg
+        )
+        condensed = response.text.strip() if response.text else ""
+        if not condensed:
+            _logger.warning(
+                "condense_question: empty response, using original",
+                extra={"trace_id": data.trace_id},
+            )
+            condensed = original_question
+    except Exception as exc:
+        _logger.exception(
+            "condense_question failed", extra={"trace_id": data.trace_id}
+        )
+        return data.add_error(
+            "condense_question failed", detail=str(exc)
+        )
+
+    _logger.debug(
+        "condense_question done",
+        extra={
+            "trace_id": data.trace_id,
+            "original": original_question,
+            "condensed": condensed,
+        },
+    )
+
+    return data.with_original_query(data.query).with_query(
+        UserMessage(text=condensed, metadata=dict(data.query.metadata))
     )
 
 

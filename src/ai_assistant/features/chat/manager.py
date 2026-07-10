@@ -17,10 +17,11 @@ from ai_assistant.core.domain.messages import (
     AssistantMessage,
     UserMessage,
 )
-from ai_assistant.core.domain.pipeline import PipelineData
+from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import STEP_REGISTRY
+from ai_assistant.core.ports.llm import Message
 from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -36,7 +37,6 @@ if TYPE_CHECKING:
         IReranker,
         IVectorStore,
     )
-    from ai_assistant.core.ports.llm import Message
 
 __all__ = ["ChatManager"]
 
@@ -160,8 +160,9 @@ class ChatManager:
             return None
 
         if rag_steps is None:
-            # Default retrieval pipeline: embed_query -> retrieve -> rerank -> build_context
+            # Default retrieval pipeline: condense_question -> embed_query -> retrieve -> rerank -> build_context
             default_steps = [
+                RAGStep.CONDENSE_QUESTION,
                 RAGStep.EMBED_QUERY,
                 RAGStep.RETRIEVE,
                 RAGStep.RERANK,
@@ -240,12 +241,20 @@ class ChatManager:
         return keep
 
     async def _retrieve_context(
-        self, message: str, trace_id: str | None = None
+        self,
+        message: str,
+        history: list[dict[str, Any]] | None = None,
+        trace_id: str | None = None,
     ) -> tuple[str, str, str | None, tuple[Chunk, ...]]:
-        """Run RAG retrieval and return (prompt_for_llm, original_query, namespace, rag_chunks).
+        """Run RAG pipeline to build context for the given message.
 
-        If RAG is not triggered or no results are found, returns the original
-        message unchanged with empty chunks.
+        Args:
+            message: Raw user message (may contain RAG prefix).
+            history: Chat history as list of {role, content} dicts.
+            trace_id: Structured logging trace identifier.
+
+        Returns:
+            (prompt_for_llm, original_query, namespace, rag_chunks)
         """
         if not self._pipeline:
             query_text, namespace = parse_rag_query(message, self._prefix_map)
@@ -258,17 +267,22 @@ class ChatManager:
             # No RAG prefix detected — return original message unchanged
             return message, message, None, ()
 
+        # Convert history dicts to (role, text) tuples for PipelineData
+        chat_history: tuple[tuple[str, str], ...] = ()
+        if history:
+            chat_history = tuple(
+                (h.get("role", "user"), h.get("content", ""))
+                for h in history[-8:]
+            )
+
+        original_query_text = query_text  # preserve before pipeline mutation
+
         ns_cfg = self.namespaces.get(namespace)
-        relevance_threshold = ns_cfg.relevance_threshold if ns_cfg else 0.3
-        prompt_name = ns_cfg.prompt if ns_cfg else "rag_strict"
-
-        from ai_assistant.core.domain.pipeline import PipelineConfig
-
         pipeline_config = PipelineConfig(
             top_k=self.top_k,
             namespace=namespace,
-            relevance_threshold=relevance_threshold,
-            prompt_name=prompt_name,
+            relevance_threshold=ns_cfg.relevance_threshold if ns_cfg else 0.1,
+            prompt_name=ns_cfg.prompt if ns_cfg else "rag_strict",
             prompt_version=self.prompt_version,
             token_margin_min=self.token_margin_min,
             token_margin_pct=self.token_margin_pct,
@@ -276,15 +290,22 @@ class ChatManager:
 
         data = PipelineData(
             query=UserMessage(text=query_text),
+            original_query=UserMessage(text=original_query_text),
+            chat_history=chat_history,
             trace_id=trace_id or "",
             embedder=self.embedder,
             vector_store=self.vector_store,
             reranker=self.reranker,
+            llm=self.llm,
             pipeline_config=pipeline_config,
             tokenizer=self.tokenizer,
         )
 
         data = await self._pipeline.run(data)
+
+        # Recover original query if condense_question rewrote it
+        if data.original_query is not None:
+            original_query_text = data.original_query.text
 
         if data.errors:
             logger.warning(
@@ -293,58 +314,69 @@ class ChatManager:
             )
 
         if not data.chunks:
-            return query_text, query_text, namespace, ()
+            # For general knowledge fallback, use the original (non-condensed) question
+            prompt_text = (
+                data.original_query.text
+                if data.original_query is not None
+                else (data.query.text if data.query else original_query_text)
+            )
+            return prompt_text, original_query_text, namespace, ()
 
         prompt = get_prompt(
-            prompt_name,
+            pipeline_config.prompt_name,
             version=self.prompt_version,
-            query=query_text,
+            query=data.query.text if data.query else original_query_text,
             context=data.context,
         )
-        return prompt, query_text, namespace, data.chunks
+        return prompt, original_query_text, namespace, data.chunks
 
     async def _build_messages(
         self,
         prompt_for_llm: str,
         conversation_id: str,
+        history: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> list[Message]:
         """Build message list with history, system prompt, and token trimming.
 
-        Loads conversation history from storage, trims it to fit the token
-        budget, and prepends historical messages before the current user message.
+        Prepend historical messages before the current user message.
+        History is loaded once by the caller and passed through to avoid
+        duplicate storage queries.
         """
         user_msg = UserMessage(text=prompt_for_llm, metadata=metadata or {})
         messages: list[Message] = [user_msg]
 
-        if self.storage:
+        if history is None and self.storage:
             try:
                 history = await self.storage.get_history(
                     conversation_id,
                     limit=self.history_limit,
                     offset=0,
                 )
-                try:
-                    history = await self._trim_history(history, user_msg)
-                except Exception as exc:
-                    logger.warning(
-                        "Token-based trim failed, falling back to count-based",
-                        extra={"error": str(exc)},
-                    )
-                    history = (
-                        history[-self.history_limit :]
-                        if len(history) > self.history_limit
-                        else history
-                    )
-                for h in history:
-                    role = h.get("role", "")
-                    content = h.get("content", "")
-                    if role == "user":
-                        messages.insert(-1, UserMessage(text=content))
-                    elif role == "assistant":
-                        messages.insert(-1, AssistantMessage(text=content))
             except Exception as exc:
                 logger.warning("History load failed", extra={"error": str(exc)})
+                history = []
+
+        if history:
+            try:
+                trimmed = await self._trim_history(history, user_msg)
+            except Exception as exc:
+                logger.warning(
+                    "Token-based trim failed, falling back to count-based",
+                    extra={"error": str(exc)},
+                )
+                trimmed = (
+                    history[-self.history_limit :]
+                    if len(history) > self.history_limit
+                    else list(history)
+                )
+            for h in trimmed:
+                role = h.get("role", "")
+                content = h.get("content", "")
+                if role == "user":
+                    messages.insert(-1, UserMessage(text=content))
+                elif role == "assistant":
+                    messages.insert(-1, AssistantMessage(text=content))
 
         return messages
 
@@ -367,15 +399,32 @@ class ChatManager:
             },
         )
 
+        # Load history once for both condensation and message building
+        history: list[dict[str, Any]] = []
+        if self.storage:
+            try:
+                history = await self.storage.get_history(
+                    conversation_id,
+                    limit=self.history_limit,
+                    offset=0,
+                )
+            except Exception as exc:
+                logger.warning("History load failed", extra={"error": str(exc)})
+
         (
             prompt_for_llm,
             original_query,
             namespace,
             rag_chunks,
-        ) = await self._retrieve_context(message, trace_id=trace_id)
+        ) = await self._retrieve_context(
+            message, history=history, trace_id=trace_id
+        )
 
         messages = await self._build_messages(
-            prompt_for_llm, conversation_id, metadata=meta
+            prompt_for_llm,
+            conversation_id,
+            history=history,
+            metadata=meta,
         )
 
         try:
@@ -455,15 +504,32 @@ class ChatManager:
             },
         )
 
+        # Load history once for both condensation and message building
+        history: list[dict[str, Any]] = []
+        if self.storage:
+            try:
+                history = await self.storage.get_history(
+                    conversation_id,
+                    limit=self.history_limit,
+                    offset=0,
+                )
+            except Exception as exc:
+                logger.warning("History load failed", extra={"error": str(exc)})
+
         (
             prompt_for_llm,
             original_query,
             namespace,
             rag_chunks,
-        ) = await self._retrieve_context(message, trace_id=trace_id)
+        ) = await self._retrieve_context(
+            message, history=history, trace_id=trace_id
+        )
 
         messages = await self._build_messages(
-            prompt_for_llm, conversation_id, metadata=meta
+            prompt_for_llm,
+            conversation_id,
+            history=history,
+            metadata=meta,
         )
 
         full_response = ""

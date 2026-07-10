@@ -164,6 +164,7 @@ class RerankerConfig(BaseSettings):
 class RAGStep(StrEnum):
     """RAG pipeline step identifiers — type-safe replacement for raw strings."""
 
+    CONDENSE_QUESTION = "condense_question"
     EMBED_QUERY = "embed_query"
     HYDE_QUERY = "hyde_query"
     RETRIEVE = "retrieve"
