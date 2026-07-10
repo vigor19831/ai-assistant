@@ -84,6 +84,51 @@ async def _shutdown_adapters(state) -> None:
             pass
 
 
+async def _trigger_reload(host: str, port: int, api_key: str | None) -> tuple[bool, str]:
+    """Trigger index reload on the running server via admin endpoint.
+
+    Returns (success, message).
+    """
+    import httpx
+
+    url = f"http://{host}:{port}/admin/reload-indices"
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers=headers)
+            if resp.status_code == 404:
+                return False, (
+                    "Admin endpoint not found. "
+                    "Enable admin_enabled in config.yaml and restart the server, "
+                    "or restart the server manually after indexing."
+                )
+            if resp.status_code == 401:
+                return False, (
+                    "Admin endpoint requires API key. "
+                    "Set security.api_key in config.yaml, restart the server, "
+                    "and re-run this script."
+                )
+            if resp.status_code == 503:
+                return False, "Vector store not initialized on server."
+            resp.raise_for_status()
+            data = resp.json()
+            return True, (
+                f"Server reloaded {data.get('reloaded', 0)} namespace(s), "
+                f"skipped {data.get('skipped', 0)}."
+            )
+    except httpx.ConnectError:
+        return False, (
+            f"Could not connect to server at {host}:{port}. "
+            f"Is the server running? If not, start it and the new indices "
+            f"will be loaded automatically on startup."
+        )
+    except Exception as exc:
+        return False, f"Reload request failed: {exc}"
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Index documents into RAG")
     parser.add_argument("--namespace", "-n", help="Index only specific namespace")
@@ -92,6 +137,10 @@ async def main() -> int:
     )
     parser.add_argument(
         "--config", help="Path to config file (default: config.yaml)"
+    )
+    parser.add_argument(
+        "--no-reload", action="store_true",
+        help="Skip triggering server reload after indexing"
     )
     args = parser.parse_args()
 
@@ -155,6 +204,24 @@ async def main() -> int:
         return 1
 
     print("\n[OK] Indexing complete!")
+
+    # ── Trigger server reload ──
+    if not args.no_reload:
+        print("[INFO] Triggering server index reload...")
+        ok, msg = await _trigger_reload(
+            host=config.host,
+            port=config.port,
+            api_key=config.security.api_key,
+        )
+        if ok:
+            print(f"[OK] {msg}")
+            print("[INFO] New documents are now searchable without restart.")
+        else:
+            print(f"[WARN] {msg}")
+            print("[INFO] You will need to restart the server for new documents to be searchable.")
+    else:
+        print("[INFO] Skipped server reload (--no-reload). Restart server to search new documents.")
+
     return 0
 
 

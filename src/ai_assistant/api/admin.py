@@ -36,6 +36,59 @@ class _UpdateApiKeyResponse(BaseModel):
     source: str
 
 
+class _ReloadIndicesResponse(BaseModel):
+    reloaded: int
+    skipped: int
+    errors: list[str]
+
+
+@router.post("/reload-indices", response_model=_ReloadIndicesResponse)
+async def reload_indices(
+    state: Annotated[AppState, Depends(get_state)],
+) -> _ReloadIndicesResponse:
+    """Reload all vector store indices from disk.
+
+    Use this after external indexing (e.g. index_documents.py script)
+    to make newly indexed documents searchable without restarting the server.
+    """
+    if not state.config.security.admin_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    vector_store = state.vector_store
+    if vector_store is None:
+        raise HTTPException(status_code=503, detail="Vector store not initialized")
+
+    index_path = vector_store.index_path
+    reloaded = 0
+    skipped = 0
+    errors: list[str] = []
+
+    try:
+        namespaces = await vector_store.list_namespaces(index_path)
+    except Exception as exc:
+        _admin_logger.exception("Failed to list namespaces for reload")
+        raise HTTPException(status_code=500, detail=f"Failed to list namespaces: {exc}") from exc
+
+    for ns in namespaces:
+        try:
+            await vector_store.load(index_path, namespace=ns)
+            reloaded += 1
+            _admin_logger.info("Reloaded index", extra={"namespace": ns})
+        except Exception as exc:
+            skipped += 1
+            errors.append(f"{ns}: {exc}")
+            _admin_logger.error(
+                "Index reload failed",
+                extra={"namespace": ns, "error": str(exc)},
+            )
+
+    return _ReloadIndicesResponse(
+        reloaded=reloaded,
+        skipped=skipped,
+        errors=errors,
+    )
+
+
 @router.get("/current-model", response_model=_CurrentModelResponse)
 async def get_current_model(
     state: Annotated[AppState, Depends(get_state)],

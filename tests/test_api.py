@@ -1818,6 +1818,29 @@ class TestAPIMiddleware:
         assert hist_call is not None
         assert hist_call.kwargs["labels"]["path"] == "/reindex/status/{task_id}"
 
+    def test_metrics_middleware_allowed_hosts_blocks(self):
+        """Given: MetricsMiddleware with allowed_hosts configured.
+        When: request from disallowed host arrives.
+        Then: 400 response is returned before reaching the endpoint.
+        """
+        from starlette.applications import Starlette
+        from starlette.responses import PlainTextResponse
+        from starlette.routing import Route
+
+        async def homepage(request):
+            return PlainTextResponse("OK")
+
+        app = Starlette(routes=[Route("/", homepage)])
+        app.add_middleware(MetricsMiddleware, allowed_hosts=["localhost"])
+        test_client = TestClient(app)
+
+        resp = test_client.get("/", headers={"host": "evil.com"})
+        assert resp.status_code == 400
+        assert resp.text == "Invalid host header"
+
+        resp = test_client.get("/", headers={"host": "localhost"})
+        assert resp.status_code == 200
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAPIAdmin
@@ -1914,6 +1937,65 @@ class TestAPIAdmin:
         assert call_args.kwargs["extra"]["security_event"] == "api_key_changed"
         assert call_args.kwargs["extra"]["actor"] == "admin_endpoint"
         assert call_args.kwargs["extra"]["key_present"] is True
+
+    # ── reload-indices endpoint ──
+
+    async def test_reload_indices_admin_disabled(self):
+        """Given: admin_enabled is False.
+        When: reload_indices is called.
+        Then: HTTPException 404 is raised.
+        """
+        state = self._make_admin_state(enabled=False)
+        with pytest.raises(HTTPException) as exc_info:
+            await admin.reload_indices(state)
+        assert exc_info.value.status_code == 404
+
+    async def test_reload_indices_success(self):
+        """Given: admin_enabled is True and vector_store has namespaces.
+        When: reload_indices is called.
+        Then: all namespaces are reloaded, response shows counts.
+        """
+        state = self._make_admin_state(enabled=True)
+        mock_vs = AsyncMock(spec=IVectorStore)
+        mock_vs.index_path = "./data/indices"
+        mock_vs.list_namespaces = AsyncMock(return_value=["default", "test"])
+        mock_vs.load = AsyncMock()
+        state.vector_store = mock_vs
+
+        resp = await admin.reload_indices(state)
+        assert resp.reloaded == 2
+        assert resp.skipped == 0
+        assert resp.errors == []
+        mock_vs.load.assert_awaited()
+
+    async def test_reload_indices_partial_failure(self):
+        """Given: some namespaces fail to reload.
+        When: reload_indices is called.
+        Then: successful and failed counts are reported separately.
+        """
+        state = self._make_admin_state(enabled=True)
+        mock_vs = AsyncMock(spec=IVectorStore)
+        mock_vs.index_path = "./data/indices"
+        mock_vs.list_namespaces = AsyncMock(return_value=["default", "test"])
+        mock_vs.load = AsyncMock(side_effect=[None, RuntimeError("corrupt")])
+        state.vector_store = mock_vs
+
+        resp = await admin.reload_indices(state)
+        assert resp.reloaded == 1
+        assert resp.skipped == 1
+        assert len(resp.errors) == 1
+        assert "corrupt" in resp.errors[0]
+
+    async def test_reload_indices_vector_store_none(self):
+        """Given: vector_store is not initialized.
+        When: reload_indices is called.
+        Then: HTTPException 503 is raised.
+        """
+        state = self._make_admin_state(enabled=True)
+        state.vector_store = None
+        with pytest.raises(HTTPException) as exc_info:
+            await admin.reload_indices(state)
+        assert exc_info.value.status_code == 503
 
 
 # ═══════════════════════════════════════════════════════════════════════════
