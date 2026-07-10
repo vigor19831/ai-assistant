@@ -873,6 +873,93 @@ class TestHydeQuery:
 
 
 # ———————————————————————————————————————
+# TestCondenseQuestion
+# ———————————————————————————————————————
+
+
+class TestCondenseQuestion:
+    """Given: condense_question step receives PipelineData with history.
+    When: LLM rewrites query or history is absent.
+    Then: query is condensed or preserved; original_query tracked."""
+
+    @pytest.mark.asyncio
+    async def test_condense_with_history(self) -> None:
+        """Given: chat_history with previous Q&A.
+        When: condense_question is called.
+        Then: query is rewritten; original_query preserved."""
+        llm = FakeLLM("condensed question")
+        data = PipelineData(
+            query=UserMessage(text="what about it?"),
+            chat_history=(
+                ("user", "What is France?"),
+                ("assistant", "France is a country in Europe."),
+            ),
+            llm=llm,
+            pipeline_config=PipelineConfig(),
+        )
+        from ai_assistant.core.pipeline_steps import condense_question
+        result = await condense_question(data)
+        assert result.query is not None
+        assert result.query.text == "condensed question"
+        assert result.original_query is not None
+        assert result.original_query.text == "what about it?"
+
+    @pytest.mark.asyncio
+    async def test_condense_without_history(self) -> None:
+        """Given: empty chat_history.
+        When: condense_question is called.
+        Then: query unchanged; step skipped; no original_query set."""
+        data = PipelineData(
+            query=UserMessage(text="standalone question"),
+            chat_history=(),
+            llm=FakeLLM(),
+            pipeline_config=PipelineConfig(),
+        )
+        from ai_assistant.core.pipeline_steps import condense_question
+        result = await condense_question(data)
+        assert result.query.text == "standalone question"
+        assert result.original_query is None
+
+    @pytest.mark.asyncio
+    async def test_condense_llm_failure(self) -> None:
+        """Given: LLM raises AdapterError.
+        When: condense_question is called.
+        Then: error added; original query preserved as fallback."""
+        class FailingLLM:
+            async def complete(self, messages, max_tokens=None, temperature=None):
+                raise AdapterError("LLM down")
+
+        data = PipelineData(
+            query=UserMessage(text="question"),
+            chat_history=(("user", "previous"),),
+            llm=FailingLLM(),
+            pipeline_config=PipelineConfig(),
+        )
+        from ai_assistant.core.pipeline_steps import condense_question
+        result = await condense_question(data)
+        assert len(result.errors) > 0
+        assert result.query.text == "question"  # fallback to original
+
+    @pytest.mark.asyncio
+    async def test_condense_empty_llm_response(self) -> None:
+        """Given: LLM returns empty text.
+        When: condense_question is called.
+        Then: falls back to original query; warning logged."""
+        llm = FakeLLM("")
+        data = PipelineData(
+            query=UserMessage(text="original"),
+            chat_history=(("user", "hi"),),
+            llm=llm,
+            pipeline_config=PipelineConfig(),
+        )
+        from ai_assistant.core.pipeline_steps import condense_question
+        result = await condense_question(data)
+        assert result.query.text == "original"  # fallback
+        assert result.original_query is not None
+        assert result.original_query.text == "original"
+
+
+# ———————————————————————————————————————
 # TestChatManagerStepValidation
 # ———————————————————————————————————————
 

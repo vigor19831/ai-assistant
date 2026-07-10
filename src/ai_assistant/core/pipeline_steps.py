@@ -152,7 +152,7 @@ async def _call_rerank(
     )
 
 
-@step("condense_question", requires={"llm"})
+@step("condense_question", requires={"llm", "query"})
 async def condense_question(data: PipelineData) -> PipelineData:
     """Rewrite follow-up question using conversation history.
 

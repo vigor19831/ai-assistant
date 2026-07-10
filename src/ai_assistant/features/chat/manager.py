@@ -15,6 +15,7 @@ from ai_assistant.core.constants import (
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
+    SystemMessage,
     UserMessage,
 )
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
@@ -377,6 +378,10 @@ class ChatManager:
                     messages.insert(-1, UserMessage(text=content))
                 elif role == "assistant":
                     messages.insert(-1, AssistantMessage(text=content))
+
+        # Prepend system message if configured
+        if self.system_message:
+            messages.insert(0, SystemMessage(text=self.system_message))
 
         return messages
 
