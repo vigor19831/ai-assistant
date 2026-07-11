@@ -261,7 +261,7 @@ class MemoryVectorStore(IVectorStore):
                     f"dim {arr.shape[0]}, expected "
                     f"{self.dim}. Please reindex."
                 )
-            ns.embeddings[cid] = arr
+            ns.embeddings[cid] = self._normalize(arr)
 
         ns.metadata = data.get("metadata", {})
         ns._order.clear()

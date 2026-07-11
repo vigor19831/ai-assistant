@@ -116,7 +116,7 @@ llm:
 vector_store:
   provider: faiss
   index_path: ./data/indices           # Папка для файлов индексов
-  metric: l2                           # Метрика расстояния: l2, cosine, ip
+  metric: cosine                      # Метрика расстояния: l2, cosine, ip
   dim: 768                             # Размерность вектора = embedder.dim
   max_chunks: 100000                   # Макс. чанков на namespace
   max_document_size: 10485760          # Макс. размер одного файла (10 МБ)
