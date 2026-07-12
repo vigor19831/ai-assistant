@@ -1,525 +1,473 @@
 #!/usr/bin/env python3
-"""Simplified RAG tester — indexes test.txt sources, queries RAG API, checks responses.
+"""Ideal RAG benchmark — immutable specification.
+
+This script is the single source of truth for correct RAG behavior.
+Do NOT edit it to make tests pass. Fix the RAG pipeline instead.
+
+Run → read failures → improve retriever / re-ranker / prompt / LLM → rerun.
+When the score is 13/13, the RAG is production-grade.
 
 Usage:
-    python check_rag.py --url http://localhost:8000
-    python check_rag.py --url http://localhost:8000 --auto-index
-    python check_rag.py --generate  # create sample test.txt
-
-Environment:
-    RAG_TEST_TIMEOUT    — request timeout (default: 30)
-    RAG_TEST_API_KEY    — API key for auth (optional)
+    python scripts/check_rag.py              # full run (index + test)
+    python scripts/check_rag.py --skip-index # test only, reuse existing indices
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 try:
     import httpx
 except ImportError:
-    print("ERROR: httpx not installed. Run: pip install httpx")
-    sys.exit(1)
-
+    sys.exit("ERROR: httpx is required. Run: pip install httpx")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 
 
-# ---------------------------------------------------------------------------
-# Data models
-# ---------------------------------------------------------------------------
+# =============================================================================
+# Logging to data/ (git-ignored)
+# =============================================================================
 
-@dataclass
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data: str) -> None:
+        for s in self.streams:
+            s.write(data)
+            s.flush()
+
+    def flush(self) -> None:
+        for s in self.streams:
+            s.flush()
+
+
+def _setup_logging() -> Path:
+    log_dir = PROJECT_ROOT / "data"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "check_rag_last.log"
+    log_file = open(log_path, "w", encoding="utf-8", buffering=1)
+    sys.stdout = _Tee(sys.stdout, log_file)
+    sys.stderr = _Tee(sys.stderr, log_file)
+    return log_path
+
+
+# =============================================================================
+# Immutable test corpus and expectations
+# =============================================================================
+
+@dataclass(frozen=True)
 class SourceDoc:
     namespace: str
     content: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class TestCase:
     test_id: str
     query: str
-    expected_contains: list[str]
-    expected_not_contains: list[str]
-    expect_sources: bool
-    description: str
+    namespace: str
+    # ALL of these strings must appear in the answer
+    answer_must_contain: tuple[str, ...] = ()
+    # At least ONE of these strings must appear (for variable phrasing like "don't know")
+    answer_must_contain_any: tuple[str, ...] = ()
+    # NONE of these strings may appear
+    answer_must_not_contain: tuple[str, ...] = ()
+    # Ideal RAG returns sources only when retrieval is actually relevant
+    expect_sources: bool = True
+    # If sources exist, their combined text must contain ALL of these
+    sources_must_contain: tuple[str, ...] = ()
+    # NONE of these may appear in sources (noise resistance)
+    sources_must_not_contain: tuple[str, ...] = ()
+    description: str = ""
 
 
-@dataclass
-class TestResult:
-    test_id: str
-    passed: bool
-    query: str
-    response_text: str
-    sources: list[str]
-    latency_ms: float
-    notes: list[str]
+# --- Corpus ------------------------------------------------------------------
+
+TEST_SOURCES: list[SourceDoc] = [
+    # Personal namespace
+    SourceDoc(
+        "personal",
+        "My favorite color is blue. I chose it in childhood because it reminds me of the sea and the sky. It is my only favorite color.",
+    ),
+    SourceDoc(
+        "personal",
+        "I have been working as a programmer since 2020. My primary language is Python. Before that I worked as a system administrator.",
+    ),
+    # Tech namespace
+    SourceDoc(
+        "tech",
+        "Python is a high-level general-purpose programming language. It was created by Guido van Rossum and first released in 1991. Python supports multiple programming paradigms.",
+    ),
+    # Noise document in personal — RAG must ignore it
+    SourceDoc(
+        "personal",
+        "I love eating apples. Apples are red and crunchy. My favorite fruit is definitely the apple because it is healthy and sweet.",
+    ),
+    # Contradictory / stale doc in personal — for future conflict tests (not used now)
+    # SourceDoc("personal", "My favorite color is red. I changed it last year."),
+]
 
 
-# ---------------------------------------------------------------------------
-# Fuzzy matcher
-# ---------------------------------------------------------------------------
+# --- Expectations ------------------------------------------------------------
 
-class FuzzyMatcher:
-    def __init__(self, threshold: float = 0.6):
-        self.threshold = threshold
+TEST_CASES: list[TestCase] = [
+    # 1. Perfect retrieval — answer must come from context, not general knowledge.
+    TestCase(
+        test_id="retrieval-1",
+        query="What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        answer_must_not_contain=("red", "green", "yellow", "i don't have a favorite"),
+        expect_sources=True,
+        sources_must_contain=("blue", "childhood", "sea"),
+        sources_must_not_contain=("apple", "fruit"),  # noise resistance
+        description="Direct retrieval. Answer must cite personal context. Must not pull from noise doc.",
+    ),
 
-    def match(self, text: str, expected: str) -> bool:
-        text_lower = text.lower()
-        expected_lower = expected.lower()
-        if expected_lower in text_lower:
-            return True
-        ratio = SequenceMatcher(None, text_lower, expected_lower).ratio()
-        return ratio >= self.threshold
+    # 2. Missing data — must admit ignorance, not hallucinate common guesses.
+    #    Requires: relevance threshold that drops all chunks → no sources → 'I don't know'.
+    TestCase(
+        test_id="missing-1",
+        query="What is my favorite food?",
+        namespace="personal",
+        answer_must_contain_any=(
+            "don't know",
+            "not sure",
+            "no information",
+            "not mentioned",
+            "not specified",
+            "don't have",
+            "no data",
+            "cannot answer",
+        ),
+        answer_must_not_contain=(
+            "pizza", "sushi", "burger", "pasta", "salad", "steak", "chicken", "food is", "apple",
+        ),
+        expect_sources=False,
+        description="No food data in index. Must say 'don't know'. Must not guess or leak noise.",
+    ),
 
-    def check_any(self, text: str, expected_list: list[str]) -> tuple[bool, str]:
-        if not expected_list:
-            return True, ""
-        for exp in expected_list:
-            if self.match(text, exp):
-                return True, ""
-        return False, f"None matched (threshold={self.threshold}): {expected_list}"
+    # 3. Factual retrieval — different namespace.
+    TestCase(
+        test_id="retrieval-2",
+        query="What is Python?",
+        namespace="tech",
+        answer_must_contain=("language", "programming", "guido"),
+        expect_sources=True,
+        sources_must_contain=("python", "language", "guido"),
+        description="Factual retrieval from tech namespace.",
+    ),
 
-    def check_none(self, text: str, not_expected_list: list[str]) -> tuple[bool, str]:
-        for ne in not_expected_list:
-            if self.match(text, ne):
-                return False, f"Forbidden matched (threshold={self.threshold}): {ne!r}"
-        return True, ""
+    # 4. Named entity — exact fact.
+    TestCase(
+        test_id="retrieval-3",
+        query="Who created Python?",
+        namespace="tech",
+        answer_must_contain=("guido", "van rossum"),
+        expect_sources=True,
+        sources_must_contain=("guido", "rossum"),
+        description="Named entity retrieval.",
+    ),
+
+    # 5. Date — no hallucination of wrong years.
+    TestCase(
+        test_id="retrieval-4",
+        query="When was Python released?",
+        namespace="tech",
+        answer_must_contain=("1991",),
+        answer_must_not_contain=("1980", "1985", "1990", "2000", "1992"),
+        expect_sources=True,
+        sources_must_contain=("1991",),
+        description="Exact date. Must not hallucinate.",
+    ),
+
+    # 6. Trap question — false premise must be ignored or corrected.
+    TestCase(
+        test_id="trap-1",
+        query="What is my favorite color and why did I choose it in 2015?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        answer_must_not_contain=("2015", "chose in 2015", "year 2015", "in 2015"),
+        expect_sources=True,
+        sources_must_contain=("blue",),
+        description="False premise (2015). Must answer from context and ignore trap.",
+    ),
+
+    # 7. Option trap — must not pick from provided options if context doesn't specify.
+    TestCase(
+        test_id="trap-2",
+        query="Which shade of blue: azure, indigo or ultramarin?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        answer_must_not_contain=("azure", "indigo", "ultramarine", "shade"),
+        expect_sources=True,
+        sources_must_contain=("blue",),
+        description="Options are a trap. Context says only 'blue'. Must not select from list.",
+    ),
+
+    # 8. Short query — minimal input must still retrieve.
+    TestCase(
+        test_id="edge-1",
+        query="Blue?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        expect_sources=True,
+        sources_must_contain=("blue",),
+        description="One-word query. Must retrieve.",
+    ),
+
+    # 9. Complex open question — gather facts from multiple chunks, no hallucination.
+    TestCase(
+        test_id="edge-2",
+        query="What do you know about me?",
+        namespace="personal",
+        answer_must_contain=("programmer", "python", "blue"),
+        answer_must_not_contain=("lawyer", "doctor", "java", "red", "green", "apple", "fruit"),
+        expect_sources=True,
+        sources_must_contain=("programmer", "python", "blue"),
+        sources_must_not_contain=("apple",),
+        description="Open question. Must synthesize facts from multiple chunks. No noise leak.",
+    ),
+
+    # 10. Cross-namespace isolation — query to wrong namespace must not leak data.
+    TestCase(
+        test_id="isolation-1",
+        query="What is Python?",
+        namespace="personal",  # Python doc lives in 'tech', not here
+        answer_must_contain_any=(
+            "don't know",
+            "not sure",
+            "no information",
+            "not mentioned",
+            "not specified",
+            "cannot answer",
+        ),
+        answer_must_not_contain=(
+            "programming language",
+            "guido",
+            "1991",
+            "high-level",
+            "paradigm",
+        ),
+        expect_sources=False,
+        description="Cross-namespace isolation. personal namespace has no Python doc. Must not leak from tech.",
+    ),
+
+    # 11. Semantic / synonym retrieval — query uses synonyms, not exact words.
+    TestCase(
+        test_id="semantic-1",
+        query="What hue do I prefer?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        expect_sources=True,
+        sources_must_contain=("blue",),
+        description="Synonym retrieval ('hue' vs 'color'). Tests embedding quality.",
+    ),
+
+    # 12. Multi-hop reasoning — requires connecting facts from two documents.
+    TestCase(
+        test_id="multihop-1",
+        query="What programming language does the person whose favorite color is blue use?",
+        namespace="personal",
+        answer_must_contain=("python",),
+        answer_must_not_contain=("java", "c++", "javascript", "ruby"),
+        expect_sources=True,
+        sources_must_contain=("blue", "python"),
+        description="Multi-hop: favorite color (doc 1) → programming language (doc 2). Tests multi-chunk reasoning.",
+    ),
+
+    # 13. Noise resistance — explicit check that noise doc is excluded.
+    TestCase(
+        test_id="noise-1",
+        query="Tell me about my diet.",
+        namespace="personal",
+        answer_must_contain_any=(
+            "don't know",
+            "not sure",
+            "no information",
+            "not mentioned",
+            "cannot answer",
+        ),
+        answer_must_not_contain=("apple", "fruit", "healthy", "sweet", "crunchy"),
+        expect_sources=False,
+        description="Noise doc exists but is irrelevant. Must not surface noise as fact.",
+    ),
+]
 
 
-# ---------------------------------------------------------------------------
-# Test file parser
-# ---------------------------------------------------------------------------
+# =============================================================================
+# API helpers
+# =============================================================================
 
-def parse_test_file(path: Path) -> tuple[list[SourceDoc], list[TestCase]]:
-    if not path.exists():
-        print(f"[FAIL] File not found: {path}")
-        print(f"Run: python {Path(__file__).name} --generate")
+def _source_text(src: Any) -> str:
+    if isinstance(src, str):
+        return src
+    if isinstance(src, dict):
+        return src.get("content") or src.get("text") or str(src)
+    return str(src)
+
+
+async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    by_ns: dict[str, list[dict[str, Any]]] = {}
+    for i, doc in enumerate(sources):
+        by_ns.setdefault(doc.namespace, []).append({
+            "id": f"test-{i}",
+            "content": doc.content,
+            "metadata": {"source": "check_rag_benchmark"},
+        })
+
+    async with httpx.AsyncClient(headers=headers) as client:
+        for ns, docs in by_ns.items():
+            print(f"[INDEX] {len(docs)} docs → namespace '{ns}'")
+            r = await client.post(
+                f"{url.rstrip('/')}/api/v1/rag/index",
+                json={"documents": docs, "namespace": ns},
+            )
+            if r.status_code != 200:
+                print(f"[INDEX] FAIL HTTP {r.status_code}: {r.text[:200]}")
+                return False
+            data = r.json()
+            print(f"[INDEX] OK  {data.get('chunk_count', 0)} chunks")
+
+    return True
+
+
+async def query_rag(
+    client: httpx.AsyncClient,
+    url: str,
+    api_key: str,
+    query: str,
+    namespace: str,
+) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    r = await client.post(
+        f"{url.rstrip('/')}/api/v1/rag/query",
+        json={"query": query, "namespace": namespace, "top_k": 5},
+        headers=headers,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+# =============================================================================
+# Test runner
+# =============================================================================
+
+async def run_tests(url: str, api_key: str, timeout: float) -> None:
+    passed = 0
+    total = len(TEST_CASES)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for case in TEST_CASES:
+            print(f"\n{'─' * 60}")
+            print(f"[{case.test_id}] {case.description}")
+            print(f"    Query : {case.query}")
+            print(f"    NS    : {case.namespace}")
+
+            t0 = time.perf_counter()
+            try:
+                data = await query_rag(client, url, api_key, case.query, case.namespace)
+            except Exception as exc:
+                print(f"    FAIL  API error: {exc}")
+                continue
+
+            latency = (time.perf_counter() - t0) * 1000
+
+            answer: str = data.get("answer") or ""
+            sources: list[Any] = data.get("sources") or []
+            has_sources = bool(sources)
+
+            print(f"    Answer: {answer[:120]}...")
+            print(f"    Src   : {len(sources)} chunks")
+
+            errors: list[str] = []
+
+            # --- answer: ALL required phrases must be present ---
+            for kw in case.answer_must_contain:
+                if kw.lower() not in answer.lower():
+                    errors.append(f"missing required '{kw}'")
+
+            # --- answer: at least ONE of these must be present ---
+            if case.answer_must_contain_any:
+                if not any(kw.lower() in answer.lower() for kw in case.answer_must_contain_any):
+                    errors.append(f"missing one of {case.answer_must_contain_any}")
+
+            # --- answer: forbidden phrases must be absent ---
+            for forbidden in case.answer_must_not_contain:
+                if forbidden.lower() in answer.lower():
+                    errors.append(f"forbidden '{forbidden}'")
+
+            # --- sources presence ---
+            if has_sources != case.expect_sources:
+                errors.append(f"sources={has_sources}, expected={case.expect_sources}")
+
+            # --- sources content ---
+            if case.sources_must_contain and has_sources:
+                src_text = " ".join(_source_text(s).lower() for s in sources)
+                for kw in case.sources_must_contain:
+                    if kw.lower() not in src_text:
+                        errors.append(f"sources missing '{kw}'")
+
+            # --- sources noise check ---
+            if case.sources_must_not_contain and has_sources:
+                src_text = " ".join(_source_text(s).lower() for s in sources)
+                for forbidden in case.sources_must_not_contain:
+                    if forbidden.lower() in src_text:
+                        errors.append(f"sources contain noise '{forbidden}'")
+
+            # --- report ---
+            status = "PASS" if not errors else "FAIL"
+            print(f"    Result: {status} ({latency:.0f}ms)")
+            for err in errors:
+                print(f"    ! {err}")
+
+            if not errors:
+                passed += 1
+
+    print(f"\n{'=' * 60}")
+    print(f"FINAL: {passed}/{total} passed")
+    if passed != total:
+        print("\nSome tests failed. Do NOT edit this script.")
+        print("Improve the RAG pipeline instead:")
+        print("  • relevance threshold / re-ranker  (missing-1, noise-1, isolation-1)")
+        print("  • embedding quality (semantic-1)")
+        print("  • prompt grounding rules            (trap-1, trap-2)")
+        print("  • namespace isolation               (isolation-1)")
+        print("  • multi-chunk reasoning             (multihop-1, edge-2)")
         sys.exit(1)
-
-    sources: list[SourceDoc] = []
-    tests: list[TestCase] = []
-    section: str | None = None
-
-    with open(path, "r", encoding="utf-8") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line == "[SOURCES]":
-                section = "sources"
-                continue
-            if line == "[TESTS]":
-                section = "tests"
-                continue
-            if not section:
-                continue
-
-            parts = [p.strip() for p in line.split("|")]
-            if section == "sources" and len(parts) >= 2:
-                sources.append(SourceDoc(namespace=parts[0], content=parts[1]))
-            elif section == "tests" and len(parts) >= 6:
-                test_id = parts[0]
-                query = parts[1]
-                exp_contains = [s.strip() for s in parts[2].split(",") if s.strip()] if parts[2] else []
-                exp_not = [s.strip() for s in parts[3].split(",") if s.strip()] if parts[3] else []
-                expect_src = parts[4].lower() in ("true", "yes", "1") if parts[4] else False
-                desc = parts[5] if len(parts) > 5 else ""
-                tests.append(TestCase(
-                    test_id=test_id, query=query,
-                    expected_contains=exp_contains, expected_not_contains=exp_not,
-                    expect_sources=expect_src, description=desc,
-                ))
-
-    return sources, tests
+    else:
+        print("\nAll tests passed. RAG meets the benchmark.")
 
 
-# ---------------------------------------------------------------------------
-# Document bootstrap
-# ---------------------------------------------------------------------------
+def main() -> None:
+    log_path = _setup_logging()
+    print(f"[INFO] Log: {log_path}")
 
-def bootstrap_documents(sources: list[SourceDoc]) -> dict[str, Path]:
-    docs_root = PROJECT_ROOT / "data" / "documents"
-    docs_root.mkdir(parents=True, exist_ok=True)
-    created: dict[str, Path] = {}
-
-    for doc in sources:
-        ns_dir = docs_root / doc.namespace
-        ns_dir.mkdir(parents=True, exist_ok=True)
-        file_path = ns_dir / f"{doc.namespace}.txt"
-        # Append to file if namespace has multiple sources
-        mode = "a" if file_path.exists() else "w"
-        with open(file_path, mode, encoding="utf-8") as f:
-            f.write(doc.content + "\n\n")
-        created[doc.namespace] = file_path
-
-    print(f"[OK] Created {len(created)} document files in {docs_root}")
-    for ns, p in created.items():
-        print(f"     {ns}: {p}")
-    return created
-
-
-def auto_index() -> bool:
-    indexer = SCRIPT_DIR / "index_documents.py"
-    if not indexer.exists():
-        indexer = PROJECT_ROOT / "scripts" / "index_documents.py"
-    if not indexer.exists():
-        print("[WARN] index_documents.py not found. Cannot auto-index.")
-        print("       Searched:")
-        print(f"         {SCRIPT_DIR / 'index_documents.py'}")
-        print(f"         {PROJECT_ROOT / 'scripts' / 'index_documents.py'}")
-        return False
-
-    print(f"[INFO] Running indexer: {indexer}")
-    try:
-        result = subprocess.run(
-            [sys.executable, str(indexer)],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode == 0:
-            print("[OK] Indexing completed successfully")
-            if result.stdout:
-                print(result.stdout[-500:])
-            return True
-        else:
-            print(f"[FAIL] Indexer exited with code {result.returncode}")
-            print("STDOUT:", result.stdout[-1000:])
-            print("STDERR:", result.stderr[-1000:])
-            return False
-    except Exception as exc:
-        print(f"[FAIL] Failed to run indexer: {exc}")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# API client
-# ---------------------------------------------------------------------------
-
-class RAGTester:
-    def __init__(
-        self,
-        base_url: str = "http://localhost:8000",
-        test_file: str = "test.txt",
-        timeout: float = 30.0,
-        fuzzy_threshold: float = 0.6,
-        api_key: str = "",
-    ):
-        self.base_url = base_url.rstrip("/")
-        self.test_file = Path(test_file)
-        if not self.test_file.is_absolute():
-            for base in (Path.cwd(), SCRIPT_DIR, PROJECT_ROOT):
-                candidate = (base / test_file).resolve()
-                if candidate.exists():
-                    self.test_file = candidate
-                    break
-            else:
-                self.test_file = (Path.cwd() / test_file).resolve()
-
-        self.timeout = timeout
-        self.fuzzy = FuzzyMatcher(threshold=fuzzy_threshold)
-        self.results: list[TestResult] = []
-
-        headers: dict[str, str] = {}
-        if api_key:
-            if " " in api_key or api_key.lower().startswith(("bearer ", "basic ", "api-key ")):
-                headers["Authorization"] = api_key
-            else:
-                headers["Authorization"] = f"Bearer {api_key}"
-
-        self.client = httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            headers=headers if headers else None,
-        )
-
-    async def detect_endpoint(self) -> str:
-        candidates = [
-            f"{self.base_url}/v1/chat/completions",
-            f"{self.base_url}/api/v1/chat/completions",
-            f"{self.base_url}/chat",
-            f"{self.base_url}/api/chat",
-            f"{self.base_url}/v1/chat",
-            f"{self.base_url}/api/v1/chat",
-        ]
-        print(f"[INFO] Probing {len(candidates)} endpoints...")
-        for url in candidates:
-            try:
-                r = await self.client.post(url, json={"message": "hello"}, timeout=5.0)
-                if r.status_code == 200:
-                    print(f"[OK]   Endpoint: {url}")
-                    return url
-                elif r.status_code in (401, 403):
-                    print(f"  AUTH {url} (needs auth)")
-                elif r.status_code == 422:
-                    print(f"  VALID {url} (validation error — endpoint exists)")
-                    # Still usable, just wrong payload
-                    return url
-            except Exception:
-                pass
-        print(f"[WARN] No endpoint responded. Fallback: {candidates[0]}")
-        return candidates[0]
-
-    async def send_query(self, endpoint: str, query: str) -> dict[str, Any]:
-        payloads = [
-            {"message": query},
-            {"messages": [{"role": "user", "content": query}]},
-            {"messages": [{"role": "user", "content": query}], "stream": False},
-        ]
-
-        for payload in payloads:
-            try:
-                r = await self.client.post(endpoint, json=payload, timeout=self.timeout)
-                if r.status_code != 200:
-                    continue
-
-                text = ""
-                sources: list[str] = []
-
-                content_type = r.headers.get("content-type", "").lower()
-                if "event-stream" in content_type:
-                    text, sources = self._parse_sse(r.text)
-                else:
-                    try:
-                        data = r.json()
-                    except Exception:
-                        text = r.text
-                        data = {}
-
-                    text = (
-                        data.get("text")
-                        or data.get("response")
-                        or data.get("content")
-                        or data.get("message")
-                        or data.get("answer")
-                        or data.get("reply")
-                    )
-                    if not text and "choices" in data:
-                        choices = data.get("choices", [])
-                        if choices:
-                            choice = choices[0]
-                            if isinstance(choice, dict):
-                                msg = choice.get("message", {})
-                                delta = choice.get("delta", {})
-                                text = msg.get("content") or delta.get("content") or str(choice)
-                    if not text:
-                        text = str(data)
-
-                    raw_sources = (
-                        data.get("sources")
-                        or data.get("context_sources")
-                        or data.get("retrieved_chunks")
-                        or data.get("chunks")
-                        or data.get("references")
-                        or data.get("citations")
-                        or []
-                    )
-                    for s in raw_sources:
-                        if isinstance(s, dict):
-                            src_text = s.get("text") or s.get("content") or s.get("source") or s.get("name") or str(s)
-                            sources.append(src_text)
-                        elif isinstance(s, str):
-                            sources.append(s)
-
-                if not sources and text:
-                    sources = self._extract_sources_from_text(text)
-
-                return {"text": text, "sources": sources, "status_code": 200}
-            except Exception:
-                continue
-
-        return {"text": "[ERROR] API did not respond", "sources": [], "status_code": 0}
-
-    def _parse_sse(self, raw: str) -> tuple[str, list[str]]:
-        text_parts: list[str] = []
-        sources: list[str] = []
-        for line in raw.splitlines():
-            line = line.strip()
-            if line.startswith("data: "):
-                data_str = line[6:]
-                if data_str == "[DONE]":
-                    continue
-                try:
-                    chunk = json.loads(data_str)
-                    if "choices" in chunk:
-                        for choice in chunk.get("choices", []):
-                            delta = choice.get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                text_parts.append(content)
-                    if "sources" in chunk:
-                        sources.extend(chunk["sources"])
-                    if "text" in chunk:
-                        text_parts.append(chunk["text"])
-                except json.JSONDecodeError:
-                    text_parts.append(data_str)
-        return "".join(text_parts), sources
-
-    def _extract_sources_from_text(self, text: str) -> list[str]:
-        sources: list[str] = []
-        lines = text.splitlines()
-        in_sources = False
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if line.lower().startswith("sources") or (line.startswith("[") and "]" in line):
-                in_sources = True
-            if in_sources and line.startswith("[") and "]" in line:
-                idx = line.find("]")
-                source_text = line[idx + 1:].strip()
-                if source_text:
-                    sources.append(source_text)
-        return sources
-
-    def _check_case(self, case: TestCase, text: str, sources: list[str]) -> tuple[bool, list[str]]:
-        notes: list[str] = []
-        passed = True
-
-        if case.expected_contains:
-            ok, detail = self.fuzzy.check_any(text, case.expected_contains)
-            if not ok:
-                passed = False
-                notes.append(detail)
-
-        for ne in case.expected_not_contains:
-            ok, detail = self.fuzzy.check_none(text, [ne])
-            if not ok:
-                passed = False
-                notes.append(detail)
-
-        has_sources = len(sources) > 0
-        if has_sources != case.expect_sources:
-            passed = False
-            notes.append(f"Sources: expected={case.expect_sources}, got={has_sources}")
-
-        return passed, notes
-
-    async def run(self, auto_index: bool = False):
-        sources, tests = parse_test_file(self.test_file)
-        print(f"[INFO] Loaded {len(sources)} sources, {len(tests)} tests from {self.test_file}")
-
-        if auto_index and sources:
-            print("\n[AUTO-INDEX] Creating documents from test.txt [SOURCES]...")
-            bootstrap_documents(sources)
-            ok = auto_index()
-            if not ok:
-                print("[WARN] Auto-index failed. Tests may not work.")
-
-        endpoint = await self.detect_endpoint()
-        print(f"\nAPI endpoint: {endpoint}")
-        print(f"Fuzzy threshold: {self.fuzzy.threshold}")
-        print("=" * 70)
-
-        for case in tests:
-            print(f"\n--- {case.test_id} ---")
-            print(f"Query:  {case.query}")
-            print(f"Desc:   {case.description}")
-
-            start = time.perf_counter()
-            resp = await self.send_query(endpoint, case.query)
-            latency = (time.perf_counter() - start) * 1000
-
-            text = resp.get("text", "")
-            sources_found = resp.get("sources", [])
-
-            print(f"Response: {text[:140]}{'...' if len(text) > 140 else ''}")
-            print(f"Sources:  {len(sources_found)} | Latency: {latency:.0f} ms")
-            if sources_found:
-                for i, s in enumerate(sources_found[:3], 1):
-                    print(f"  [{i}] {s[:100]}")
-
-            passed, notes = self._check_case(case, text, sources_found)
-            status = "PASS" if passed else "FAIL"
-            icon = "OK" if passed else "XX"
-            print(f"Result:   [{icon}] {status}")
-            if notes:
-                for n in notes:
-                    print(f"  ! {n}")
-
-            self.results.append(TestResult(
-                test_id=case.test_id, passed=passed, query=case.query,
-                response_text=text, sources=[str(s) for s in sources_found],
-                latency_ms=latency, notes=notes,
-            ))
-
-        await self.client.aclose()
-        self._print_report()
-
-    def _print_report(self):
-        passed = sum(1 for r in self.results if r.passed)
-        failed = sum(1 for r in self.results if not r.passed)
-        total = len(self.results)
-        avg_lat = sum(r.latency_ms for r in self.results) / max(total, 1) if total else 0
-
-        print("\n" + "=" * 70)
-        print(f"FINAL REPORT: {passed}/{total} passed | {failed}/{total} failed | Avg: {avg_lat:.0f} ms")
-        print("=" * 70)
-
-        if failed:
-            print("\nFAILED TESTS:")
-            for r in self.results:
-                if not r.passed:
-                    print(f"\n  {r.test_id}: {r.query}")
-                    print(f"    Response: {r.response_text}")
-                    print(f"    Sources:  {r.sources}")
-                    for n in r.notes:
-                        print(f"    * {n}")
-            sys.exit(1)
-
-    def generate_test_file(self, path: Path) -> None:
-        path.write_text(test_txt_content, encoding="utf-8")
-        print(f"[OK] Created {path}")
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Simplified RAG tester")
-    parser.add_argument("--url", default="http://localhost:8000", help="Base API URL")
-    parser.add_argument("--test-file", default="test.txt", help="Test cases file")
-    parser.add_argument("--auto-index", action="store_true", help="Auto-create documents and run indexer")
-    parser.add_argument("--generate", action="store_true", help="Generate sample test.txt")
-    parser.add_argument("--timeout", type=float, default=float(os.getenv("RAG_TEST_TIMEOUT", "30")))
-    parser.add_argument("--fuzzy-threshold", type=float, default=0.6)
-    parser.add_argument("--api-key", default=os.getenv("RAG_TEST_API_KEY", ""))
+    parser = argparse.ArgumentParser(description="Ideal RAG benchmark")
+    parser.add_argument("--url", default="http://localhost:8000")
+    parser.add_argument("--api-key", default="local")
+    parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--skip-index", action="store_true", help="Skip indexing")
     args = parser.parse_args()
 
-    tester = RAGTester(
-        base_url=args.url,
-        test_file=args.test_file,
-        timeout=args.timeout,
-        fuzzy_threshold=args.fuzzy_threshold,
-        api_key=args.api_key,
-    )
+    if not args.skip_index:
+        ok = asyncio.run(index_all(args.url, args.api_key, TEST_SOURCES))
+        if not ok:
+            print("[FATAL] Indexing failed")
+            sys.exit(1)
 
-    if args.generate:
-        tester.generate_test_file(Path(args.test_file))
-        return 0
-
-    try:
-        asyncio.run(tester.run(auto_index=args.auto_index))
-    except KeyboardInterrupt:
-        print("\nInterrupted.")
-        return 130
-
-    return 0
+    asyncio.run(run_tests(args.url, args.api_key, args.timeout))
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

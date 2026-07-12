@@ -171,7 +171,7 @@ rag:
   prompt_version: v1
   prompt_name: rag_strict
   top_k: 5
-  default_namespace: "default"
+  default_namespace: "test"
   relevance_threshold: 0.1
   token_margin_min: 256
   token_margin_pct: 0.1
@@ -179,19 +179,20 @@ rag:
   # ===== ИСТОЧНИКИ ДОКУМЕНТОВ =====
   # Для каждой папки — свой блок. Порядок не важен.
   sources:
-    # Пример 1: папка test (префикс [t] в чате)
+    # Встроенный тестовый набор. Исходник: scripts/test.txt.
+    # check_rag.py --auto-index копирует [SOURCES] сюда перед индексацией.
     - namespace: test
-      path: D:\rag\test
-      include: ["*.md", "*.txt"]
-      recursive: true
+      path: ./data/documents/test
+      include: ["*.txt"]
+      recursive: false
 
-    # Пример 2: рабочие документы (префикс [w] в чате)
+    # Пример: рабочие документы (префикс [w] в чате)
     # - namespace: work
     #   path: D:\rag\work
     #   include: ["*.md", "*.txt", "*.pdf"]
     #   recursive: true
 
-    # Пример 3: книги (только .md, без подпапок)
+    # Пример: книги (только .md, без подпапок)
     # - namespace: books
     #   path: D:\rag\books
     #   include: ["*.md"]
@@ -225,7 +226,7 @@ namespaces:
 # openai_routes_require_auth = требовать ли ключ для /v1/chat/completions.
 
 security:
-  api_key: null
+  api_key: local
   admin_enabled: false
   max_body_size: 10485760
   allowed_hosts:
