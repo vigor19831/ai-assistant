@@ -27,7 +27,7 @@ _KILL_NAMES = ("llama-server", "llama-server.exe", "uvicorn")
 def _load_project_ports(root: Path) -> tuple[int, ...]:
     """Read ports from config.yaml, fallback to defaults."""
     config_path = root / "config.yaml"
-    defaults = (8080, 8081, 8000)
+    defaults = (8080, 8081, 8082, 8000)
     if yaml is None or not config_path.exists():
         return defaults
     try:

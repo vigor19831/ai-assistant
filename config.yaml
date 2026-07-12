@@ -136,12 +136,13 @@ storage:
 # provider: null = выключен. "api" = внешний сервер (Cohere, Jina и т.д.).
 
 reranker:
-  provider: null
-  model: rerank-multilingual-v3.0
-  api_base: https://api.cohere.com
+  provider: local
+  model: bge_reranker_v2_m3
+  api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
   threshold: 0.3
+
 
 # =============================================================================
 # RAG — ИСТОЧНИКИ ДОКУМЕНТОВ И ПАРАМЕТРЫ ПОИСКА

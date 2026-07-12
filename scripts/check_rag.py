@@ -328,6 +328,11 @@ async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
 
     async with httpx.AsyncClient(headers=headers) as client:
         for ns, docs in by_ns.items():
+            print(f"[CLEAR] namespace '{ns}'")
+            await client.post(
+                f"{url.rstrip('/')}/api/v1/rag/delete",
+                json={"document_ids": ["check_rag_benchmark"], "namespace": ns},
+            )
             print(f"[INDEX] {len(docs)} docs → namespace '{ns}'")
             r = await client.post(
                 f"{url.rstrip('/')}/api/v1/rag/index",

@@ -191,6 +191,31 @@ def start() -> int:
     else:
         print("  ! Embedder model not found\n")
 
+    # Reranker server
+    rerank_cfg = cfg.get("reranker", {})
+    if rerank_cfg.get("provider") == "local":
+        model = _find_model(rerank_cfg.get("model", ""))
+        if model:
+            exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
+            if exe:
+                print(f"  > Reranker server  model={model.name}")
+                cmd = [
+                    str(exe), "-m", str(model),
+                    "--host", "127.0.0.1", "--port", "8082",
+                    "-ngl", str(rerank_cfg.get("n_gpu_layers", 99)),
+                    "-c", "2048", "--rerank",
+                    "-lv", "1",
+                ]
+                _run(cmd, llama_log)
+                if wait_port(8082):
+                    print("  + Reranker ready  http://127.0.0.1:8082\n")
+                else:
+                    print("  ! Reranker did not respond\n")
+            else:
+                print("  ! llama-server not found\n")
+        else:
+            print("  ! Reranker model not found\n")
+
     # Uvicorn API
     host = cfg.get("host", "0.0.0.0")
     port = cfg.get("port", 8000)
@@ -260,7 +285,7 @@ def kill_main() -> int:
             cmd = (["taskkill", "/F", "/IM", name] if os.name == "nt" else ["pkill", "-f", name])
             subprocess.run(cmd, capture_output=True)
 
-    for port in (8080, 8081, 8000):
+    for port in (8080, 8081, 8082, 8000):
         if os.name == "nt":
             result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
             for line in result.stdout.splitlines():

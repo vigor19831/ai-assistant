@@ -30,6 +30,7 @@ from ai_assistant.adapters.llm_openai_compatible import (  # noqa: F401
     OpenAICompatibleLLM,
 )
 from ai_assistant.adapters.reranker_api import APIReranker  # noqa: F401
+from ai_assistant.adapters.reranker_local import LocalReranker  # noqa: F401
 from ai_assistant.adapters.reranker_null import NullReranker  # noqa: F401
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage  # noqa: F401
 from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer  # noqa: F401
