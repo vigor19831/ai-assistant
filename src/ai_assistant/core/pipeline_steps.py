@@ -381,7 +381,11 @@ async def build_context(data: PipelineData) -> PipelineData:
     )
     if not data.chunks:
         return data.with_context("")
-    lines = [chunk.text for chunk in data.chunks if chunk.text]
+    lines: list[str] = []
+    for i, chunk in enumerate(data.chunks, start=1):
+        if not chunk.text:
+            continue
+        lines.append(f"[Document {i}]\n{chunk.text}")
     context = "\n\n".join(lines)
     _logger.debug(
         "build_context done",
@@ -462,11 +466,12 @@ async def generate(data: PipelineData) -> PipelineData:
     prompt_name = cfg.prompt_name
     retry_cfg = cfg.retry
 
-    # Short-circuit: no chunks and no context means nothing to answer from.
-    # Skip LLM call entirely — saves tokens and gives predictable response.
-    if not data.chunks and not data.context:
+    # Guard: if all chunks were filtered out by reranker, or context is empty,
+    # return "no information" without calling LLM. This prevents hallucinations
+    # and ensures consistent refusal when retrieval finds nothing relevant.
+    if data.rerank_filtered_out is True or (not data.chunks and not data.context):
         _logger.info(
-            "generate: empty context, skipping LLM",
+            "generate: no relevant context, skipping LLM",
             extra={"trace_id": data.trace_id},
         )
         return data.with_response(
