@@ -300,7 +300,7 @@ class TestBuildContext:
             ],
         )
         result = await build_context(data)
-        assert result.context == "valid"
+        assert result.context == "[Document 1]\nvalid"
 
     @pytest.mark.asyncio
     async def test_very_long_chunks(self) -> None:
@@ -332,7 +332,7 @@ class TestBuildContext:
             chunks=[Chunk(id="c1", text="only")],
         )
         result = await build_context(data)
-        assert result.context == "only"
+        assert result.context == "[Document 1]\nonly"
 
     @pytest.mark.asyncio
     async def test_empty_chunks(self) -> None:
