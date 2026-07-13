@@ -337,31 +337,21 @@ async def rerank(data: PipelineData) -> PipelineData:
         return data.add_error(INTERNAL_SERVER_ERROR)
 
     try:
-        _raw_query = data.query.text if data.query is not None else None
-        query = _raw_query if _raw_query is not None else " "
+        query = data.query.text if data.query is not None else " "
         cfg = _get_config(data)
         top_k = cfg.top_k
-        threshold = cfg.relevance_threshold
         retry_cfg = cfg.retry
 
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
-        filtered = [r for r in results if r.score >= threshold]
-
-        if not filtered:
-            _logger.debug(
-                "rerank: all chunks filtered out", extra={"trace_id": data.trace_id}
-            )
-            return data.with_chunks(()).with_rerank_filtered_out(True)
-        else:
-            _logger.debug(
-                "rerank done",
-                extra={"trace_id": data.trace_id, "chunks": len(filtered)},
-            )
-            return (
-                data.with_chunks(tuple(r.chunk for r in filtered))
-                .with_rerank_scores([r.score for r in filtered])
-            )
+        _logger.debug(
+            "rerank done",
+            extra={"trace_id": data.trace_id, "chunks": len(results)},
+        )
+        return (
+            data.with_chunks(tuple(r.chunk for r in results))
+            .with_rerank_scores([r.score for r in results])
+        )
 
     except Exception as exc:
         _logger.exception("rerank failed", extra={"trace_id": data.trace_id})
@@ -466,18 +456,11 @@ async def generate(data: PipelineData) -> PipelineData:
     prompt_name = cfg.prompt_name
     retry_cfg = cfg.retry
 
-    # Guard: if all chunks were filtered out by reranker, or context is empty,
-    # return "no information" without calling LLM. This prevents hallucinations
-    # and ensures consistent refusal when retrieval finds nothing relevant.
-    if data.rerank_filtered_out is True or (not data.chunks and not data.context):
+    # If no chunks, let LLM decide via prompt. Do not hardcode refusal.
+    if not data.chunks and not data.context:
         _logger.info(
-            "generate: no relevant context, skipping LLM",
+            "generate: no context available",
             extra={"trace_id": data.trace_id},
-        )
-        return data.with_response(
-            AssistantMessage(
-                text="I do not have enough information to answer this question."
-            )
         )
 
     try:

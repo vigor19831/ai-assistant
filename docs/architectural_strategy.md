@@ -311,7 +311,6 @@ Code must be readable by someone who knows only `if/else`, `for`, and `def`.
 **Why**: "Pythonic magic" is unmaintainable solo. In 5 years, you will not remember why a metaclass was needed. In 10 years, Python may deprecate it.
 
 ---
-
 ## 11. Document Meta
 
 - **ai_rules.md** = "what is forbidden" (constraints)
@@ -320,3 +319,31 @@ Code must be readable by someone who knows only `if/else`, `for`, and `def`.
 - AI reads ALL THREE before any architectural output
 - This document takes precedence over ai_rules.md on architectural decisions
 - Changes to this document require explicit human approval
+
+---
+## 12. RAG Invariants (Event-Proof)
+
+Rules that survive model changes, hardware changes, and adapter swaps.
+
+- **Reranker is rank-only.** Never filter by absolute score threshold.
+  Ordinal rank (top_n) is the only valid interface. Pipeline decides
+  sufficiency, not the reranker.
+- **Pipeline never inspects adapter internals.** No hasattr, isinstance,
+  or getattr on port objects. Capability dataclass is the only bridge.
+- **Prompts live in prompts/ as Jinja2 files.** Never in Python strings
+  or f-strings in pipeline logic.
+- **check_rag.py is the only source of truth** for RAG quality.
+  No manual spot-checking, no "looks correct".
+- **Context budget derives from LLMCapability.context_window.**
+  No hardcoded top_k without comment linking it to chunk size.
+- **"Don't know" is LLM's decision, not pipeline guardrail.**
+  Prompt teaches the phrase; pipeline does not hardcode refusal.
+
+---
+## 13. Hardware Ceiling Log
+
+| Date | Hardware | LLM | Result | Limitation |
+|------|----------|-----|--------|------------|
+| 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require >=8B params |
+
+Expected fix: LLM upgrade (Qwen3-8B, Llama-3.1-8B). No pipeline changes required.

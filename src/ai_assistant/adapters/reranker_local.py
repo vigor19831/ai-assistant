@@ -6,8 +6,8 @@ Compatible with:
 - Any local server exposing POST /rerank in Cohere format
 
 Note: llama.cpp reranker returns raw logits (-inf, +inf) rather than
-probabilities (0..1). We apply sigmoid normalization so that the
-threshold config works consistently across providers.
+probabilities (0..1). We apply sigmoid normalization for stable
+score reporting, not for threshold filtering.
 """
 
 from __future__ import annotations
@@ -72,9 +72,9 @@ class LocalReranker(IReranker):
             top_k: Max results to return. None = return all scored.
 
         Returns:
-            List of RerankResult sorted by score descending,
-            filtered by config.threshold. Scores are normalized
-            to (0, 1) via sigmoid for llama.cpp compatibility.
+            List of RerankResult sorted by score descending.
+            Scores are normalized to (0, 1) via sigmoid for
+            llama.cpp compatibility. No threshold filtering.
         """
         if not chunks:
             return []
@@ -128,8 +128,9 @@ class LocalReranker(IReranker):
             ):
                 continue
             normalized = _normalize_score(float(raw_score))
-            if normalized >= self.config.threshold:
-                scored.append(RerankResult(chunk=chunks[idx], score=normalized))
+            scored.append(RerankResult(chunk=chunks[idx], score=normalized))
 
         scored.sort(key=lambda r: r.score, reverse=True)
-        return scored
+
+        limit = top_k if top_k is not None else len(scored)
+        return scored[:limit]
