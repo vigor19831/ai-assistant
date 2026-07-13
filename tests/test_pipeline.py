@@ -382,7 +382,7 @@ class TestRerank:
     async def test_all_chunks_filtered(self) -> None:
         """Given: all chunks score below threshold.
         When: rerank is called.
-        Then: empty chunks tuple; rerank_filtered_out is True."""
+        Then: reranker results are preserved; threshold filtering is delegated to the reranker."""
         class FakeReranker:
             async def rerank(self, query, chunks, top_k=None):
                 return [RerankResult(chunk=c, score=0.1) for c in chunks]
@@ -394,8 +394,10 @@ class TestRerank:
             pipeline_config=PipelineConfig(),
         )
         result = await rerank(data)
-        assert result.chunks == ()
-        assert result.rerank_filtered_out is True
+        # rerank() no longer filters by relevance_threshold locally;
+        # it trusts the reranker to return only relevant items.
+        assert result.chunks == (Chunk(id="c1", text="low"),)
+        assert result.rerank_scores == [0.1]
 
     @pytest.mark.asyncio
     async def test_threshold_boundary_kept(self) -> None:
@@ -414,7 +416,6 @@ class TestRerank:
         )
         result = await rerank(data)
         assert len(result.chunks) == 1
-        assert result.rerank_filtered_out is None
         assert result.rerank_scores == [0.3]
 
     @pytest.mark.asyncio
@@ -694,16 +695,16 @@ class TestGenerate:
         assert "context limit" in result.response.text.lower()
 
     @pytest.mark.asyncio
-    async def test_generate_empty_context_no_llm_call(self) -> None:
+    async def test_generate_empty_context_uses_llm(self) -> None:
         """Given: empty chunks and empty context.
         When: generate is called.
-        Then: no LLM call; returns 'no information' response without token waste."""
+        Then: LLM is called to answer from general knowledge; no hardcoded refusal."""
         captured_calls: list = []
 
         class CapturingLLM:
             async def complete(self, messages, max_tokens=None, temperature=None):
                 captured_calls.append(messages)
-                return AssistantMessage(text="should not reach")
+                return AssistantMessage(text="I don't have specific information about that.")
 
             def get_context_limit(self) -> int | None:
                 return 4096
@@ -723,9 +724,9 @@ class TestGenerate:
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await generate(data)
-        assert len(captured_calls) == 0, "LLM must not be called with empty context"
+        assert len(captured_calls) == 1, "LLM must be called even with empty context"
         assert result.response is not None
-        assert "do not have enough information" in result.response.text.lower()
+        assert result.response.text == "I don't have specific information about that."
 
     @pytest.mark.asyncio
     async def test_truncate_removes_least_relevant_from_end(self, monkeypatch) -> None:

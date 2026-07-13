@@ -165,13 +165,15 @@ class TestRAGManager:
     async def test_query_empty_results_handling(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: no relevant chunks found.
         When: RAGManager.query is called.
-        Then: answer indicates no information and sources list is empty."""
+        Then: LLM answers from general knowledge; sources list is empty."""
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(return_value=[])
         mock_reranker.rerank = AsyncMock(return_value=[])
         mock_llm.get_context_limit = MagicMock(return_value=8192)
-        # generate step short-circuits empty context — LLM is never called
-        mock_llm.complete = AsyncMock()
+        # generate step now calls LLM even with empty context (general knowledge mode)
+        mock_llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="I don't have specific information about that in my documents.")
+        )
 
         mgr = RAGManager(
             llm=mock_llm,
@@ -181,11 +183,10 @@ class TestRAGManager:
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         result = await mgr.query("obscure topic")
-        assert "do not have enough information" in result["answer"].lower()
         assert result["chunks_used"] == 0
         assert result["sources"] == []
         assert result["errors"] == []
-        mock_llm.complete.assert_not_awaited()
+        mock_llm.complete.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_query_llm_unavailable_returns_503(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):

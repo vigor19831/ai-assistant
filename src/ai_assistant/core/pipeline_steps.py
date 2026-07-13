@@ -317,10 +317,9 @@ async def rerank(data: PipelineData) -> PipelineData:
 
     Field contract:
         IN:  reranker (IReranker) — required, never None (NullReranker if disabled).
-             pipeline_config (PipelineConfig) — provides top_k, relevance_threshold.
-        OUT: rerank_filtered_out (bool) — set True if all chunks filtered.
-             rerank_scores (list[float]) — set if chunks survive filtering.
-        DATA: chunks (tuple[Chunk, ...]) — replaced with filtered subset.
+             pipeline_config (PipelineConfig) — provides top_k.
+        OUT: rerank_scores (list[float]) — scores from reranker.
+        DATA: chunks (tuple[Chunk, ...]) — replaced with reranker results.
 
     Errors added on failure:
         INTERNAL_SERVER_ERROR.

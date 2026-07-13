@@ -75,7 +75,6 @@ class PipelineData:
     pipeline_config: PipelineConfig | None = None
     query_embedding: list[float] | None = None
     tokenizer: ITokenizer | None = None
-    rerank_filtered_out: bool | None = None
     rerank_scores: list[float] | None = None
 
     # Chat history for query condensation (last N message pairs)
@@ -114,10 +113,6 @@ class PipelineData:
     def with_query_embedding(self, query_embedding: list[float] | None) -> PipelineData:
         """Return a new PipelineData with updated query_embedding."""
         return replace(self, query_embedding=query_embedding)
-
-    def with_rerank_filtered_out(self, rerank_filtered_out: bool | None) -> PipelineData:
-        """Return a new PipelineData with updated rerank_filtered_out."""
-        return replace(self, rerank_filtered_out=rerank_filtered_out)
 
     def with_rerank_scores(self, rerank_scores: list[float] | None) -> PipelineData:
         """Return a new PipelineData with updated rerank_scores."""

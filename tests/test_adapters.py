@@ -14,6 +14,8 @@ import tempfile
 from contextlib import closing
 from pathlib import Path
 
+from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
 
@@ -23,6 +25,7 @@ from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmb
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+from ai_assistant.adapters.reranker_local import LocalReranker, _normalize_score
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
@@ -369,10 +372,284 @@ class TestNullReranker:
         assert len(results) == 1
         assert results[0].chunk.id == "c1"
 
+
     @pytest.mark.asyncio
     async def test_shutdown(self):
         reranker = NullReranker(RerankerConfigData())
         await reranker.shutdown()
+
+
+# ── TestLocalReranker ──
+
+
+class TestLocalReranker:
+    """Coverage target: raise reranker_local.py from ~24% to >80%."""
+
+    @pytest.fixture
+    def config(self) -> RerankerConfigData:
+        return RerankerConfigData(
+            model="test-reranker",
+            api_base="http://localhost:8080",
+            api_key="",
+            timeout=30.0,
+        )
+
+    @pytest.fixture
+    def config_with_key(self) -> RerankerConfigData:
+        return RerankerConfigData(
+            model="test-reranker",
+            api_base="http://localhost:8080",
+            api_key="secret-key",
+            timeout=30.0,
+        )
+
+    @pytest.fixture
+    def chunks(self) -> list[Chunk]:
+        return [
+            Chunk(id="c1", text="first"),
+            Chunk(id="c2", text="second"),
+            Chunk(id="c3", text="third"),
+        ]
+
+    # --- lifecycle ---
+
+    @pytest.mark.asyncio
+    async def test_init_creates_client(self, config: RerankerConfigData) -> None:
+        reranker = LocalReranker(config)
+        assert reranker._client is not None
+        await reranker.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_closes_client(self, config: RerankerConfigData) -> None:
+        reranker = LocalReranker(config)
+        mock_client = AsyncMock()
+        reranker._client = mock_client
+        await reranker.shutdown()
+        mock_client.aclose.assert_awaited_once()
+
+    # --- empty input ---
+
+    @pytest.mark.asyncio
+    async def test_rerank_empty_chunks_returns_empty(
+        self, config: RerankerConfigData
+    ) -> None:
+        reranker = LocalReranker(config)
+        result = await reranker.rerank("query", [])
+        assert result == []
+
+    # --- happy path ---
+
+    @pytest.mark.asyncio
+    async def test_rerank_success_no_top_k(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        """All chunks returned, sorted descending by normalized score."""
+        reranker = LocalReranker(config)
+        mock_response = {
+            "results": [
+                {"index": 1, "relevance_score": 2.0},   # ~0.88
+                {"index": 0, "relevance_score": 0.0},    # 0.5
+                {"index": 2, "relevance_score": -1.0},  # ~0.27
+            ]
+        }
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            result = await reranker.rerank("query", chunks)
+
+        assert len(result) == 3
+        assert result[0].chunk.id == "c2"
+        assert result[1].chunk.id == "c1"
+        assert result[2].chunk.id == "c3"
+        assert result[0].score > result[1].score > result[2].score
+
+    @pytest.mark.asyncio
+    async def test_rerank_success_with_top_k(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        """top_k truncates the sorted list."""
+        reranker = LocalReranker(config)
+        mock_response = {
+            "results": [
+                {"index": 0, "relevance_score": 5.0},
+                {"index": 1, "relevance_score": 3.0},
+                {"index": 2, "relevance_score": 1.0},
+            ]
+        }
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            result = await reranker.rerank("query", chunks, top_k=2)
+
+        assert len(result) == 2
+        assert result[0].chunk.id == "c1"
+        assert result[1].chunk.id == "c2"
+
+    @pytest.mark.asyncio
+    async def test_rerank_payload_top_n_matches_chunk_count_when_top_k_none(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        mock_post = AsyncMock(return_value={"results": []})
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json", mock_post
+        ):
+            await reranker.rerank("query", chunks)
+        payload = mock_post.call_args[0][3]
+        assert payload["top_n"] == len(chunks)
+
+    @pytest.mark.asyncio
+    async def test_rerank_payload_top_n_matches_top_k_when_provided(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        mock_post = AsyncMock(return_value={"results": []})
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json", mock_post
+        ):
+            await reranker.rerank("query", chunks, top_k=2)
+        payload = mock_post.call_args[0][3]
+        assert payload["top_n"] == 2
+
+    @pytest.mark.asyncio
+    async def test_rerank_includes_api_key_header(
+        self, config_with_key: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config_with_key)
+        mock_post = AsyncMock(return_value={"results": [{"index": 0, "relevance_score": 1.0}]})
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json", mock_post
+        ):
+            await reranker.rerank("query", chunks)
+        headers = mock_post.call_args[0][2]
+        assert headers["Authorization"] == "Bearer secret-key"
+
+    # --- error handling ---
+
+    @pytest.mark.asyncio
+    async def test_rerank_http_error_raises_adapter_error(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("refused"),
+        ):
+            with pytest.raises(AdapterError, match="Local reranker request failed"):
+                await reranker.rerank("query", chunks)
+
+    @pytest.mark.asyncio
+    async def test_rerank_missing_results_key(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value={"other": "data"},
+        ):
+            with pytest.raises(AdapterError, match="Missing 'results' in reranker response"):
+                await reranker.rerank("query", chunks)
+
+    @pytest.mark.asyncio
+    async def test_rerank_results_not_list(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value={"results": "notalist"},
+        ):
+            with pytest.raises(AdapterError, match="Expected 'results' list"):
+                await reranker.rerank("query", chunks)
+
+    @pytest.mark.asyncio
+    async def test_rerank_malformed_items_skipped(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        """Invalid items are silently skipped; valid ones survive."""
+        reranker = LocalReranker(config)
+        mock_response = {
+            "results": [
+                "not a dict",
+                {"index": 0, "relevance_score": 1.0},      # valid
+                {"index": "bad", "relevance_score": 1.0},  # wrong type
+                {"index": 0},                               # missing score
+                {"relevance_score": 1.0},                   # missing index
+                {"index": 99, "relevance_score": 1.0},      # out of range
+                {"index": 0, "relevance_score": "bad"},     # wrong score type
+            ]
+        }
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            result = await reranker.rerank("query", chunks)
+
+        assert len(result) == 1
+        assert result[0].chunk.id == "c1"
+        assert result[0].score == pytest.approx(0.731, abs=0.001)
+
+    # --- sigmoid normalization ---
+
+    @pytest.mark.asyncio
+    async def test_normalize_score_extreme_positive(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        mock_response = {"results": [{"index": 0, "relevance_score": 15.0}]}
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            result = await reranker.rerank("query", chunks)
+        assert result[0].score == pytest.approx(0.9999, abs=0.0001)
+
+    @pytest.mark.asyncio
+    async def test_normalize_score_extreme_negative(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        mock_response = {"results": [{"index": 0, "relevance_score": -15.0}]}
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            result = await reranker.rerank("query", chunks)
+        assert result[0].score == pytest.approx(0.0001, abs=0.0001)
+
+    @pytest.mark.asyncio
+    async def test_normalize_score_zero_is_half(
+        self, config: RerankerConfigData, chunks: list[Chunk]
+    ) -> None:
+        reranker = LocalReranker(config)
+        mock_response = {"results": [{"index": 0, "relevance_score": 0.0}]}
+        with patch(
+            "ai_assistant.adapters.reranker_local.async_post_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ):
+            result = await reranker.rerank("query", chunks)
+        assert result[0].score == pytest.approx(0.5, abs=0.0001)
+
+    def test_normalize_score_direct(self) -> None:
+        """Direct unit tests for the private normalization function."""
+        assert _normalize_score(0.0) == pytest.approx(0.5, abs=0.0001)
+        assert _normalize_score(2.0) == pytest.approx(0.8808, abs=0.001)
+        assert _normalize_score(-2.0) == pytest.approx(0.1192, abs=0.001)
+        assert _normalize_score(10.0) == pytest.approx(0.9999, abs=0.0001)
+        assert _normalize_score(-10.0) == pytest.approx(0.0001, abs=0.0001)
+        assert _normalize_score(100.0) == 0.9999
+        assert _normalize_score(-100.0) == 0.0001
 
 
 # ── TestSQLiteStorage ──
