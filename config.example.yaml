@@ -1,6 +1,8 @@
 # =============================================================================
-# APPLICATION SETTINGS
+# AI ASSISTANT — CONFIGURATION
 # =============================================================================
+# Copy this file to config.yaml and edit values for your setup.
+# See README.md for setup instructions.
 
 app_name: ai-assistant
 debug: false
@@ -11,8 +13,7 @@ config_version: "1"
 # =============================================================================
 # CORS — CROSS-ORIGIN REQUESTS
 # =============================================================================
-# Required if the frontend (UI) runs on a different port/domain.
-# For local use, leave as is.
+# Required if frontend runs on different port/domain.
 
 cors:
   allow_origins:
@@ -23,7 +24,7 @@ cors:
   allow_headers: ["*"]
 
 # =============================================================================
-# CHAT — DIALOG LIMITS
+# CHAT — DIALOGUE LIMITS
 # =============================================================================
 
 chat:
@@ -31,11 +32,10 @@ chat:
   max_context_tokens: 4096
 
 # =============================================================================
-# CHUNKER — SPLITTING DOCUMENTS INTO CHUNKS
+# CHUNKER — DOCUMENT SPLITTING
 # =============================================================================
-# Long documents are cut into pieces (chunks) before indexing.
 # chunk_size: characters per chunk.
-# chunk_overlap: overlapping characters between adjacent chunks.
+# chunk_overlap: overlap between adjacent chunks.
 
 chunker:
   provider: simple
@@ -45,25 +45,25 @@ chunker:
 # =============================================================================
 # TOKENIZER — TOKEN COUNTING
 # =============================================================================
-# Needed to stay within the LLM context limit.
+# tiktoken = OpenAI-style. For local models, download tokenizers:
+#   python run_scripts.py → download_tokenizers.py
 
 tokenizer:
   provider: tiktoken
   local_dir: ./data/tokenizers
 
 # =============================================================================
-# EMBEDDER — TEXT VECTOR REPRESENTATIONS
+# EMBEDDER — TEXT VECTORIZATION
 # =============================================================================
-# Turns text into numeric vectors for search.
-# A separate server must be running.
-# dim = vector dimension. MUST match vector_store.dim!
+# Must match a running server (llama.cpp, Ollama, etc.).
+# dim MUST match vector_store.dim!
 
 embedder:
   provider: openai_compatible
-  api_base: ""                           # <-- SET THIS: your embedding server URL
-  api_key: null                          # Key if required
-  model: ""                              # <-- SET THIS: model name on your server
-  dim: 0                                 # <-- SET THIS: must match vector_store.dim
+  api_base: http://127.0.0.1:8081/v1
+  api_key: null
+  model: CHANGE_ME                    # e.g., all-MiniLM-L6-v2, nomic-embed-text
+  dim: 768
   timeout: 60.0
   connect_timeout: 5.0
   n_gpu_layers: 0
@@ -73,17 +73,18 @@ embedder:
   mlock: false
 
 # =============================================================================
-# LLM — LANGUAGE MODEL (ANSWER GENERATION)
+# LLM — LANGUAGE MODEL (GENERATION)
 # =============================================================================
-# The main brain. A separate server must be running.
-# server_context_size = model context window (how many tokens it remembers).
+# Must match a running server.
+# server_context_size = model's context window.
 
 llm:
   provider: openai_compatible
-  api_base: ""                           # <-- SET THIS: your LLM server URL
+  api_base: http://127.0.0.1:8080/v1
   api_key: null
-  model: ""                              # <-- SET THIS: model name on your server
-  available_models: []                   # <-- SET THIS: list of available models
+  model: CHANGE_ME                  # e.g., gemma-4-e2b-it, qwen3-4b, llama-3.2-3b
+  available_models:
+    - CHANGE_ME
   max_tokens: 4096
   temperature: 0.7
   top_p: 0.95
@@ -95,25 +96,24 @@ llm:
   stop_sequences: []
   timeout: 300.0
   connect_timeout: 5.0
-  server_context_size: 0                 # <-- SET THIS: your model's context size
-  n_gpu_layers: 33
+  server_context_size: 4096
+  n_gpu_layers: -1                  # -1 = all layers on GPU, 0 = CPU only
   n_batch: 512
   n_ubatch: 64
   mmap: true
   mlock: false
 
 # =============================================================================
-# VECTOR STORE — WHERE INDICES ARE STORED
+# VECTOR STORE — WHERE INDICES LIVE
 # =============================================================================
-# Indices = vectors + document metadata.
-# faiss = on disk (persistent). memory = in RAM (lost on restart).
+# faiss = disk (persistent). memory = RAM (lost on restart).
 # dim MUST match embedder.dim!
 
 vector_store:
   provider: faiss
   index_path: ./data/indices
-  metric: l2
-  dim: 0                                  # <-- SET THIS: must match embedder.dim
+  metric: cosine
+  dim: 768
   max_chunks: 100000
   max_document_size: 10485760
 
@@ -126,15 +126,15 @@ storage:
   db_path: ./data/storage.db
 
 # =============================================================================
-# RERANKER — IMPROVING SEARCH RESULTS
+# RERANKER — SEARCH RESULT IMPROVEMENT
 # =============================================================================
-# An additional model that re-sorts found chunks.
-# provider: null = disabled. "api" = external server.
+# null = disabled. "api" = external server (Cohere, Jina, etc.).
+# "local" = local HTTP server (bge-reranker, etc.).
 
 reranker:
-  provider: null
-  model: ""
-  api_base: ""                           # <-- SET THIS: your reranker API base
+  provider: null                  # CHANGE TO: local, api
+  model: null                      # e.g., bge-reranker-v2-m3
+  api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
   threshold: 0.3
@@ -142,19 +142,19 @@ reranker:
 # =============================================================================
 # RAG — DOCUMENT SOURCES AND SEARCH PARAMETERS
 # =============================================================================
-# sources = list of folders with documents to index.
+# sources = list of folders to index.
 #   namespace = collection name (must match namespaces below).
-#   path = folder path (can be absolute).
+#   path = folder path (relative or absolute).
 #   include = which files to read.
 #   recursive = search subfolders?
 #
-# How to add a new folder:
-#   1. Create a folder
-#   2. Add a block to sources (see example below)
-#   3. Add namespace to the namespaces section below
+# To add a new folder:
+#   1. Create folder (e.g., ./data/documents/work)
+#   2. Add block to sources below
+#   3. Add namespace to namespaces section below
 #   4. Run reindex: python run_scripts.py → index_documents.py
 #
-# top_k = how many chunks to retrieve during search.
+# top_k = how many chunks to retrieve.
 # relevance_threshold = minimum relevance (0.1 = loose, 0.5 = strict).
 
 rag:
@@ -165,25 +165,22 @@ rag:
     - build_context
     - generate
   prompt_version: v1
-  prompt_name: rag_strict
+  prompt_name: rag_simple          # Use rag_simple for 2-4B models
   top_k: 5
-  default_namespace: "default"
+  default_namespace: "test"
   relevance_threshold: 0.1
   token_margin_min: 256
   token_margin_pct: 0.1
 
-  # ===== DOCUMENT SOURCES =====
-  # One block per folder. Order does not matter.
   sources:
-    # Example 1: test folder (prefix [t] in chat)
     - namespace: test
-      path: ""                           # <-- SET THIS: absolute path to your folder
-      include: ["*.md", "*.txt"]
-      recursive: true
+      path: ./data/documents/test
+      include: ["*.txt"]
+      recursive: false
 
-    # Example 2: work documents (prefix [w] in chat)
+    # Example: work documents (prefix [w] in chat)
     # - namespace: work
-    #   path: ""                         # <-- SET THIS
+    #   path: ./data/documents/work
     #   include: ["*.md", "*.txt", "*.pdf"]
     #   recursive: true
 
@@ -191,27 +188,26 @@ rag:
   index_chat_exports: false
 
 # =============================================================================
-# NAMESPACES — SEARCH SETTINGS PER DATABASE
+# NAMESPACES — PER-COLLECTION SETTINGS
 # =============================================================================
-# Each namespace here MUST match a namespace in rag.sources.
-# prefix = short code for chat: [d] hello → searches in default.
+# Each namespace MUST match a namespace in rag.sources.
+# prefix = short code for chat: [t] hello → searches in test.
 # threshold = minimum relevance.
 # chunk_size = chunk size (can differ from global chunker).
-# prompt = response style: rag_strict (precise), rag_default, rag_creative.
+# prompt = response style: rag_simple (2-4B), rag_default (4-8B), rag_strict (8B+).
 
 namespaces:
-  test:                 # [t] — your test folder
+  test:
     prefix: t
     threshold: 0.1
     chunk_size: 512
-    prompt: rag_strict
+    prompt: rag_simple
 
 # =============================================================================
 # SECURITY
 # =============================================================================
-# api_key = key for API access. null = no key (localhost only).
+# api_key = API access key. null = no key (localhost only).
 # admin_enabled = enable /admin/* endpoints.
-# openai_routes_require_auth = require key for /v1/chat/completions.
 
 security:
   api_key: null
@@ -223,10 +219,19 @@ security:
   openai_routes_require_auth: true
 
 # =============================================================================
+# LOGGING
+# =============================================================================
+
+logging:
+  level: "INFO"
+  file: "./data/app.log"
+  format: "text"
+  max_bytes: 10485760
+  backup_count: 2
+
+# =============================================================================
 # UI — FRONTEND PATH
 # =============================================================================
-# Must match the actual location of the ui folder.
-# If ui is in src/ai_assistant/ui/ — leave as "./ui".
 
 ui:
   static_path: "./ui"

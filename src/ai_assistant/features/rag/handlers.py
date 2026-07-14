@@ -232,21 +232,51 @@ async def delete_chunks(
     trace_id = uuid.uuid4().hex
     namespace = req.namespace or state.config.rag.default_namespace
     deleted = 0
+
     try:
-        if req.chunk_ids:
+        if req.clear:
+            all_chunks = await state.vector_store.list_by_filter(
+                {}, namespace=namespace
+            )
+            to_delete = [chunk_id for chunk_id, _ in all_chunks]
+            if to_delete:
+                await state.vector_store.delete(to_delete, namespace=namespace)
+                deleted += len(to_delete)
+
+        elif req.chunk_ids:
             await state.vector_store.delete(req.chunk_ids, namespace=namespace)
             deleted += len(req.chunk_ids)
+
         elif req.document_ids:
             all_chunks = await state.vector_store.list_by_filter(
                 {}, namespace=namespace
             )
             to_delete = []
+            doc_ids = set(req.document_ids)
+
             for chunk_id, meta in all_chunks:
-                if meta.get("source") in req.document_ids or meta.get("source_uri") in req.document_ids:
+                if meta.get("source") in doc_ids or meta.get("source_uri") in doc_ids:
                     to_delete.append(chunk_id)
+                    continue
+
+                # FIX: Safe access to custom metadata with type checking
+                custom_value = meta.get("custom")
+                if isinstance(custom_value, dict):
+                    custom_source = custom_value.get("source")
+                    if isinstance(custom_source, str) and custom_source in doc_ids:
+                        to_delete.append(chunk_id)
+
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
+
+        else:
+            # FIX: DeleteResponse does not accept trace_id
+            return DeleteResponse(
+                deleted_chunks=0,
+                errors=["No chunk_ids, document_ids, or clear flag provided"],
+            )
+
         _logger.info(
             "Delete chunks completed",
             extra={
@@ -255,6 +285,7 @@ async def delete_chunks(
                 "deleted": deleted,
             },
         )
+
     except Exception:
         _logger.exception(
             "Delete chunks failed",
@@ -263,6 +294,7 @@ async def delete_chunks(
         raise HTTPException(
             status_code=500, detail="Internal server error"
         ) from None
+
     return DeleteResponse(deleted_chunks=deleted, errors=[])
 
 

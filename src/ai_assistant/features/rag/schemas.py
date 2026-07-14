@@ -67,6 +67,7 @@ class DeleteRequest(BaseModel):
     document_ids: list[str] | None = None
     chunk_ids: list[str] | None = None
     namespace: str | None = Field(default=None, description="Target namespace")
+    clear: bool = Field(default=False, description="Clear all chunks in namespace")
 
 
 class DeleteResponse(BaseModel):

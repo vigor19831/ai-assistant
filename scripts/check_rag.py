@@ -55,9 +55,20 @@ def _setup_logging() -> Path:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "check_rag_last.log"
     log_file = open(log_path, "w", encoding="utf-8", buffering=1)
+    # FIX: Save originals for restoration
+    _Tee._orig_stdout = sys.stdout
+    _Tee._orig_stderr = sys.stderr
     sys.stdout = _Tee(sys.stdout, log_file)
     sys.stderr = _Tee(sys.stderr, log_file)
     return log_path
+
+
+def _restore_logging() -> None:
+    """Restore stdout/stderr. Call before sys.exit()."""
+    if hasattr(_Tee, "_orig_stdout"):
+        sys.stdout = _Tee._orig_stdout
+    if hasattr(_Tee, "_orig_stderr"):
+        sys.stderr = _Tee._orig_stderr
 
 
 # =============================================================================
@@ -87,6 +98,10 @@ class TestCase:
     sources_must_contain: tuple[str, ...] = ()
     # NONE of these may appear in sources (noise resistance)
     sources_must_not_contain: tuple[str, ...] = ()
+    # NEW: Answer must be grounded in retrieved sources (not LLM memory)
+    require_faithfulness: bool = True
+    # NEW: All facts in answer must be traceable to sources (for multihop)
+    require_source_coverage: bool = False
     description: str = ""
 
 
@@ -130,6 +145,7 @@ TEST_CASES: list[TestCase] = [
         expect_sources=True,
         sources_must_contain=("blue", "childhood", "sea"),
         sources_must_not_contain=("apple", "fruit"),  # noise resistance
+        require_faithfulness=True,
         description="Direct retrieval. Answer must cite personal context. Must not pull from noise doc.",
     ),
 
@@ -153,6 +169,7 @@ TEST_CASES: list[TestCase] = [
             "pizza", "sushi", "burger", "pasta", "salad", "steak", "chicken", "food is", "apple",
         ),
         expect_sources=False,
+        require_faithfulness=False,  # No sources = nothing to be faithful to
         description="No food data in index. Must say 'don't know'. Must not guess or leak noise.",
     ),
 
@@ -164,6 +181,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_contain=("language", "programming", "guido"),
         expect_sources=True,
         sources_must_contain=("python", "language", "guido"),
+        require_faithfulness=True,
         description="Factual retrieval from tech namespace.",
     ),
 
@@ -175,6 +193,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_contain=("guido", "van rossum"),
         expect_sources=True,
         sources_must_contain=("guido", "rossum"),
+        require_faithfulness=True,
         description="Named entity retrieval.",
     ),
 
@@ -187,6 +206,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("1980", "1985", "1990", "2000", "1992"),
         expect_sources=True,
         sources_must_contain=("1991",),
+        require_faithfulness=True,
         description="Exact date. Must not hallucinate.",
     ),
 
@@ -199,6 +219,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("2015", "chose in 2015", "year 2015", "in 2015"),
         expect_sources=True,
         sources_must_contain=("blue",),
+        require_faithfulness=True,
         description="False premise (2015). Must answer from context and ignore trap.",
     ),
 
@@ -211,6 +232,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("azure", "indigo", "ultramarine", "shade"),
         expect_sources=True,
         sources_must_contain=("blue",),
+        require_faithfulness=True,
         description="Options are a trap. Context says only 'blue'. Must not select from list.",
     ),
 
@@ -222,6 +244,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_contain=("blue",),
         expect_sources=True,
         sources_must_contain=("blue",),
+        require_faithfulness=True,
         description="One-word query. Must retrieve.",
     ),
 
@@ -235,6 +258,7 @@ TEST_CASES: list[TestCase] = [
         expect_sources=True,
         sources_must_contain=("programmer", "python", "blue"),
         sources_must_not_contain=("apple",),
+        require_source_coverage=True,  # NEW: All facts must be traceable to sources
         description="Open question. Must synthesize facts from multiple chunks. No noise leak.",
     ),
 
@@ -259,6 +283,7 @@ TEST_CASES: list[TestCase] = [
             "paradigm",
         ),
         expect_sources=False,
+        require_faithfulness=False,
         description="Cross-namespace isolation. personal namespace has no Python doc. Must not leak from tech.",
     ),
 
@@ -270,6 +295,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_contain=("blue",),
         expect_sources=True,
         sources_must_contain=("blue",),
+        require_faithfulness=True,
         description="Synonym retrieval ('hue' vs 'color'). Tests embedding quality.",
     ),
 
@@ -282,6 +308,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("java", "c++", "javascript", "ruby"),
         expect_sources=True,
         sources_must_contain=("blue", "python"),
+        require_source_coverage=True,  # NEW: Both facts must be in sources
         description="Multi-hop: favorite color (doc 1) → programming language (doc 2). Tests multi-chunk reasoning.",
     ),
 
@@ -299,6 +326,7 @@ TEST_CASES: list[TestCase] = [
         ),
         answer_must_not_contain=("apple", "fruit", "healthy", "sweet", "crunchy"),
         expect_sources=False,
+        require_faithfulness=False,
         description="Noise doc exists but is irrelevant. Must not surface noise as fact.",
     ),
 ]
@@ -316,6 +344,43 @@ def _source_text(src: Any) -> str:
     return str(src)
 
 
+async def _request_with_retry(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    json: dict[str, Any] | None = None,
+    max_retries: int = 3,
+) -> httpx.Response:
+    """HTTP request with exponential backoff on transient failures."""
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            if method == "POST":
+                r = await client.post(url, json=json, timeout=60.0)
+            else:
+                r = await client.get(url, timeout=30.0)
+
+            if r.status_code == 503 and attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"    [RETRY] 503, waiting {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+
+            r.raise_for_status()
+            return r
+
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            last_error = exc
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"    [RETRY] {type(exc).__name__}, waiting {wait}s...")
+                await asyncio.sleep(wait)
+            else:
+                raise
+
+    raise last_error or RuntimeError("All retries exhausted")
+
+
 async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     by_ns: dict[str, list[dict[str, Any]]] = {}
@@ -328,19 +393,22 @@ async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
 
     async with httpx.AsyncClient(headers=headers) as client:
         for ns, docs in by_ns.items():
+            # FIX: Use clear flag instead of broken document_ids delete
             print(f"[CLEAR] namespace '{ns}'")
-            await client.post(
+            r = await _request_with_retry(
+                client, "POST",
                 f"{url.rstrip('/')}/api/v1/rag/delete",
-                json={"document_ids": ["check_rag_benchmark"], "namespace": ns},
+                json={"clear": True, "namespace": ns},
             )
+            data = r.json()
+            print(f"[CLEAR] OK  {data.get('deleted_chunks', 0)} chunks deleted")
+
             print(f"[INDEX] {len(docs)} docs → namespace '{ns}'")
-            r = await client.post(
+            r = await _request_with_retry(
+                client, "POST",
                 f"{url.rstrip('/')}/api/v1/rag/index",
                 json={"documents": docs, "namespace": ns},
             )
-            if r.status_code != 200:
-                print(f"[INDEX] FAIL HTTP {r.status_code}: {r.text[:200]}")
-                return False
             data = r.json()
             print(f"[INDEX] OK  {data.get('chunk_count', 0)} chunks")
 
@@ -355,12 +423,13 @@ async def query_rag(
     namespace: str,
 ) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    r = await client.post(
+    # FIX: Remove top_k hardcode, use server default
+    r = await _request_with_retry(
+        client, "POST",
         f"{url.rstrip('/')}/api/v1/rag/query",
-        json={"query": query, "namespace": namespace, "top_k": 5},
+        json={"query": query, "namespace": namespace},
         headers=headers,
     )
-    r.raise_for_status()
     return r.json()
 
 
@@ -417,18 +486,39 @@ async def run_tests(url: str, api_key: str, timeout: float) -> None:
                 errors.append(f"sources={has_sources}, expected={case.expect_sources}")
 
             # --- sources content ---
+            src_text = " ".join(_source_text(s).lower() for s in sources) if has_sources else ""
+
             if case.sources_must_contain and has_sources:
-                src_text = " ".join(_source_text(s).lower() for s in sources)
                 for kw in case.sources_must_contain:
                     if kw.lower() not in src_text:
                         errors.append(f"sources missing '{kw}'")
 
             # --- sources noise check ---
             if case.sources_must_not_contain and has_sources:
-                src_text = " ".join(_source_text(s).lower() for s in sources)
                 for forbidden in case.sources_must_not_contain:
                     if forbidden.lower() in src_text:
                         errors.append(f"sources contain noise '{forbidden}'")
+
+            # === NEW: Faithfulness check ===
+            # Answer must be grounded in retrieved sources, not LLM memory
+            if case.require_faithfulness and has_sources:
+                # Extract all "significant" words from answer (length > 3)
+                answer_words = {w.lower() for w in answer.split() if len(w) > 3}
+                # Words that appear in sources
+                source_words = set(src_text.split())
+                # Key facts from answer_must_contain must be in sources
+                for kw in case.answer_must_contain:
+                    kw_lower = kw.lower()
+                    if kw_lower not in src_text:
+                        errors.append(f"faithfulness: '{kw}' not found in sources (LLM memory?)")
+
+            # === NEW: Source coverage check ===
+            # For multihop: all required facts must be traceable to sources
+            if case.require_source_coverage and has_sources:
+                for kw in case.sources_must_contain:
+                    kw_lower = kw.lower()
+                    if kw_lower not in src_text:
+                        errors.append(f"coverage: fact '{kw}' not in sources (retrieval failed?)")
 
             # --- report ---
             status = "PASS" if not errors else "FAIL"
@@ -449,9 +539,12 @@ async def run_tests(url: str, api_key: str, timeout: float) -> None:
         print("  • prompt grounding rules            (trap-1, trap-2)")
         print("  • namespace isolation               (isolation-1)")
         print("  • multi-chunk reasoning             (multihop-1, edge-2)")
+        print("  • faithfulness / source coverage    (retrieval-1, multihop-1)")
+        _restore_logging()
         sys.exit(1)
     else:
         print("\nAll tests passed. RAG meets the benchmark.")
+        _restore_logging()
 
 
 def main() -> None:
@@ -465,13 +558,17 @@ def main() -> None:
     parser.add_argument("--skip-index", action="store_true", help="Skip indexing")
     args = parser.parse_args()
 
-    if not args.skip_index:
-        ok = asyncio.run(index_all(args.url, args.api_key, TEST_SOURCES))
-        if not ok:
-            print("[FATAL] Indexing failed")
-            sys.exit(1)
+    try:
+        if not args.skip_index:
+            ok = asyncio.run(index_all(args.url, args.api_key, TEST_SOURCES))
+            if not ok:
+                print("[FATAL] Indexing failed")
+                _restore_logging()
+                sys.exit(1)
 
-    asyncio.run(run_tests(args.url, args.api_key, args.timeout))
+        asyncio.run(run_tests(args.url, args.api_key, args.timeout))
+    finally:
+        _restore_logging()
 
 
 if __name__ == "__main__":

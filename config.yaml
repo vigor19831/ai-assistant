@@ -89,7 +89,7 @@ llm:
   available_models:
     - gemma-4-e2b-it
   max_tokens: 4096                     # Макс. токенов в ответе
-  temperature: 0.7                     # Креативность: 0 = точно, 1 = свободно
+  temperature: 0.3                     # Точность для RAG: 0 = точно, 1 = свободно
   top_p: 0.95
   top_k: 40
   min_p: 0.05
@@ -170,12 +170,12 @@ rag:
     - build_context
     - generate
   prompt_version: v1
-  prompt_name: rag_strict
-  top_k: 5
+  prompt_name: rag_simple
+  top_k: 3
   default_namespace: "test"
-  relevance_threshold: 0.1
-  token_margin_min: 256
-  token_margin_pct: 0.1
+  relevance_threshold: 0.2
+  token_margin_min: 512
+  token_margin_pct: 0.15
 
   # ===== ИСТОЧНИКИ ДОКУМЕНТОВ =====
   # Для каждой папки — свой блок. Порядок не важен.
@@ -215,9 +215,9 @@ rag:
 namespaces:
   test:                 # [t] — ваша папка test
     prefix: t
-    threshold: 0.1
+    threshold: 0.2
     chunk_size: 512
-    prompt: rag_strict
+    prompt: rag_simple
 
 # =============================================================================
 # БЕЗОПАСНОСТЬ
