@@ -110,9 +110,11 @@ class TeeOutput:
 
 
 def setup_logging() -> TeeOutput:
-    """Setup logging to file in project root. Always active."""
+    """Setup logging to file in data/. Always active."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = ROOT / f"check_all_{timestamp}.log"
+    data_dir = ROOT / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    log_path = data_dir / f"check_all_{timestamp}.log"
     return TeeOutput(log_path)
 
 

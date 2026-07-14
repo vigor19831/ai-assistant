@@ -447,7 +447,9 @@ def main():
     md = build_markdown(root, mode, all_files, py_files, metrics)
 
     out_name = args.output or f"context_build_{mode}.md"
-    out_path = root / out_name
+    data_dir = root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    out_path = data_dir / out_name
     write_file(out_path, md)
 
     print(f"\nDone: {out_path} ({len(md):,} chars, ~{len(md)//4:,} tokens)")

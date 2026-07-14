@@ -241,7 +241,12 @@ def main() -> int:
     if args.stdout:
         print(text)
     else:
-        out = args.output or args.root / "structure.txt"
+        if args.output is not None:
+            out = args.output
+        else:
+            data_dir = args.root / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            out = data_dir / "structure.txt"
         out.write_text(text, encoding="utf-8")
         print(f"[OK] {out}")
     return 0
