@@ -422,13 +422,11 @@ async def query_rag(
     query: str,
     namespace: str,
 ) -> dict[str, Any]:
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     # FIX: Remove top_k hardcode, use server default
     r = await _request_with_retry(
         client, "POST",
         f"{url.rstrip('/')}/api/v1/rag/query",
         json={"query": query, "namespace": namespace},
-        headers=headers,
     )
     return r.json()
 
@@ -441,7 +439,8 @@ async def run_tests(url: str, api_key: str, timeout: float) -> None:
     passed = 0
     total = len(TEST_CASES)
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
         for case in TEST_CASES:
             print(f"\n{'─' * 60}")
             print(f"[{case.test_id}] {case.description}")
