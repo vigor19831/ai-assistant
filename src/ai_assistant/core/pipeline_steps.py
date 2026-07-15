@@ -343,13 +343,25 @@ async def rerank(data: PipelineData) -> PipelineData:
 
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
+        # Threshold gate: pipeline config owns the relevance threshold.
+        # Chunks below threshold are dropped; empty result triggers "don't know".
+        threshold = cfg.relevance_threshold
+        filtered = [r for r in results if r.score >= threshold]
+        filtered_out = len(results) - len(filtered)
+
         _logger.debug(
             "rerank done",
-            extra={"trace_id": data.trace_id, "chunks": len(results)},
+            extra={
+                "trace_id": data.trace_id,
+                "chunks_before": len(results),
+                "chunks_after": len(filtered),
+                "threshold": threshold,
+                "filtered_out": filtered_out,
+            },
         )
         return (
-            data.with_chunks(tuple(r.chunk for r in results))
-            .with_rerank_scores([r.score for r in results])
+            data.with_chunks(tuple(r.chunk for r in filtered))
+            .with_rerank_scores([r.score for r in filtered])
         )
 
     except Exception as exc:

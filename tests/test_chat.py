@@ -70,7 +70,7 @@ def chat_manager_with_rag():
             prefix="t", threshold=0.1, chunk_size=512, prompt="rag_strict"
         ),
         "test-alt": NamespaceConfig(
-            prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_simple"
+            prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_strict"
         ),
         "test-default": NamespaceConfig(
             prefix="d", threshold=0.1, chunk_size=512, prompt="rag_strict"
@@ -457,7 +457,7 @@ class TestChatRAG:
                 chunks.append(text)
 
             mock_get_prompt.assert_called_once()
-            assert mock_get_prompt.call_args[0][0] == "rag_simple"
+            assert mock_get_prompt.call_args[0][0] == "rag_strict"
             assert "Sources:" in "".join(chunks)
 
     @pytest.mark.asyncio

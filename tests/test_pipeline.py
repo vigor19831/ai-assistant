@@ -380,9 +380,9 @@ class TestRerank:
 
     @pytest.mark.asyncio
     async def test_all_chunks_filtered(self) -> None:
-        """Given: all chunks score below threshold.
+        """Given: all chunks score below pipeline_config.relevance_threshold.
         When: rerank is called.
-        Then: reranker results are preserved; threshold filtering is delegated to the reranker."""
+        Then: chunks are dropped by threshold gate."""
         class FakeReranker:
             async def rerank(self, query, chunks, top_k=None):
                 return [RerankResult(chunk=c, score=0.1) for c in chunks]
@@ -394,10 +394,9 @@ class TestRerank:
             pipeline_config=PipelineConfig(),
         )
         result = await rerank(data)
-        # rerank() no longer filters by relevance_threshold locally;
-        # it trusts the reranker to return only relevant items.
-        assert result.chunks == (Chunk(id="c1", text="low"),)
-        assert result.rerank_scores == [0.1]
+        # Threshold gate drops chunks below pipeline_config.relevance_threshold.
+        assert result.chunks == ()
+        assert result.rerank_scores == []
 
     @pytest.mark.asyncio
     async def test_threshold_boundary_kept(self) -> None:
