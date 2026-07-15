@@ -282,7 +282,7 @@ class ChatManager:
         pipeline_config = PipelineConfig(
             top_k=self.top_k,
             namespace=namespace,
-            relevance_threshold=ns_cfg.relevance_threshold if ns_cfg else 0.1,
+            threshold=ns_cfg.threshold if ns_cfg else 0.1,
             prompt_name=ns_cfg.prompt if ns_cfg else "rag_strict",
             prompt_version=self.prompt_version,
             token_margin_min=self.token_margin_min,

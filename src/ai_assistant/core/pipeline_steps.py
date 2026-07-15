@@ -345,7 +345,7 @@ async def rerank(data: PipelineData) -> PipelineData:
 
         # Threshold gate: pipeline config owns the relevance threshold.
         # Chunks below threshold are dropped; empty result triggers "don't know".
-        threshold = cfg.relevance_threshold
+        threshold = cfg.threshold
         filtered = [r for r in results if r.score >= threshold]
         filtered_out = len(results) - len(filtered)
 

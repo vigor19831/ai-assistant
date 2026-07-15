@@ -154,7 +154,7 @@ class TestRAGManager:
             "test",
             prompt_name="rag_creative",
             prompt_version="v2",
-            relevance_threshold=0.5,
+            threshold=0.5,
         )
         assert result["answer"] == ""
         assert result["errors"] == []
@@ -876,8 +876,8 @@ class TestQueryPrefixParsing:
         """Configure test namespaces with prefixes for deterministic tests."""
         from ai_assistant.core.config import NamespaceConfig
         mock_state.config.namespaces = {
-            "test": NamespaceConfig(prefix="t", relevance_threshold=0.1, chunk_size=512, prompt="rag_strict"),
-            "test-alt": NamespaceConfig(prefix="a", relevance_threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+            "test": NamespaceConfig(prefix="t", threshold=0.1, chunk_size=512, prompt="rag_strict"),
+            "test-alt": NamespaceConfig(prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_creative"),
         }
 
     @pytest.mark.asyncio

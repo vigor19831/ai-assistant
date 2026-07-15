@@ -592,7 +592,7 @@ class TestE2ERAG:
             assert resp.status_code == 200
             instance.query.assert_awaited_once()
             kwargs = instance.query.call_args.kwargs
-            assert kwargs["relevance_threshold"] == 0.3
+            assert kwargs["threshold"] == 0.3
             assert kwargs["prompt_name"] == "rag_creative"
             assert kwargs["namespace"] == "test-alt"
 

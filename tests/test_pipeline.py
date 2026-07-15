@@ -380,7 +380,7 @@ class TestRerank:
 
     @pytest.mark.asyncio
     async def test_all_chunks_filtered(self) -> None:
-        """Given: all chunks score below pipeline_config.relevance_threshold.
+        """Given: all chunks score below pipeline_config.threshold.
         When: rerank is called.
         Then: chunks are dropped by threshold gate."""
         class FakeReranker:
@@ -394,13 +394,13 @@ class TestRerank:
             pipeline_config=PipelineConfig(),
         )
         result = await rerank(data)
-        # Threshold gate drops chunks below pipeline_config.relevance_threshold.
+        # Threshold gate drops chunks below pipeline_config.threshold.
         assert result.chunks == ()
         assert result.rerank_scores == []
 
     @pytest.mark.asyncio
     async def test_threshold_boundary_kept(self) -> None:
-        """Given: chunk score exactly equals relevance_threshold.
+        """Given: chunk score exactly equals threshold.
         When: rerank is called.
         Then: chunk is KEPT (>= threshold)."""
         class FakeRerankerAtThreshold:
@@ -411,7 +411,7 @@ class TestRerank:
             query=UserMessage(text="hello"),
             chunks=[Chunk(id="c1", text="boundary")],
             reranker=FakeRerankerAtThreshold(),
-            pipeline_config=PipelineConfig(relevance_threshold=0.3),
+            pipeline_config=PipelineConfig(threshold=0.3),
         )
         result = await rerank(data)
         assert len(result.chunks) == 1
@@ -473,7 +473,7 @@ class TestRerank:
                     metadata=ChunkMetadata(source="s", source_uri="s", index=0, total_chunks=1),
                 ),
             ),
-            pipeline_config=PipelineConfig(top_k=5, relevance_threshold=0.1),
+            pipeline_config=PipelineConfig(top_k=5, threshold=0.1),
             reranker=mock_reranker,
         )
 

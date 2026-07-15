@@ -182,9 +182,9 @@ async def query_rag(
     if prompt_name is None:
         prompt_name = cfg.prompt_name or "rag_strict"
 
-    relevance_threshold = cfg.relevance_threshold
+    threshold = cfg.threshold
     if ns_cfg is not None:
-        relevance_threshold = ns_cfg.relevance_threshold
+        threshold = ns_cfg.threshold
 
     _logger.info(
         "RAG query start",
@@ -197,7 +197,7 @@ async def query_rag(
         prompt_name=prompt_name,
         prompt_version=req.prompt_version or cfg.prompt_version,
         namespace=ns,
-        relevance_threshold=relevance_threshold,
+        threshold=threshold,
     )
     duration_ms = int((time.perf_counter() - start) * 1000)
     _logger.info(

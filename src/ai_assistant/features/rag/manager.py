@@ -151,7 +151,7 @@ class RAGManager:
         prompt_name: str = "rag_strict",
         prompt_version: str = "v1",
         namespace: str = "default",
-        relevance_threshold: float = 0.3,
+        threshold: float = 0.3,
     ) -> dict[str, Any]:
         """Run RAG pipeline for query."""
         start = time.perf_counter()
@@ -160,7 +160,7 @@ class RAGManager:
         pipeline_config = PipelineConfig(
             top_k=top_k,
             namespace=namespace,
-            relevance_threshold=relevance_threshold,
+            threshold=threshold,
             prompt_name=prompt_name,
             prompt_version=prompt_version,
             token_margin_min=self.token_margin_min,

@@ -35,7 +35,7 @@ class TestConfigMigration:
     def test_migrate_vector_store_relevance_threshold(self):
         """Given: vector_store contains legacy relevance_threshold.
         When: AppConfig is loaded.
-        Then: value is migrated to rag.relevance_threshold; vector_store is clean."""
+        Then: value is migrated to rag.threshold; vector_store is clean."""
         raw = {
             "vector_store": {
                 "relevance_threshold": 0.5,
@@ -45,21 +45,21 @@ class TestConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
         }
         cfg = AppConfig(**raw)
-        assert cfg.rag.relevance_threshold == 0.5
+        assert cfg.rag.threshold == 0.5
         # vector_store must NOT contain the legacy key (extra="forbid")
         assert "relevance_threshold" not in cfg.vector_store.model_dump()
 
     def test_migrate_does_not_override_explicit_rag_threshold(self):
-        """Given: both legacy vector_store.relevance_threshold and explicit rag.relevance_threshold.
+        """Given: both legacy vector_store.relevance_threshold and explicit rag.threshold.
         When: AppConfig is loaded.
         Then: explicit rag value wins."""
         raw = {
             "vector_store": {"relevance_threshold": 0.5, "dim": 384, "provider": "memory"},
-            "rag": {"relevance_threshold": 0.8},
+            "rag": {"threshold": 0.8},
             "embedder": {"dim": 384, "provider": "mock"},
         }
         cfg = AppConfig(**raw)
-        assert cfg.rag.relevance_threshold == 0.8
+        assert cfg.rag.threshold == 0.8
 
     def test_migrate_security_rate_limit(self):
         """Given: security config contains removed rate_limit key.
@@ -421,12 +421,12 @@ class TestNamespacesEmptyDefault:
         cfg = AppConfig()
         assert cfg.namespaces == {}
 
-    def test_namespace_validation_alias(self):
-        """Given: namespace config uses legacy 'threshold' key.
+    def test_namespace_threshold(self):
+        """Given: namespace config uses threshold field.
         When: NamespaceConfig is loaded.
-        Then: validation_alias maps threshold to relevance_threshold."""
+        Then: value is stored correctly."""
         ns = NamespaceConfig(threshold=0.5, chunk_size=256)
-        assert ns.relevance_threshold == 0.5
+        assert ns.threshold == 0.5
         assert ns.chunk_size == 256
 
     def test_namespace_extra_forbid(self):
@@ -434,7 +434,7 @@ class TestNamespacesEmptyDefault:
         When: NamespaceConfig is loaded.
         Then: ValidationError is raised."""
         with pytest.raises(ValueError):
-            NamespaceConfig(relevance_threshold=0.5, unknown_key="fail")
+            NamespaceConfig(threshold=0.5, unknown_key="fail")
 
 
 class TestResourceLimits:
@@ -457,12 +457,12 @@ class TestResourceLimits:
         assert cfg.token_margin_min == 256
         assert cfg.token_margin_pct == 0.1
 
-    def test_rag_config_default_relevance_threshold(self):
+    def test_rag_config_default_threshold(self):
         """Given: no env overrides.
         When: RAGConfig is instantiated.
-        Then: relevance_threshold defaults to 0.1 (matches config.yaml)."""
+        Then: threshold defaults to 0.1 (matches config.yaml)."""
         cfg = RAGConfig()
-        assert cfg.relevance_threshold == 0.1
+        assert cfg.threshold == 0.1
 
     def test_rag_config_token_margin_override(self, monkeypatch):
         """Given: AI_RAG_TOKEN_MARGIN_MIN and AI_RAG_TOKEN_MARGIN_PCT env vars.
@@ -617,7 +617,7 @@ class TestConfigMigrationParametrized:
                     "embedder": {"dim": 384, "provider": "mock"},
                 },
                 [
-                    (lambda cfg: cfg.rag.relevance_threshold, 0.5),
+                    (lambda cfg: cfg.rag.threshold, 0.5),
                     (lambda cfg: "relevance_threshold" not in cfg.vector_store.model_dump(), True),
                 ],
                 id="vector_store_relevance_threshold_migrated_to_rag",
@@ -657,7 +657,7 @@ class TestConfigMigrationParametrized:
                 [
                     (lambda cfg: cfg.config_version, "0"),
                     (lambda cfg: cfg.rag.steps, [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE, RAGStep.BUILD_CONTEXT, RAGStep.GENERATE]),
-                    (lambda cfg: cfg.rag.relevance_threshold, 0.3),
+                    (lambda cfg: cfg.rag.threshold, 0.3),
                     (lambda cfg: "relevance_threshold" not in cfg.vector_store.model_dump(), True),
                     (lambda cfg: cfg.security.api_key, "test-key"),
                     (lambda cfg: "rate_limit" not in cfg.security.model_dump(), True),
@@ -718,7 +718,7 @@ class TestConfigMigrationParametrizedV2:
                     "embedder": {"dim": 384, "provider": "mock"},
                 },
                 [
-                    (lambda cfg: cfg.rag.relevance_threshold, 0.5),
+                    (lambda cfg: cfg.rag.threshold, 0.5),
                     (lambda cfg: "relevance_threshold" not in cfg.vector_store.model_dump(), True),
                     (lambda cfg: cfg.config_version, "0"),
                 ],

@@ -155,7 +155,7 @@ reranker:
 #   4. Run reindex: python run_scripts.py → index_documents.py
 #
 # top_k = how many chunks to retrieve.
-# relevance_threshold = minimum relevance (0.1 = loose, 0.5 = strict).
+# threshold = minimum relevance (0.1 = loose, 0.5 = strict).
 
 rag:
   steps:
@@ -168,7 +168,7 @@ rag:
   prompt_name: rag_simple          # Use rag_simple for 2-4B models
   top_k: 5
   default_namespace: "test"
-  relevance_threshold: 0.1
+  threshold: 0.1
   token_margin_min: 256
   token_margin_pct: 0.1
 

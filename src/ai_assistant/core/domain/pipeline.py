@@ -46,7 +46,7 @@ class PipelineConfig:
 
     top_k: int = 5
     namespace: str = "default"
-    relevance_threshold: float = 0.3
+    threshold: float = 0.3
     prompt_name: str = "rag_strict"
     prompt_version: str = "v1"
     token_margin_min: int = 256

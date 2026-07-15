@@ -271,7 +271,7 @@ class TestIntegrationChatRAG:
             pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="default",
-                relevance_threshold=0.3,
+                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_strict",
             ),
@@ -384,7 +384,7 @@ class TestIntegrationFullRAG:
             pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="docs",
-                relevance_threshold=0.3,
+                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_strict",
             ),
@@ -455,7 +455,7 @@ class TestIntegrationAPIInit:
                 "prompt_name": "rag_default",
                 "top_k": 3,
                 "default_namespace": "test",
-                "relevance_threshold": 0.3,
+                "threshold": 0.3,
             },
         )
 
@@ -495,7 +495,7 @@ class TestIntegrationAPIInit:
             pipeline_config=PipelineConfig(
                 top_k=3,
                 namespace="test",
-                relevance_threshold=0.3,
+                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_default",
             ),
@@ -555,7 +555,7 @@ class TestIntegrationAPIInit:
                 "prompt_name": "rag_default",
                 "top_k": 3,
                 "default_namespace": "test",
-                "relevance_threshold": 0.3,
+                "threshold": 0.3,
             },
         )
 
@@ -586,7 +586,7 @@ class TestIntegrationAPIInit:
             pipeline_config=PipelineConfig(
                 top_k=3,
                 namespace="test",
-                relevance_threshold=0.3,
+                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_default",
             ),

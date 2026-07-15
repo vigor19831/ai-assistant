@@ -116,7 +116,7 @@ def _make_minimal_config() -> AppConfig:
             "prompt_name": "rag_default",
             "top_k": 3,
             "default_namespace": "test",
-            "relevance_threshold": 0.3,
+            "threshold": 0.3,
         },
     )
 
