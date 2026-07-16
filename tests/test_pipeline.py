@@ -994,8 +994,8 @@ class TestBuildFallbackPrompt:
             Chunk(id="c2", text="Second piece of context."),
         )
         result = _build_fallback_prompt(chunks, "What is the answer?")
-        assert "[1] First piece of context." in result
-        assert "[2] Second piece of context." in result
+        assert "[Document 1]\nFirst piece of context." in result
+        assert "[Document 2]\nSecond piece of context." in result
         assert "Question: What is the answer?" in result
         assert "Answer:" in result
 
@@ -1018,7 +1018,7 @@ class TestBuildFallbackPrompt:
 
         chunks = (Chunk(id="c1", text="Only context."),)
         result = _build_fallback_prompt(chunks, "Simple question?")
-        assert "[1] Only context." in result
+        assert "[Document 1]\nOnly context." in result
         assert "[2]" not in result
 
 

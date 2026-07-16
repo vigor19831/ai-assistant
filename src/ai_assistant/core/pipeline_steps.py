@@ -385,7 +385,9 @@ async def build_context(data: PipelineData) -> PipelineData:
 
 def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
     """Build a minimal RAG prompt from chunks when template lookup fails."""
-    chunks_text = "\n".join(f"[{i + 1}] {c.text}" for i, c in enumerate(chunks))
+    chunks_text = "\n\n".join(
+        f"[Document {i + 1}]\n{c.text}" for i, c in enumerate(chunks)
+    )
     return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
 
 
@@ -428,7 +430,7 @@ async def _truncate_to_fit(
     return current_data, prompt
 
 
-@step("generate", requires={"llm", "pipeline_config"})
+@step("generate", requires={"llm", "pipeline_config", "tokenizer"})
 async def generate(data: PipelineData) -> PipelineData:
     """Generate response from context using LLM.
 

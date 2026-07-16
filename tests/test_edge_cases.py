@@ -355,11 +355,13 @@ class TestEmptySystemState:
             EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
         )
         reranker = NullReranker(RerankerConfigData())
+        tokenizer = CharFallbackTokenizer(TokenizerConfigData())
         return RAGManager(
             llm=llm,
             vector_store=fresh_store,
             embedder=embedder,
             reranker=reranker,
+            tokenizer=tokenizer,
         )
 
     @pytest.mark.asyncio
@@ -372,8 +374,7 @@ class TestEmptySystemState:
 
     @pytest.mark.asyncio
     async def test_query_empty_store_returns_no_info(self, fresh_rag_manager):
-        """Query on empty store must return graceful no-info response.
-        generate() now requires tokenizer; if present, LLM answers from general knowledge."""
+        """Query on empty store returns response from LLM general knowledge."""
         result = await fresh_rag_manager.query(
             query_text="What is AI?",
             top_k=5,
@@ -381,12 +382,7 @@ class TestEmptySystemState:
         )
         assert result["chunks_used"] == 0
         assert isinstance(result["answer"], str)
-        # With tokenizer: LLM generates a response even without docs.
-        # Without tokenizer: controlled error is recorded gracefully.
-        if result["errors"]:
-            assert any("tokenizer missing" in e.lower() for e in result["errors"])
-        else:
-            assert len(result["answer"]) > 0
+        assert len(result["answer"]) > 0
 
     @pytest.mark.asyncio
     async def test_search_empty_namespace_returns_empty(self, fresh_store):
@@ -556,11 +552,13 @@ class TestUnicodeFullPipeline:
         )
 
         # Query in Cyrillic
+        tokenizer = CharFallbackTokenizer(TokenizerConfigData())
         rag = RAGManager(
             llm=llm,
             vector_store=store,
             embedder=embedder,
             reranker=reranker,
+            tokenizer=tokenizer,
         )
         result = await rag.query(
             query_text="Что такое искусственный интеллект?",
@@ -597,11 +595,13 @@ class TestUnicodeFullPipeline:
             namespace="default",
         )
 
+        tokenizer = CharFallbackTokenizer(TokenizerConfigData())
         rag = RAGManager(
             llm=llm,
             vector_store=store,
             embedder=embedder,
             reranker=reranker,
+            tokenizer=tokenizer,
         )
         result = await rag.query(
             query_text="Tell me about AI 👋",
