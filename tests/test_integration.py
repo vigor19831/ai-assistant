@@ -169,7 +169,7 @@ class TestIntegrationAdapters:
     async def test_reranker_api_real(self):
         """Given: API reranker config.
         When: HTTP endpoint returns scores.
-        Then: chunks reordered by relevance."""
+        Then: all chunks returned rank-only, ordered by relevance."""
         config = RerankerConfigData(
             api_base="https://api.cohere.com",
             api_key="key",
@@ -190,8 +190,9 @@ class TestIntegrationAdapters:
                 },
             )
             results = await reranker.rerank("q", chunks, top_k=5)
-            assert len(results) == 1
+            assert len(results) == 2
             assert results[0].chunk.id == "c1"
+            assert results[1].chunk.id == "c2"
         await reranker.shutdown()
 
     @pytest.mark.asyncio

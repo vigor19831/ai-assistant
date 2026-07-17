@@ -116,6 +116,7 @@ class RAGManager:
         token_margin_pct: float = 0.1,
         tokenizer: ITokenizer | None = None,
         rag_steps: list[str] | None = None,
+        system_message: str | None = None,
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
@@ -143,6 +144,7 @@ class RAGManager:
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
+        self.system_message = system_message
 
     async def query(
         self,
@@ -165,6 +167,7 @@ class RAGManager:
             prompt_version=prompt_version,
             token_margin_min=self.token_margin_min,
             token_margin_pct=self.token_margin_pct,
+            system_message=self.system_message,
         )
         data = PipelineData(
             query=UserMessage(text=query_text),

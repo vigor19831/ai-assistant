@@ -253,17 +253,17 @@ class TestMemoryVectorStore:
         assert results[0].id == "c2"
 
     @pytest.mark.asyncio
-    async def test_skips_wrong_dimension(self, store):
-        await store.add(
-            [
-                Chunk(id="c1", text="wrong", embedding=[1.0, 0.0]),
-                Chunk(id="c2", text="correct", embedding=[1.0, 0.0, 0.0]),
-            ],
-            namespace="test",
-        )
+    async def test_rejects_wrong_dimension_atomically(self, store):
+        with pytest.raises(AdapterError):
+            await store.add(
+                [
+                    Chunk(id="c1", text="wrong", embedding=[1.0, 0.0]),
+                    Chunk(id="c2", text="correct", embedding=[1.0, 0.0, 0.0]),
+                ],
+                namespace="test",
+            )
         results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
-        assert len(results) == 1
-        assert results[0].id == "c2"
+        assert len(results) == 0
 
     @pytest.mark.asyncio
     async def test_index_path_from_config(self):

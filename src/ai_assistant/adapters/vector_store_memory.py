@@ -67,13 +67,20 @@ class MemoryVectorStore(IVectorStore):
             return
         async with self._lock:
             ns = self._get_ns(namespace)
-            valid_added = False
+            # Pre-validate all chunks for atomicity — no partial writes on dim mismatch.
+            valid: list[tuple[Chunk, np.ndarray]] = []
             for chunk in chunks:
                 if chunk.embedding is None:
                     continue
                 emb = np.array(chunk.embedding, dtype=np.float32)
                 if emb.shape[0] != self.dim:
-                    continue
+                    raise AdapterError(
+                        f"Dimension mismatch in memory add: expected {self.dim}, "
+                        f"got {emb.shape[0]} ({chunk.id})"
+                    )
+                valid.append((chunk, emb))
+
+            for chunk, emb in valid:
                 ns.chunks[chunk.id] = chunk
                 ns.embeddings[chunk.id] = self._normalize(emb)
                 meta: dict[str, Any] = {}
@@ -87,8 +94,8 @@ class MemoryVectorStore(IVectorStore):
                 ns.metadata[chunk.id] = meta
                 ns._track(chunk.id)
                 ns._evict()
-                valid_added = True
-            if not valid_added and namespace in self._namespaces and not ns.chunks:
+
+            if not valid and namespace in self._namespaces and not ns.chunks:
                 self._namespaces.pop(namespace, None)
 
     async def search(
@@ -109,6 +116,11 @@ class MemoryVectorStore(IVectorStore):
             if not ns.embeddings:
                 return []
 
+            if len(query_embedding) != self.dim:
+                raise AdapterError(
+                    f"Dimension mismatch in memory search: expected {self.dim}, "
+                    f"got {len(query_embedding)}"
+                )
             q = self._normalize(np.array(query_embedding, dtype=np.float32))
             if np.all(q == 0):
                 return []

@@ -89,7 +89,7 @@ class APIReranker(IReranker):
                 score = float(item["relevance_score"])
             except (KeyError, TypeError, ValueError):
                 continue
-            if 0 <= idx < len(chunks) and score >= self._threshold:
+            if 0 <= idx < len(chunks):
                 results.append(RerankResult(chunk=chunks[idx], score=score))
 
         results.sort(key=lambda r: r.score, reverse=True)

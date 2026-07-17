@@ -23,7 +23,11 @@ from ai_assistant.core.domain.errors import (
     AdapterError,
     ConfigurationError,
 )
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import (
+    AssistantMessage,
+    SystemMessage,
+    UserMessage,
+)
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
@@ -399,6 +403,7 @@ async def _truncate_to_fit(
     query_text: str,
     limit: int,
     tokenizer: ITokenizer,
+    system_message: str | None = None,
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -408,6 +413,8 @@ async def _truncate_to_fit(
         chunks and updated_prompt will reflect the last attempted context.
     """
     prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
+    if system_message:
+        prompt_tokens += await _estimate_tokens(system_message, tokenizer=tokenizer)
     current_data = data
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
@@ -503,6 +510,7 @@ async def generate(data: PipelineData) -> PipelineData:
         data, prompt = await _truncate_to_fit(
             data, prompt, prompt_name, prompt_version, query_text, limit,
             tokenizer=tokenizer,
+            system_message=cfg.system_message,
         )
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
         if prompt_tokens > limit:
@@ -519,7 +527,10 @@ async def generate(data: PipelineData) -> PipelineData:
                 )
             )
 
-    messages: list[Message] = [UserMessage(text=prompt)]
+    messages: list[Message] = []
+    if cfg.system_message:
+        messages.append(SystemMessage(text=cfg.system_message))
+    messages.append(UserMessage(text=prompt))
     response: AssistantMessage | None = None
 
     try:

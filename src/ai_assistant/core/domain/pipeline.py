@@ -52,6 +52,7 @@ class PipelineConfig:
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
     retry: RetryConfig = field(default_factory=RetryConfig)
+    system_message: str | None = None
 
     def __post_init__(self) -> None:
         if self.top_k < 1:
