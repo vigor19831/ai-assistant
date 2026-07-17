@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -71,9 +72,19 @@ async def reload_indices(
 
     for ns in namespaces:
         try:
-            await vector_store.load(index_path, namespace=ns)
+            await asyncio.wait_for(
+                vector_store.load(index_path, namespace=ns),
+                timeout=10.0,
+            )
             reloaded += 1
             _admin_logger.info("Reloaded index", extra={"namespace": ns})
+        except TimeoutError:
+            skipped += 1
+            errors.append(f"{ns}: timeout")
+            _admin_logger.error(
+                "Index reload timed out",
+                extra={"namespace": ns},
+            )
         except Exception as exc:
             skipped += 1
             errors.append(f"{ns}: {exc}")

@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from typing import Protocol
 
 __all__ = ["build_prefix_map", "parse_rag_query"]
+
+
+class _HasPrefix(Protocol):
+    prefix: str | None
 
 
 def parse_rag_query(text: str, prefix_map: dict[str, str]) -> tuple[str, str | None]:
@@ -39,11 +44,11 @@ def parse_rag_query(text: str, prefix_map: dict[str, str]) -> tuple[str, str | N
     return (clean, namespace)
 
 
-def build_prefix_map(namespaces: Mapping[str, object]) -> dict[str, str]:
+def build_prefix_map(namespaces: Mapping[str, _HasPrefix]) -> dict[str, str]:
     """Build prefix -> namespace mapping from NamespaceConfig dict."""
     result: dict[str, str] = {}
     for ns_name, cfg in namespaces.items():
-        prefix = getattr(cfg, "prefix", None)
+        prefix = cfg.prefix
         if prefix and len(prefix) >= 1:
             result[prefix.lower()] = ns_name
     return result

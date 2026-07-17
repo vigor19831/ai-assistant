@@ -128,7 +128,18 @@ async def index_documents(
     index_path = state.config.vector_store.index_path
     if index_path:
         try:
-            await state.vector_store.save(index_path, namespace=namespace)
+            await asyncio.wait_for(
+                state.vector_store.save(index_path, namespace=namespace),
+                timeout=10.0,
+            )
+        except TimeoutError:
+            _logger.warning(
+                "Auto-save timed out",
+                extra={"trace_id": trace_id, "namespace": namespace},
+            )
+            raise HTTPException(
+                status_code=503, detail="Index save timed out"
+            ) from None
         except Exception:
             _logger.exception(
                 "Auto-save failed",
