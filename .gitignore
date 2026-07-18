@@ -33,6 +33,7 @@ tests/.pytest_cache/
 .test_tmp/
 .pytest_tmp/
 .hypothesis/
+.pytest_temp/
 
 # Type checking / linting
 .mypy_cache/
