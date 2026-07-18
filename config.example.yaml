@@ -62,7 +62,7 @@ embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: CHANGE_ME                    # e.g., all-MiniLM-L6-v2, nomic-embed-text
+  model: CHANGE_ME
   dim: 768
   timeout: 60.0
   connect_timeout: 5.0
@@ -82,7 +82,7 @@ llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
   api_key: null
-  model: CHANGE_ME                  # e.g., gemma-4-e2b-it, qwen3-4b, llama-3.2-3b
+  model: CHANGE_ME
   available_models:
     - CHANGE_ME
   max_tokens: 4096
@@ -97,7 +97,7 @@ llm:
   timeout: 300.0
   connect_timeout: 5.0
   server_context_size: 4096
-  n_gpu_layers: -1                  # -1 = all layers on GPU, 0 = CPU only
+  n_gpu_layers: -1
   n_batch: 512
   n_ubatch: 64
   mmap: true
@@ -132,8 +132,8 @@ storage:
 # "local" = local HTTP server (bge-reranker, etc.).
 
 reranker:
-  provider: null                  # CHANGE TO: local, api
-  model: null                      # e.g., bge-reranker-v2-m3
+  provider: null
+  model: null
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
@@ -165,12 +165,12 @@ rag:
     - build_context
     - generate
   prompt_version: v1
-  prompt_name: rag_simple          # Use rag_simple for 2-4B models
-  top_k: 5
+  prompt_name: rag_strict
+  top_k: 3
   default_namespace: "test"
-  threshold: 0.1
-  token_margin_min: 256
-  token_margin_pct: 0.1
+  threshold: 0.2
+  token_margin_min: 512
+  token_margin_pct: 0.15
 
   sources:
     - namespace: test
@@ -194,14 +194,14 @@ rag:
 # prefix = short code for chat: [t] hello → searches in test.
 # threshold = minimum relevance.
 # chunk_size = chunk size (can differ from global chunker).
-# prompt = response style: rag_simple (2-4B), rag_default (4-8B), rag_strict (8B+).
+# prompt = response style: rag_strict (exact).
 
 namespaces:
   test:
     prefix: t
-    threshold: 0.1
+    threshold: 0.2
     chunk_size: 512
-    prompt: rag_simple
+    prompt: rag_strict
 
 # =============================================================================
 # SECURITY

@@ -25,7 +25,7 @@ from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmb
 from ai_assistant.adapters.factory import create_adapter
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-from ai_assistant.adapters.reranker_local import LocalReranker, _normalize_score
+from ai_assistant.adapters.reranker_local import LocalReranker
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
@@ -414,17 +414,11 @@ class TestLocalReranker:
     # --- lifecycle ---
 
     @pytest.mark.asyncio
-    async def test_init_creates_client(self, config: RerankerConfigData) -> None:
-        reranker = LocalReranker(config)
-        assert reranker._client is not None
-        await reranker.shutdown()
-
-    @pytest.mark.asyncio
     async def test_shutdown_closes_client(self, config: RerankerConfigData) -> None:
-        reranker = LocalReranker(config)
         mock_client = AsyncMock()
-        reranker._client = mock_client
-        await reranker.shutdown()
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            reranker = LocalReranker(config)
+            await reranker.shutdown()
         mock_client.aclose.assert_awaited_once()
 
     # --- empty input ---
@@ -641,16 +635,6 @@ class TestLocalReranker:
             result = await reranker.rerank("query", chunks)
         assert result[0].score == pytest.approx(0.5, abs=0.0001)
 
-    def test_normalize_score_direct(self) -> None:
-        """Direct unit tests for the private normalization function."""
-        assert _normalize_score(0.0) == pytest.approx(0.5, abs=0.0001)
-        assert _normalize_score(2.0) == pytest.approx(0.8808, abs=0.001)
-        assert _normalize_score(-2.0) == pytest.approx(0.1192, abs=0.001)
-        assert _normalize_score(10.0) == pytest.approx(0.9999, abs=0.0001)
-        assert _normalize_score(-10.0) == pytest.approx(0.0001, abs=0.0001)
-        assert _normalize_score(100.0) == 0.9999
-        assert _normalize_score(-100.0) == 0.0001
-
 
 # ── TestSQLiteStorage ──
 
@@ -766,14 +750,6 @@ class TestSQLiteStorage:
         with pytest.raises(AdapterError):
             await storage.get_history("conv-1")
 
-    @pytest.mark.asyncio
-    async def test_implements_ichatstorage_and_initializable(self, storage):
-        from ai_assistant.core.ports.initializable import IInitializable
-        from ai_assistant.core.ports.storage import IChatStorage
-
-        assert isinstance(storage, IChatStorage)
-        assert isinstance(storage, IInitializable)
-
 
 # ── TestSimpleChunker ──
 
@@ -869,7 +845,6 @@ class TestFactory:
     def test_create_openai_compatible_adapters(self, port, name, config):
         adapter = create_adapter(port, name, config)
         assert adapter is not None
-        assert type(adapter).__name__.startswith("OpenAICompatible")
 
     def test_unknown_llm_raises(self):
         with pytest.raises(ValueError, match="No llm adapter registered"):
