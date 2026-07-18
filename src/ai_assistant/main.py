@@ -78,10 +78,6 @@ def create_app(
     for router in assemble_routers(security=security):
         app.include_router(router)
 
-    @app.get("/health")
-    async def health_check() -> dict[str, str]:
-        return {"status": "ok"}
-
     @app.get("/info", response_model=_InfoResponse)
     async def get_info(
         state: Annotated[InitializedAppState, Depends(get_state)],

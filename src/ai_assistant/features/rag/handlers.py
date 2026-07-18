@@ -384,7 +384,7 @@ async def save_chat(
         raise HTTPException(status_code=400, detail="Invalid namespace")
 
     await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
-    file_path = (folder / filename).resolve()
+    file_path = await asyncio.to_thread((folder / filename).resolve)
     if not file_path.is_relative_to(folder_resolved):
         _logger.warning(
             "Path traversal detected in save-chat",

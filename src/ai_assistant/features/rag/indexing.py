@@ -23,7 +23,7 @@ def _read_file_sync(path: Path) -> str:
     for enc in encodings:
         try:
             return path.read_text(encoding=enc)
-        except (UnicodeDecodeError, LookupError):
+        except (UnicodeDecodeError, LookupError, OSError):
             continue
     return ""
 
