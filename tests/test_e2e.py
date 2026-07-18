@@ -18,6 +18,9 @@ from starlette.testclient import TestClient
 from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
+from ai_assistant.features.chat.handlers import get_chat_manager
+from ai_assistant.main import create_app
+from ai_assistant.api.security import set_api_key
 
 
 # ── Health & Info ──
@@ -90,9 +93,6 @@ class TestE2EChat:
         """Given: ChatManager.chat raises AdapterError.
         When: POST /api/v1/chat.
         Then: returns 503 Service Unavailable."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
-        from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
 
         # Create a mock ChatManager that raises AdapterError
         mock_mgr = MagicMock()
@@ -101,7 +101,7 @@ class TestE2EChat:
         # Build app with dependency override
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(
@@ -115,7 +115,6 @@ class TestE2EChat:
         """Given: ChatManager.chat raises generic Exception.
         When: POST /api/v1/chat.
         Then: handler catches it and returns 500."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
@@ -124,7 +123,7 @@ class TestE2EChat:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(
             app,
@@ -162,7 +161,7 @@ class TestE2EStream:
         """Given: handler generates trace_id for each request.
         When: POST /api/v1/chat/stream.
         Then: trace_id is passed to chat_manager via metadata."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
         from ai_assistant.core.domain.messages import AssistantMessage
@@ -178,7 +177,7 @@ class TestE2EStream:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(
@@ -192,7 +191,7 @@ class TestE2EStream:
         """Given: ChatManager.stream_chat raises AdapterError.
         When: POST /api/v1/chat/stream.
         Then: returns SSE stream with error payload and [DONE] sentinel."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
@@ -205,7 +204,7 @@ class TestE2EStream:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(
@@ -221,7 +220,7 @@ class TestE2EStream:
         """Given: ChatManager.stream_chat raises generic Exception.
         When: POST /api/v1/chat/stream.
         Then: returns SSE stream with error payload and [DONE] sentinel."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
@@ -234,7 +233,7 @@ class TestE2EStream:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(
@@ -250,7 +249,7 @@ class TestE2EStream:
         """Given: server is producing an SSE stream.
         When: client disconnects after reading a few chunks.
         Then: handler does not crash; cancellation is handled gracefully."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
@@ -265,7 +264,7 @@ class TestE2EStream:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         with test_client.stream(
@@ -286,7 +285,7 @@ class TestE2EStream:
         """Given: stream raises exception containing quotes and newlines.
         When: POST /api/v1/chat/stream.
         Then: SSE error payload is valid JSON without injection."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
@@ -299,7 +298,7 @@ class TestE2EStream:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(
@@ -371,7 +370,7 @@ class TestE2EOpenAICompat:
         """Given: ChatManager.chat raises AdapterError in OAI endpoint.
         When: POST /v1/chat/completions.
         Then: returns 503 Service Unavailable."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
 
@@ -380,7 +379,7 @@ class TestE2EOpenAICompat:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(
@@ -413,7 +412,7 @@ class TestE2EOpenAICompat:
         """Given: OpenAI handler generates trace_id.
         When: POST /v1/chat/completions (non-streaming).
         Then: trace_id is propagated to chat_manager metadata."""
-        from ai_assistant.features.chat.handlers import _get_chat_manager
+        from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
         from ai_assistant.core.domain.messages import AssistantMessage
@@ -429,7 +428,7 @@ class TestE2EOpenAICompat:
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
-        app.dependency_overrides[_get_chat_manager] = lambda: mock_mgr
+        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
 
         test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
         resp = test_client.post(

@@ -38,6 +38,7 @@ from ai_assistant.features.rag.handlers import (
 )
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
+from ai_assistant.core.config import CHAT_NS_PREFIX, NamespaceConfig, get_chat_namespace
 from ai_assistant.features.rag.schemas import (
     DeleteRequest,
     IndexRequest,
@@ -508,32 +509,28 @@ class TestRAGIndexing:
 
 
 class TestChatNamespaceHelper:
-    """Unit tests for _get_chat_namespace helper."""
+    """Unit tests for get_chat_namespacehelper."""
 
     def test_get_chat_namespace_basic(self):
         """Given: base namespace 'test'.
         Then: returns 'chat_test'."""
-        from ai_assistant.core.config import _get_chat_namespace
-        assert _get_chat_namespace("test") == "chat_test"
+        assert get_chat_namespace("test") == "chat_test"
 
     def test_get_chat_namespace_alt(self):
         """Given: base namespace 'test-alt'.
         Then: returns 'chat_test-alt'."""
-        from ai_assistant.core.config import _get_chat_namespace
-        assert _get_chat_namespace("test-alt") == "chat_test-alt"
+        assert get_chat_namespace("test-alt") == "chat_test-alt"
 
     def test_get_chat_namespace_rejects_reserved_prefix(self):
         """Given: base namespace already starts with 'chat_'.
         Then: raises ValueError."""
-        from ai_assistant.core.config import _get_chat_namespace
         with pytest.raises(ValueError) as exc_info:
-            _get_chat_namespace("chat_test")
+            get_chat_namespace("chat_test")
         assert "reserved prefix" in str(exc_info.value).lower()
 
     def test_chat_ns_prefix_constant(self):
         """Given: CHAT_NS_PREFIX constant.
         Then: equals 'chat_'."""
-        from ai_assistant.core.config import CHAT_NS_PREFIX
         assert CHAT_NS_PREFIX == "chat_"
 
 
@@ -874,7 +871,6 @@ class TestQueryPrefixParsing:
 
     def _setup_prefixes(self, mock_state) -> None:
         """Configure test namespaces with prefixes for deterministic tests."""
-        from ai_assistant.core.config import NamespaceConfig
         mock_state.config.namespaces = {
             "test": NamespaceConfig(prefix="t", threshold=0.1, chunk_size=512, prompt="rag_strict"),
             "test-alt": NamespaceConfig(prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_creative"),

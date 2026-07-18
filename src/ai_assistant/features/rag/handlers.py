@@ -16,7 +16,7 @@ from ai_assistant.api.deps import (
     get_chunker_for_config,
     get_state,
 )
-from ai_assistant.core.config import _get_chat_namespace
+from ai_assistant.core.config import get_chat_namespace
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -419,7 +419,7 @@ async def save_chat(
     existing_namespaces = await state.vector_store.list_namespaces(
         state.config.vector_store.index_path
     )
-    chat_namespace = _get_chat_namespace(namespace)
+    chat_namespace = get_chat_namespace(namespace)
     if chat_namespace in existing_namespaces:
         # Check if namespace already has any chunks (regardless of type)
         any_chunks = await state.vector_store.list_by_filter(
@@ -529,7 +529,7 @@ async def reindex_documents(
                 # If clearing, also clear associated chat namespaces
                 if clear:
                     if folder is not None:
-                        chat_namespaces = [_get_chat_namespace(folder)]
+                        chat_namespaces = [get_chat_namespace(folder)]
                     else:
                         # Clear chat namespaces for ALL existing namespaces
                         try:
@@ -539,7 +539,7 @@ async def reindex_documents(
                         except Exception:
                             all_namespaces = []
                         chat_namespaces = [
-                            _get_chat_namespace(ns)
+                            get_chat_namespace(ns)
                             for ns in all_namespaces
                             if not ns.startswith("chat_")
                         ]

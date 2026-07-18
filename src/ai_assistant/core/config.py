@@ -19,7 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from ai_assistant.core.constants import CHAT_NS_PREFIX
 
 
-def _get_chat_namespace(base_namespace: str) -> str:
+def get_chat_namespace(base_namespace: str) -> str:
     """Derive isolated chat namespace from base namespace.
 
     Guarantees no collision with user-created namespaces by reserving
@@ -43,7 +43,7 @@ __all__ = [
     "LLMConfig",
     "load_config",
     "CHAT_NS_PREFIX",
-    "_get_chat_namespace",
+    "get_chat_namespace",
     "NamespaceConfig",
     "RAGConfig",
     "RerankerConfig",

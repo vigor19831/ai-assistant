@@ -28,7 +28,7 @@ from ai_assistant.features.rag import handlers as rag_handlers
 __all__ = ["assemble_routers"]
 
 # Tags for routers that stay at root (no /api/v1 prefix).
-_ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics", "admin"})
+ROOT_TAGS: frozenset[str] = frozenset({"chat-oai", "metrics", "admin"})
 
 # Metrics router — no API key, Prometheus-compatible exposition format
 _metrics_router = APIRouter(tags=["metrics"])
@@ -73,8 +73,8 @@ async def _metrics_json_endpoint() -> dict[str, Any]:
 
 # Explicit router registry — missing handlers fail immediately at import time.
 # WARNING: When adding a root router (no /api/v1 prefix), add its tag to
-# _ROOT_TAGS above or it will be prefixed with /api/v1 automatically.
-_ROUTERS: list[APIRouter] = [
+# ROOT_TAGS above or it will be prefixed with /api/v1 automatically.
+ROUTERS: list[APIRouter] = [
     _metrics_router,
     admin.router,
     chat_handlers.router,
@@ -90,7 +90,7 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
         security: Security configuration. If *openai_routes_require_auth* is True,
             OpenAI-compatible routes (chat-oai) will require API key auth.
     """
-    routers = list(_ROUTERS)
+    routers = list(ROUTERS)
 
     # Determine which root-tagged routers require protection
     protected_root_tags: set[str] = {"admin"}
@@ -108,7 +108,7 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
 
     wrapped: list[APIRouter] = []
     for router in routers:
-        is_root = any(tag in _ROOT_TAGS for tag in router.tags)
+        is_root = any(tag in ROOT_TAGS for tag in router.tags)
         is_always_unprotected = any(
             tag in always_unprotected for tag in router.tags
         )

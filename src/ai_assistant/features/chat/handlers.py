@@ -43,7 +43,7 @@ def _raise_llm_unavailable(exc: AdapterError) -> None:
     ) from exc
 
 
-def _get_chat_manager(
+def get_chat_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> ChatManager:
     """Create ChatManager from state adapters — pipeline is built internally."""
@@ -128,7 +128,7 @@ async def _stream_with_heartbeat(
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    manager: Annotated[ChatManager, Depends(_get_chat_manager)],
+    manager: Annotated[ChatManager, Depends(get_chat_manager)],
 ) -> ChatResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -167,7 +167,7 @@ async def chat(
 @router.post("/chat/stream", response_model=None)
 async def chat_stream(
     req: ChatRequest,
-    manager: Annotated[ChatManager, Depends(_get_chat_manager)],
+    manager: Annotated[ChatManager, Depends(get_chat_manager)],
 ) -> StreamingResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -231,7 +231,7 @@ async def list_models(
 @router_oai.post("/v1/chat/completions", response_model=None)
 async def openai_chat_completions(
     req: OAIChatCompletionRequest,
-    manager: Annotated[ChatManager, Depends(_get_chat_manager)],
+    manager: Annotated[ChatManager, Depends(get_chat_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
     last_user_msg = ""

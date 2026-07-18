@@ -306,7 +306,6 @@ class TestIntegrationNamespaceIsolation:
         """Given: chunks in 'test' and 'test-alt' with same embedding.
         When: query targets 'test' via prefix.
         Then: only test chunks returned; test-alt chunks isolated."""
-        embedder = MockEmbedder(EmbedderConfigData(dim=3))
         vector_store = MemoryVectorStore(VectorStoreConfigData(dim=3))
 
         await vector_store.add([
@@ -335,7 +334,6 @@ class TestIntegrationNamespaceIsolation:
         alt_ids = {c.id for c in results_alt}
         assert not test_ids & alt_ids
 
-        await embedder.shutdown()
         await vector_store.shutdown()
 
 
@@ -609,8 +607,7 @@ class TestIntegrationAPIInit:
             await state.tokenizer.shutdown()
             await state.chunker.shutdown()
 
-    @pytest.mark.asyncio
-    async def test_chunk_metadata_original_path_backward_compat(self):
+    def test_chunk_metadata_original_path_backward_compat(self):
         """Given: ChunkMetadata without original_path (old data).
         When: instantiated and serialized.
         Then: defaults to None, does not break pipeline."""

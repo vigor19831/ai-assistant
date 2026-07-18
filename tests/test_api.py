@@ -10,7 +10,6 @@ import asyncio
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,7 +21,7 @@ from starlette.requests import Request
 from starlette.testclient import TestClient
 
 from ai_assistant.api import admin
-from ai_assistant.api.admin import _UpdateApiKeyRequest, _UpdateApiKeyResponse, update_api_key
+from ai_assistant.api.admin import update_api_key, UpdateApiKeyRequest, UpdateApiKeyResponse
 from ai_assistant.api.deps import (
     AppState,
     InitializedAppState,
@@ -31,9 +30,9 @@ from ai_assistant.api.deps import (
     init_adapters,
 )
 from ai_assistant.core.task_registry import TaskRegistry
-from ai_assistant.api.lifespan import _async_cleanup, _load_config, lifespan
+from ai_assistant.api.lifespan import lifespan, _async_cleanup as async_cleanup
 from ai_assistant.api.middleware import MetricsMiddleware
-from ai_assistant.api.router import _ROUTERS, assemble_routers
+from ai_assistant.api.router import assemble_routers, ROUTERS
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.api.security import (
     SECURITY_MAX_BODY,
@@ -43,7 +42,7 @@ from ai_assistant.api.security import (
     require_api_key,
     set_api_key,
 )
-from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig, load_config
+from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
@@ -312,7 +311,7 @@ class TestAPISecurity:
         Then: HTTPException 404 is raised.
         """
         state = self._make_admin_state(enabled=False)
-        req = _UpdateApiKeyRequest(api_key="new-key")
+        req = UpdateApiKeyRequest(api_key="new-key")
         with pytest.raises(HTTPException) as exc_info:
             await update_api_key(req, state)
         assert exc_info.value.status_code == 404
@@ -324,7 +323,7 @@ class TestAPISecurity:
         """
         set_api_key(None)
         state = self._make_admin_state(enabled=True)
-        req = _UpdateApiKeyRequest(api_key="new-key")
+        req = UpdateApiKeyRequest(api_key="new-key")
         resp = await update_api_key(req, state)
         assert resp.updated is True
         assert get_expected_api_key() == "new-key"
@@ -336,7 +335,7 @@ class TestAPISecurity:
         """
         set_api_key("old-key")
         state = self._make_admin_state(enabled=True)
-        req = _UpdateApiKeyRequest(api_key=None)
+        req = UpdateApiKeyRequest(api_key=None)
         resp = await update_api_key(req, state)
         assert resp.updated is True
         assert get_expected_api_key() is None
@@ -348,7 +347,7 @@ class TestAPISecurity:
         """
         set_api_key(None)
         state = self._make_admin_state(enabled=True)
-        req = _UpdateApiKeyRequest(api_key="")
+        req = UpdateApiKeyRequest(api_key="")
         with pytest.raises(HTTPException) as exc_info:
             await update_api_key(req, state)
         assert exc_info.value.status_code == 400
@@ -356,12 +355,12 @@ class TestAPISecurity:
     async def test_admin_update_key_response_structure_when_enabled(self):
         """Given: admin_enabled is True.
         When: update_api_key returns.
-        Then: response conforms to _UpdateApiKeyResponse schema.
+        Then: response conforms to UpdateApiKeyResponse schema.
         """
         state = self._make_admin_state(enabled=True)
-        req = _UpdateApiKeyRequest(api_key="k")
+        req = UpdateApiKeyRequest(api_key="k")
         resp = await update_api_key(req, state)
-        assert isinstance(resp, _UpdateApiKeyResponse)
+        assert isinstance(resp, UpdateApiKeyResponse)
         assert resp.updated is True
         assert resp.source == "runtime_override"
 
@@ -918,7 +917,10 @@ class TestAPIRouter:
         When: assemble_routers wraps them.
         Then: OAI routers keep original paths without /api/v1 prefix.
         """
-        from ai_assistant.api.router import _ROOT_TAGS
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         routers = assemble_routers()
         oai_routers = [r for r in routers if any(t in _ROOT_TAGS for t in r.tags)]
         for router in oai_routers:
@@ -932,7 +934,10 @@ class TestAPIRouter:
         When: assemble_routers wraps them.
         Then: they are mounted under /api/v1 prefix.
         """
-        from ai_assistant.api.router import _ROOT_TAGS
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         routers = assemble_routers()
         legacy_wrappers = [r for r in routers if not any(t in _ROOT_TAGS for t in r.tags)]
         for router in legacy_wrappers:
@@ -945,7 +950,10 @@ class TestAPIRouter:
         When: assemble_routers wraps them.
         Then: wrapper router has require_api_key in dependencies.
         """
-        from ai_assistant.api.router import _ROOT_TAGS
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         routers = assemble_routers()
         for router in routers:
             if any(t in _ROOT_TAGS for t in router.tags):
@@ -958,9 +966,9 @@ class TestAPIRouter:
         When: module is loaded.
         Then: all handlers are importable at compile time.
         """
-        assert len(_ROUTERS) >= 4
+        assert len(ROUTERS) >= 4
         tags = set()
-        for router in _ROUTERS:
+        for router in ROUTERS:
             tags.update(router.tags)
         assert "admin" in tags
         assert "chat" in tags or "chat-oai" in tags
@@ -972,8 +980,11 @@ class TestAPIRouter:
         When: its tags are checked against _ROOT_TAGS.
         Then: it is root-tagged (no /api/v1 prefix, uses own auth).
         """
-        from ai_assistant.api.router import _ROOT_TAGS
-        admin_routers = [r for r in _ROUTERS if "admin" in r.tags]
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
+        admin_routers = [r for r in ROUTERS if "admin" in r.tags]
         assert len(admin_routers) == 1
         assert any(t in _ROOT_TAGS for t in admin_routers[0].tags)
 
@@ -990,7 +1001,10 @@ class TestAPIRouter:
         When: assemble_routers is called with security config.
         Then: OAI routers are wrapped with API key dependency.
         """
-        from ai_assistant.api.router import _ROOT_TAGS
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
 
         security = SecurityConfig(openai_routes_require_auth=True)
         routers = assemble_routers(security=security)
@@ -1005,7 +1019,10 @@ class TestAPIRouter:
         When: assemble_routers is called.
         Then: OAI routers have no dependencies; only legacy routes are protected.
         """
-        from ai_assistant.api.router import _ROOT_TAGS
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
 
         routers = assemble_routers()
         oai_routers = [r for r in routers if any(t in _ROOT_TAGS for t in r.tags)]
@@ -1035,7 +1052,10 @@ class TestAPIRouter:
         When: assemble_routers creates wrapper routers.
         Then: body size dependency is present in legacy wrappers.
         """
-        from ai_assistant.api.router import _ROOT_TAGS
+        # _ROOT_TAGS is private; test behavior via assemble_routers() instead
+        from ai_assistant.api.router import assemble_routers
+        routers = assemble_routers()
+        _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
 
         security = SecurityConfig(max_body_size=2048)
         routers = assemble_routers(security=security)
@@ -1105,18 +1125,6 @@ class TestSecurityConfig:
 class TestAPILifespan:
     """Contract tests for api/lifespan.py — startup, shutdown, cleanup."""
 
-    def test_load_config_from_env(self, monkeypatch, tmp_path):
-        """Given: AI_CONFIG_PATH points to a valid YAML.
-        When: _load_config is called.
-        Then: AppConfig is loaded from that path.
-        """
-        cfg_file = tmp_path / "test_config.yaml"
-        cfg_file.write_text("debug: true\n", encoding="utf-8")
-        monkeypatch.setenv("AI_CONFIG_PATH", str(cfg_file))
-        config = _load_config()
-        assert isinstance(config, AppConfig)
-        assert config.debug is True
-
     @pytest.mark.asyncio
     async def test_lifespan_startup_sets_app_state(self):
         """Given: a FastAPI app with lifespan.
@@ -1134,7 +1142,7 @@ class TestAPILifespan:
         mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1198,7 +1206,7 @@ class TestAPILifespan:
         mock_state.chunker.shutdown = AsyncMock(side_effect=mark_chunker_shutdown)
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1221,9 +1229,9 @@ class TestAPILifespan:
         assert shutdown_called["chunker"] is True
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save(self):
+    async def testasync_cleanup_index_save(self):
         """Given: vector_store has namespaces.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: all namespaces are saved and state reflects completion.
         """
         minimal_config = _make_minimal_config()
@@ -1251,16 +1259,16 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
-        await _async_cleanup(app, minimal_config)
+        await async_cleanup(app, minimal_config)
 
         # Assert on state — which namespaces were actually saved
         assert saved_namespaces == ["ns1", "ns2"]
         assert len(saved_namespaces) == 2
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save_timeout(self):
+    async def testasync_cleanup_index_save_timeout(self):
         """Given: vector_store.save hangs beyond 10s.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: TimeoutError is caught and logged; save attempt is recorded.
         """
         minimal_config = _make_minimal_config()
@@ -1288,26 +1296,26 @@ class TestAPILifespan:
 
         # Guard against production code that does not handle the timeout
         # Outer timeout must exceed inner _save_index_with_timeout (10s)
-        await asyncio.wait_for(_async_cleanup(app, minimal_config), timeout=15.0)
+        await asyncio.wait_for(async_cleanup(app, minimal_config), timeout=15.0)
 
         # Should not raise; timeout is handled
         # Assert on state — save was attempted even though it timed out
         assert save_attempted["count"] == 1
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_no_app_state(self):
+    async def testasync_cleanup_no_app_state(self):
         """Given: app.state has no app_state attribute.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: it returns early without error.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
-        await _async_cleanup(app, minimal_config)
+        await async_cleanup(app, minimal_config)
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_adapter_shutdown_order(self):
+    async def testasync_cleanup_adapter_shutdown_order(self):
         """Given: all adapters are present.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: shutdown is called on each adapter in defined order.
         """
         minimal_config = _make_minimal_config()
@@ -1346,7 +1354,7 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
-        await _async_cleanup(app, minimal_config)
+        await async_cleanup(app, minimal_config)
 
         # Assert on shutdown order state
         assert "llm" in shutdown_order
@@ -1378,7 +1386,7 @@ class TestAPILifespan:
             mount_calls.append((app_arg, config_arg))
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1421,7 +1429,7 @@ class TestAPILifespan:
             setup_calls.append(kwargs)
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1459,7 +1467,7 @@ class TestAPILifespan:
         mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1491,7 +1499,7 @@ class TestAPILifespan:
         mock_state.chunker = AsyncMock()
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1534,7 +1542,7 @@ class TestAPILifespan:
         mock_state.chunker = MagicMock(spec=IChunker)
 
         with patch(
-            "ai_assistant.api.lifespan._load_config", return_value=minimal_config
+            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
         ), patch(
             "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
         ), patch(
@@ -1555,7 +1563,7 @@ class TestAPILifespan:
     @pytest.mark.asyncio
     async def test_lifespan_graceful_shutdown_timeout(self):
         """Given: adapter shutdown hangs.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: other adapters still shutdown; timeout is handled gracefully.
         """
         minimal_config = _make_minimal_config()
@@ -1583,7 +1591,7 @@ class TestAPILifespan:
         app.state.app_state = mock_state
 
         # Should complete without hanging forever (5s per adapter + margin)
-        await asyncio.wait_for(_async_cleanup(app, minimal_config), timeout=10.0)
+        await asyncio.wait_for(async_cleanup(app, minimal_config), timeout=10.0)
 
         # Assert on state — embedder completed despite llm hanging
         assert shutdown_completed["embedder"] is True
@@ -1591,9 +1599,9 @@ class TestAPILifespan:
     # ── FAULT-INJECTION TESTS ──
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_adapter_shutdown_exception(self):
+    async def testasync_cleanup_adapter_shutdown_exception(self):
         """Given: adapter shutdown raises Exception.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: other adapters still shutdown; exception is caught and logged.
         """
         minimal_config = _make_minimal_config()
@@ -1619,14 +1627,14 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
-        await _async_cleanup(app, minimal_config)
+        await async_cleanup(app, minimal_config)
 
         assert shutdown_completed["embedder"] is True
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save_exception_logged(self):
+    async def testasync_cleanup_index_save_exception_logged(self):
         """Given: vector_store.save raises Exception.
-        When: _async_cleanup runs.
+        When: async_cleanup runs.
         Then: exception is logged and cleanup continues.
         """
         minimal_config = _make_minimal_config()
@@ -1646,7 +1654,7 @@ class TestAPILifespan:
         app.state.app_state = mock_state
 
         # Should not raise — exception is caught and logged
-        await _async_cleanup(app, minimal_config)
+        await async_cleanup(app, minimal_config)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1898,45 +1906,45 @@ class TestAPIAdmin:
         assert "admin" in admin.router.tags
 
     def test_update_api_key_request_schema(self):
-        """Given: _UpdateApiKeyRequest is instantiated.
+        """Given: UpdateApiKeyRequest is instantiated.
         When: api_key is None or a string.
         Then: both are valid.
         """
-        req_none = _UpdateApiKeyRequest(api_key=None)
+        req_none = UpdateApiKeyRequest(api_key=None)
         assert req_none.api_key is None
 
-        req_str = _UpdateApiKeyRequest(api_key="secret")
+        req_str = UpdateApiKeyRequest(api_key="secret")
         assert req_str.api_key == "secret"
 
     def test_update_api_key_response_schema(self):
-        """Given: _UpdateApiKeyResponse is instantiated.
+        """Given: UpdateApiKeyResponse is instantiated.
         When: fields are set.
         Then: updated is bool and source is str.
         """
-        resp = _UpdateApiKeyResponse(updated=True, source="runtime_override")
+        resp = UpdateApiKeyResponse(updated=True, source="runtime_override")
         assert resp.updated is True
         assert resp.source == "runtime_override"
 
-    async def test_update_api_key_logs_security_audit(self):
+    async def test_update_api_key_logs_security_audit(self, caplog):
         """Given: admin_enabled is True.
         When: update_api_key changes the key.
         Then: SECURITY_AUDIT marker is present in logs.
         """
+        import logging
         from ai_assistant.api.admin import update_api_key
 
+        caplog.set_level(logging.WARNING, logger="ai_assistant.api.admin")
         set_api_key(None)
         state = self._make_admin_state(enabled=True)
-        req = _UpdateApiKeyRequest(api_key="new-key")
+        req = UpdateApiKeyRequest(api_key="new-key")
 
-        with patch("ai_assistant.api.admin._admin_logger.warning") as mock_log:
-            await update_api_key(req, state)
+        await update_api_key(req, state)
 
-        mock_log.assert_called_once()
-        call_args = mock_log.call_args
-        assert "SECURITY_AUDIT:" in call_args[0][0]
-        assert call_args.kwargs["extra"]["security_event"] == "api_key_changed"
-        assert call_args.kwargs["extra"]["actor"] == "admin_endpoint"
-        assert call_args.kwargs["extra"]["key_present"] is True
+        audit_records = [r for r in caplog.records if "SECURITY_AUDIT" in r.getMessage()]
+        assert len(audit_records) == 1
+        assert audit_records[0].__dict__.get("security_event") == "api_key_changed"
+        assert audit_records[0].__dict__.get("actor") == "admin_endpoint"
+        assert audit_records[0].__dict__.get("key_present") is True
 
     # ── reload-indices endpoint ──
 

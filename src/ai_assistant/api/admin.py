@@ -12,7 +12,7 @@ from ai_assistant.api.deps import AppState, get_state
 from ai_assistant.api.security import require_api_key, set_api_key
 from ai_assistant.core.logger import get_logger
 
-_admin_logger = get_logger("admin")
+admin_logger = get_logger("admin")
 
 __all__ = ["router"]
 
@@ -28,11 +28,11 @@ class _CurrentModelResponse(BaseModel):
     provider: str
 
 
-class _UpdateApiKeyRequest(BaseModel):
+class UpdateApiKeyRequest(BaseModel):
     api_key: str | None = None
 
 
-class _UpdateApiKeyResponse(BaseModel):
+class UpdateApiKeyResponse(BaseModel):
     updated: bool
     source: str
 
@@ -67,7 +67,7 @@ async def reload_indices(
     try:
         namespaces = await vector_store.list_namespaces(index_path)
     except Exception as exc:
-        _admin_logger.exception("Failed to list namespaces for reload")
+        admin_logger.exception("Failed to list namespaces for reload")
         raise HTTPException(status_code=500, detail=f"Failed to list namespaces: {exc}") from exc
 
     for ns in namespaces:
@@ -77,18 +77,18 @@ async def reload_indices(
                 timeout=10.0,
             )
             reloaded += 1
-            _admin_logger.info("Reloaded index", extra={"namespace": ns})
+            admin_logger.info("Reloaded index", extra={"namespace": ns})
         except TimeoutError:
             skipped += 1
             errors.append(f"{ns}: timeout")
-            _admin_logger.error(
+            admin_logger.error(
                 "Index reload timed out",
                 extra={"namespace": ns},
             )
         except Exception as exc:
             skipped += 1
             errors.append(f"{ns}: {exc}")
-            _admin_logger.error(
+            admin_logger.error(
                 "Index reload failed",
                 extra={"namespace": ns, "error": str(exc)},
             )
@@ -113,18 +113,18 @@ async def get_current_model(
     )
 
 
-@router.post("/api-key", response_model=_UpdateApiKeyResponse)
+@router.post("/api-key", response_model=UpdateApiKeyResponse)
 async def update_api_key(
-    req: _UpdateApiKeyRequest,
+    req: UpdateApiKeyRequest,
     state: Annotated[AppState, Depends(get_state)],
-) -> _UpdateApiKeyResponse:
+) -> UpdateApiKeyResponse:
     if not state.config.security.admin_enabled:
         raise HTTPException(status_code=404, detail="Not found")
     if req.api_key is not None and not req.api_key:
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
     set_api_key(req.api_key)
     source = "runtime_override" if req.api_key is not None else "env_var_or_none"
-    _admin_logger.warning(
+    admin_logger.warning(
         f"SECURITY_AUDIT: api_key_changed actor=admin_endpoint source={source}",
         extra={
             "security_event": "api_key_changed",
@@ -133,4 +133,4 @@ async def update_api_key(
             "key_present": req.api_key is not None,
         },
     )
-    return _UpdateApiKeyResponse(updated=True, source=source)
+    return UpdateApiKeyResponse(updated=True, source=source)

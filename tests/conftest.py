@@ -341,12 +341,12 @@ def _build_test_client(state, raise_server_exceptions: bool = True) -> TestClien
     """Build a TestClient with mock state, auth header, and ChatManager override."""
     from ai_assistant.main import create_app
     from ai_assistant.api.security import set_api_key
-    from ai_assistant.features.chat.handlers import _get_chat_manager
+    from ai_assistant.features.chat.handlers import get_chat_manager
 
     set_api_key("test-e2e-key")
     app = create_app(state=state)
     chat_mgr_mock = _build_chat_manager_mock()
-    app.dependency_overrides[_get_chat_manager] = lambda: chat_mgr_mock
+    app.dependency_overrides[get_chat_manager] = lambda: chat_mgr_mock
     return TestClient(
         app,
         raise_server_exceptions=raise_server_exceptions,
