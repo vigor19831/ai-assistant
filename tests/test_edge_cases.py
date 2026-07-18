@@ -290,7 +290,9 @@ class TestVeryLongDocuments:
                 full += c.text
             else:
                 full += c.text[chunker.chunk_overlap:]
-        assert "A" * 100_000 in full or len(full) >= 100_000
+        assert len(full) >= 100_000
+        for char in set(text):
+            assert any(char in ch.text for ch in chunks), f"Char {char!r} lost"
 
     @pytest.mark.asyncio
     async def test_single_chunk_exceeds_chunk_size(self, chunker):
