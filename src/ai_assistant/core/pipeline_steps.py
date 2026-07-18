@@ -434,6 +434,8 @@ async def _truncate_to_fit(
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
+        if system_message:
+            prompt_tokens += await _estimate_tokens(system_message, tokenizer=tokenizer)
     return current_data, prompt
 
 
@@ -513,6 +515,8 @@ async def generate(data: PipelineData) -> PipelineData:
             system_message=cfg.system_message,
         )
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
+        if cfg.system_message:
+            prompt_tokens += await _estimate_tokens(cfg.system_message, tokenizer=tokenizer)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens) "
