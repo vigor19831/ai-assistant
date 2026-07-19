@@ -119,8 +119,8 @@ class TestRAGManager:
         assert call_kwargs.get("namespace") == "test-alt"
 
     @pytest.mark.asyncio
-    async def test_query_prompt_and_threshold_override(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
-        """Given: custom prompt name, version and relevance threshold.
+    async def test_query_prompt_and_version_override(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
+        """Given: custom prompt name and version.
         When: RAGManager.query called with overrides.
         Then: pipeline completes successfully with overridden config."""
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
@@ -155,7 +155,6 @@ class TestRAGManager:
             "test",
             prompt_name="rag_creative",
             prompt_version="v2",
-            threshold=0.5,
         )
         assert result["answer"] == ""
         assert result["errors"] == []
@@ -872,8 +871,8 @@ class TestQueryPrefixParsing:
     def _setup_prefixes(self, mock_state) -> None:
         """Configure test namespaces with prefixes for deterministic tests."""
         mock_state.config.namespaces = {
-            "test": NamespaceConfig(prefix="t", threshold=0.1, chunk_size=512, prompt="rag_strict"),
-            "test-alt": NamespaceConfig(prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_creative"),
+            "test": NamespaceConfig(prefix="t", chunk_size=512, prompt="rag_strict"),
+            "test-alt": NamespaceConfig(prefix="a", chunk_size=1024, prompt="rag_creative"),
         }
 
     @pytest.mark.asyncio

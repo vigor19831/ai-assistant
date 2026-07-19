@@ -565,7 +565,7 @@ class TestE2ERAG:
         assert any(e.get("loc") == ["body", "folder"] for e in errors)
 
     def test_query_per_namespace_override(self, client, mock_state):
-        """Given: namespace has custom prompt and relevance threshold.
+        """Given: namespace has custom prompt.
         When: POST /api/v1/rag/query with that namespace.
         Then: RAGManager receives overridden parameters."""
         with patch("ai_assistant.features.rag.handlers.RAGManager") as mock_mgr_cls:
@@ -580,7 +580,7 @@ class TestE2ERAG:
             )
             mock_state.config.namespaces = {
                 "test-alt": NamespaceConfig(
-                    threshold=0.3, chunk_size=1024, prompt="rag_creative"
+                    chunk_size=1024, prompt="rag_creative"
                 ),
             }
 
@@ -591,7 +591,6 @@ class TestE2ERAG:
             assert resp.status_code == 200
             instance.query.assert_awaited_once()
             kwargs = instance.query.call_args.kwargs
-            assert kwargs["threshold"] == 0.3
             assert kwargs["prompt_name"] == "rag_creative"
             assert kwargs["namespace"] == "test-alt"
 

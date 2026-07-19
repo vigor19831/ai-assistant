@@ -431,7 +431,6 @@ class TestEmptySystemState:
         cfg = PipelineConfig(
             top_k=5,
             namespace="default",
-            threshold=0.3,
         )
 
         # embed_query on empty text

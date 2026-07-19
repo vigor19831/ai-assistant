@@ -7,7 +7,7 @@ Compatible with:
 
 Note: llama.cpp reranker returns raw logits (-inf, +inf) rather than
 probabilities (0..1). We apply sigmoid normalization for stable
-score reporting, not for threshold filtering.
+score reporting.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def _normalize_score(raw: float) -> float:
     """Convert raw logit to probability-like score via sigmoid.
 
     llama.cpp --rerank returns unbounded logits. Sigmoid maps them
-    to (0, 1) so that config.threshold works consistently.
+    to (0, 1) for consistent score interpretation.
     """
     # Clamp to prevent overflow in exp()
     if raw > 10.0:
@@ -74,7 +74,7 @@ class LocalReranker(IReranker):
         Returns:
             List of RerankResult sorted by score descending.
             Scores are normalized to (0, 1) via sigmoid for
-            llama.cpp compatibility. No threshold filtering.
+            llama.cpp compatibility.
         """
         if not chunks:
             return []

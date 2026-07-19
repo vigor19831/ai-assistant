@@ -107,7 +107,6 @@ def _make_minimal_config() -> AppConfig:
             "model": "test",
             "api_base": "http://test",
             "timeout": 5.0,
-            "threshold": 0.3,
         },
         rag={
             "steps": ["embed_query", "retrieve", "build_context", "generate"],
@@ -115,7 +114,6 @@ def _make_minimal_config() -> AppConfig:
             "prompt_name": "rag_default",
             "top_k": 3,
             "default_namespace": "test",
-            "threshold": 0.3,
         },
     )
 

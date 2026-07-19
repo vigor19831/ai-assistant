@@ -193,10 +193,6 @@ async def query_rag(
     if prompt_name is None:
         prompt_name = cfg.prompt_name or "rag_strict"
 
-    threshold = cfg.threshold
-    if ns_cfg is not None:
-        threshold = ns_cfg.threshold
-
     _logger.info(
         "RAG query start",
         extra={"trace_id": trace_id, "namespace": ns, "query_len": len(query_text)},
@@ -208,7 +204,6 @@ async def query_rag(
         prompt_name=prompt_name,
         prompt_version=req.prompt_version or cfg.prompt_version,
         namespace=ns,
-        threshold=threshold,
     )
     duration_ms = int((time.perf_counter() - start) * 1000)
     _logger.info(
@@ -367,14 +362,6 @@ async def save_chat(
     folder = exports_root / namespace
     folder_resolved = await asyncio.to_thread(folder.resolve)
     exports_root_resolved = await asyncio.to_thread(exports_root.resolve)
-
-    # Defense in depth: also block traversal in resolved namespace path
-    if ".." in folder.as_posix().split("/"):
-        _logger.warning(
-            "Path traversal detected in save-chat namespace",
-            extra={"trace_id": trace_id, "namespace": namespace},
-        )
-        raise HTTPException(status_code=400, detail="Invalid namespace")
 
     if not folder_resolved.is_relative_to(exports_root_resolved):
         _logger.warning(

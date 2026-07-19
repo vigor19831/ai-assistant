@@ -158,7 +158,6 @@ class RerankerConfig(BaseSettings):
     api_base: str = "https://api.cohere.com"
     api_key: str | None = None
     timeout: float = 30.0
-    threshold: float = 0.3
 
 
 class RAGStep(StrEnum):
@@ -209,7 +208,6 @@ class RAGConfig(BaseSettings):
     prompt_name: str = "rag_strict"
     top_k: int = 5
     default_namespace: str = "default"
-    threshold: float = 0.1
     max_tool_iterations: int = 5
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
@@ -285,7 +283,6 @@ class NamespaceConfig(BaseModel):
     """Per-namespace RAG overrides."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
-    threshold: float = Field(default=0.1)
     chunk_size: int = 512
     prompt: str = "rag_strict"
     prefix: str | None = Field(
@@ -350,22 +347,6 @@ class AppConfig(BaseSettings):
             return {**v, "steps": [s.strip() for s in v["steps"].split(",")]}
         return v
 
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_vector_store_relevance_threshold(cls, v: Any) -> Any:
-        """Backward-compatible loader: migrate vector_store.relevance_threshold → rag.threshold."""
-        if type(v) is not dict:
-            return v
-        vs = v.get("vector_store")
-        if type(vs) is dict and "relevance_threshold" in vs:
-            rag = v.get("rag", {})
-            if type(rag) is dict and "threshold" not in rag:
-                rag = {**rag, "threshold": vs["relevance_threshold"]}
-                v = {**v, "rag": rag}
-            # Strip the removed field so VectorStoreConfig(extra="forbid") doesn't choke
-            vs = {k: val for k, val in vs.items() if k != "relevance_threshold"}
-            v = {**v, "vector_store": vs}
-        return v
 
     @model_validator(mode="before")
     @classmethod
@@ -380,36 +361,6 @@ class AppConfig(BaseSettings):
             v = {**v, "security": sec}
         return v
 
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_relevance_threshold_to_threshold(cls, v: Any) -> Any:
-        """Backward-compatible loader: migrate relevance_threshold → threshold.
-
-        Applies to both rag.* and namespaces.*.relevance_threshold.
-        New key takes precedence if both are present.
-        """
-        if type(v) is not dict:
-            return v
-
-        # Migrate RAGConfig
-        rag = v.get("rag")
-        if type(rag) is dict and "relevance_threshold" in rag and "threshold" not in rag:
-            rag = {**rag, "threshold": rag["relevance_threshold"]}
-            rag = {k: val for k, val in rag.items() if k != "relevance_threshold"}
-            v = {**v, "rag": rag}
-
-        # Migrate NamespaceConfig entries
-        namespaces = v.get("namespaces")
-        if type(namespaces) is dict:
-            migrated_ns: dict[str, Any] = {}
-            for ns_name, ns_cfg in namespaces.items():
-                if type(ns_cfg) is dict and "relevance_threshold" in ns_cfg and "threshold" not in ns_cfg:
-                    ns_cfg = {**ns_cfg, "threshold": ns_cfg["relevance_threshold"]}
-                    ns_cfg = {k: val for k, val in ns_cfg.items() if k != "relevance_threshold"}
-                migrated_ns[ns_name] = ns_cfg
-            v = {**v, "namespaces": migrated_ns}
-
-        return v
 
     @model_validator(mode="after")
     def _check_dimensions(self) -> AppConfig:

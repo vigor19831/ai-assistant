@@ -148,14 +148,12 @@ class RerankerConfigData:
         api_base: Base URL of the reranker API.
         api_key: Optional API key for authentication.
         timeout: Total request timeout in seconds.
-        threshold: Minimum relevance score to keep a chunk (0.0 to 1.0).
     """
 
     model: str = "rerank-multilingual-v3.0"
     api_base: str = "https://api.cohere.com"
     api_key: str | None = None
     timeout: float = 30.0
-    threshold: float = 0.3
 
 
 @dataclass(frozen=True, slots=True)

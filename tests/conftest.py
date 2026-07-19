@@ -147,7 +147,6 @@ def mock_vector_store():
     m.list_by_filter = AsyncMock(return_value=[])
     m.list_namespaces = AsyncMock(return_value=["test_default"])
     m.max_chunks = 10000
-    m.threshold = 0.3
     return m
 
 

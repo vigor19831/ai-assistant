@@ -175,7 +175,6 @@ class TestIntegrationAdapters:
             api_key="key",
             model="rerank-multilingual-v3.0",
             timeout=5.0,
-            threshold=0.3,
         )
         reranker = APIReranker(config)
         chunks = [Chunk(id="c1", text="hello"), Chunk(id="c2", text="world")]
@@ -272,7 +271,6 @@ class TestIntegrationChatRAG:
             pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="default",
-                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_strict",
             ),
@@ -383,7 +381,6 @@ class TestIntegrationFullRAG:
             pipeline_config=PipelineConfig(
                 top_k=5,
                 namespace="docs",
-                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_strict",
             ),
@@ -446,7 +443,6 @@ class TestIntegrationAPIInit:
                 "model": "test",
                 "api_base": "http://test",
                 "timeout": 5.0,
-                "threshold": 0.3,
             },
             rag={
                 "steps": ["embed_query", "retrieve", "build_context", "generate"],
@@ -454,7 +450,6 @@ class TestIntegrationAPIInit:
                 "prompt_name": "rag_default",
                 "top_k": 3,
                 "default_namespace": "test",
-                "threshold": 0.3,
             },
         )
 
@@ -494,7 +489,6 @@ class TestIntegrationAPIInit:
             pipeline_config=PipelineConfig(
                 top_k=3,
                 namespace="test",
-                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_default",
             ),
@@ -546,7 +540,6 @@ class TestIntegrationAPIInit:
                 "model": "test",
                 "api_base": "http://test",
                 "timeout": 5.0,
-                "threshold": 0.3,
             },
             rag={
                 "steps": ["hyde_query", "retrieve", "build_context", "generate"],
@@ -554,7 +547,6 @@ class TestIntegrationAPIInit:
                 "prompt_name": "rag_default",
                 "top_k": 3,
                 "default_namespace": "test",
-                "threshold": 0.3,
             },
         )
 
@@ -585,7 +577,6 @@ class TestIntegrationAPIInit:
             pipeline_config=PipelineConfig(
                 top_k=3,
                 namespace="test",
-                threshold=0.3,
                 prompt_version="v1",
                 prompt_name="rag_default",
             ),

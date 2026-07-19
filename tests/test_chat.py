@@ -67,13 +67,13 @@ def chat_manager_with_rag():
     store = MemoryVectorStore(VectorStoreConfigData(dim=3))
     namespaces = {
         "test": NamespaceConfig(
-            prefix="t", threshold=0.1, chunk_size=512, prompt="rag_strict"
+            prefix="t", chunk_size=512, prompt="rag_strict"
         ),
         "test-alt": NamespaceConfig(
-            prefix="a", threshold=0.3, chunk_size=1024, prompt="rag_strict"
+            prefix="a", chunk_size=1024, prompt="rag_strict"
         ),
         "test-default": NamespaceConfig(
-            prefix="d", threshold=0.1, chunk_size=512, prompt="rag_strict"
+            prefix="d", chunk_size=512, prompt="rag_strict"
         ),
     }
     mock_llm = MagicMock(spec=ILLM)
@@ -425,10 +425,10 @@ class TestChatRAG:
         assert messages[-1].text == "query"
 
     @pytest.mark.asyncio
-    async def test_retrieve_per_namespace_prompt_and_threshold(
+    async def test_retrieve_per_namespace_prompt(
         self, chat_manager_with_rag
     ):
-        """Given: test-alt namespace with custom prompt and threshold.
+        """Given: test-alt namespace with custom prompt.
         When: stream_chat() is called with [a] prefix.
         Then: correct prompt name is requested.
         """

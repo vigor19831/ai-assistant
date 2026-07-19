@@ -262,6 +262,12 @@ async def openai_chat_completions(
                     message=last_user_msg,
                     conversation_id=conv_id,
                     metadata={"trace_id": trace_id},
+                    max_tokens=req.max_tokens,
+                    temperature=req.temperature,
+                    top_p=req.top_p,
+                    stop=req.stop,
+                    frequency_penalty=req.frequency_penalty,
+                    presence_penalty=req.presence_penalty,
                 ):
                     delta = OAIDeltaChunk(
                         model=model_id,
@@ -308,6 +314,12 @@ async def openai_chat_completions(
             message=last_user_msg,
             conversation_id=conv_id,
             metadata={"trace_id": trace_id},
+            max_tokens=req.max_tokens,
+            temperature=req.temperature,
+            top_p=req.top_p,
+            stop=req.stop,
+            frequency_penalty=req.frequency_penalty,
+            presence_penalty=req.presence_penalty,
         )
     except AdapterError as exc:
         _logger.warning(

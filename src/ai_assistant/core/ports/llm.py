@@ -38,6 +38,10 @@ class ILLM(IClosable, ABC):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AssistantMessage:
         """Non-streaming completion."""
         ...
@@ -48,6 +52,10 @@ class ILLM(IClosable, ABC):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AsyncIterator[str]:
         """Yield content chunks as strings.
 

@@ -39,7 +39,6 @@ class APIReranker(IReranker):
         self.api_key: str = resolve_api_key(config.api_key, "RERANK_API_KEY")
         self.model: str = config.model
         self._timeout: float = config.timeout
-        self._threshold: float = config.threshold
         self._client: httpx.AsyncClient = httpx.AsyncClient(timeout=self._timeout)
 
     async def shutdown(self) -> None:
@@ -53,7 +52,7 @@ class APIReranker(IReranker):
         chunks: list[Chunk],
         top_k: int | None = None,
     ) -> list[RerankResult]:
-        """Rerank chunks via API and filter by relevance threshold."""
+        """Rerank chunks via API by relevance score."""
         if not chunks:
             return []
 

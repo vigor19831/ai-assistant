@@ -137,7 +137,6 @@ reranker:
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
-  threshold: 0.3
 
 # =============================================================================
 # RAG — DOCUMENT SOURCES AND SEARCH PARAMETERS
@@ -155,7 +154,6 @@ reranker:
 #   4. Run reindex: python run_scripts.py → index_documents.py
 #
 # top_k = how many chunks to retrieve.
-# threshold = minimum relevance (0.1 = loose, 0.5 = strict).
 
 rag:
   steps:
@@ -168,7 +166,6 @@ rag:
   prompt_name: rag_strict
   top_k: 3
   default_namespace: "test"
-  threshold: 0.2
   token_margin_min: 512
   token_margin_pct: 0.15
 
@@ -192,14 +189,12 @@ rag:
 # =============================================================================
 # Each namespace MUST match a namespace in rag.sources.
 # prefix = short code for chat: [t] hello → searches in test.
-# threshold = minimum relevance.
 # chunk_size = chunk size (can differ from global chunker).
 # prompt = response style: rag_strict (exact).
 
 namespaces:
   test:
     prefix: t
-    threshold: 0.2
     chunk_size: 512
     prompt: rag_strict
 

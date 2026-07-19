@@ -58,15 +58,6 @@ __all__: list[str] = [
 
 _logger = get_logger("pipeline.steps")
 
-_CONDENSE_PROMPT_TEMPLATE: str = (
-    "Given the following conversation and a follow-up question, "
-    "rewrite the follow-up question as a standalone question that includes "
-    "all necessary context from the conversation.\n\n"
-    "Conversation:\n{history}\n\n"
-    "Follow-up question: {question}\n\n"
-    "Standalone question:"
-)
-
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
 
 
@@ -195,7 +186,9 @@ async def condense_question(data: PipelineData) -> PipelineData:
         history_lines.append(f"{role}: {text}")
     history_text = "\n".join(history_lines)
 
-    prompt = _CONDENSE_PROMPT_TEMPLATE.format(
+    prompt = get_prompt(
+        "condense_question",
+        version="v1",
         history=history_text,
         question=original_question,
     )
@@ -317,7 +310,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
 
 @step("rerank", requires={"reranker"})
 async def rerank(data: PipelineData) -> PipelineData:
-    """Rerank retrieved chunks by relevance and filter by threshold.
+    """Rerank retrieved chunks by relevance score.
 
     Field contract:
         IN:  reranker (IReranker) — required, never None (NullReranker if disabled).

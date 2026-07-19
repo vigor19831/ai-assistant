@@ -26,7 +26,7 @@ __all__ = ["MemoryVectorStore"]
 class MemoryVectorStore(IVectorStore):
     """Simple in-memory vector store with multi-namespace support and FIFO eviction.
 
-    Uses cosine similarity with strict threshold to prevent irrelevant results.
+    Uses cosine similarity to retrieve relevant chunks.
     Enforces max_chunks per namespace to prevent OOM.
     """
 

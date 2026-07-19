@@ -282,7 +282,6 @@ class ChatManager:
         pipeline_config = PipelineConfig(
             top_k=self.top_k,
             namespace=namespace,
-            threshold=ns_cfg.threshold if ns_cfg else 0.1,
             prompt_name=ns_cfg.prompt if ns_cfg else "rag_strict",
             prompt_version=self.prompt_version,
             token_margin_min=self.token_margin_min,
@@ -390,6 +389,12 @@ class ChatManager:
         message: str,
         conversation_id: str,
         metadata: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AssistantMessage:
         """Process a chat message."""
         meta = metadata or {}
@@ -433,7 +438,15 @@ class ChatManager:
         )
 
         try:
-            response = await self.llm.complete(messages)
+            response = await self.llm.complete(
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                stop=stop,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+            )
         except AdapterError:
             raise
         except Exception as exc:
@@ -495,6 +508,12 @@ class ChatManager:
         message: str,
         conversation_id: str,
         metadata: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AsyncIterator[str]:
         """Stream chat response token by token."""
         meta = metadata or {}
@@ -539,7 +558,15 @@ class ChatManager:
 
         full_response = ""
         try:
-            async for chunk in self.llm.stream(messages):
+            async for chunk in self.llm.stream(
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                stop=stop,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+            ):
                 full_response += chunk
                 yield chunk
         except AdapterError:

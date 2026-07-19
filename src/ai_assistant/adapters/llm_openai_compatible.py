@@ -160,6 +160,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AssistantMessage:
         url = f"{self.api_base}/chat/completions"
         headers: dict[str, str] = {
@@ -174,9 +178,18 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             "max_tokens": max_tok,
             "temperature": temperature if temperature is not None else self.temperature,
         }
-        stop = [s for s in self.config.stop_sequences if s]
-        if stop:
-            payload["stop"] = stop
+        if top_p is not None:
+            payload["top_p"] = top_p
+        if stop is not None:
+            payload["stop"] = stop if isinstance(stop, list) else [stop]
+        else:
+            stop_cfg = [s for s in self.config.stop_sequences if s]
+            if stop_cfg:
+                payload["stop"] = stop_cfg
+        if frequency_penalty is not None:
+            payload["frequency_penalty"] = frequency_penalty
+        if presence_penalty is not None:
+            payload["presence_penalty"] = presence_penalty
         data = await async_post_json(self._client, url, headers, payload)
 
         try:
@@ -195,6 +208,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AssistantMessage:
         """Non-streaming completion with retry."""
         if self._is_closed():
@@ -203,6 +220,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
+            stop=stop,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
         )
 
     async def _stream_impl(
@@ -210,6 +231,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AsyncIterator[str]:
         """Actual streaming implementation.
 
@@ -230,9 +255,18 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             "temperature": temperature if temperature is not None else self.temperature,
             "stream": True,
         }
-        stop = [s for s in self.config.stop_sequences if s]
-        if stop:
-            payload["stop"] = stop
+        if top_p is not None:
+            payload["top_p"] = top_p
+        if stop is not None:
+            payload["stop"] = stop if isinstance(stop, list) else [stop]
+        else:
+            stop_cfg = [s for s in self.config.stop_sequences if s]
+            if stop_cfg:
+                payload["stop"] = stop_cfg
+        if frequency_penalty is not None:
+            payload["frequency_penalty"] = frequency_penalty
+        if presence_penalty is not None:
+            payload["presence_penalty"] = presence_penalty
         try:
             async with self._client.stream(
                 "POST", url, headers=headers, json=payload
@@ -297,8 +331,18 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         messages: list[Message],
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AsyncIterator[str]:
         """Stream tokens with retry."""
         return self._stream_impl(
-            messages, max_tokens=max_tokens, temperature=temperature
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            stop=stop,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
         )
