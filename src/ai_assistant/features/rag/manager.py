@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-import uuid
 from dataclasses import replace
 from typing import Any
 
@@ -43,63 +42,82 @@ class IndexingManager:
         documents: list[dict[str, Any]],
         namespace: str = "default",
     ) -> dict[str, Any]:
-        """Chunk, embed and store documents in namespace."""
+        """Chunk, embed and upsert documents in namespace."""
         start = time.perf_counter()
         all_chunks: list[Chunk] = []
+        errors: list[str] = []
+        successful_docs = 0
+
         for doc in documents:
-            document = Document(
-                id=doc.get("id", str(uuid.uuid4())),
-                content=doc.get("content", ""),
-                metadata=doc.get("metadata", {}),
-            )
-            # Preserve source_uri from document metadata if chunker didn't set it
-            doc_source_uri = document.metadata.get("source_uri")
-            chunks = await self.chunker.chunk(document)
-            for idx, chunk in enumerate(chunks):
-                chunk_source_uri = (
-                    chunk.metadata.source_uri
-                    if chunk.metadata and chunk.metadata.source_uri
-                    else doc_source_uri
+            doc_id = doc.get("id")
+            if not doc_id:
+                errors.append("Document missing 'id' field, skipped")
+                continue
+
+            try:
+                document = Document(
+                    id=doc_id,
+                    content=doc.get("content", ""),
+                    metadata=doc.get("metadata", {}),
                 )
-                chunk = replace(
-                    chunk,
-                    metadata=ChunkMetadata(
-                        source=document.id,
-                        index=idx,
-                        total_chunks=len(chunks),
-                        original_path=chunk.metadata.original_path if chunk.metadata else None,
-                        source_uri=chunk_source_uri,
-                        custom=chunk.metadata.custom if chunk.metadata else {},
-                    ),
+                doc_source_uri = document.metadata.get("source_uri")
+                chunks = await self.chunker.chunk(document)
+                for idx, chunk in enumerate(chunks):
+                    chunk_source_uri = (
+                        chunk.metadata.source_uri
+                        if chunk.metadata and chunk.metadata.source_uri
+                        else doc_source_uri
+                    )
+                    all_chunks.append(
+                        replace(
+                            chunk,
+                            metadata=ChunkMetadata(
+                                source=document.id,
+                                index=idx,
+                                total_chunks=len(chunks),
+                                original_path=chunk.metadata.original_path if chunk.metadata else None,
+                                source_uri=chunk_source_uri,
+                                custom=chunk.metadata.custom if chunk.metadata else {},
+                            ),
+                        )
+                    )
+                successful_docs += 1
+            except Exception:
+                _logger.exception(
+                    "Failed to chunk document",
+                    extra={"doc_id": doc_id, "namespace": namespace},
                 )
-                all_chunks.append(chunk)
+                errors.append(f"Failed to chunk document {doc_id}")
 
         if not all_chunks:
             return {
                 "indexed_count": 0,
                 "chunk_count": 0,
-                "errors": ["No chunks produced from documents"],
+                "errors": errors or ["No chunks produced from documents"],
             }
 
         texts = [c.text for c in all_chunks]
         embeddings = await self.embedder.embed(texts)
+
         for i, emb in enumerate(embeddings):
             all_chunks[i] = replace(all_chunks[i], embedding=emb)
 
-        await self.vector_store.add(all_chunks, namespace=namespace)
+        await self.vector_store.upsert(all_chunks, namespace=namespace)
+
         duration_ms = int((time.perf_counter() - start) * 1000)
         _logger.info(
             "Documents indexed",
             extra={
                 "namespace": namespace,
-                "indexed_count": len(documents),
+                "indexed_count": successful_docs,
                 "chunk_count": len(all_chunks),
                 "duration_ms": duration_ms,
             },
         )
         return {
-            "indexed_count": len(documents),
+            "indexed_count": successful_docs,
             "chunk_count": len(all_chunks),
+            "errors": errors,
         }
 
 

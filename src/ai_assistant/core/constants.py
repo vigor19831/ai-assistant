@@ -30,6 +30,7 @@ FROZEN_NO_INFO_PHRASES: frozenset[str] = frozenset(
         "not enough",
         "not found",
         "i do not have",
+        "i do not have enough",
         "don't know",
         "do not know",
     }

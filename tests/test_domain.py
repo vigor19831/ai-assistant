@@ -625,7 +625,7 @@ class TestConstants:
         assert isinstance(FROZEN_NO_INFO_PHRASES, frozenset)
         assert all(isinstance(ph, str) for ph in FROZEN_NO_INFO_PHRASES)
         assert "not enough" in FROZEN_NO_INFO_PHRASES
-        assert "у меня недостаточно" in FROZEN_NO_INFO_PHRASES
+        assert "i do not have enough" in FROZEN_NO_INFO_PHRASES
 
 
 # ───────────────────────────────────────────────

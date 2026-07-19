@@ -167,6 +167,17 @@ def mock_storage():
 
 
 @pytest.fixture
+def memory_vector_store(tmp_path):
+    """Return a fresh MemoryVectorStore for RAG/indexing tests."""
+    from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+    return MemoryVectorStore(
+        VectorStoreConfigData(dim=384, index_path=str(tmp_path / "vs"))
+    )
+
+
+@pytest.fixture
 def mock_chunker():
     """Given: chunker dependency is needed.
     When: test requests mock_chunker.

@@ -338,6 +338,107 @@ class TestMemoryVectorStore:
         assert ids == {f"c{i}" for i in range(20)}
 
 
+# ── IVectorStore.upsert tests ──
+
+
+class TestMemoryVectorStoreUpsert:
+    """Coverage for IVectorStore.upsert default implementation (Memory)."""
+
+    @pytest.mark.asyncio
+    async def test_memory_upsert_replaces_old_chunks_by_source(self, tmp_path: Path) -> None:
+        """Same as Faiss upsert test, but for MemoryVectorStore."""
+        config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        store = MemoryVectorStore(config)
+
+        await store.upsert(
+            [
+                Chunk(
+                    id="c1",
+                    text="a",
+                    embedding=[1.0, 0.0, 0.0],
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                ),
+            ],
+            namespace="ns",
+        )
+
+        await store.upsert(
+            [
+                Chunk(
+                    id="c2",
+                    text="b",
+                    embedding=[0.0, 1.0, 0.0],
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                ),
+            ],
+            namespace="ns",
+        )
+
+        all_chunks = await store.list_by_filter({}, namespace="ns")
+        ids = {cid for cid, _ in all_chunks}
+        assert ids == {"c2"}
+
+
+class TestFaissVectorStoreUpsert:
+    """Coverage for IVectorStore.upsert default implementation (Faiss)."""
+
+    @pytest.mark.asyncio
+    async def test_faiss_upsert_replaces_old_chunks_by_source(self, tmp_path: Path) -> None:
+        """upsert removes old chunks with the same source and adds new ones."""
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        store = FaissVectorStore(config)
+
+        await store.upsert(
+            [
+                Chunk(
+                    id="c1",
+                    text="a",
+                    embedding=[1.0, 0.0, 0.0],
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                ),
+                Chunk(
+                    id="c2",
+                    text="b",
+                    embedding=[0.0, 1.0, 0.0],
+                    metadata=ChunkMetadata(source="doc2", index=0, total_chunks=1),
+                ),
+            ],
+            namespace="ns",
+        )
+
+        # Overwrite doc1, leave doc2 untouched
+        await store.upsert(
+            [
+                Chunk(
+                    id="c3",
+                    text="c",
+                    embedding=[0.0, 0.0, 1.0],
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                ),
+            ],
+            namespace="ns",
+        )
+
+        all_chunks = await store.list_by_filter({}, namespace="ns")
+        ids = {cid for cid, _ in all_chunks}
+        assert ids == {"c2", "c3"}
+
+    @pytest.mark.asyncio
+    async def test_faiss_upsert_empty_is_noop(self, tmp_path: Path) -> None:
+        """Empty chunk list is a no-op and does not create a namespace."""
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        store = FaissVectorStore(config)
+        await store.upsert([], namespace="empty")
+        ns = await store.list_namespaces(str(tmp_path))
+        assert "empty" not in ns
+
+
 # ── TestNullReranker ──
 
 

@@ -506,6 +506,35 @@ class TestEmptySystemState:
         assert "[MOCK LLM] Echo:" in response.text
 
 
+    @pytest.mark.asyncio
+    async def test_upsert_preserves_chunks_without_metadata_source(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+        from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path / "vs"))
+        )
+
+        await store.upsert(
+            [
+                Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0], metadata=None),
+                Chunk(
+                    id="c2",
+                    text="b",
+                    embedding=[0.0, 1.0, 0.0],
+                    metadata=ChunkMetadata(source="s1", index=0, total_chunks=1),
+                ),
+            ],
+            namespace="ns",
+        )
+
+        all_chunks = await store.list_by_filter({}, namespace="ns")
+        assert len(all_chunks) == 2
+
+
 # ============================================================================
 # Integration: Unicode through full pipeline
 # ============================================================================

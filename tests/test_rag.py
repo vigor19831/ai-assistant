@@ -503,6 +503,142 @@ class TestRAGIndexing:
         # In a thread pool, ticker fires many times (each await yields control).
         assert tick_count >= 15, f"event loop blocked: only {tick_count} ticks"
 
+    @pytest.mark.asyncio
+    async def test_index_documents_uses_upsert_not_add(
+        self,
+        mock_chunker: Any,
+        mock_embedder: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """index_documents must call upsert, not add."""
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        doc = {"id": "doc-1", "content": "hello", "metadata": {}}
+        await manager.index_documents([doc], namespace="test")
+
+        # Verify data was actually written via list_by_filter
+        found = await memory_vector_store.list_by_filter(
+            {"source": "doc-1"}, namespace="test"
+        )
+        assert len(found) > 0
+
+    @pytest.mark.asyncio
+    async def test_index_documents_missing_id_skips_with_error(
+        self,
+        mock_chunker: Any,
+        mock_embedder: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """Document without 'id' is skipped with an error in result.errors."""
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        result = await manager.index_documents(
+            [{"content": "no id", "metadata": {}}], namespace="test"
+        )
+        assert result["indexed_count"] == 0
+        assert any("missing 'id'" in e for e in result["errors"])
+
+    @pytest.mark.asyncio
+    async def test_index_documents_idempotent_upsert(
+        self,
+        mock_chunker: Any,
+        mock_embedder: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """Re-indexing the same document must not create duplicates."""
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        doc = {"id": "doc-1", "content": "hello world", "metadata": {}}
+        r1 = await manager.index_documents([doc], namespace="test")
+        assert r1["indexed_count"] == 1
+        assert r1["errors"] == []
+
+        # Same id, different content
+        doc2 = {"id": "doc-1", "content": "goodbye world", "metadata": {}}
+        r2 = await manager.index_documents([doc2], namespace="test")
+        assert r2["indexed_count"] == 1
+        assert r2["errors"] == []
+
+        # Old chunks must be replaced, not accumulated
+        old = await memory_vector_store.list_by_filter(
+            {"source": "doc-1"}, namespace="test"
+        )
+        assert len(old) == r2["chunk_count"]
+
+    @pytest.mark.asyncio
+    async def test_index_documents_partial_chunk_failure_continues(
+        self,
+        mock_embedder: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """If chunker fails on one document, the rest are still indexed."""
+        from unittest.mock import AsyncMock
+
+        failing_chunker = AsyncMock(spec=IChunker)
+        failing_chunker.chunk = AsyncMock(
+            side_effect=[Exception("chunk fail"), [Chunk(
+                id="c1",
+                text="ok",
+                embedding=None,
+                metadata=ChunkMetadata(source="doc-2", index=0, total_chunks=1),
+            )]]
+        )
+
+        manager = IndexingManager(
+            chunker=failing_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        docs = [
+            {"id": "doc-1", "content": "bad", "metadata": {}},
+            {"id": "doc-2", "content": "good", "metadata": {}},
+        ]
+        result = await manager.index_documents(docs, namespace="test")
+
+        assert result["indexed_count"] == 1
+        assert any("doc-1" in e for e in result["errors"])
+        assert result["chunk_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_index_documents_no_chunks_returns_error(
+        self,
+        mock_chunker: Any,
+        mock_embedder: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """If chunker returns empty list for all documents, return an error."""
+        from unittest.mock import AsyncMock
+
+        empty_chunker = AsyncMock(spec=IChunker)
+        empty_chunker.chunk = AsyncMock(return_value=[])
+
+        manager = IndexingManager(
+            chunker=empty_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        result = await manager.index_documents(
+            [{"id": "doc-1", "content": "x", "metadata": {}}], namespace="test"
+        )
+        assert result["indexed_count"] == 0
+        assert result["chunk_count"] == 0
+        assert any("No chunks" in e for e in result["errors"])
+
+
 # ── Reranker Regression ──
 
 

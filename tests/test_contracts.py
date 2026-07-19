@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from ai_assistant.core.logger import get_logger
+from ai_assistant.adapters._registry import get_registry
 
 logger = get_logger(__name__)
 
@@ -865,7 +866,6 @@ class TestAdapterRegistry:
 
     def _get_registry(self) -> dict[str, dict[str, type]]:
         """Import and return the adapter registry."""
-        from ai_assistant.adapters._registry import get_registry
 
         return get_registry()
 
@@ -985,6 +985,15 @@ class TestAdapterRegistry:
 
         registry = self._get_registry()
         assert registry["tokenizer"]["char_fallback"] is CharFallbackTokenizer
+
+
+    def test_vector_store_adapters_implement_upsert(self) -> None:
+        """All registered IVectorStore adapters must expose upsert."""
+        registry = get_registry()
+        for name, cls in registry.get("vector_store", {}).items():
+            assert hasattr(cls, "upsert"), f"{name} missing upsert"
+            # upsert — не abstractmethod (default impl в IVectorStore),
+            # adapters may inherit it -- that is fine.
 
 
 # ═══════════════════════════════════════════════════════════════════════════

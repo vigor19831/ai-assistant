@@ -35,6 +35,35 @@ class IVectorStore(IClosable, ABC):
         """Add chunks with embeddings to a namespace."""
         ...
 
+    async def upsert(self, chunks: list[Chunk], namespace: str = "default") -> None:
+        """Replace chunks for each source document.
+
+        For every unique ``ChunkMetadata.source`` in *chunks*, delete
+        existing chunks with the same source in the namespace, then add
+        the new ones.  If *chunks* is empty, this is a no-op.
+
+        Adapters may override this for atomicity or performance.
+        """
+        if not chunks:
+            return
+
+        sources: set[str] = set()
+        for chunk in chunks:
+            if chunk.metadata is not None:
+                sources.add(chunk.metadata.source)
+
+        old_ids: list[str] = []
+        for source in sources:
+            old = await self.list_by_filter(
+                {"source": source}, namespace=namespace
+            )
+            old_ids.extend(cid for cid, _ in old)
+
+        if old_ids:
+            await self.delete(old_ids, namespace=namespace)
+
+        await self.add(chunks, namespace=namespace)
+
     @abstractmethod
     async def search(
         self,
