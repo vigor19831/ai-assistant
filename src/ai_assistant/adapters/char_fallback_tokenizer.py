@@ -39,6 +39,10 @@ class CharFallbackTokenizer(ITokenizer):
     def __init__(self, config: TokenizerConfigData) -> None:
         self.config = config
 
+    @property
+    def model_name(self) -> str:
+        return "char_fallback"
+
     async def shutdown(self) -> None:
         """No-op: tokenizer holds no external resources."""
 

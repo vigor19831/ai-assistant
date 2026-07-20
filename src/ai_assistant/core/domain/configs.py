@@ -163,10 +163,12 @@ class TokenizerConfigData:
     Attributes:
         provider: Adapter identifier ("tiktoken", "char_fallback").
         local_dir: Directory containing local HF tokenizer.json files.
+        model_name: Tokenizer model/encoding identifier.
     """
 
     provider: str = "tiktoken"
     local_dir: str = "./data/tokenizers"
+    model_name: str = "cl100k_base"
 
 
 @dataclass(frozen=True, slots=True)

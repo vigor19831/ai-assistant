@@ -79,6 +79,7 @@ class TokenizerConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_TOKENIZER_", extra="forbid")
     provider: str = "tiktoken"
     local_dir: str = "./data/tokenizers"
+    model_name: str = "cl100k_base"
 
 
 class ChunkerConfig(BaseSettings):

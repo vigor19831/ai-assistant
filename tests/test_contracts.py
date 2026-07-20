@@ -501,6 +501,18 @@ class TestPortAbstractMethods:
         ]
         assert "count" in abstract_methods, "ITokenizer.count must be abstract"
 
+    def test_itokenizer_model_name_is_abstract(self):
+        """Given: ITokenizer port.
+        When: abstract properties are inspected.
+        Then: model_name is abstractmethod."""
+        from ai_assistant.core.ports.tokenizer import ITokenizer
+
+        prop = ITokenizer.__dict__.get("model_name")
+        assert prop is not None, "ITokenizer.model_name property missing"
+        assert getattr(prop.fget, "__isabstractmethod__", False), (
+            "ITokenizer.model_name must be abstract"
+        )
+
     def test_iclosable_has_shutdown_abstract(self):
         """Given: IClosable port.
         When: abstract methods are inspected.

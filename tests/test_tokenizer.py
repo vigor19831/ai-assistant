@@ -76,9 +76,30 @@ class TestITokenizerPort:
             mock_tiktoken.get_encoding.return_value = mock_enc
             assert tok.count("hello") == 5
 
+    def test_tiktoken_model_name_default(self) -> None:
+        """Given: default TokenizerConfigData.
+        When: TiktokenTokenizer.model_name is accessed.
+        Then: 'cl100k_base' is returned."""
+        tok = TiktokenTokenizer(TokenizerConfigData())
+        assert tok.model_name == "cl100k_base"
+
+    def test_tiktoken_model_name_from_config(self) -> None:
+        """Given: TokenizerConfigData with model_name='o200k_base'.
+        When: TiktokenTokenizer.model_name is accessed.
+        Then: 'o200k_base' is returned."""
+        tok = TiktokenTokenizer(TokenizerConfigData(model_name="o200k_base"))
+        assert tok.model_name == "o200k_base"
+
+    def test_char_fallback_model_name(self) -> None:
+        """Given: CharFallbackTokenizer.
+        When: model_name is accessed.
+        Then: 'char_fallback' is returned."""
+        tok = CharFallbackTokenizer(TokenizerConfigData())
+        assert tok.model_name == "char_fallback"
+
     def test_itokenizer_is_abstract(self) -> None:
         """Given: ITokenizer port.
-        When: instantiated without concrete count().
+        When: instantiated without concrete count() or model_name.
         Then: TypeError is raised."""
         with pytest.raises(TypeError, match="abstract"):
             ITokenizer()  # type: ignore[abstract]
@@ -109,15 +130,16 @@ class TestTiktokenTokenizerInternals:
     When: count is called.
     Then: all error paths raise AdapterError instead of silent fallback."""
 
-    def test_keyerror_on_cl100k_base_raises_adapter_error(self) -> None:
-        """Given: tiktoken raises KeyError for cl100k_base.
-        When: count is called.
-        Then: AdapterError is raised (encoding is hardcoded per DRIFT #29)."""
-        tok = TiktokenTokenizer(TokenizerConfigData())
+    def test_keyerror_on_unknown_encoding_falls_through_to_hf(self) -> None:
+        """Given: tiktoken raises KeyError for unknown encoding.
+        When: count is called with no HF tokenizer available.
+        Then: AdapterError is raised with model_name in message."""
+        tok = TiktokenTokenizer(TokenizerConfigData(model_name="unknown_encoding"))
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken") as mock_tiktoken:
-            mock_tiktoken.get_encoding.side_effect = KeyError("cl100k_base")
-            with pytest.raises(AdapterError, match="tiktoken failed"):
-                tok.count("hello")
+            mock_tiktoken.get_encoding.side_effect = KeyError("unknown_encoding")
+            with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None):
+                with pytest.raises(AdapterError, match="No tokenizer backend available for model_name="):
+                    tok.count("hello")
             assert mock_tiktoken.get_encoding.call_count == 1
 
     def test_tiktoken_both_paths_fail_raises_adapter_error(self) -> None:
@@ -144,8 +166,8 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "tiktoken").mkdir()
-                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
+                (tmp_path / "cl100k_base").mkdir()
+                (tmp_path / "cl100k_base" / "tokenizer.json").write_text("{}")
                 result = tok.count("hello")
                 assert result == 5
 
@@ -159,8 +181,8 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "tiktoken").mkdir()
-                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
+                (tmp_path / "cl100k_base").mkdir()
+                (tmp_path / "cl100k_base" / "tokenizer.json").write_text("{}")
                 with pytest.raises(AdapterError, match="HF tokenizer failed"):
                     tok.count("hello world")
 
@@ -177,8 +199,8 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "tiktoken").mkdir()
-                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
+                (tmp_path / "cl100k_base").mkdir()
+                (tmp_path / "cl100k_base" / "tokenizer.json").write_text("{}")
                 result = tok.count("hello")
                 assert result == 6
 
@@ -194,8 +216,8 @@ class TestTiktokenTokenizerInternals:
 
         with patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None):
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", mock_hf):
-                (tmp_path / "tiktoken").mkdir()
-                (tmp_path / "tiktoken" / "tokenizer.json").write_text("{}")
+                (tmp_path / "cl100k_base").mkdir()
+                (tmp_path / "cl100k_base" / "tokenizer.json").write_text("{}")
                 with pytest.raises(AdapterError, match="HF tokenizer failed"):
                     tok.count("这是一个测试")
 

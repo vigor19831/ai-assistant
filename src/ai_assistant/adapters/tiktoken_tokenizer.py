@@ -60,6 +60,10 @@ class TiktokenTokenizer(ITokenizer):
     def __init__(self, config: TokenizerConfigData) -> None:
         self.config = config
 
+    @property
+    def model_name(self) -> str:
+        return self.config.model_name
+
     async def shutdown(self) -> None:
         """No-op: tokenizer holds no external resources."""
 
@@ -70,17 +74,24 @@ class TiktokenTokenizer(ITokenizer):
 
         if tiktoken is not None:
             try:
-                enc = tiktoken.get_encoding("cl100k_base")
+                enc = tiktoken.get_encoding(self.config.model_name)
                 return len(enc.encode(text))
+            except KeyError:
+                # model_name is not a tiktoken encoding — fall through to HF
+                pass
             except Exception as exc:
                 _logger.exception("tiktoken failed")
                 raise AdapterError(f"tiktoken failed: {exc}") from exc
 
         if tokenizers is not None:
-            tok_dir = _resolve_tokenizer_dir(self.config.provider, self.config.local_dir)
+            tok_dir = _resolve_tokenizer_dir(
+                self.config.model_name, self.config.local_dir
+            )
             if tok_dir is not None:
                 try:
-                    hf_tok = tokenizers.Tokenizer.from_file(str(tok_dir / "tokenizer.json"))
+                    hf_tok = tokenizers.Tokenizer.from_file(
+                        str(tok_dir / "tokenizer.json")
+                    )
                     result = hf_tok.encode(text)
                     try:
                         return len(result.tokens)
@@ -91,6 +102,9 @@ class TiktokenTokenizer(ITokenizer):
                     raise AdapterError(f"HF tokenizer failed: {exc}") from exc
 
         raise AdapterError(
-            "No tokenizer backend available. "
-            "Install tiktoken or use the 'char_fallback' tokenizer provider."
+            f"No tokenizer backend available for model_name="
+            f"{self.config.model_name!r}. "
+            "Install tiktoken for OpenAI encodings, or place a HF "
+            f"tokenizer.json in {self.config.local_dir}/"
+            f"{self.config.model_name}/"
         )

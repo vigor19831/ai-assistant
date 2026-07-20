@@ -17,6 +17,12 @@ class ITokenizer(IClosable):
     returns a non-negative integer representing the token count.
     """
 
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Return the tokenizer model/encoding identifier."""
+        ...
+
     @abstractmethod
     def count(self, text: str) -> int:
         """Count tokens in text.

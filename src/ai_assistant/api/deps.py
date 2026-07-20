@@ -201,6 +201,7 @@ def _tokenizer_data(cfg: AppConfig) -> TokenizerConfigData:
     return TokenizerConfigData(
         provider=c.provider,
         local_dir=c.local_dir,
+        model_name=c.model_name,
     )
 
 
