@@ -72,7 +72,7 @@ class RAGState:
         - Oldest completed/failed entries if total exceeds _MAX_STATUS_ENTRIES.
         """
         async with self._lock:
-            now = time.time()
+            now = time.monotonic()
             stale_running_cutoff = now - _RUNNING_TTL_SECONDS
             stale_completed_cutoff = now - _COMPLETED_TTL_SECONDS
 
@@ -111,18 +111,18 @@ class RAGState:
         async with self._lock:
             self._status[task_id] = ReindexStatusEntry(
                 status="running",
-                started_at=time.time(),
+                started_at=time.monotonic(),
             )
 
     async def complete_task(self, task_id: str, result: dict[str, object]) -> None:
         """Atomically mark task completed."""
         async with self._lock:
             old = self._status.get(task_id)
-            started = old.started_at if old is not None else time.time()
+            started = old.started_at if old is not None else time.monotonic()
             self._status[task_id] = ReindexStatusEntry(
                 status="completed",
                 started_at=started,
-                finished_at=time.time(),
+                finished_at=time.monotonic(),
                 result=result,
             )
 
@@ -130,11 +130,11 @@ class RAGState:
         """Atomically mark task failed."""
         async with self._lock:
             old = self._status.get(task_id)
-            started = old.started_at if old is not None else time.time()
+            started = old.started_at if old is not None else time.monotonic()
             self._status[task_id] = ReindexStatusEntry(
                 status="failed",
                 started_at=started,
-                finished_at=time.time(),
+                finished_at=time.monotonic(),
                 error=error,
             )
 
