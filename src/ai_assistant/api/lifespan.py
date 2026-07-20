@@ -146,6 +146,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         )
     except Exception:
         logger.exception("Index save failed")
+        app.state.shutdown_degraded = True
 
     # 2. Wait for background tasks before adapter shutdown
     try:
