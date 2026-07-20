@@ -9,9 +9,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.config import RAGStep
-from ai_assistant.core.constants import (
-    FROZEN_NO_INFO_PHRASES,
-)
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
@@ -58,7 +55,7 @@ class ChatManager:
 
     @staticmethod
     def _append_rag_sources(answer: str, chunks: tuple[Chunk, ...]) -> str:
-        if not chunks or any(ph in answer.lower() for ph in FROZEN_NO_INFO_PHRASES):
+        if not chunks:
             return answer
 
         def _path_to_file_uri(path: str) -> str:

@@ -607,28 +607,6 @@ class TestToolResultFrozen:
 
 
 # ───────────────────────────────────────────────
-# Constants — immutability contracts
-# ───────────────────────────────────────────────
-
-
-class TestConstants:
-    """Given: core constants define system-wide invariants.
-    When: imported and inspected.
-    Then: types and values are correct."""
-
-    def test_no_info_phrases_is_frozenset(self) -> None:
-        """Given: FROZEN_NO_INFO_PHRASES constant.
-        When: inspected.
-        Then: it is a frozenset of strings containing expected phrases."""
-        from ai_assistant.core.constants import FROZEN_NO_INFO_PHRASES
-
-        assert isinstance(FROZEN_NO_INFO_PHRASES, frozenset)
-        assert all(isinstance(ph, str) for ph in FROZEN_NO_INFO_PHRASES)
-        assert "not enough" in FROZEN_NO_INFO_PHRASES
-        assert "i do not have enough" in FROZEN_NO_INFO_PHRASES
-
-
-# ───────────────────────────────────────────────
 # Prompts — caching behaviour
 # ───────────────────────────────────────────────
 

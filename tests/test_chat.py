@@ -1048,10 +1048,10 @@ class TestChatManagerSources:
         assert "Sources:" in text
 
     @pytest.mark.asyncio
-    async def test_append_sources_no_info_phrase_skipped(self, chat_manager_with_rag):
-        """Given: answer contains no-info phrase.
+    async def test_append_sources_always_when_chunks_present(self, chat_manager_with_rag):
+        """Given: chunks exist even if LLM refuses to answer.
         When: stream_chat() is called.
-        Then: sources are not appended.
+        Then: sources are still appended.
         """
         chunks = (
             Chunk(
@@ -1081,7 +1081,8 @@ class TestChatManagerSources:
             result.append(chunk)
 
         text = "".join(result)
-        assert text == "I don't have enough information."
+        assert "Sources:" in text
+        assert "unknown.md" in text
 
     @pytest.mark.asyncio
     async def test_append_sources_without_citation_markers(self, chat_manager_with_rag):
