@@ -63,52 +63,53 @@ class RAGState:
     _status: dict[str, ReindexStatusEntry] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
-    async def _cleanup_old_status(self) -> None:
+    async def _cleanup_old_status_unlocked(self) -> None:
         """Evict stale entries by age and count.
+
+        Must be called while holding self._lock.
 
         Evicts:
         - 'running' entries older than _RUNNING_TTL_SECONDS (orphaned tasks).
         - 'completed'/'failed' entries older than _COMPLETED_TTL_SECONDS.
         - Oldest completed/failed entries if total exceeds _MAX_STATUS_ENTRIES.
         """
-        async with self._lock:
-            now = time.monotonic()
-            stale_running_cutoff = now - _RUNNING_TTL_SECONDS
-            stale_completed_cutoff = now - _COMPLETED_TTL_SECONDS
+        now = time.monotonic()
+        stale_running_cutoff = now - _RUNNING_TTL_SECONDS
+        stale_completed_cutoff = now - _COMPLETED_TTL_SECONDS
 
-            stale_ids: list[str] = []
+        stale_ids: list[str] = []
 
-            for tid, entry in self._status.items():
-                if (
-                    entry.status == "running"
-                    and entry.started_at < stale_running_cutoff
-                ) or (
-                    entry.status in ("completed", "failed")
-                    and entry.finished_at is not None
-                    and entry.finished_at < stale_completed_cutoff
-                ):
-                    stale_ids.append(tid)
+        for tid, entry in self._status.items():
+            if (
+                entry.status == "running"
+                and entry.started_at < stale_running_cutoff
+            ) or (
+                entry.status in ("completed", "failed")
+                and entry.finished_at is not None
+                and entry.finished_at < stale_completed_cutoff
+            ):
+                stale_ids.append(tid)
 
-            for tid in stale_ids:
-                del self._status[tid]
+        for tid in stale_ids:
+            del self._status[tid]
 
-            if len(self._status) <= _MAX_STATUS_ENTRIES:
-                return
+        if len(self._status) <= _MAX_STATUS_ENTRIES:
+            return
 
-            completed = [
-                (tid, entry)
-                for tid, entry in self._status.items()
-                if entry.status in ("completed", "failed")
-            ]
-            completed.sort(key=lambda x: x[1].finished_at or 0.0)
-            excess = len(self._status) - _MAX_STATUS_ENTRIES
-            for tid, _ in completed[:excess]:
-                del self._status[tid]
+        completed = [
+            (tid, entry)
+            for tid, entry in self._status.items()
+            if entry.status in ("completed", "failed")
+        ]
+        completed.sort(key=lambda x: x[1].finished_at or 0.0)
+        excess = len(self._status) - _MAX_STATUS_ENTRIES
+        for tid, _ in completed[:excess]:
+            del self._status[tid]
 
     async def start_task(self, task_id: str) -> None:
         """Atomically register a running task."""
-        await self._cleanup_old_status()
         async with self._lock:
+            await self._cleanup_old_status_unlocked()
             self._status[task_id] = ReindexStatusEntry(
                 status="running",
                 started_at=time.monotonic(),
@@ -140,8 +141,8 @@ class RAGState:
 
     async def get_status(self, task_id: str) -> dict[str, object] | None:
         """Return status as a JSON-compatible dict for the given task, or None."""
-        await self._cleanup_old_status()
         async with self._lock:
+            await self._cleanup_old_status_unlocked()
             info = self._status.get(task_id)
             if info is None:
                 return None
