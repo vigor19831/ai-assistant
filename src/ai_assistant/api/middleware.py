@@ -27,7 +27,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         allowed_hosts: list[str] | None = None,
     ) -> None:
         super().__init__(app)
-        self.allowed_hosts = allowed_hosts or []
+        self.allowed_hosts = [h.lower() for h in (allowed_hosts or [])]
 
     async def dispatch(
         self,
@@ -35,7 +35,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         if self.allowed_hosts:
-            host = request.headers.get("host", "").split(":")[0]
+            host = request.headers.get("host", "").split(":")[0].lower()
             if host not in self.allowed_hosts:
                 return Response(
                     content="Invalid host header",
