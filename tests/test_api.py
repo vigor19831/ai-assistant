@@ -1132,6 +1132,8 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
@@ -1175,6 +1177,8 @@ class TestAPILifespan:
         }
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
 
         async def mark_llm_shutdown():
@@ -1227,7 +1231,7 @@ class TestAPILifespan:
         assert shutdown_called["chunker"] is True
 
     @pytest.mark.asyncio
-    async def testasync_cleanup_index_save(self):
+    async def test_async_cleanup_index_save(self):
         """Given: vector_store has namespaces.
         When: async_cleanup runs.
         Then: all namespaces are saved and state reflects completion.
@@ -1242,6 +1246,8 @@ class TestAPILifespan:
             saved_namespaces.append(namespace)
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(
@@ -1264,26 +1270,30 @@ class TestAPILifespan:
         assert len(saved_namespaces) == 2
 
     @pytest.mark.asyncio
-    async def testasync_cleanup_index_save_timeout(self):
-        """Given: vector_store.save hangs beyond 10s.
+    async def test_async_cleanup_index_save_timeout(self):
+        """Given: vector_store.save times out on first 3 attempts.
         When: async_cleanup runs.
-        Then: TimeoutError is caught and logged; save attempt is recorded.
+        Then: @with_retry retries 3 times; 4th attempt succeeds; cleanup continues.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
 
         save_attempted = {"count": 0}
-        hang_forever = asyncio.Event()
 
-        async def slow_save(*args, **kwargs):
+        async def save_with_retry(*args, **kwargs):
+            """Side-effect: fail 3× with TimeoutError, then succeed."""
             save_attempted["count"] += 1
-            await hang_forever.wait()  # Never set — simulates infinite hang
+            if save_attempted["count"] <= 3:
+                raise TimeoutError()
+            return None
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
-        mock_state.vector_store.save = AsyncMock(side_effect=slow_save)
+        mock_state.vector_store.save = AsyncMock(side_effect=save_with_retry)
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
         mock_state.storage = AsyncMock()
@@ -1292,16 +1302,15 @@ class TestAPILifespan:
 
         app.state.app_state = mock_state
 
-        # Guard against production code that does not handle the timeout
-        # Outer timeout must exceed inner _save_index_with_timeout (10s)
-        await asyncio.wait_for(async_cleanup(app, minimal_config), timeout=15.0)
+        # Patch retry delays so test completes instantly
+        with patch("ai_assistant.core.retry.asyncio.sleep", AsyncMock()):
+            await async_cleanup(app, minimal_config)
 
-        # Should not raise; timeout is handled
-        # Assert on state — save was attempted even though it timed out
-        assert save_attempted["count"] == 1
+        # 3 timeout failures + 1 success = 4 attempts via @with_retry
+        assert save_attempted["count"] == 4
 
     @pytest.mark.asyncio
-    async def testasync_cleanup_no_app_state(self):
+    async def test_async_cleanup_no_app_state(self):
         """Given: app.state has no app_state attribute.
         When: async_cleanup runs.
         Then: it returns early without error.
@@ -1311,7 +1320,7 @@ class TestAPILifespan:
         await async_cleanup(app, minimal_config)
 
     @pytest.mark.asyncio
-    async def testasync_cleanup_adapter_shutdown_order(self):
+    async def test_async_cleanup_adapter_shutdown_order(self):
         """Given: all adapters are present.
         When: async_cleanup runs.
         Then: shutdown is called on each adapter in defined order.
@@ -1338,6 +1347,8 @@ class TestAPILifespan:
             shutdown_order.append("chunker")
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=track_llm)
@@ -1371,6 +1382,8 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
@@ -1414,6 +1427,8 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
@@ -1457,6 +1472,8 @@ class TestAPILifespan:
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
@@ -1489,6 +1506,8 @@ class TestAPILifespan:
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
@@ -1529,6 +1548,8 @@ class TestAPILifespan:
             loaded_namespaces.append(namespace)
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["docs"])
@@ -1577,6 +1598,8 @@ class TestAPILifespan:
             shutdown_completed["embedder"] = True
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=hanging_shutdown)
@@ -1614,6 +1637,8 @@ class TestAPILifespan:
             shutdown_completed["embedder"] = True
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=failing_shutdown)
@@ -1639,6 +1664,8 @@ class TestAPILifespan:
         app = FastAPI()
 
         mock_state = MagicMock()
+        mock_state.task_registry = AsyncMock()
+        mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])

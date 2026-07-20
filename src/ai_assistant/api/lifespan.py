@@ -128,18 +128,13 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         saved = 0
         for ns in namespaces:
             try:
-                await _save_index_with_timeout(
+                await _save_index_with_retry(
                     state.vector_store, index_path, ns
                 )
                 logger.info(
                     "Index saved", extra={"path": index_path, "namespace": ns}
                 )
                 saved += 1
-            except TimeoutError:
-                logger.warning(
-                    "Index save timed out",
-                    extra={"path": index_path, "namespace": ns},
-                )
             except Exception:
                 logger.exception(
                     "Index save failed after retries",
@@ -186,24 +181,16 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 async def _save_index_with_retry(
     vector_store: Any, index_path: str, namespace: str
 ) -> None:
-    """Save index with retry.
+    """Save index with retry (10 s per attempt).
 
     Raises:
+        AdapterError: If a single attempt times out.
         Exception: If save fails after all retries.
     """
-    await vector_store.save(index_path, namespace=namespace)
-
-
-async def _save_index_with_timeout(
-    vector_store: Any, index_path: str, namespace: str
-) -> None:
-    """Save index with timeout (no retry on timeout).
-
-    Raises:
-        TimeoutError: If save exceeds 10 seconds.
-        Exception: If save fails after retries.
-    """
-    await asyncio.wait_for(
-        _save_index_with_retry(vector_store, index_path, namespace),
-        timeout=10.0,
-    )
+    try:
+        await asyncio.wait_for(
+            vector_store.save(index_path, namespace=namespace),
+            timeout=10.0,
+        )
+    except TimeoutError:
+        raise AdapterError("Index save timed out, will retry") from None
