@@ -11,8 +11,9 @@ from ai_assistant.core.logger import get_logger
 
 if TYPE_CHECKING:
     from ai_assistant.core.config import SourceConfig
+    from ai_assistant.core.ports.vector_store import IVectorStore
 
-__all__ = ["index_folder", "read_sources"]
+__all__ = ["cleanup_stale", "index_folder", "read_sources"]
 
 _logger = get_logger("rag.indexing")
 
@@ -163,6 +164,7 @@ async def index_folder(
     )
 
     all_results: dict[str, Any] = {}
+    all_indexed_uris: dict[str, dict[str, list[str]]] = {}
     all_errors: list[str] = []
     processed_any = False
 
@@ -226,6 +228,9 @@ async def index_folder(
                 "indexed": result.get("indexed_count", 0),
                 "chunks": result.get("chunk_count", 0),
             }
+            ns_uris = result.get("indexed_uris", {})
+            if ns_uris:
+                all_indexed_uris[namespace] = ns_uris
             if result.get("errors"):
                 all_errors.extend(result["errors"])
 
@@ -252,5 +257,45 @@ async def index_folder(
     return {
         "success": not any("failed" in e for e in all_errors),
         "results": all_results,
+        "indexed_uris": all_indexed_uris,
         "errors": all_errors,
     }
+
+
+async def cleanup_stale(
+    vector_store: IVectorStore,
+    indexed_uris: dict[str, dict[str, list[str]]],
+) -> dict[str, Any]:
+    """Remove chunks whose source_uri is not present in indexed_uris.
+
+    Args:
+        vector_store: IVectorStore instance.
+        indexed_uris: {namespace: {source_uri: [chunk_ids]}} — mapping
+            of source_uris that were just indexed.
+
+    Returns:
+        {"removed": int, "errors": [str]}.
+    """
+    total_removed = 0
+    errors: list[str] = []
+
+    for namespace, valid_uris in indexed_uris.items():
+        try:
+            all_chunks = await vector_store.list_by_filter({}, namespace=namespace)
+            to_delete: list[str] = []
+            for chunk_id, meta in all_chunks:
+                uri = meta.get("source_uri")
+                if uri is not None and uri not in valid_uris:
+                    to_delete.append(chunk_id)
+
+            if to_delete:
+                await vector_store.delete(to_delete, namespace=namespace)
+                total_removed += len(to_delete)
+                _logger.info(
+                    f"Removed {len(to_delete)} stale chunks from {namespace}"
+                )
+        except Exception as exc:
+            _logger.exception(f"Cleanup stale failed for {namespace}")
+            errors.append(f"Cleanup stale failed for {namespace}: {exc}")
+
+    return {"removed": total_removed, "errors": errors}

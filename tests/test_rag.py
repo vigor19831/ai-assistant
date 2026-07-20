@@ -36,7 +36,7 @@ from ai_assistant.features.rag.handlers import (
     reindex_status,
     save_chat,
 )
-from ai_assistant.features.rag.indexing import index_folder
+from ai_assistant.features.rag.indexing import cleanup_stale, index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 from ai_assistant.core.config import CHAT_NS_PREFIX, NamespaceConfig, get_chat_namespace
 from ai_assistant.features.rag.schemas import (
@@ -641,6 +641,231 @@ class TestRAGIndexing:
 
 # ── Reranker Regression ──
 
+
+
+class TestCleanupStale:
+    """Stale chunk removal after reindex without clear=True."""
+
+    @pytest.mark.asyncio
+    async def test_index_documents_returns_indexed_uris(
+        self,
+        mock_chunker: Any,
+        mock_embedder: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """Given: documents with source_uri in metadata.
+        When: IndexingManager.index_documents is called.
+        Then: result contains indexed_uris mapping source_uri to chunk ids."""
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+        docs = [
+            {
+                "id": "doc-1",
+                "content": "hello world",
+                "metadata": {"source_uri": "note.md"},
+            }
+        ]
+        result = await manager.index_documents(docs, namespace="test")
+
+        assert "indexed_uris" in result
+        assert result["indexed_uris"] == {"note.md": ["chunk-1"]}
+
+    @pytest.mark.asyncio
+    async def test_index_folder_returns_indexed_uris(
+        self,
+        tmp_path: Path,
+        mock_chunker: Any,
+        mock_embedder: Any,
+    ) -> None:
+        """Given: source folder with one file.
+        When: index_folder completes.
+        Then: result contains indexed_uris with source_uri mapped to chunk ids."""
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "note.md").write_text("hello world")
+
+        vector_store = MemoryVectorStore(
+            VectorStoreConfigData(dim=384, index_path=str(tmp_path / "indices"))
+        )
+
+        result = await index_folder(
+            folder="test",
+            clear=False,
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=vector_store,
+            sources=[
+                SourceConfig(
+                    namespace="test",
+                    path=str(docs_dir),
+                    include=["*.md"],
+                )
+            ],
+            index_path=str(tmp_path / "indices"),
+        )
+
+        assert "indexed_uris" in result
+        assert "test" in result["indexed_uris"]
+        assert "note.md" in result["indexed_uris"]["test"]
+        assert len(result["indexed_uris"]["test"]["note.md"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_removes_orphaned_chunks(
+        self,
+        memory_vector_store: Any,
+    ) -> None:
+        """Given: index has chunks from 'keep.md' and 'orphan.md'.
+        When: cleanup_stale called with only 'keep.md' in mapping.
+        Then: 'orphan.md' chunk is deleted; 'keep.md' stays."""
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        chunks = [
+            Chunk(
+                id="c-keep",
+                text="keep",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(
+                    source="doc-keep",
+                    index=0,
+                    total_chunks=1,
+                    source_uri="keep.md",
+                ),
+            ),
+            Chunk(
+                id="c-orphan",
+                text="orphan",
+                embedding=[0.2] * 384,
+                metadata=ChunkMetadata(
+                    source="doc-orphan",
+                    index=0,
+                    total_chunks=1,
+                    source_uri="orphan.md",
+                ),
+            ),
+        ]
+        await memory_vector_store.add(chunks, namespace="test")
+
+        all_before = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert len(all_before) == 2
+
+        result = await cleanup_stale(
+            memory_vector_store,
+            {"test": {"keep.md": ["c-keep"]}},
+        )
+
+        all_after = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert len(all_after) == 1
+        assert all_after[0][0] == "c-keep"
+        assert result["removed"] == 1
+        assert result["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_preserves_all_when_mapping_complete(
+        self,
+        memory_vector_store: Any,
+    ) -> None:
+        """Given: index has chunks from 'a.md' and 'b.md'.
+        When: cleanup_stale called with both URIs in mapping.
+        Then: nothing is deleted."""
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        chunks = [
+            Chunk(
+                id="c-a",
+                text="a",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(
+                    source="s-a", index=0, total_chunks=1, source_uri="a.md"
+                ),
+            ),
+            Chunk(
+                id="c-b",
+                text="b",
+                embedding=[0.2] * 384,
+                metadata=ChunkMetadata(
+                    source="s-b", index=0, total_chunks=1, source_uri="b.md"
+                ),
+            ),
+        ]
+        await memory_vector_store.add(chunks, namespace="test")
+
+        result = await cleanup_stale(
+            memory_vector_store,
+            {"test": {"a.md": ["c-a"], "b.md": ["c-b"]}},
+        )
+
+        all_after = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert len(all_after) == 2
+        assert result["removed"] == 0
+        assert result["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_empty_mapping_removes_all(
+        self,
+        memory_vector_store: Any,
+    ) -> None:
+        """Given: index has chunks.
+        When: cleanup_stale called with empty mapping for that namespace.
+        Then: all chunks are removed."""
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        chunks = [
+            Chunk(
+                id="c1",
+                text="x",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(
+                    source="s1", index=0, total_chunks=1, source_uri="a.md"
+                ),
+            ),
+        ]
+        await memory_vector_store.add(chunks, namespace="test")
+
+        result = await cleanup_stale(memory_vector_store, {"test": {}})
+
+        all_after = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert len(all_after) == 0
+        assert result["removed"] == 1
+        assert result["errors"] == []
+
+    @pytest.mark.asyncio
+    async def test_cleanup_stale_missing_namespace_skips(
+        self,
+        memory_vector_store: Any,
+    ) -> None:
+        """Given: index has chunks in namespace 'test'.
+        When: cleanup_stale called without 'test' in mapping.
+        Then: nothing is deleted."""
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        chunks = [
+            Chunk(
+                id="c1",
+                text="x",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(
+                    source="s1", index=0, total_chunks=1, source_uri="a.md"
+                ),
+            ),
+        ]
+        await memory_vector_store.add(chunks, namespace="test")
+
+        result = await cleanup_stale(
+            memory_vector_store,
+            {"other": {"b.md": ["c2"]}},
+        )
+
+        all_after = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert len(all_after) == 1
+        assert result["removed"] == 0
+        assert result["errors"] == []
 
 
 class TestChatNamespaceHelper:

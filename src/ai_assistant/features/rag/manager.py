@@ -94,6 +94,7 @@ class IndexingManager:
                 "indexed_count": 0,
                 "chunk_count": 0,
                 "errors": errors or ["No chunks produced from documents"],
+                "indexed_uris": {},
             }
 
         texts = [c.text for c in all_chunks]
@@ -103,6 +104,11 @@ class IndexingManager:
             all_chunks[i] = replace(all_chunks[i], embedding=emb)
 
         await self.vector_store.upsert(all_chunks, namespace=namespace)
+
+        indexed_uris: dict[str, list[str]] = {}
+        for chunk in all_chunks:
+            if chunk.metadata and chunk.metadata.source_uri:
+                indexed_uris.setdefault(chunk.metadata.source_uri, []).append(chunk.id)
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         _logger.info(
@@ -118,6 +124,7 @@ class IndexingManager:
             "indexed_count": successful_docs,
             "chunk_count": len(all_chunks),
             "errors": errors,
+            "indexed_uris": indexed_uris,
         }
 
 
