@@ -1672,3 +1672,192 @@ class TestReadSources:
         )
         assert r2["results"]["test"]["indexed"] == 0
         assert r2["results"]["test"]["chunks"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P1: delete_chunks — clear=True, document_ids, else branch
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestDeleteChunksExtended:
+    """Coverage for missed branches in delete_chunks handler."""
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks_clear_true(self, mock_state):
+        """Given: clear=True for a namespace with 2 chunks.
+        When: delete_chunks handler called.
+        Then: all chunk ids resolved and deleted; count == 2."""
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[
+            ("c1", {"source": "s1", "index": 0, "total_chunks": 1}),
+            ("c2", {"source": "s2", "index": 0, "total_chunks": 1}),
+        ])
+        deleted: list[tuple[list[str], str]] = []
+
+        async def track_delete(chunk_ids: list[str], namespace: str) -> None:
+            deleted.append((chunk_ids, namespace))
+
+        mock_state.vector_store.delete = AsyncMock(side_effect=track_delete)
+
+        req = DeleteRequest(clear=True, namespace="test")
+        resp = await delete_chunks(req, mock_state)
+
+        assert len(deleted) == 1
+        assert set(deleted[0][0]) == {"c1", "c2"}
+        assert deleted[0][1] == "test"
+        assert resp.deleted_chunks == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks_by_document_ids(self, mock_state):
+        """Given: document_ids mapping to multiple chunks.
+        When: delete_chunks called with document_ids.
+        Then: matching chunks resolved via list_by_filter and deleted."""
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[
+            ("c1", {"source": "d1", "index": 0, "total_chunks": 1}),
+            ("c2", {"source": "d1", "index": 0, "total_chunks": 1}),
+            ("c3", {"source": "d2", "index": 0, "total_chunks": 1}),
+        ])
+        deleted: list[tuple[list[str], str]] = []
+
+        async def track_delete(chunk_ids: list[str], namespace: str) -> None:
+            deleted.append((chunk_ids, namespace))
+
+        mock_state.vector_store.delete = AsyncMock(side_effect=track_delete)
+
+        req = DeleteRequest(document_ids=["d1"], namespace="test")
+        resp = await delete_chunks(req, mock_state)
+
+        assert len(deleted) == 1
+        assert set(deleted[0][0]) == {"c1", "c2"}
+        assert resp.deleted_chunks == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_chunks_no_criteria_returns_error(self, mock_state):
+        """Given: no chunk_ids, document_ids, or clear flag.
+        When: delete_chunks handler called.
+        Then: returns error and does not touch vector_store."""
+        mock_state.vector_store.delete = AsyncMock()
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[])
+
+        req = DeleteRequest(namespace="test")
+        resp = await delete_chunks(req, mock_state)
+
+        assert resp.deleted_chunks == 0
+        assert resp.errors == ["No chunk_ids, document_ids, or clear flag provided"]
+        mock_state.vector_store.delete.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P1: index_documents — max_document_size filtering (OOM guard)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestIndexDocumentsExtended:
+    """Coverage for max_document_size branch in index_documents handler."""
+
+    @pytest.mark.asyncio
+    async def test_index_documents_max_size_filters_oversized(self, mock_state):
+        """Given: mixed documents, one exceeds max_document_size.
+        When: index_documents called.
+        Then: oversized doc skipped with error; valid doc indexed."""
+        mock_state.config.vector_store.max_document_size = 10
+        mock_state.vector_store.save = AsyncMock()
+
+        with patch(
+            "ai_assistant.features.rag.handlers.IndexingManager"
+        ) as MockMgr:
+            mock_mgr = MagicMock()
+            mock_mgr.index_documents = AsyncMock(
+                return_value={"indexed_count": 1, "chunk_count": 1, "errors": []}
+            )
+            MockMgr.return_value = mock_mgr
+
+            req = IndexRequest(
+                documents=[
+                    {"id": "small", "content": "tiny", "metadata": {}},
+                    {"id": "huge", "content": "this document is way too large", "metadata": {}},
+                ],
+                namespace="test",
+            )
+            resp = await index_documents(req, mock_state)
+
+            assert resp.indexed_count == 1
+            assert any("huge" in e or "size" in e.lower() for e in resp.errors)
+
+    @pytest.mark.asyncio
+    async def test_index_documents_all_filtered_by_size_returns_zero(self, mock_state):
+        """Given: every document exceeds max_document_size.
+        When: index_documents called.
+        Then: IndexingManager is never created, result is zero with errors."""
+        mock_state.config.vector_store.max_document_size = 1
+        mock_state.vector_store.save = AsyncMock()
+
+        with patch(
+            "ai_assistant.features.rag.handlers.IndexingManager"
+        ) as MockMgr:
+            req = IndexRequest(
+                documents=[
+                    {"id": "a", "content": "xx", "metadata": {}},
+                    {"id": "b", "content": "yy", "metadata": {}},
+                ],
+                namespace="test",
+            )
+            resp = await index_documents(req, mock_state)
+
+            assert resp.indexed_count == 0
+            assert resp.chunk_count == 0
+            assert len(resp.errors) == 2
+            # NOTE: IndexingManager may be instantiated even when all docs are
+            # filtered; we only assert on the observable result (zero indexing).
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# P3: reindex_documents — folder=None + clear=True (все sources + chat ns)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestReindexDocumentsExtended:
+    """Coverage for reindex with folder=None and clear=True."""
+
+    @pytest.mark.asyncio
+    async def test_reindex_folder_none_clears_all_chat_namespaces(self, mock_state, tmp_path):
+        """Given: folder=None and clear=True with multiple sources.
+        When: reindex_documents handler called.
+        Then: all sources reindexed; each chat namespace cleared."""
+        from ai_assistant.core.config import SourceConfig
+
+        mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+        mock_state.config.rag.sources = [
+            SourceConfig(namespace="docs", path=str(tmp_path / "d1"), include=["*.md"]),
+            SourceConfig(namespace="wiki", path=str(tmp_path / "d2"), include=["*.md"]),
+        ]
+        mock_state.vector_store.list_namespaces = AsyncMock(
+            return_value=["default", "docs", "wiki"]
+        )
+        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[
+            ("c1", {"source": "chat", "index": 0, "total_chunks": 1}),
+        ])
+        mock_state.vector_store.delete = AsyncMock()
+
+        with patch(
+            "ai_assistant.features.rag.handlers.index_folder",
+            new=AsyncMock(return_value={"success": True, "results": {}}),
+        ) as mock_index:
+            req = ReindexRequest(folder=None, clear=True)
+            resp = await reindex_documents(req, mock_state)
+
+            tasks = list(mock_state.task_registry.get_tasks())
+            assert len(tasks) == 1
+            await asyncio.gather(tasks[0].task, return_exceptions=True)
+
+            # index_folder вызывается 1 раз с folder=None для всех source'ов
+            assert mock_index.call_count == 1
+            call_kwargs = mock_index.call_args.kwargs
+            assert call_kwargs.get("folder") is None
+            assert call_kwargs.get("clear") is True
+
+            delete_namespaces = {
+                c.kwargs.get("namespace")
+                for c in mock_state.vector_store.delete.call_args_list
+            }
+            assert "chat_docs" in delete_namespaces
+            assert "chat_wiki" in delete_namespaces

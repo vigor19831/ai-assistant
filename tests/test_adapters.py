@@ -851,6 +851,66 @@ class TestSQLiteStorage:
         with pytest.raises(AdapterError):
             await storage.get_history("conv-1")
 
+    @pytest.mark.asyncio
+    async def test_history_offset_pagination(self, storage):
+        """Given: 5 messages saved to conversation.
+        When: get_history called with offset=2, limit=2.
+        Then: returns correct slice in DESC order."""
+        await storage.init_db()
+        for i in range(5):
+            await storage.save_message("conv-1", {"role": "user", "content": f"msg{i}"})
+        history = await storage.get_history("conv-1", limit=2, offset=2)
+        assert len(history) == 2
+        assert history[0]["content"] == "msg1"
+        assert history[1]["content"] == "msg2"
+
+    @pytest.mark.asyncio
+    async def test_save_message_raises_adapter_error_on_corrupted_db(self, storage, tmp_path):
+        """Given: corrupted DB file.
+        When: save_message called.
+        Then: AdapterError is raised, not raw sqlite3.Error."""
+        await storage.init_db()
+        db_path = storage.config.db_path
+        with open(db_path, "w") as f:
+            f.write("not a database")
+        with pytest.raises(AdapterError):
+            await storage.save_message("conv-1", {"role": "user", "content": "hi"})
+
+    @pytest.mark.asyncio
+    async def test_set_overwrites_existing_key(self, storage):
+        """Given: key already exists in settings.
+        When: set called with new value.
+        Then: get returns the new value."""
+        await storage.init_db()
+        await storage.set("key1", {"version": 1})
+        await storage.set("key1", {"version": 2})
+        assert await storage.get("key1") == {"version": 2}
+
+    @pytest.mark.asyncio
+    async def test_get_history_nonexistent_conversation_returns_empty(self, storage):
+        """Given: conversation_id never used.
+        When: get_history called.
+        Then: returns empty list without error."""
+        await storage.init_db()
+        history = await storage.get_history("never-used-id", limit=10)
+        assert history == []
+
+    @pytest.mark.asyncio
+    async def test_get_history_limit_zero_returns_empty(self, storage):
+        """LIMIT 0 must return empty list without hitting the DB hard."""
+        await storage.init_db()
+        await storage.save_message("conv-1", {"role": "user", "content": "hi"})
+        history = await storage.get_history("conv-1", limit=0)
+        assert history == []
+
+    @pytest.mark.asyncio
+    async def test_get_history_offset_beyond_count_returns_empty(self, storage):
+        """offset larger than total rows must return empty list gracefully."""
+        await storage.init_db()
+        await storage.save_message("conv-1", {"role": "user", "content": "hi"})
+        history = await storage.get_history("conv-1", limit=10, offset=100)
+        assert history == []
+
 
 # ── TestSimpleChunker ──
 
@@ -1195,6 +1255,31 @@ class TestOpenAICompatibleLLM:
             timeout = call_kwargs["timeout"]
             assert isinstance(timeout, httpx.Timeout)
             assert timeout.read == 10.0
+
+    @pytest.mark.asyncio
+    async def test_stream_raises_adapter_error_on_network_failure(self):
+        """P4: Given: connection drops during SSE stream setup.
+        When: stream() is called.
+        Then: AdapterError wraps the network exception."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        llm = OpenAICompatibleLLM(
+            LLMConfigData(
+                api_key="sk-test",
+                model="gpt-4",
+                api_base="http://test/v1",
+            )
+        )
+
+        mock_stream_ctx = AsyncMock()
+        mock_stream_ctx.__aenter__.side_effect = httpx.ConnectError("connection refused")
+
+        mock_client = MagicMock(spec=httpx.AsyncClient)
+        mock_client.stream.return_value = mock_stream_ctx
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(AdapterError):
+                _ = [c async for c in llm.stream([UserMessage(text="hi")])]
 
 
 # ── TestFactoryRegistry ──
