@@ -98,14 +98,22 @@ def get_metrics() -> str:
     with _lock:
         lines: list[str] = []
 
+        # Counters: one HELP/TYPE per metric name, then all label-sets
+        _seen_counter: set[str] = set()
         for (name, labels), value in _counters.items():
-            lines.append(f"# HELP {name} Total")
-            lines.append(f"# TYPE {name} counter")
+            if name not in _seen_counter:
+                lines.append(f"# HELP {name} Total")
+                lines.append(f"# TYPE {name} counter")
+                _seen_counter.add(name)
             lines.append(_metric_line(name, labels, value))
 
+        # Histograms: one HELP/TYPE per metric name, then all label-sets
+        _seen_hist: set[str] = set()
         for (name, labels), hist in _histograms.items():
-            lines.append(f"# HELP {name} Latency")
-            lines.append(f"# TYPE {name} histogram")
+            if name not in _seen_hist:
+                lines.append(f"# HELP {name} Latency")
+                lines.append(f"# TYPE {name} histogram")
+                _seen_hist.add(name)
             for b in _DEFAULT_BUCKETS:
                 bucket_labels = labels + (("le", str(b)),)
                 lines.append(
