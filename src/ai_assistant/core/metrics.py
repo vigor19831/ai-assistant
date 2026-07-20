@@ -1,4 +1,10 @@
-"""In-memory metrics registry — stdlib only, Prometheus-compatible."""
+"""In-memory metrics registry — stdlib only, Prometheus-compatible.
+
+Optional structured logging: when setup_logging(metrics_to_log=True, fmt="json")
+is called, every counter increment and histogram observation is also emitted
+as a JSON log line. This survives restarts and enables post-hoc analysis
+(e.g. jq 'select(.logger=="metrics")' data/app.log).
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,8 @@ import math
 import threading
 from collections import defaultdict
 from typing import Any
+
+from ai_assistant.core.logger import get_metrics_logger
 
 __all__ = [
     "get_metrics",
@@ -61,6 +69,30 @@ def _metric_line(
     return f"{_key_str(name, labels)} {value}"
 
 
+def _log_metric(
+    metric_type: str,
+    name: str,
+    value: int | float,
+    labels: dict[str, str] | None,
+) -> None:
+    """Emit a structured metric log line when metrics-to-log is enabled.
+
+    The log record carries extra fields that _JsonFormatter surfaces
+    automatically; no formatter changes are required.
+    """
+    logger = get_metrics_logger()
+    if logger is None:
+        return
+    extra: dict[str, object] = {
+        "metric_type": metric_type,
+        "metric_name": name,
+        "metric_value": value,
+    }
+    if labels:
+        extra["labels"] = dict(labels)
+    logger.info("metric", extra=extra)
+
+
 def increment_counter(
     name: str,
     labels: dict[str, str] | None = None,
@@ -70,6 +102,7 @@ def increment_counter(
     key = (name, _labels_key(labels))
     with _lock:
         _counters[key] += value
+    _log_metric("counter", name, value, labels)
 
 
 def observe_histogram(
@@ -91,6 +124,7 @@ def observe_histogram(
                 hist["buckets"][b] += 1
         hist["sum"] += value
         hist["count"] += 1
+    _log_metric("histogram", name, value, labels)
 
 
 def get_metrics() -> str:

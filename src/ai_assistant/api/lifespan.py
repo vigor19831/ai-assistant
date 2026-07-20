@@ -44,12 +44,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log_fmt = log_cfg.format if log_cfg else "text"
     max_bytes = log_cfg.max_bytes if log_cfg else 10_485_760
     backup_count = log_cfg.backup_count if log_cfg else 2
+    # Enable structured metric logging when JSON format is active and
+    # env var AI_METRICS_TO_LOG is set (solo-local debug mode).
+    _env_flag = os.getenv("AI_METRICS_TO_LOG", "").lower()
+    metrics_to_log = _env_flag in ("1", "true", "yes")
     setup_logging(
         level=log_level,
         log_file=log_file,
         fmt=log_fmt,
         max_bytes=max_bytes,
         backup_count=backup_count,
+        metrics_to_log=metrics_to_log,
     )
 
     mount_static(app, config)

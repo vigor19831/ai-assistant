@@ -10,12 +10,16 @@ import threading
 from pathlib import Path
 from typing import Final
 
-__all__ = ["get_logger", "setup_logging"]
+__all__ = ["get_logger", "setup_logging", "get_metrics_logger"]
 
 _LOCK: Final = threading.Lock()
 _VALID_LEVELS: Final[frozenset[str]] = frozenset(
     {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
 )
+
+# Module-level flag: whether metrics should be emitted as structured log lines.
+# Set by setup_logging(metrics_to_log=True) when fmt="json".
+_metrics_to_log: bool = False
 
 
 class _TextFormatter(logging.Formatter):
@@ -66,6 +70,7 @@ def setup_logging(
     fmt: str = "text",
     max_bytes: int = 10_485_760,
     backup_count: int = 2,
+    metrics_to_log: bool = False,
 ) -> logging.Logger:
     """Configure application logging.
 
@@ -80,10 +85,15 @@ def setup_logging(
         fmt: Log format — "text" or "json".
         max_bytes: Maximum size in bytes before rotating the log file.
         backup_count: Number of backup files to keep.
+        metrics_to_log: If True and fmt="json", metrics are emitted as
+            structured log lines via the same handlers. Ignored when
+            fmt="text" to avoid polluting text logs.
 
     Repeated calls clear existing handlers and recreate them,
     allowing format changes at runtime (e.g., on config reload).
     """
+    global _metrics_to_log
+
     upper = level.upper()
     if upper not in _VALID_LEVELS:
         raise ValueError(
@@ -92,6 +102,8 @@ def setup_logging(
 
     if fmt not in {"text", "json"}:
         raise ValueError(f"Invalid log format {fmt!r}. Use 'text' or 'json'.")
+
+    _metrics_to_log = metrics_to_log and (fmt == "json")
 
     logger = logging.getLogger("ai_assistant")
     logger.setLevel(getattr(logging, upper))
@@ -142,3 +154,13 @@ def setup_logging(
 def get_logger(name: str) -> logging.Logger:
     """Get child logger."""
     return logging.getLogger(f"ai_assistant.{name}")
+
+
+def get_metrics_logger() -> logging.Logger | None:
+    """Return metrics logger if metrics-to-log is enabled, else None.
+
+    Used by core/metrics.py to conditionally emit structured metric logs.
+    """
+    if not _metrics_to_log:
+        return None
+    return logging.getLogger("ai_assistant.metrics")
