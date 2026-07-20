@@ -26,6 +26,13 @@ async def atomic_write(
 
     Preserves the permissions of an existing target file.  New files
     inherit the permissions from the temporary file (typically 0o600).
+
+    NOTE: ``os.replace()`` is atomic only within the same filesystem.
+    On Windows, NFS, or cross-device moves the target may be lost or
+    corrupted on power failure.  For critical data, the explicit
+    ``flush`` + ``fsync`` on the temporary file before the rename is
+    the primary durability mechanism; errors from those calls are not
+    swallowed.
     """
     target = Path(path)
 
@@ -48,12 +55,12 @@ async def atomic_write(
                 with os.fdopen(fd, mode, closefd=True) as fh:
                     fh.write(cast("bytes", content))
                     fh.flush()
-                    os.fsync(fh.fileno())
+                    os.fsync(fh.fileno())  # critical durability point; errors propagate
             else:
                 with os.fdopen(fd, mode, closefd=True, encoding="utf-8") as fh:
                     fh.write(cast("str", content))
                     fh.flush()
-                    os.fsync(fh.fileno())
+                    os.fsync(fh.fileno())  # critical durability point; errors propagate
 
             # Preserve permissions of existing target file.
             # mkstemp creates files with 0o600; os.replace swaps inodes,
@@ -63,6 +70,8 @@ async def atomic_write(
                 old_mode = stat.S_IMODE(os.stat(target).st_mode)
                 os.chmod(tmp, old_mode)
 
+            # os.replace() is atomic only on the same filesystem.
+            # On Windows/NFS this is best-effort.
             os.replace(tmp, target)
             # Persist directory metadata (POSIX)
             try:
