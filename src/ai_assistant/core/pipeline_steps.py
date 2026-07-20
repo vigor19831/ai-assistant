@@ -340,6 +340,19 @@ async def rerank(data: PipelineData) -> PipelineData:
 
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
+        if results:
+            scores = [r.score for r in results]
+            _logger.debug(
+                "rerank score distribution",
+                extra={
+                    "trace_id": data.trace_id,
+                    "top_score": round(scores[0], 4),
+                    "bottom_score": round(scores[-1], 4),
+                    "spread": round(scores[0] - scores[-1], 4) if len(scores) > 1 else 0.0,
+                    "count": len(scores),
+                },
+            )
+
         _logger.debug(
             "rerank done",
             extra={"trace_id": data.trace_id, "chunks": len(results)},
@@ -498,7 +511,13 @@ async def generate(data: PipelineData) -> PipelineData:
         )
         return data.add_error("tokenizer missing in PipelineData")
     prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
-    margin = max(cfg.token_margin_min, int(max_ctx * cfg.token_margin_pct))
+    # Adaptive margin: cap for very large contexts to avoid wasting space.
+    # Small models (<32K) keep the full percentage margin.
+    # Large models (>32K) cap at 8K to preserve context for chunks.
+    calculated_margin = int(max_ctx * cfg.token_margin_pct)
+    if max_ctx > 32 * 1024:
+        calculated_margin = min(calculated_margin, 8 * 1024)
+    margin = max(cfg.token_margin_min, calculated_margin)
     limit = max_ctx - margin
 
     if prompt_tokens > limit:

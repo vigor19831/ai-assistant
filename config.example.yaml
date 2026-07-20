@@ -163,6 +163,8 @@ rag:
     - build_context
     - generate
   prompt_version: v1
+  # prompt_name: rag_strict works with all models.
+  # For models <8B params, consider reducing top_k to 2 if noise leaks.
   prompt_name: rag_strict
   top_k: 3
   default_namespace: "test"
