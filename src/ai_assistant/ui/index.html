@@ -280,6 +280,9 @@
                 <button class="icon-btn" onclick="exportChat()" title="Export">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 </button>
+                <button class="icon-btn" onclick="openIndexModal()" title="Index Documents">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 14l-6-6-6 6"/></svg>
+                </button>
                 <button class="icon-btn" onclick="openSettings()" title="Settings">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.67 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                 </button>
@@ -345,6 +348,31 @@
                 <button class="modal-btn danger" onclick="clearAllData()">Clear All Data</button>
                 <button class="modal-btn" onclick="closeSettings()">Cancel</button>
                 <button class="modal-btn primary" onclick="saveSettings()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Index Modal -->
+    <div class="modal-overlay" id="indexModal">
+        <div class="modal">
+            <h2>📚 Index Documents</h2>
+            <div class="modal-row">
+                <label>Folder (optional)</label>
+                <input type="text" id="indexFolder" placeholder="Leave empty to index all configured sources">
+            </div>
+            <div class="modal-row">
+                <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;">
+                    <input type="checkbox" id="indexClear" style="width:auto;">
+                    Clear existing index before reindexing
+                </label>
+            </div>
+            <div class="modal-row" id="indexStatusRow" style="display:none;">
+                <label>Status</label>
+                <pre id="indexStatus" style="font-family:monospace;font-size:12px;background:var(--surface);padding:10px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;"></pre>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn" onclick="closeIndexModal()">Close</button>
+                <button class="modal-btn primary" id="indexStartBtn" onclick="startIndexing()">Start Indexing</button>
             </div>
         </div>
     </div>
@@ -994,6 +1022,94 @@
         function showToast(text) {
             toastEl.textContent = text; toastEl.classList.add('show');
             setTimeout(() => toastEl.classList.remove('show'), 2500);
+        }
+
+        // ===== Index Documents =====
+        let indexPollInterval = null;
+
+        function openIndexModal() {
+            document.getElementById('indexModal').classList.add('active');
+            document.getElementById('indexStatusRow').style.display = 'none';
+            document.getElementById('indexStatus').textContent = '';
+            const btn = document.getElementById('indexStartBtn');
+            btn.disabled = false;
+            btn.textContent = 'Start Indexing';
+        }
+
+        function closeIndexModal() {
+            document.getElementById('indexModal').classList.remove('active');
+            if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; }
+        }
+
+        async function startIndexing() {
+            const folder = document.getElementById('indexFolder').value.trim() || null;
+            const clear = document.getElementById('indexClear').checked;
+            const btn = document.getElementById('indexStartBtn');
+            const statusRow = document.getElementById('indexStatusRow');
+            const statusEl = document.getElementById('indexStatus');
+
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            statusRow.style.display = 'block';
+            statusEl.textContent = 'Sending request...';
+
+            const base = (settings.apiBase || '').replace(/\/$/, '');
+            const url = base ? base + '/api/v1/rag/reindex' : '/api/v1/rag/reindex';
+
+            try {
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local')
+                    },
+                    body: JSON.stringify({ folder: folder, clear: clear })
+                });
+                if (!resp.ok) {
+                    const err = await resp.text();
+                    throw new Error('HTTP ' + resp.status + ': ' + err);
+                }
+                const data = await resp.json();
+                statusEl.textContent = 'Started: ' + data.task_id;
+                showToast('Indexing started');
+                pollIndexStatus(data.task_id);
+            } catch (err) {
+                statusEl.textContent = 'Error: ' + err.message;
+                btn.disabled = false;
+                btn.textContent = 'Retry';
+                showToast('Indexing failed: ' + err.message);
+            }
+        }
+
+        function pollIndexStatus(taskId) {
+            if (indexPollInterval) clearInterval(indexPollInterval);
+            const base = (settings.apiBase || '').replace(/\/$/, '');
+            const url = base
+                ? base + '/api/v1/rag/reindex/status/' + taskId
+                : '/api/v1/rag/reindex/status/' + taskId;
+            const statusEl = document.getElementById('indexStatus');
+            const btn = document.getElementById('indexStartBtn');
+
+            indexPollInterval = setInterval(async () => {
+                try {
+                    const resp = await fetch(url, {
+                        headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') }
+                    });
+                    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                    const data = await resp.json();
+                    statusEl.textContent = JSON.stringify(data, null, 2);
+                    const status = data.status;
+                    if (status === 'completed' || status === 'failed') {
+                        clearInterval(indexPollInterval);
+                        indexPollInterval = null;
+                        btn.disabled = false;
+                        btn.textContent = 'Start Indexing';
+                        showToast(status === 'completed' ? 'Indexing completed' : 'Indexing failed');
+                    }
+                } catch (err) {
+                    statusEl.textContent = 'Poll error: ' + err.message;
+                }
+            }, 2000);
         }
 
         // ===== Keyboard =====

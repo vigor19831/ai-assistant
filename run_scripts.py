@@ -34,16 +34,6 @@ _EXCLUDED_SCRIPTS = frozenset({
     "__init__.py",
 })
 
-_DEV_SCRIPTS = frozenset({
-    "check_all.py",
-    "check_llm.py",
-    "check_rag.py",
-    "clean_cache.py",
-    "context_build.py",
-    "open_shell.py",
-    "structure.py",
-})
-
 
 def collect(root: Path, subdir: str) -> list[Path]:
     d = root / subdir
@@ -112,25 +102,20 @@ def _save_history(root: Path, history: dict[str, dict[str, object]]) -> None:
 
 
 def print_menu(scripts, history, last, last_time):
-    user = [s for s in scripts if s[0] not in _DEV_SCRIPTS]
-    dev = [s for s in scripts if s[0] in _DEV_SCRIPTS]
-
-    print("=" * (_COL_W + 4))
-    print("=" * (_COL_W + 4))
+    print()
     print(f"   SCRIPT RUNNER          {time.strftime('%H:%M:%S')}")
-    print("=" * (_COL_W + 4))
-    print("=" * (_COL_W + 4))
-
+    print()
 
     idx = 1
-    for name, path in user:
+
+    idx = 1
+    for name, path in scripts:
         is_last = (path == last)
         hist = history.get(path, {})
         status = hist.get("status", "")
         mark = "o" if status == "ok" else "x" if status == "fail" else "-"
         prefix = "* " if is_last else "  "
-        server_mark = " [srv]" if name == "index_documents.py" else ""
-        name_fmt = (name + server_mark)[:_NAME_W]
+        name_fmt = name[:_NAME_W]
         desc = _get_docstring(path)
         if desc:
             line = f"{name_fmt} - {desc[:22]}"
@@ -139,25 +124,8 @@ def print_menu(scripts, history, last, last_time):
         print(f"  {prefix}[{idx:2d}] {mark} {line}")
         idx += 1
 
-    if dev:
-        print("  " + "-" * _COL_W)
-        for name, path in dev:
-            is_last = (path == last)
-            hist = history.get(path, {})
-            status = hist.get("status", "")
-            mark = "o" if status == "ok" else "x" if status == "fail" else "-"
-            prefix = "* " if is_last else "  "
-            name_fmt = name[:_NAME_W]
-            desc = _get_docstring(path)
-            if desc:
-                line = f"[dev] {name_fmt} - {desc[:17]}"
-            else:
-                line = f"[dev] {name_fmt}"
-            print(f"  {prefix}[{idx:2d}] {mark} {line}")
-            idx += 1
-
-    print("  " + "-" * _COL_W)
-    print("  [r] Rerun last" + " " * (_COL_W - 16) + "[0] Exit")
+    print()
+    print("  [r] Rerun last  [0] Exit")
 
     if last:
         last_name = Path(last).name
@@ -175,13 +143,11 @@ def run(py, target, root, extra, history):
     name = Path(target).name
     now = time.strftime("%H:%M:%S")
 
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print(f"|  RUN: {name:<{_COL_W - 6}}  |")
-    print(f"|  TIME: {now:<{_COL_W - 7}} |")
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print(f"    {' '.join(cmd)}")
+    print()
+    print(f"  RUN: {name}")
+    print(f"  TIME: {now}")
+    print(f"  {' '.join(cmd)}")
+    print()
 
     start = time.perf_counter()
     res = subprocess.run(cmd, cwd=root)
@@ -196,11 +162,9 @@ def run(py, target, root, extra, history):
 
     _save_history(root, history)
 
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print(f"|  RESULT: {status:<{_COL_W - 10}} |")
-    print("+" + "-" * (_COL_W + 2) + "+")
-    print("+" + "-" * (_COL_W + 2) + "+")
+    print()
+    print(f"  RESULT: {status}")
+    print()
     input("  Press Enter... ")
     return res.returncode, elapsed
 
@@ -209,10 +173,7 @@ def main():
     root = Path(__file__).parent.resolve()
     py = get_python(root)
 
-    raw = _sort(collect(root, "scripts"))
-    user = [f for f in raw if f.name not in _DEV_SCRIPTS]
-    dev = [f for f in raw if f.name in _DEV_SCRIPTS]
-    ordered = user + dev
+    ordered = _sort(collect(root, "scripts"))
     scripts = [(f.name, str(f)) for f in ordered]
 
     history = _load_history(root)

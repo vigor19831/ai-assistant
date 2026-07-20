@@ -86,22 +86,20 @@ rag:
 
 # 5. Namespace prefix for chat
 #    prefix: single character used in chat, e.g. [m] query
-#    threshold: minimum relevance score (0.0-1.0), lower = more results
 #    prompt: rag_strict | rag_default | rag_creative
 namespaces:
   mydocs:
     prefix: m
-    threshold: 0.1
     chunk_size: 512
     prompt: rag_strict
 ```
 
 ### 3. Download Tokenizers (local models only)
 
-Required for local models (Llama, Qwen, Gemma, Phi, etc.). Skip for cloud OpenAI models.
+Required once for local models (Llama, Qwen, Gemma, Phi, etc.). Skip for cloud OpenAI models.
 
 ```bash
-python run_scripts.py  # interactive menu → select download_tokenizers.py
+python scripts/download_tokenizers.py
 ```
 
 ### 4. Download Engine and Models (local llama.cpp only)
@@ -132,15 +130,13 @@ With servers running, test the connections:
 
 **Check LLM:**
 ```bash
-python run_scripts.py  # interactive menu → select check_llm.py
+python scripts/check_llm.py
 ```
 
 **Check RAG pipeline:**
 ```bash
-python run_scripts.py  # interactive menu → select check_rag.py
+python scripts/check_rag.py
 ```
-
-> **Note:** `run_scripts.py` shows an interactive menu. Use arrow keys to select, Enter to run.
 
 **Quick API test (PowerShell):**
 ```powershell
@@ -171,7 +167,7 @@ Key sections in `config.yaml`:
 | `chunker` | Document splitting strategy |
 | `chat` | History limit, max context tokens |
 | `rag` | Pipeline steps, top_k, thresholds, document `sources` |
-| `namespaces` | Per-namespace prefix, chunk size, threshold, prompt override |
+| `namespaces` | Per-namespace prefix, chunk size, prompt override |
 | `storage` | SQLite database path |
 | `security` | API key, `admin_enabled`, body size limits |
 | `logging` | Level, format (text/json), rotation |
@@ -183,11 +179,7 @@ Key sections in `config.yaml`:
 
 ### First-Time Indexing
 
-After configuring `rag.sources`, create the initial index:
-
-```bash
-python run_scripts.py  # interactive menu → select index_documents.py
-```
+After configuring `rag.sources`, open the web UI at `http://localhost:8000/ui` and click the **Index** button in the header (arrow-up icon). Choose whether to clear the existing index, then start. The task runs in the background; status updates automatically.
 
 Repeat this whenever you add or change document sources.
 
@@ -207,20 +199,14 @@ Configure prefixes per namespace in `config.yaml`:
 namespaces:
   mydocs:
     prefix: m
-    threshold: 0.1
     chunk_size: 512
     prompt: rag_strict
 ```
 
 ### Index Documents
 
-After adding or editing `rag.sources`:
+After adding or editing `rag.sources`, open the web UI and click the **Index** button in the header. You can also trigger reindex via API:
 
-```bash
-python run_scripts.py  # interactive menu → select index_documents.py
-```
-
-Or via API (if `security.api_key` is set, add `-H "Authorization: Bearer <key>"`):
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/rag/reindex \
   -H "Content-Type: application/json" \
@@ -267,12 +253,11 @@ curl http://127.0.0.1:8000/api/v1/rag/namespaces
 
 ## Helper Scripts
 
-Run via `python run_scripts.py` (interactive menu):
+Optional diagnostic and maintenance scripts in `scripts/`. Most users only need `download_tokenizers.py` once.
 
 | Script | When to run |
 |--------|-------------|
-| `index_documents.py` | After updating `rag.sources` in `config.yaml` |
-| `download_tokenizers.py` | After adding a new local model |
+| `download_tokenizers.py` | **Once**, after installing local models |
 | `check_llm.py` | Verify LLM connection |
 | `check_rag.py` | Test full RAG pipeline |
 | `check_all.py` | Run all checks |
@@ -281,6 +266,18 @@ Run via `python run_scripts.py` (interactive menu):
 | `context_build.py` | Build project context for AI assistance |
 | `open_shell.py` | Interactive shell with project imports |
 | `structure.py` | Print project file structure |
+
+Run any script directly:
+
+```bash
+python scripts/<script>.py
+```
+
+Or use the interactive menu:
+
+```bash
+python run_scripts.py
+```
 
 ## Troubleshooting
 
@@ -316,7 +313,7 @@ vector_store:
 
 1. Check indices exist: `curl http://127.0.0.1:8000/api/v1/rag/namespaces`
 2. Check `namespaces` in `config.yaml` is not empty and has a `prefix`
-3. Re-index: `python run_scripts.py` → `index_documents.py`
+3. Re-index via the **Index** button in the web UI
 4. Check prefix matches: `[m]` must match `namespaces.mydocs.prefix: m`
 
 ### `401 Unauthorized` on `/api/v1/*` endpoints

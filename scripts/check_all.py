@@ -613,9 +613,9 @@ def run_coverage_audit() -> list[tuple[str, float, str]]:
 # ── Menu & Runner ───────────────────────────────────────────────────────────
 
 def _run_cmd(cmd: list[str], desc: str) -> bool:
-    print(f"\n{'='*60}")
+    print()
     print(f"  {desc}")
-    print(f"{'='*60}")
+    print()
 
     # Fix hanging: non-interactive, unbuffered, no stdin
     env = os.environ.copy()
@@ -659,9 +659,9 @@ def _run_cmd(cmd: list[str], desc: str) -> bool:
 
 
 def _show_ast_results(orphaned, unused, methods, consts, dups, cycles):
-    print(f"\n{'='*60}")
+    print()
     print("  AST AUDIT RESULTS")
-    print(f"{'='*60}")
+    print()
 
     sections = [
         (orphaned, "Orphaned files"),
@@ -705,9 +705,9 @@ def _show_ast_results(orphaned, unused, methods, consts, dups, cycles):
 
 
 def _show_coverage_results(issues: list):
-    print(f"\n{'='*60}")
+    print()
     print("  COVERAGE AUDIT RESULTS")
-    print(f"{'='*60}")
+    print()
 
     if not issues:
         print("\n  [OK] All files have good coverage.")
@@ -807,9 +807,9 @@ def _audit_test_quality() -> list[str]:
 
 
 def _show_test_audit_results(issues: list[str]) -> bool:
-    print(f"\n{'='*60}")
+    print()
     print("  TEST QUALITY AUDIT")
-    print(f"{'='*60}")
+    print()
 
     if not issues:
         print("\n  [OK] No test quality violations.")
@@ -828,9 +828,10 @@ def main() -> int:
     log.__enter__()
 
     try:
-        print("\n  CHECK ALL — Unified project validation")
-        print("  " + "=" * 56)
-        print("\n  [1]  tests          — pytest only (fast)")
+        print()
+        print("  CHECK ALL — Unified project validation")
+        print()
+        print("  [1]  tests          — pytest only (fast)")
         print("  [2]  tests+coverage — pytest + branch coverage + audit")
         print("  [3]  lint           — ruff + mypy")
         print("  [4]  audit          — AST dead code audit (no tests)")
@@ -899,12 +900,12 @@ def main() -> int:
             print(f"\n  [ERR] Unknown choice: {choice}")
             return 1
 
-        print(f"\n{'='*60}")
+        print()
         if ok:
             print("  [OK] ALL CHECKS PASSED")
         else:
             print("  [WARN] SOME CHECKS NEED ATTENTION")
-        print(f"{'='*60}")
+        print()
 
         return 0 if ok else 1
 
