@@ -99,6 +99,12 @@ async def index_documents(
                 f"Document {doc_id} has no content field"
             )
             continue
+        if not isinstance(content, str):
+            doc_id = doc.get("id", "unknown")
+            pre_errors.append(
+                f"Document {doc_id} content is not a string"
+            )
+            continue
         size = len(content.encode("utf-8"))
         if size > max_doc_size:
             doc_id = doc.get("id", "unknown")
