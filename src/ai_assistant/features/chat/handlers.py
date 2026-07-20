@@ -80,14 +80,14 @@ async def _stream_with_heartbeat(
     interval: float = SSE_HEARTBEAT_INTERVAL,
 ) -> AsyncIterator[str]:
     """Wrap async iterator with SSE heartbeat comments to prevent proxy timeout."""
-    queue: asyncio.Queue[str | None | Exception] = asyncio.Queue()
+    queue: asyncio.Queue[str | None | Exception | asyncio.CancelledError] = asyncio.Queue()
 
     async def _producer() -> None:
         try:
             async for chunk in stream:
                 await queue.put(chunk)
             await queue.put(None)  # EOF sentinel
-        except Exception as exc:
+        except (Exception, asyncio.CancelledError) as exc:
             await queue.put(exc)
 
     task = asyncio.create_task(_producer())
@@ -110,7 +110,7 @@ async def _stream_with_heartbeat(
                 yield "data: [DONE]\n\n"
                 return
 
-            if isinstance(item, Exception):
+            if isinstance(item, (Exception, asyncio.CancelledError)):
                 raise item
 
             yield f"data: {item}\n\n"
