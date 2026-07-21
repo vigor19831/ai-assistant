@@ -247,7 +247,6 @@
         }
     </style>
 <base target="_blank">
-<base target="_blank">
 </head>
 <body>
 
@@ -316,10 +315,10 @@
                     <span id="tokenCount"></span>
                 </div>
             </div>
-            <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+            <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
-            <button class="stop-btn" id="stopBtn" onclick="stopGeneration()">
+            <button type="button" class="stop-btn" id="stopBtn" onclick="stopGeneration()">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
             </button>
         </div>
@@ -424,6 +423,7 @@
         const sendBtn = $('sendBtn');
         const stopBtn = $('stopBtn');
         const tokenCountEl = $('tokenCount');
+        const emptyState = $('emptyState');
 
         // ===== Storage Helpers =====
         const storage = {
@@ -560,7 +560,12 @@
 
         function clearAllData() {
             if (!confirm('Delete ALL chats and settings? This cannot be undone.')) return;
-            localStorage.clear();
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('ai_chat_')) keys.push(key);
+            }
+            keys.forEach(k => localStorage.removeItem(k));
             location.reload();
         }
 
@@ -621,7 +626,6 @@
                 scrollBtn.classList.remove('has-new');
             }
         }
-
         function setupScrollHandling() {
             // Synchronous wheel listener — fires BEFORE scroll, catches intent instantly
             container.addEventListener('wheel', (e) => {
@@ -707,7 +711,7 @@
                 inlineCodes.push(code);
                 return `\x00INLINE${inlineCodes.length-1}\x00`;
             });
-            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => {
+            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
                 const safeUrl = url.replace(/[<"']/g, '');
                 if (/^(https?:|mailto:|#)/.test(safeUrl)) {
                     return `<a href="${safeUrl}" target="_blank" rel="noopener">${label}</a>`;
@@ -725,7 +729,8 @@
             const lines = text.split('\n'), result = [];
             let inQuote = false;
             function flushQuote() { if (inQuote) { result.push('</blockquote>'); inQuote = false; } }
-            for (const line of lines) {
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
                 const q = line.match(/^&gt; (.*)$/);
                 if (q) { if (!inQuote) { result.push('<blockquote>'); inQuote = true; } result.push(q[1]); }
                 else { flushQuote(); result.push(line); }
@@ -746,7 +751,8 @@
                 listResult.push(`<${tag}>${listBuffer.join('')}</${tag}>`);
                 listType = null; listBuffer = [];
             }
-            for (const line of listLines) {
+            for (let i = 0; i < listLines.length; i++) {
+                const line = listLines[i];
                 const ul = line.match(/^[-*] (.*)$/);
                 const ol = line.match(/^\d+\. (.*)$/);
                 if (ul) { if (listType !== 'ul') { flushList(); listType = 'ul'; } listBuffer.push(`<li>${ul[1]}</li>`); }
@@ -869,10 +875,17 @@
             if (wrapper) {
                 const bubble = wrapper.querySelector('.message');
                 bubble.innerHTML = renderMarkdown(content);
-                bubble.querySelectorAll('pre code').forEach(block => typeof hljs !== 'undefined' && hljs.highlightElement(block));
+                // highlight только если есть code blocks и стриминг закончился
+                if (!isStreaming) {
+                    bubble.querySelectorAll('pre code').forEach(block => typeof hljs !== 'undefined' && hljs.highlightElement(block));
+                }
             }
-            saveSessionMessages(currentSessionId, messages);
             scrollToBottomIfNeeded();
+        }
+
+        // Отдельная функция для финального сохранения
+        function finalizeMessage(id) {
+            saveSessionMessages(currentSessionId, messages);
         }
 
         function removeMessage(id) {
@@ -922,7 +935,7 @@
                         insertAtCursor(`\n![${file.name}](${e.target.result})\n`);
                     } else {
                         attachedFiles.push({name: file.name, type: 'text', content: e.target.result});
-                        insertAtCursor(`\n\`\`\`${file.name}\n${e.target.result}\n\`\`\`\n`);
+                        insertAtCursor('\n```' + file.name + '\n' + e.target.result + '\n```\n');
                     }
                     renderAttachments();
                     autoResizeInput();
@@ -1028,15 +1041,19 @@
                 });
                 if (!response.ok) throw new Error('HTTP ' + response.status);
 
+                if (!response.body) throw new Error('Response body is null');
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let fullText = '';
+                let buffer = '';
 
                 while (true) {
                     const result = await reader.read();
                     if (result.done) break;
                     const chunk = decoder.decode(result.value, {stream: true});
-                    const lines = chunk.split('\n');
+                    buffer += chunk;
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // сохраняем неполную строку
                     for (const line of lines) {
                         if (!line.startsWith('data: ')) continue;
                         const data = line.slice(6);
@@ -1045,7 +1062,18 @@
                             const parsed = JSON.parse(data);
                             const delta = parsed.choices?.[0]?.delta?.content;
                             if (delta) { fullText += delta; updateMessage(assistantMsg.id, fullText); }
-                        } catch (e) {}
+                        } catch (e) { console.error('Parse error:', e, 'Data:', data); }
+                    }
+                }
+                // Обработаем остаток в буфере
+                if (buffer.startsWith('data: ')) {
+                    const data = buffer.slice(6);
+                    if (data !== '[DONE]') {
+                        try {
+                            const parsed = JSON.parse(data);
+                            const delta = parsed.choices?.[0]?.delta?.content;
+                            if (delta) { fullText += delta; updateMessage(assistantMsg.id, fullText); }
+                        } catch (e) { console.error('SSE parse error:', e, 'Line:', line); }
                     }
                 }
                 assistantDiv.classList.remove('streaming');
@@ -1056,10 +1084,8 @@
                     assistantDiv.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
                     assistantDiv.classList.remove('streaming');
                 }
-            } finally {
-                attachedFiles = [];
-                renderAttachments();
             }
+            finalizeMessage(assistantMsg.id);
 
             isStreaming = false;
             abortController = null;
@@ -1139,7 +1165,7 @@
             if (messages.length === 0) { showToast('Nothing to export'); return; }
             let md = `# Chat Export\n\n`;
             messages.forEach(m => {
-                md += `### ${m.role === 'user' ? '**User**' : '**Assistant**'} · ${formatTime(m.timestamp)}\n\n${m.content}\n\n---\n\n`;
+                            md += `### ${m.role === 'user' ? '**User**' : '**Assistant**'} · ${formatTime(m.timestamp)}\\n\\n${m.content}\\n\\n---\\n\\n`;
             });
             const blob = new Blob([md], {type: 'text/markdown'});
             const url = URL.createObjectURL(blob);
