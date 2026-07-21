@@ -45,21 +45,16 @@ chunker:
 # =============================================================================
 # TOKENIZER — TOKEN COUNTING
 # =============================================================================
-# tiktoken = OpenAI-style. For local models, download tokenizers:
-#   python run_scripts.py → download_tokenizers.py
+# tiktoken = OpenAI-style built-in encoding. Used only for rough context
+# size estimation before sending to the LLM server. The inference server
+# handles actual tokenization; exact HF tokenizers are not required.
 #
-# model_name selects the encoding. Supported values depend on the provider:
-#   tiktoken: "cl100k_base" (OpenAI/GPT-4), "o200k_base" (GPT-4o)
-#   char_fallback: ignored (always returns "char_fallback")
+# "cl100k_base" works for all models (conservative, safe estimate).
+# Use "o200k_base" only if you switch to GPT-4o and need billing checks.
 
 tokenizer:
   provider: tiktoken
-  local_dir: ./data/tokenizers
   model_name: cl100k_base
-  # model_name: "cl100k_base"  # OpenAI/GPT-4
-  # model_name: "llama3"       # Llama-3.1, 3.2
-  # model_name: "gemma"        # Gemma 2/4
-  # model_name: "qwen2"        # Qwen2.5, Qwen3
 
 # =============================================================================
 # EMBEDDER — TEXT VECTORIZATION
@@ -71,13 +66,13 @@ embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: CHANGE_ME
+  model: nomic-embed-text-v2-moe
   dim: 768
   timeout: 60.0
   connect_timeout: 5.0
   n_gpu_layers: 0
-  n_batch: 512
-  n_ubatch: 64
+  n_batch: 128
+  n_ubatch: 32
   mmap: true
   mlock: false
 
@@ -91,11 +86,13 @@ llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
   api_key: null
-  model: CHANGE_ME
+  model: qwen_qwen3.5-4b
   available_models:
-    - CHANGE_ME
+    - qwen_qwen3.5-4b
+    - google_gemma-4-e4b-it
+    - google_gemma-4-e2b-it
   max_tokens: 4096
-  temperature: 0.7
+  temperature: 0.3
   top_p: 0.95
   top_k: 40
   min_p: 0.05
@@ -106,7 +103,7 @@ llm:
   timeout: 300.0
   connect_timeout: 5.0
   server_context_size: 4096
-  n_gpu_layers: -1
+  n_gpu_layers: 999
   n_batch: 512
   n_ubatch: 64
   mmap: true
@@ -141,8 +138,8 @@ storage:
 # "local" = local HTTP server (bge-reranker, etc.).
 
 reranker:
-  provider: null
-  model: null
+  provider: local
+  model: bge_reranker_v2_m3
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
@@ -216,7 +213,7 @@ namespaces:
 # admin_enabled = enable /admin/* endpoints.
 
 security:
-  api_key: null
+  api_key: local
   admin_enabled: false
   max_body_size: 10485760
   allowed_hosts:
