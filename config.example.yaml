@@ -3,6 +3,21 @@
 # =============================================================================
 # Copy this file to config.yaml and edit values for your setup.
 # See README.md for setup instructions.
+#
+# QUICK REFERENCE: what to change when switching LLM size
+#   4B models (Gemma-4B, Qwen-3.5-4B):
+#     llm.max_tokens: 4096, llm.temperature: 0.3, llm.server_context_size: 4096
+#     rag.prompt_name: rag_strict, rag.top_k: 3, rag.token_margin_min: 512
+#     namespaces.*.chunk_size: 512, chunker.chunk_size: 512
+#   8B+ models (Qwen3-8B, Llama-3.1-8B):
+#     llm.max_tokens: 8192, llm.temperature: 0.5, llm.server_context_size: 32768
+#     rag.prompt_name: rag_simple, rag.top_k: 10, rag.token_margin_min: 1024
+#     namespaces.*.chunk_size: 1024, chunker.chunk_size: 1024
+#   70B models:
+#     llm.max_tokens: 4096-8192, llm.temperature: 0.5, llm.server_context_size: 131072
+#     rag.prompt_name: rag_simple, rag.top_k: 15, rag.token_margin_min: 4096
+#     namespaces.*.chunk_size: 2048, chunker.chunk_size: 2048
+#   NOTE: after changing chunk_size, you MUST reindex documents.
 
 app_name: ai-assistant
 debug: false
@@ -11,9 +26,10 @@ port: 8000
 config_version: "1"
 
 # =============================================================================
-# CORS — CROSS-ORIGIN REQUESTS
+# INFRASTRUCTURE — rarely changed
 # =============================================================================
-# Required if frontend runs on different port/domain.
+# These settings are environment-specific, not model-specific.
+# Change only when moving to a new machine or changing ports.
 
 cors:
   allow_origins:
@@ -23,44 +39,37 @@ cors:
   allow_methods: ["*"]
   allow_headers: ["*"]
 
-# =============================================================================
-# CHAT — DIALOGUE LIMITS
-# =============================================================================
-
 chat:
   history_limit: 10
   max_context_tokens: 4096
 
-# =============================================================================
-# CHUNKER — DOCUMENT SPLITTING
-# =============================================================================
-# chunk_size: characters per chunk.
-# chunk_overlap: overlap between adjacent chunks.
+storage:
+  provider: sqlite
+  db_path: ./data/storage.db
 
-chunker:
-  provider: simple
-  chunk_size: 512
-  chunk_overlap: 50
+security:
+  api_key: local
+  admin_enabled: false
+  max_body_size: 10485760
+  allowed_hosts:
+    - "localhost"
+    - "127.0.0.1"
+  openai_routes_require_auth: true
 
-# =============================================================================
-# TOKENIZER — TOKEN COUNTING
-# =============================================================================
-# tiktoken = OpenAI-style built-in encoding. Used only for rough context
-# size estimation before sending to the LLM server. The inference server
-# handles actual tokenization; exact HF tokenizers are not required.
-#
-# "cl100k_base" works for all models (conservative, safe estimate).
-# Use "o200k_base" only if you switch to GPT-4o and need billing checks.
+logging:
+  level: "INFO"
+  file: "./data/app.log"
+  format: "text"
+  max_bytes: 10485760
+  backup_count: 2
 
-tokenizer:
-  provider: tiktoken
-  model_name: cl100k_base
+ui:
+  static_path: "./ui"
 
 # =============================================================================
-# EMBEDDER — TEXT VECTORIZATION
+# EMBEDDER-SPECIFIC — change when switching embedding model
 # =============================================================================
-# Must match a running server (llama.cpp, Ollama, etc.).
-# dim MUST match vector_store.dim!
+# CRITICAL: embedder.dim MUST equal vector_store.dim below.
 
 embedder:
   provider: openai_compatible
@@ -77,10 +86,34 @@ embedder:
   mlock: false
 
 # =============================================================================
-# LLM — LANGUAGE MODEL (GENERATION)
+# RERANKER-SPECIFIC — change when switching reranker
 # =============================================================================
-# Must match a running server.
-# server_context_size = model's context window.
+# Set provider: null to disable. "local" requires server on api_base port.
+
+reranker:
+  provider: local
+  model: bge_reranker_v2_m3
+  api_base: http://127.0.0.1:8082
+  api_key: null
+  timeout: 30.0
+
+# =============================================================================
+# VECTOR STORE — dim MUST match embedder.dim above
+# =============================================================================
+# Only change provider (faiss/memory) or paths. Dim is tied to embedder.
+
+vector_store:
+  provider: faiss
+  index_path: ./data/indices
+  metric: cosine
+  dim: 768
+  max_chunks: 100000
+  max_document_size: 10485760
+
+# =============================================================================
+# MODEL-SPECIFIC — change when switching LLM
+# =============================================================================
+# See QUICK REFERENCE at the top of this file.
 
 llm:
   provider: openai_compatible
@@ -89,7 +122,7 @@ llm:
   model: qwen_qwen3.5-4b
   available_models:
     - qwen_qwen3.5-4b
-    - google_gemma-4-e4b-it
+    - google_gemma-4-e2b-it
     - google_gemma-4-e2b-it
   max_tokens: 4096
   temperature: 0.3
@@ -110,56 +143,9 @@ llm:
   mlock: false
 
 # =============================================================================
-# VECTOR STORE — WHERE INDICES LIVE
+# RAG TUNING — change when switching LLM size (4B vs 8B+)
 # =============================================================================
-# faiss = disk (persistent). memory = RAM (lost on restart).
-# dim MUST match embedder.dim!
-
-vector_store:
-  provider: faiss
-  index_path: ./data/indices
-  metric: cosine
-  dim: 768
-  max_chunks: 100000
-  max_document_size: 10485760
-
-# =============================================================================
-# CHAT STORAGE (SQLITE)
-# =============================================================================
-
-storage:
-  provider: sqlite
-  db_path: ./data/storage.db
-
-# =============================================================================
-# RERANKER — SEARCH RESULT IMPROVEMENT
-# =============================================================================
-# null = disabled. "api" = external server (Cohere, Jina, etc.).
-# "local" = local HTTP server (bge-reranker, etc.).
-
-reranker:
-  provider: local
-  model: bge_reranker_v2_m3
-  api_base: http://127.0.0.1:8082
-  api_key: null
-  timeout: 30.0
-
-# =============================================================================
-# RAG — DOCUMENT SOURCES AND SEARCH PARAMETERS
-# =============================================================================
-# sources = list of folders to index.
-#   namespace = collection name (must match namespaces below).
-#   path = folder path (relative or absolute).
-#   include = which files to read.
-#   recursive = search subfolders?
-#
-# To add a new folder:
-#   1. Create folder (e.g., ./data/documents/work)
-#   2. Add block to sources below
-#   3. Add namespace to namespaces section below
-#   4. Run reindex: python run_scripts.py → index_documents.py
-#
-# top_k = how many chunks to retrieve.
+# See QUICK REFERENCE at the top of this file.
 
 rag:
   steps:
@@ -169,8 +155,6 @@ rag:
     - build_context
     - generate
   prompt_version: v1
-  # prompt_name: rag_strict works with all models.
-  # For models <8B params, consider reducing top_k to 2 if noise leaks.
   prompt_name: rag_strict
   top_k: 3
   default_namespace: "test"
@@ -193,12 +177,10 @@ rag:
   index_chat_exports: false
 
 # =============================================================================
-# NAMESPACES — PER-COLLECTION SETTINGS
+# NAMESPACE TUNING — chunk_size depends on LLM size
 # =============================================================================
-# Each namespace MUST match a namespace in rag.sources.
-# prefix = short code for chat: [t] hello → searches in test.
-# chunk_size = chunk size (can differ from global chunker).
-# prompt = response style: rag_strict (exact).
+# See QUICK REFERENCE at the top of this file.
+# NOTE: After changing chunk_size, you MUST reindex documents.
 
 namespaces:
   test:
@@ -207,34 +189,21 @@ namespaces:
     prompt: rag_strict
 
 # =============================================================================
-# SECURITY
+# CHUNKER — usually matches namespace chunk_size
 # =============================================================================
-# api_key = API access key. null = no key (localhost only).
-# admin_enabled = enable /admin/* endpoints.
+# See QUICK REFERENCE at the top of this file.
 
-security:
-  api_key: local
-  admin_enabled: false
-  max_body_size: 10485760
-  allowed_hosts:
-    - "localhost"
-    - "127.0.0.1"
-  openai_routes_require_auth: true
+chunker:
+  provider: simple
+  chunk_size: 512
+  chunk_overlap: 50
 
 # =============================================================================
-# LOGGING
+# TOKENIZER — rarely changed
 # =============================================================================
+# "cl100k_base" is a safe conservative estimate for all local models.
+# Change only if you need exact billing checks with OpenAI API.
 
-logging:
-  level: "INFO"
-  file: "./data/app.log"
-  format: "text"
-  max_bytes: 10485760
-  backup_count: 2
-
-# =============================================================================
-# UI — FRONTEND PATH
-# =============================================================================
-
-ui:
-  static_path: "./ui"
+tokenizer:
+  provider: tiktoken
+  model_name: cl100k_base
