@@ -41,16 +41,20 @@ def _project_path():
 with _project_path():
     from ai_assistant.api.deps import init_adapters
     from ai_assistant.core.config import load_config
+    from ai_assistant.core.logger import get_logger
     from ai_assistant.features.rag.indexing import index_folder
+
+
+_logger = get_logger("scripts.index_documents")
 
 
 def _check_embedder_reachable(cfg) -> tuple[bool, str]:
     """Return (ok, message). Skip check for mock or remote embedders."""
-    provider = getattr(cfg.embedder, "provider", "mock")
+    provider = cfg.embedder.provider
     if provider == "mock":
         return True, "mock"
 
-    base = getattr(cfg.embedder, "api_base", "")
+    base = cfg.embedder.api_base
     if not base:
         return False, "embedder.api_base is empty"
 
@@ -76,12 +80,22 @@ def _check_embedder_reachable(cfg) -> tuple[bool, str]:
 
 async def _shutdown_adapters(state) -> None:
     """Gracefully shutdown all adapters unconditionally."""
-    for adapter in (state.llm, state.embedder, state.vector_store,
-                    state.reranker, state.storage):
+    adapters = (
+        (state.llm, "llm"),
+        (state.embedder, "embedder"),
+        (state.vector_store, "vector_store"),
+        (state.reranker, "reranker"),
+        (state.storage, "storage"),
+    )
+    for adapter, name in adapters:
+        if adapter is None:
+            continue
         try:
-            await adapter.shutdown()
+            await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
+        except TimeoutError:
+            _logger.warning("Adapter shutdown timed out", extra={"adapter": name})
         except Exception:
-            pass
+            _logger.exception("Adapter shutdown failed", extra={"adapter": name})
 
 
 async def _trigger_reload(host: str, port: int, api_key: str | None) -> tuple[bool, str]:
@@ -97,28 +111,27 @@ async def _trigger_reload(host: str, port: int, api_key: str | None) -> tuple[bo
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=headers)
-            if resp.status_code == 404:
-                return False, (
-                    "Admin endpoint not found. "
-                    "Enable admin_enabled in config.yaml and restart the server, "
-                    "or restart the server manually after indexing."
-                )
-            if resp.status_code == 401:
-                return False, (
-                    "Admin endpoint requires API key. "
-                    "Set security.api_key in config.yaml, restart the server, "
-                    "and re-run this script."
-                )
-            if resp.status_code == 503:
-                return False, "Vector store not initialized on server."
-            resp.raise_for_status()
-            data = resp.json()
-            return True, (
-                f"Server reloaded {data.get('reloaded', 0)} namespace(s), "
-                f"skipped {data.get('skipped', 0)}."
+        resp = await httpx.post(url, headers=headers, timeout=30.0)
+        if resp.status_code == 404:
+            return False, (
+                "Admin endpoint not found. "
+                "Enable admin_enabled in config.yaml and restart the server, "
+                "or restart the server manually after indexing."
             )
+        if resp.status_code == 401:
+            return False, (
+                "Admin endpoint requires API key. "
+                "Set security.api_key in config.yaml, restart the server, "
+                "and re-run this script."
+            )
+        if resp.status_code == 503:
+            return False, "Vector store not initialized on server."
+        resp.raise_for_status()
+        data = resp.json()
+        return True, (
+            f"Server reloaded {data.get('reloaded', 0)} namespace(s), "
+            f"skipped {data.get('skipped', 0)}."
+        )
     except httpx.ConnectError:
         return False, (
             f"Could not connect to server at {host}:{port}. "
@@ -186,7 +199,7 @@ async def main() -> int:
     result = result or {}
     results = result.get("results", {})
     if not isinstance(results, dict):
-        print(f"[ERROR] Invalid result format from index_folder")
+        print("[ERROR] Invalid result format from index_folder")
         return 1
 
     for ns, data in results.items():

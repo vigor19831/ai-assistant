@@ -7,8 +7,6 @@ Usage:
     python run_servers.py kill    # emergency kill all processes
 """
 
-from __future__ import annotations
-
 import contextlib
 import os
 import shutil
@@ -17,46 +15,62 @@ import socket
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 
-ROOT = Path(__file__).parent.resolve()
-VENV = ROOT / ".venv"
-VENV_PY = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+VENV = ".venv"
+PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+_SEP = "─" * 50
+
+HOST = "0.0.0.0"
+API_PORT = 8000
+LLM_PORT = 8080
+EMBED_PORT = 8081
+RERANK_PORT = 8082
+PORTS = (LLM_PORT, EMBED_PORT, RERANK_PORT, API_PORT)
+
+LLAMA_SERVER = "llama-server.exe" if os.name == "nt" else "llama-server"
+
+TIMEOUT_START = 30.0
+LLAMA_LOG_MAX_BYTES = 10_485_760
+
+# ── Auto-activate venv ───────────────────────────────────────────────────────
+_venv = Path(__file__).parent / VENV
+_venv_py = _venv / PY
+if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
+    if "--venv-relaunched" not in sys.argv:
+        _script = str(Path(__file__).resolve())
+        if os.name == "nt":
+            # subprocess.call keeps the console window on Windows double-click
+            sys.exit(subprocess.call([str(_venv_py), _script] + sys.argv[1:]))
+        else:
+            os.execl(
+                str(_venv_py), str(_venv_py),
+                _script, *sys.argv[1:], "--venv-relaunched",
+            )
 
 
-def _ensure_venv() -> Path:
-    if VENV_PY.exists():
-        return VENV_PY
-    pip = VENV / ("Scripts/pip.exe" if os.name == "nt" else "bin/pip")
+# ── Helpers ──────────────────────────────────────────────────────────────────
+def _ensure_venv(root: Path) -> Path | None:
+    """Return venv python path, or None if missing."""
+    venv_py = root / VENV / PY
+    if venv_py.exists():
+        return venv_py
+    pip = root / VENV / ("Scripts/pip.exe" if os.name == "nt" else "bin/pip")
     print("Virtual environment not found!")
-    print(f"  cd {ROOT}")
+    print(f"  cd {root}")
     print(f"  {sys.executable} -m venv .venv")
     print(f"  {pip} install -e .")
-    if os.name == "nt" and sys.stdout.isatty():
-        input("\nPress Enter...")
-    sys.exit(1)
-
-
-def _reexec_if_needed() -> None:
-    venv_py = _ensure_venv()
-    if Path(sys.executable).resolve() == venv_py.resolve():
-        return
-    cmd = [str(venv_py), str(__file__)] + sys.argv[1:]
-    sys.exit(subprocess.call(cmd))
-
-
-_reexec_if_needed()
-
-import yaml  # noqa: E402
+    return None
 
 
 def _run(cmd: list[str], log: Path | None = None, **kwargs) -> subprocess.Popen:
-    kw = {
+    kw: dict[str, object] = {
         "stderr": subprocess.STDOUT,
         "stdin": subprocess.DEVNULL,
     }
-    if log:
-        kw["stdout"] = open(log, "a", encoding="utf-8")  # noqa: SIM115
+    if log is not None:
+        kw["stdout"] = open(log, "a", encoding="utf-8")
     else:
         kw["stdout"] = subprocess.DEVNULL
     if os.name == "nt":
@@ -72,7 +86,7 @@ def port_free(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) != 0
 
 
-def wait_port(port: int, timeout: float = 30.0) -> bool:
+def wait_port(port: int, timeout: float = TIMEOUT_START) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not port_free(port):
@@ -81,10 +95,10 @@ def wait_port(port: int, timeout: float = 30.0) -> bool:
     return False
 
 
-def _find_exe(name: str) -> Path | None:
+def _find_exe(name: str, root: Path) -> Path | None:
     for p in [
-        ROOT / "vendor" / "llama" / name,
-        ROOT / "vendor" / "llama.cpp" / "build" / "bin" / name,
+        root / "vendor" / "llama" / name,
+        root / "vendor" / "llama.cpp" / "build" / "bin" / name,
     ]:
         if p.exists():
             return p
@@ -92,8 +106,8 @@ def _find_exe(name: str) -> Path | None:
     return Path(found) if found else None
 
 
-def _find_model(name: str) -> Path | None:
-    d = ROOT / "vendor" / "models"
+def _find_model(name: str, root: Path) -> Path | None:
+    d = root / "vendor" / "models"
     if not d.exists():
         return None
     for ext in (".gguf", ".GGUF"):
@@ -105,23 +119,122 @@ def _find_model(name: str) -> Path | None:
     return None
 
 
-def _load_config() -> dict:
-    p = ROOT / "config.yaml"
-    return yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
+def _load_config(root: Path) -> dict:
+    """Lazy import yaml — it lives inside the venv."""
+    import yaml
+    p = root / "config.yaml"
+    if not p.exists():
+        return {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
 
 
 def _wait_for_stop() -> None:
     print("\n  > Servers running. Press Enter or Ctrl+C to stop...")
-    with contextlib.suppress(EOFError, KeyboardInterrupt):
-        input()
+    input()
     print()
 
 
-def start() -> int:
-    print("\n  Starting servers")
-    print("  " + "-" * 48)
+# ── Server lifecycle ─────────────────────────────────────────────────────────
+def _start_llm_server(cfg: dict, root: Path, llama_log: Path) -> None:
+    llm_cfg: dict = cfg.get("llm", {})
+    model = _find_model(llm_cfg.get("model", ""), root)
+    if not model:
+        print("  ! LLM model not found\n")
+        return
+    exe = _find_exe(LLAMA_SERVER, root)
+    if not exe:
+        print("  ! llama-server not found\n")
+        return
+    print(f"\n  > LLM server  model={model.name}")
+    cmd = [
+        str(exe), "-m", str(model),
+        "--host", "127.0.0.1", "--port", str(LLM_PORT),
+        "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
+        "-c", str(llm_cfg.get("server_context_size", 4096)),
+        "-lv", "1",
+    ]
+    _run(cmd, llama_log)
+    if wait_port(LLM_PORT):
+        print(f"  + LLM ready  http://127.0.0.1:{LLM_PORT}\n")
+    else:
+        print("  ! LLM did not respond\n")
 
-    pid_file = ROOT / "data" / "uvicorn.pid"
+
+def _start_embedder(cfg: dict, root: Path, llama_log: Path) -> None:
+    emb_cfg: dict = cfg.get("embedder", {})
+    model = _find_model(emb_cfg.get("model", ""), root)
+    if not model:
+        print("  ! Embedder model not found\n")
+        return
+    exe = _find_exe(LLAMA_SERVER, root)
+    if not exe:
+        print("  ! llama-server not found\n")
+        return
+    print(f"  > Embedder server  model={model.name}")
+    cmd = [
+        str(exe), "-m", str(model),
+        "--host", "127.0.0.1", "--port", str(EMBED_PORT),
+        "-ngl", str(emb_cfg.get("n_gpu_layers", 99)),
+        "-c", "512", "--embedding", "--pooling", "mean",
+        "-lv", "1",
+    ]
+    _run(cmd, llama_log)
+    if wait_port(EMBED_PORT):
+        print(f"  + Embedder ready  http://127.0.0.1:{EMBED_PORT}\n")
+    else:
+        print("  ! Embedder did not respond\n")
+
+
+def _start_reranker(cfg: dict, root: Path, llama_log: Path) -> None:
+    rerank_cfg: dict = cfg.get("reranker", {})
+    if rerank_cfg.get("provider") != "local":
+        return
+    model = _find_model(rerank_cfg.get("model", ""), root)
+    if not model:
+        print("  ! Reranker model not found\n")
+        return
+    exe = _find_exe(LLAMA_SERVER, root)
+    if not exe:
+        print("  ! llama-server not found\n")
+        return
+    print(f"  > Reranker server  model={model.name}")
+    cmd = [
+        str(exe), "-m", str(model),
+        "--host", "127.0.0.1", "--port", str(RERANK_PORT),
+        "-ngl", str(rerank_cfg.get("n_gpu_layers", 99)),
+        "-c", "2048", "--rerank",
+        "-lv", "1",
+    ]
+    _run(cmd, llama_log)
+    if wait_port(RERANK_PORT):
+        print(f"  + Reranker ready  http://127.0.0.1:{RERANK_PORT}\n")
+    else:
+        print("  ! Reranker did not respond\n")
+
+
+def _start_api(cfg: dict, root: Path, py: str) -> None:
+    host = cfg.get("host", HOST)
+    port = cfg.get("port", API_PORT)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src") + os.pathsep + env.get("PYTHONPATH", "")
+
+    print(f"  > API server  uvicorn {host}:{port}")
+    cmd = [py, "-m", "uvicorn", "ai_assistant.main:app", "--host", host, "--port", str(port)]
+    proc = _run(cmd, root / "data" / "server_8000.log", env=env, cwd=str(root))
+    (root / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
+
+    if wait_port(port):
+        print(f"  + API ready  http://{host}:{port}\n")
+    else:
+        print(f"  ! API did not respond on port {port}\n")
+
+
+def start(root: Path) -> int:
+    print("\n  Starting servers")
+    print(f"  {_SEP}")
+
+    pid_file = root / "data" / "uvicorn.pid"
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
@@ -133,139 +246,53 @@ def start() -> int:
             print("  > Removed stale PID file")
             pid_file.unlink(missing_ok=True)
 
-    cfg = _load_config()
-    (ROOT / "data").mkdir(exist_ok=True)
-    py = str(VENV_PY)
+    cfg = _load_config(root)
+    (root / "data").mkdir(exist_ok=True)
 
-    # Shared llama.cpp log with rotation-like cleanup
-    llama_log = ROOT / "data" / "llama.log"
-    # Truncate if >10MB to avoid unbounded growth
-    if llama_log.exists() and llama_log.stat().st_size > 10_485_760:
+    llama_log = root / "data" / "llama.log"
+    if llama_log.exists() and llama_log.stat().st_size > LLAMA_LOG_MAX_BYTES:
         llama_log.unlink()
 
-    # LLM server
-    llm_cfg = cfg.get("llm", {})
-    model = _find_model(llm_cfg.get("model", ""))
-    if model:
-        exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
-        if exe:
-            print(f"\n  > LLM server  model={model.name}")
-            cmd = [
-                str(exe), "-m", str(model),
-                "--host", "127.0.0.1", "--port", "8080",
-                "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
-                "-c", str(llm_cfg.get("server_context_size", 4096)),
-                "-lv", "1",  # warnings only — suppress per-token debug
-            ]
-            _run(cmd, llama_log)
-            if wait_port(8080):
-                print("  + LLM ready  http://127.0.0.1:8080\n")
-            else:
-                print("  ! LLM did not respond\n")
-        else:
-            print("  ! llama-server not found\n")
-    else:
-        print("  ! LLM model not found\n")
+    try:
+        _start_llm_server(cfg, root, llama_log)
+        _start_embedder(cfg, root, llama_log)
+        _start_reranker(cfg, root, llama_log)
 
-    # Embedder server
-    emb_cfg = cfg.get("embedder", {})
-    model = _find_model(emb_cfg.get("model", ""))
-    if model:
-        exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
-        if exe:
-            print(f"  > Embedder server  model={model.name}")
-            cmd = [
-                str(exe), "-m", str(model),
-                "--host", "127.0.0.1", "--port", "8081",
-                "-ngl", str(emb_cfg.get("n_gpu_layers", 99)),
-                "-c", "512", "--embedding", "--pooling", "mean",
-                "-lv", "1",  # warnings only
-            ]
-            _run(cmd, llama_log)
-            if wait_port(8081):
-                print("  + Embedder ready  http://127.0.0.1:8081\n")
-            else:
-                print("  ! Embedder did not respond\n")
-        else:
-            print("  ! llama-server not found\n")
-    else:
-        print("  ! Embedder model not found\n")
+        venv_py = _ensure_venv(root)
+        if venv_py is None:
+            return 1
+        _start_api(cfg, root, str(venv_py))
 
-    # Reranker server
-    rerank_cfg = cfg.get("reranker", {})
-    if rerank_cfg.get("provider") == "local":
-        model = _find_model(rerank_cfg.get("model", ""))
-        if model:
-            exe = _find_exe("llama-server.exe" if os.name == "nt" else "llama-server")
-            if exe:
-                print(f"  > Reranker server  model={model.name}")
-                cmd = [
-                    str(exe), "-m", str(model),
-                    "--host", "127.0.0.1", "--port", "8082",
-                    "-ngl", str(rerank_cfg.get("n_gpu_layers", 99)),
-                    "-c", "2048", "--rerank",
-                    "-lv", "1",
-                ]
-                _run(cmd, llama_log)
-                if wait_port(8082):
-                    print("  + Reranker ready  http://127.0.0.1:8082\n")
-                else:
-                    print("  ! Reranker did not respond\n")
-            else:
-                print("  ! llama-server not found\n")
-        else:
-            print("  ! Reranker model not found\n")
-
-    # Uvicorn API
-    host = cfg.get("host", "0.0.0.0")
-    port = cfg.get("port", 8000)
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
-
-    print(f"  > API server  uvicorn {host}:{port}")
-    cmd = [py, "-m", "uvicorn", "ai_assistant.main:app", "--host", host, "--port", str(port)]
-    proc = _run(cmd, ROOT / "data" / "server_8000.log", env=env, cwd=str(ROOT))
-    (ROOT / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
-
-    if wait_port(port):
-        print(f"  + API ready  http://{host}:{port}\n")
-    else:
-        print(f"  ! API did not respond on port {port}\n")
-
-    _wait_for_stop()
-    return stop()
+        _wait_for_stop()
+    except (KeyboardInterrupt, EOFError):
+        print("\n  ! Interrupted.")
+    return stop(root)
 
 
-def stop() -> int:
+def stop(root: Path) -> int:
     print("\n  Stopping servers")
-    print("  " + "-" * 48)
+    print(f"  {_SEP}")
 
-    pid_file = ROOT / "data" / "uvicorn.pid"
+    pid_file = root / "data" / "uvicorn.pid"
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
-            try:
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(0.5)
+            with contextlib.suppress(ProcessLookupError):
                 os.kill(pid, 0)
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.5)
-                try:
-                    os.kill(pid, 0)
-                    if hasattr(signal, "SIGKILL"):
-                        os.kill(pid, signal.SIGKILL)
-                    elif os.name == "nt":
-                        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
-                except ProcessLookupError:
-                    pass
-            except ProcessLookupError:
-                pass
-        except (ValueError, OSError):
+                if hasattr(signal, "SIGKILL"):
+                    os.kill(pid, signal.SIGKILL)
+                elif os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+        except (ValueError, OSError, ProcessLookupError):
             pass
         finally:
             pid_file.unlink(missing_ok=True)
             print("  + PID file removed")
 
     if os.name == "nt":
-        subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True)
+        subprocess.run(["taskkill", "/F", "/IM", LLAMA_SERVER], capture_output=True)
     else:
         subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
         time.sleep(0.3)
@@ -275,17 +302,17 @@ def stop() -> int:
     return 0
 
 
-def kill_main() -> int:
+def kill_main(root: Path) -> int:
     print("\n  Emergency Kill Switch")
-    print("  " + "-" * 48)
+    print(f"  {_SEP}")
 
-    names = ("llama-server.exe", "llama-server", "uvicorn")
+    names = (LLAMA_SERVER, "uvicorn")
     for name in names:
         if shutil.which("taskkill" if os.name == "nt" else "pkill"):
             cmd = (["taskkill", "/F", "/IM", name] if os.name == "nt" else ["pkill", "-f", name])
             subprocess.run(cmd, capture_output=True)
 
-    for port in (8080, 8081, 8082, 8000):
+    for port in PORTS:
         if os.name == "nt":
             result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
             for line in result.stdout.splitlines():
@@ -298,8 +325,8 @@ def kill_main() -> int:
                         except ValueError:
                             continue
         else:
-            for cmd in (["lsof", "-ti", f":{port}"], ["fuser", f"{port}/tcp"]):
-                result = subprocess.run(cmd, capture_output=True, text=True)
+            for probe in (["lsof", "-ti", f":{port}"], ["fuser", f"{port}/tcp"]):
+                result = subprocess.run(probe, capture_output=True, text=True)
                 if result.returncode == 0 and result.stdout.strip():
                     try:
                         pid = int(result.stdout.strip().split()[0])
@@ -307,49 +334,52 @@ def kill_main() -> int:
                     except (ValueError, OSError):
                         continue
 
-    (ROOT / "data" / "uvicorn.pid").unlink(missing_ok=True)
+    (root / "data" / "uvicorn.pid").unlink(missing_ok=True)
     print("  + Done.")
     return 0
 
 
-def _pause_on_error() -> None:
-    if os.name == "nt" and sys.stdout.isatty():
-        input("\nPress Enter...")
-
-
+# ── Main ─────────────────────────────────────────────────────────────────────
 def main() -> int:
+    root = Path(__file__).parent.resolve()
+
+    def _on_sigint(_signum: int, _frame) -> None:
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGINT, _on_sigint)
+
+    # Strip internal --venv-relaunched flag
+    args = [a for a in sys.argv[1:] if a != "--venv-relaunched"]
+    # On Unix os.execl injects the script path as sys.argv[1]; skip it.
+    if args and Path(args[0]).name == Path(__file__).name:
+        args = args[1:]
+
     try:
-        cmd = sys.argv[1] if len(sys.argv) > 1 else "start"
+        cmd = args[0] if args else "start"
         if cmd == "kill":
-            return kill_main()
+            return kill_main(root)
         if cmd == "start":
-            return start()
+            return start(root)
         if cmd == "stop":
-            return stop()
+            return stop(root)
         print(f"Unknown command: {cmd}")
         print("Usage: python run_servers.py [start|stop|kill]")
         return 1
+    except EOFError:
+        print("\n  ! Input stream closed. Exiting.")
+        return 1
+    except KeyboardInterrupt:
+        print("\n  ! Interrupted by user. Exiting.")
+        return 0
     except Exception as exc:
-        log_path = ROOT / "data" / "run_error.log"
+        log_path = root / "data" / "run_error.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        import traceback
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(f"Error: {exc}\n")
             f.write(traceback.format_exc())
         print(f"\n  ! Error: {exc}")
         print(f"    Details: {log_path}")
-        _pause_on_error()
         return 1
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception:
-        import traceback
-        log_path = ROOT / "data" / "run_error.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "w", encoding="utf-8") as f:
-            traceback.print_exc(file=f)
-        _pause_on_error()
-        sys.exit(1)
+    sys.exit(main())

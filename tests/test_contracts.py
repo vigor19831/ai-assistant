@@ -1004,7 +1004,7 @@ class TestAdapterRegistry:
         registry = get_registry()
         for name, cls in registry.get("vector_store", {}).items():
             assert hasattr(cls, "upsert"), f"{name} missing upsert"
-            # upsert — не abstractmethod (default impl в IVectorStore),
+            # upsert is not an abstractmethod (default impl in IVectorStore),
             # adapters may inherit it -- that is fine.
 
 

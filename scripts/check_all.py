@@ -7,6 +7,7 @@ Universally checks any Python project with standard tools:
 - pytest + coverage (tests + branch coverage)
 - coverage audit (analyzes .coverage JSON for low coverage)
 - AST audit (dead code, duplicates, cycles via ast module)
+- i18n audit (cyrillic identifiers and emoji in source)
 
 Usage:
     python scripts/check_all.py         # interactive menu
@@ -14,33 +15,35 @@ Usage:
     python scripts/check_all.py 5       # full check
 """
 
-from __future__ import annotations
-
 import ast
 import hashlib
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
+import tempfile
 import threading
+import time
+import types
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import NoReturn
 
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+# ── Constants ────────────────────────────────────────────────────────────────
+VENV = ".venv"
+PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+_SEP = "─" * 50
 
-# ── Config ───────────────────────────────────────────────────────────────────
-ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "src"
-TESTS = ROOT / "tests"
-COVERAGE_FILE = ROOT / ".coverage"
-
-SKIP_DIRS = {".venv", "venv", "__pycache__", ".git", "vendor", "ui", "data", "logs", "tmp", "temp", "ops"}
-SKIP_FILES = {"__init__.py"}
-ENTRY_POINT_FILES = {"main.py"}
-SKIP_NAMES = {"__all__", "__version__"}
-SKIP_METHODS = {
+SKIP_DIRS: frozenset[str] = frozenset({
+    ".venv", "venv", "__pycache__", ".git", "vendor", "ui", "data", "logs", "tmp", "temp", "ops"
+})
+SKIP_FILES: frozenset[str] = frozenset({"__init__.py"})
+ENTRY_POINT_FILES: frozenset[str] = frozenset({"main.py"})
+SKIP_NAMES: frozenset[str] = frozenset({"__all__", "__version__"})
+SKIP_METHODS: frozenset[str] = frozenset({
     "__init__", "__new__", "__del__", "__repr__", "__str__", "__bytes__",
     "__format__", "__lt__", "__le__", "__eq__", "__ne__", "__gt__", "__ge__",
     "__hash__", "__bool__", "__getattr__", "__getattribute__", "__setattr__",
@@ -54,22 +57,63 @@ SKIP_METHODS = {
     "__complex__", "__int__", "__float__", "__index__", "__round__", "__trunc__",
     "__floor__", "__ceil__", "__copy__", "__deepcopy__", "__reduce__", "__reduce_ex__",
     "__getstate__", "__setstate__", "__post_init__",
-}
+})
 
-ROUTER_VARIABLE_PREFIXES = ("router", "admin_router", "api_router")
-ABC_BASES = {"ABC", "IChunker", "IEmbedder", "ILLM", "IReranker", "IVectorStore",
-             "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
-             "ITool", "IToolRegistry"}
-FRAMEWORK_BASES = {"BaseHTTPMiddleware", "BaseMiddleware", "Middleware"}
-FRAMEWORK_CALLBACKS = frozenset({"dispatch", "lifespan"})
+ROUTER_VARIABLE_PREFIXES: tuple[str, ...] = ("router", "admin_router", "api_router")
+ABC_BASES: frozenset[str] = frozenset({
+    "ABC", "IChunker", "IEmbedder", "ILLM", "IReranker", "IVectorStore",
+    "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
+    "ITool", "IToolRegistry"
+})
+FRAMEWORK_BASES: frozenset[str] = frozenset({"BaseHTTPMiddleware", "BaseMiddleware", "Middleware"})
+FRAMEWORK_CALLBACKS: frozenset[str] = frozenset({"dispatch", "lifespan"})
+
+_CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
+_EMOJI_RE = re.compile(
+    r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
+    r"\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF"
+    r"\U00002702-\U000027B0\U000024C2-\U0001F251]+"
+)
 
 
-# ── Auto-Logging to Root (always on) ────────────────────────────────────────
+# ── Auto-activate venv ───────────────────────────────────────────────────────
+_venv = Path(__file__).parent.parent / VENV
+_venv_py = _venv / PY
+if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
+    if "--venv-relaunched" not in sys.argv:
+        os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+ROOT = Path(__file__).parent.parent.resolve()
+SRC = ROOT / "src"
+TESTS = ROOT / "tests"
+COVERAGE_FILE = ROOT / ".coverage"
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+def get_python(root: Path) -> str:
+    """Return venv python if available, otherwise system python."""
+    venv_py = root / VENV / PY
+    return str(venv_py) if venv_py.exists() else sys.executable
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Human-readable duration."""
+    if seconds < 1.0:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60.0:
+        return f"{seconds:.2f}s"
+    minutes = int(seconds // 60)
+    secs = seconds % 60
+    return f"{minutes}m {secs:.1f}s"
+
+
+# ── Logging ──────────────────────────────────────────────────────────────────
 class TeeOutput:
-    """Redirects stdout/stderr to both console and a log file in project root."""
+    """Redirects stdout/stderr to both console and a log file."""
 
-    def __init__(self, log_path: Path):
+    def __init__(self, log_path: Path) -> None:
         self.log_path = log_path
         self.log_file = open(log_path, "w", encoding="utf-8")
         self._stdout = sys.stdout
@@ -98,12 +142,17 @@ class TeeOutput:
     def close(self) -> None:
         self.log_file.close()
 
-    def __enter__(self):
+    def __enter__(self) -> "TeeOutput":
         sys.stdout = self
         sys.stderr = self
         return self
 
-    def __exit__(self, *args):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: types.TracebackType | None,
+    ) -> None:
         sys.stdout = self._stdout
         sys.stderr = self._stderr
         self.close()
@@ -118,9 +167,10 @@ def setup_logging() -> TeeOutput:
     return TeeOutput(log_path)
 
 
-# ── Universal AST Audit (inline, no external deps) ──────────────────────────
+# ── AST Audit ────────────────────────────────────────────────────────────────
 
 def collect_py(root: Path) -> list[Path]:
+    """Collect all Python files under root, excluding skip dirs/files."""
     return [
         f for f in root.rglob("*.py")
         if f.name not in SKIP_FILES and not any(p in SKIP_DIRS for p in f.parts)
@@ -128,14 +178,15 @@ def collect_py(root: Path) -> list[Path]:
 
 
 def parse_file(p: Path) -> ast.AST | None:
+    """Parse a Python file; return None on syntax error."""
     try:
         return ast.parse(p.read_text(encoding="utf-8"))
     except SyntaxError:
         return None
 
 
-class ImportCollector(ast.NodeVisitor):
-    def __init__(self, current_module: str = ""):
+class _ImportCollector(ast.NodeVisitor):
+    def __init__(self, current_module: str = "") -> None:
         self.imports: set[str] = set()
         self.current = current_module
 
@@ -160,8 +211,8 @@ class ImportCollector(ast.NodeVisitor):
             self.imports.add(alias.name)
 
 
-class ReferenceCollector(ast.NodeVisitor):
-    def __init__(self):
+class _ReferenceCollector(ast.NodeVisitor):
+    def __init__(self) -> None:
         self.refs: set[str] = set()
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -183,33 +234,28 @@ class ReferenceCollector(ast.NodeVisitor):
                 self.refs.add(node.func.value.id)
         self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+    def _collect_decorators(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
         for dec in node.decorator_list:
             if isinstance(dec, ast.Name):
                 self.refs.add(dec.id)
             elif isinstance(dec, ast.Attribute):
                 self.refs.add(dec.attr)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._collect_decorators(node)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        for dec in node.decorator_list:
-            if isinstance(dec, ast.Name):
-                self.refs.add(dec.id)
-            elif isinstance(dec, ast.Attribute):
-                self.refs.add(dec.attr)
+        self._collect_decorators(node)
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        for dec in node.decorator_list:
-            if isinstance(dec, ast.Name):
-                self.refs.add(dec.id)
-            elif isinstance(dec, ast.Attribute):
-                self.refs.add(dec.attr)
+        self._collect_decorators(node)
         self.generic_visit(node)
 
 
-class RegistrationCollector(ast.NodeVisitor):
-    def __init__(self):
+class _RegistrationCollector(ast.NodeVisitor):
+    def __init__(self) -> None:
         self.registered_names: set[str] = set()
 
     def _get_decorator_name(self, node: ast.expr) -> str:
@@ -237,36 +283,34 @@ class RegistrationCollector(ast.NodeVisitor):
             return parts[0] in {"step", "register"}
         return False
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._check_decorators(node, node.name)
-        self.generic_visit(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._check_decorators(node, node.name)
-        self.generic_visit(node)
-
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self._check_decorators(node, node.name)
-        self.generic_visit(node)
-
-    def _check_decorators(self, node: ast.AST, name: str) -> None:
-        if not hasattr(node, "decorator_list"):
-            return
+    def _check(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
         for dec in node.decorator_list:
             dec_name = self._get_decorator_name(dec)
             if self._is_registration_decorator(dec_name):
-                self.registered_names.add(name)
+                self.registered_names.add(node.name)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._check(node)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._check(node)
+        self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._check(node)
+        self.generic_visit(node)
 
 
-class DefinitionCollector(ast.NodeVisitor):
-    def __init__(self, file_path: Path):
+class _DefinitionCollector(ast.NodeVisitor):
+    def __init__(self, file_path: Path) -> None:
         self.file_path = file_path
         self.defs: dict[str, tuple[str, int]] = {}
         self.methods: dict[str, dict[str, int]] = {}
         self.classes: dict[str, tuple[int, list[str]]] = {}
         self.exports: set[str] = set()
-        self._class_stack: list[str] = []
         self.has_registration_decorator: bool = False
+        self._class_stack: list[str] = []
 
     def _get_name(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name):
@@ -281,27 +325,27 @@ class DefinitionCollector(ast.NodeVisitor):
     def _check_registration_decorator(self, node: ast.AST) -> None:
         if not hasattr(node, "decorator_list"):
             return
-        rc = RegistrationCollector()
+        rc = _RegistrationCollector()
         for dec in node.decorator_list:
             dec_name = rc._get_decorator_name(dec)
             if rc._is_registration_decorator(dec_name):
                 self.has_registration_decorator = True
                 break
 
+    def _add_def(self, name: str, kind: str, line: int) -> None:
+        if not name.startswith("_") and name != "main" and name not in SKIP_NAMES:
+            self.defs[name] = (kind, line)
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._check_registration_decorator(node)
-        if self._class_stack:
-            pass
-        elif not node.name.startswith("_") and node.name != "main":
-            self.defs[node.name] = ("function", node.lineno)
+        if not self._class_stack:
+            self._add_def(node.name, "function", node.lineno)
         self.generic_visit(node)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._check_registration_decorator(node)
-        if self._class_stack:
-            pass
-        elif not node.name.startswith("_") and node.name != "main":
-            self.defs[node.name] = ("async function", node.lineno)
+        if not self._class_stack:
+            self._add_def(node.name, "async function", node.lineno)
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -322,25 +366,30 @@ class DefinitionCollector(ast.NodeVisitor):
                 self.visit(item)
         self._class_stack.pop()
 
-    def visit_Assign(self, node: ast.Assign) -> None:
-        for target in node.targets:
+    def _collect_assign_targets(self, node: ast.Assign | ast.AnnAssign) -> None:
+        targets: Sequence[ast.expr]
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        else:
+            targets = [node.target]
+
+        for target in targets:
             if isinstance(target, ast.Name):
-                if not target.id.startswith("_") and target.id not in SKIP_NAMES:
-                    self.defs[target.id] = ("variable", node.lineno)
+                self._add_def(target.id, "variable", node.lineno)
             elif isinstance(target, (ast.Tuple, ast.List)):
                 for elt in target.elts:
                     if isinstance(elt, ast.Name):
-                        if not elt.id.startswith("_") and elt.id not in SKIP_NAMES:
-                            self.defs[elt.id] = ("variable", node.lineno)
+                        self._add_def(elt.id, "variable", node.lineno)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self._collect_assign_targets(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if isinstance(node.target, ast.Name):
-            if not node.target.id.startswith("_") and node.target.id not in SKIP_NAMES:
-                self.defs[node.target.id] = ("variable", node.lineno)
+        self._collect_assign_targets(node)
 
 
-def build_registry(all_files: list[Path]) -> dict[str, dict]:
-    registry: dict[str, dict] = {}
+def _build_registry(all_files: list[Path]) -> dict[str, dict[str, object]]:
+    registry: dict[str, dict[str, object]] = {}
     for f in all_files:
         rel = f.relative_to(SRC.parent)
         parts = list(rel.parts)
@@ -354,16 +403,16 @@ def build_registry(all_files: list[Path]) -> dict[str, dict]:
         if tree is None:
             continue
 
-        ic = ImportCollector(mod)
+        ic = _ImportCollector(mod)
         ic.visit(tree)
 
-        rc = ReferenceCollector()
+        rc = _ReferenceCollector()
         rc.visit(tree)
 
-        regc = RegistrationCollector()
+        regc = _RegistrationCollector()
         regc.visit(tree)
 
-        dc = DefinitionCollector(f)
+        dc = _DefinitionCollector(f)
         dc.visit(tree)
 
         exports: set[str] = set()
@@ -391,21 +440,15 @@ def build_registry(all_files: list[Path]) -> dict[str, dict]:
     return registry
 
 
-def find_orphaned_files(registry: dict) -> list[tuple[Path, str]]:
+def _find_orphaned_files(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str]]:
     all_imports: set[str] = set()
     for info in registry.values():
-        all_imports.update(info["imports"])
+        all_imports.update(info["imports"])  # type: ignore[arg-type]
 
-    orphaned = []
+    orphaned: list[tuple[Path, str]] = []
     for mod, info in registry.items():
-        f = info["file"]
-        if f.name in SKIP_FILES:
-            continue
-        if f.name in ENTRY_POINT_FILES:
-            continue
-        if info["has_registration_decorator"]:
-            continue
-        if info["exports"]:
+        f: Path = info["file"]  # type: ignore[assignment]
+        if f.name in SKIP_FILES or f.name in ENTRY_POINT_FILES or info["has_registration_decorator"] or info["exports"]:  # type: ignore[operator]
             continue
         found = any(
             imp == mod or imp.startswith(f"{mod}.") or imp == f.stem
@@ -416,22 +459,16 @@ def find_orphaned_files(registry: dict) -> list[tuple[Path, str]]:
     return orphaned
 
 
-def find_unused_symbols(registry: dict) -> list[tuple[Path, str, str, int]]:
+def _find_unused_symbols(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str, str, int]]:
     global_refs: set[str] = set()
     for info in registry.values():
-        global_refs.update(info["refs"])
+        global_refs.update(info["refs"])  # type: ignore[arg-type]
 
-    unused = []
+    unused: list[tuple[Path, str, str, int]] = []
     for mod, info in registry.items():
-        f = info["file"]
-        for name, (kind, line) in info["defs"].items():
-            if name in SKIP_NAMES:
-                continue
-            if name in info["registered_names"]:
-                continue
-            if name in global_refs:
-                continue
-            if name in info["exports"]:
+        f: Path = info["file"]  # type: ignore[assignment]
+        for name, (kind, line) in info["defs"].items():  # type: ignore[union-attr]
+            if name in SKIP_NAMES or name in info["registered_names"] or name in global_refs or name in info["exports"]:  # type: ignore[operator]
                 continue
             unused.append((f, name, kind, line))
     return unused
@@ -445,24 +482,22 @@ def _is_abc_class(bases: list[str]) -> bool:
     return any(base in ABC_BASES for base in bases)
 
 
-def find_unused_methods(registry: dict) -> list[tuple[Path, str, str, int]]:
-    unused = []
+def _find_unused_methods(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str, str, int]]:
+    unused: list[tuple[Path, str, str, int]] = []
     for mod, info in registry.items():
-        f = info["file"]
-        for cls_name, methods in info["methods"].items():
-            bases = info["classes"].get(cls_name, (0, []))[1]
+        f: Path = info["file"]  # type: ignore[assignment]
+        for cls_name, methods in info["methods"].items():  # type: ignore[union-attr]
+            bases = info["classes"].get(cls_name, (0, []))[1]  # type: ignore[union-attr,index]
             if _is_abc_class(bases):
                 continue
             is_framework = _is_framework_class(bases)
             for method, line in methods.items():
                 if is_framework and method in FRAMEWORK_CALLBACKS:
                     continue
-                found = method in info["refs"]
+                found = method in info["refs"]  # type: ignore[operator]
                 if not found:
                     for other_mod, other_info in registry.items():
-                        if other_mod == mod:
-                            continue
-                        if method in other_info["refs"]:
+                        if other_mod != mod and method in other_info["refs"]:  # type: ignore[operator]
                             found = True
                             break
                 if not found:
@@ -470,27 +505,26 @@ def find_unused_methods(registry: dict) -> list[tuple[Path, str, str, int]]:
     return unused
 
 
-def find_dead_constants(registry: dict) -> list[tuple[Path, str, int]]:
-    dead = []
+def _find_dead_constants(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str, int]]:
+    dead: list[tuple[Path, str, int]] = []
     for mod, info in registry.items():
-        f = info["file"]
-        for name, (kind, line) in info["defs"].items():
-            if kind == "variable" and name.isupper() and name not in info["refs"]:
-                if name in info["exports"]:
-                    continue
-                found = any(name in other["refs"] for other in registry.values())
+        f: Path = info["file"]  # type: ignore[assignment]
+        for name, (kind, line) in info["defs"].items():  # type: ignore[union-attr]
+            if kind == "variable" and name.isupper() and name not in info["refs"] and name not in info["exports"]:  # type: ignore[operator]
+                found = any(name in other["refs"] for other in registry.values())  # type: ignore[operator]
                 if not found:
                     dead.append((f, name, line))
     return dead
 
 
-def find_duplicate_blocks(registry: dict, min_lines: int = 5) -> list[tuple[Path, Path, int, int]]:
+def _find_duplicate_blocks(registry: dict[str, dict[str, object]], min_lines: int = 5) -> list[tuple[Path, Path, int, int]]:
     if not hasattr(ast, "unparse"):
         return []
+
     blocks: dict[str, list[tuple[Path, int]]] = {}
     for mod, info in registry.items():
-        f = info["file"]
-        tree = info.get("tree")
+        f: Path = info["file"]  # type: ignore[assignment]
+        tree: ast.AST | None = info.get("tree")  # type: ignore[assignment]
         if tree is None:
             continue
         for node in ast.walk(tree):
@@ -503,8 +537,9 @@ def find_duplicate_blocks(registry: dict, min_lines: int = 5) -> list[tuple[Path
                 if len(lines) >= min_lines:
                     h = hashlib.md5("\n".join(lines).encode()).hexdigest()[:16]
                     blocks.setdefault(h, []).append((f, node.lineno))
-    duplicates = []
-    seen = set()
+
+    duplicates: list[tuple[Path, Path, int, int]] = []
+    seen: set[tuple[str, ...]] = set()
     for h, locations in blocks.items():
         if len(locations) > 1:
             for i, (f1, line1) in enumerate(locations):
@@ -518,27 +553,28 @@ def find_duplicate_blocks(registry: dict, min_lines: int = 5) -> list[tuple[Path
     return duplicates
 
 
-def check_cycles(registry: dict) -> list[str]:
+def _normalize_cycle(cycle_nodes: list[str]) -> tuple[str, ...]:
+    if not cycle_nodes:
+        return tuple()
+    nodes = cycle_nodes[:-1] if cycle_nodes[0] == cycle_nodes[-1] else list(cycle_nodes)
+    if not nodes:
+        return tuple()
+    n = len(nodes)
+    return min(tuple(nodes[i:] + nodes[:i]) for i in range(n))
+
+
+def _check_cycles(registry: dict[str, dict[str, object]]) -> list[str]:
     cycles: list[str] = []
     seen_cycles: set[tuple[str, ...]] = set()
 
-    def _normalize(cycle_nodes: list[str]) -> tuple[str, ...]:
-        if not cycle_nodes:
-            return tuple()
-        nodes = cycle_nodes[:-1] if cycle_nodes[0] == cycle_nodes[-1] else list(cycle_nodes)
-        if not nodes:
-            return tuple()
-        n = len(nodes)
-        return min(tuple(nodes[i:] + nodes[:i]) for i in range(n))
-
     def dfs(node: str, path: list[str]) -> None:
-        for imp in registry[node]["imports"]:
+        for imp in registry[node]["imports"]:  # type: ignore[operator]
             if imp not in registry:
                 continue
             if imp in path:
                 idx = path.index(imp)
                 cycle = path[idx:] + [imp]
-                key = _normalize(cycle)
+                key = _normalize_cycle(cycle)
                 if key and key not in seen_cycles:
                     seen_cycles.add(key)
                     cycles.append(" -> ".join(cycle))
@@ -553,17 +589,18 @@ def check_cycles(registry: dict) -> list[str]:
 
 def run_ast_audit(src_dir: Path) -> tuple[list, list, list, list, list, list]:
     all_src = collect_py(src_dir)
-    registry = build_registry(all_src)
-    orphaned = find_orphaned_files(registry)
-    unused = find_unused_symbols(registry)
-    methods = find_unused_methods(registry)
-    consts = find_dead_constants(registry)
-    dups = find_duplicate_blocks(registry, min_lines=5)
-    cycles = check_cycles(registry)
-    return orphaned, unused, methods, consts, dups, cycles
+    registry = _build_registry(all_src)
+    return (
+        _find_orphaned_files(registry),
+        _find_unused_symbols(registry),
+        _find_unused_methods(registry),
+        _find_dead_constants(registry),
+        _find_duplicate_blocks(registry, min_lines=5),
+        _check_cycles(registry),
+    )
 
 
-# ── Coverage Audit ──────────────────────────────────────────────────────────
+# ── Coverage Audit ───────────────────────────────────────────────────────────
 
 def run_coverage_audit() -> list[tuple[str, float, str]]:
     """Analyze .coverage file and return low-coverage files."""
@@ -572,12 +609,10 @@ def run_coverage_audit() -> list[tuple[str, float, str]]:
 
     json_path = ROOT / "coverage_audit_temp.json"
     try:
-        result = subprocess.run([
-            sys.executable, "-m", "coverage", "json",
-            "-o", str(json_path),
-            "--pretty-print",
-        ], cwd=ROOT, capture_output=True, text=True)
-
+        result = subprocess.run(
+            [get_python(ROOT), "-m", "coverage", "json", "-o", str(json_path), "--pretty-print"],
+            cwd=ROOT, capture_output=True, text=True,
+        )
         if result.returncode != 0 or not json_path.exists():
             return [("Failed to generate coverage JSON", 0.0, f"ERROR: {result.stderr[:200]}")]
 
@@ -588,12 +623,11 @@ def run_coverage_audit() -> list[tuple[str, float, str]]:
     finally:
         json_path.unlink(missing_ok=True)
 
-    issues = []
+    issues: list[tuple[str, float, str]] = []
     for filename, info in data.get("files", {}).items():
         rel = filename.replace(str(ROOT), "").replace("\\", "/").lstrip("/")
         if not rel.startswith("src/"):
             continue
-
         summary = info.get("summary", {})
         percent = summary.get("percent_covered", 0)
         branches = summary.get("num_branches", 0)
@@ -610,24 +644,156 @@ def run_coverage_audit() -> list[tuple[str, float, str]]:
     return issues
 
 
-# ── Menu & Runner ───────────────────────────────────────────────────────────
+# ── Test Quality Audit ───────────────────────────────────────────────────────
+
+def _audit_test_quality() -> list[str]:
+    """Test rule enforcement — runs in full mode only.
+
+    Each check maps 1:1 to a rule in ai_rules.md §2 or §15.
+    Sleep calls annotated with '# noqa: SLEEP' are skipped.
+    """
+    if not TESTS.exists():
+        return []
+
+    ALLOWED_MOCKS: frozenset[str] = frozenset({
+        "MockLLM", "MockEmbedder", "Mock", "AsyncMock", "MagicMock",
+        "NonCallableMock", "PropertyMock",
+    })
+
+    issues: list[str] = []
+
+    class _Visitor(ast.NodeVisitor):
+        def __init__(self, source_lines: list[str]) -> None:
+            self.violations: list[str] = []
+            self._lines = source_lines
+
+        def _has_noqa(self, lineno: int) -> bool:
+            if 1 <= lineno <= len(self._lines):
+                return "# noqa: SLEEP" in self._lines[lineno - 1]
+            return False
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if isinstance(node.func, ast.Name) and node.func.id == "load_config":
+                self.violations.append("load_config() call (§15.3)")
+                self.generic_visit(node)
+                return
+
+            if not (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "sleep"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in ("time", "asyncio")
+            ):
+                self.generic_visit(node)
+                return
+
+            if self._has_noqa(node.lineno):
+                self.generic_visit(node)
+                return
+
+            self.violations.append(f"{node.func.value.id}.sleep() (§15 DETERMINISM)")
+            self.generic_visit(node)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            if node.name.endswith("Mock") and node.name not in ALLOWED_MOCKS:
+                self.violations.append(f"inline mock class '{node.name}' (§6)")
+            self.generic_visit(node)
+
+    for path in TESTS.rglob("*.py"):
+        if path.name in ("conftest.py", "test_config.py"):
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+            lines = source.splitlines()
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        visitor = _Visitor(lines)
+        visitor.visit(tree)
+
+        for v in visitor.violations:
+            rel = path.relative_to(ROOT)
+            issues.append(f"  {rel}: {v}")
+
+    return issues
+
+
+# ── I18N / Non-ASCII Audit ───────────────────────────────────────────────────
+
+def _audit_non_ascii(src_dir: Path) -> list[tuple[Path, int, str, str]]:
+    """Find cyrillic identifiers and emoji in source code."""
+    issues: list[tuple[Path, int, str, str]] = []
+    for f in collect_py(src_dir):
+        source = f.read_text(encoding="utf-8")
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            continue
+
+        for node in ast.walk(tree):
+            name: str | None = None
+            lineno: int = getattr(node, "lineno", 0)
+            kind = "identifier"
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = node.name
+                kind = "definition"
+            elif isinstance(node, ast.Name):
+                name = node.id
+            elif isinstance(node, ast.Attribute):
+                name = node.attr
+            elif isinstance(node, ast.arg):
+                name = node.arg
+                kind = "argument"
+            elif isinstance(node, ast.keyword):
+                name = node.arg
+                kind = "keyword"
+
+            if name:
+                if _CYRILLIC_RE.search(name):
+                    issues.append((f, lineno, "cyrillic-id", f"Cyrillic {kind}: {name}"))
+                if _EMOJI_RE.search(name):
+                    issues.append((f, lineno, "emoji-id", f"Emoji {kind}: {name}"))
+
+        for lineno, line in enumerate(source.splitlines(), 1):
+            if "#" in line:
+                comment = line.split("#", 1)[1]
+                if _EMOJI_RE.search(comment):
+                    emojis = _EMOJI_RE.findall(comment)
+                    issues.append((f, lineno, "emoji-comment", f"Emoji in comment: {''.join(emojis)}"))
+
+    return issues
+
+
+# ── UI ───────────────────────────────────────────────────────────────────────
+
+def _print_menu() -> None:
+    print()
+    print(_SEP)
+    print(f"   CHECK ALL              {time.strftime('%H:%M:%S')}")
+    print(_SEP)
+    print("  [1]  tests          — pytest only (fast)")
+    print("  [2]  tests+coverage — pytest + branch coverage + audit")
+    print("  [3]  lint           — ruff + mypy")
+    print("  [4]  audit          — AST dead code audit (no tests)")
+    print("  [5]  full           — lint → tests → coverage → audit → i18n")
+    print("  [6]  i18n           — non-ASCII identifier & emoji audit")
+    print(_SEP)
+    print()
+
 
 def _run_cmd(cmd: list[str], desc: str) -> bool:
     print()
     print(f"  {desc}")
     print()
 
-    # Fix hanging: non-interactive, unbuffered, no stdin
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTEST_CURRENT_TEST"] = ""
-    # Prevent pytest from trying to use terminal features
     env["TERM"] = "dumb"
     env["PY_COLORS"] = "0"
-    # Force pytest to not use any interactive features
     env["CI"] = "true"
 
-    # Use Popen with streaming to avoid PIPE deadlock on Windows
     process = subprocess.Popen(
         cmd,
         cwd=ROOT,
@@ -638,12 +804,11 @@ def _run_cmd(cmd: list[str], desc: str) -> bool:
         text=True,
         encoding="utf-8",
         errors="replace",
-        bufsize=1,  # Line buffered
+        bufsize=1,
     )
 
-    # Stream output in real-time to prevent PIPE buffer deadlock
     if process.stdout:
-        for line in iter(process.stdout.readline, ''):
+        for line in iter(process.stdout.readline, ""):
             sys.stdout.write(line)
             sys.stdout.flush()
         process.stdout.close()
@@ -658,43 +823,55 @@ def _run_cmd(cmd: list[str], desc: str) -> bool:
         return False
 
 
-def _show_ast_results(orphaned, unused, methods, consts, dups, cycles):
+def _show_ast_results(
+    orphaned: list[tuple[Path, str]],
+    unused: list[tuple[Path, str, str, int]],
+    methods: list[tuple[Path, str, str, int]],
+    consts: list[tuple[Path, str, int]],
+    dups: list[tuple[Path, Path, int, int]],
+    cycles: list[str],
+) -> bool:
     print()
     print("  AST AUDIT RESULTS")
     print()
 
-    sections = [
-        (orphaned, "Orphaned files"),
-        (unused, "Unused symbols"),
-        (methods, "Unused methods"),
-        (consts, "Dead constants"),
-        (dups, "Duplicate blocks"),
-        (cycles, "Circular imports"),
-    ]
-
     total = 0
-    for items, label in sections:
-        if items:
-            total += len(items)
-            print(f"\n  {label}  ({len(items)}):")
-            for item in items:
-                if len(item) == 2:
-                    f, reason = item
-                    rel = f.relative_to(ROOT)
-                    print(f"    {rel}  -- {reason}")
-                elif len(item) == 3:
-                    f, name, line = item
-                    rel = f.relative_to(ROOT)
-                    print(f"    {rel}:{line}  -- {name}")
-                elif len(item) == 4 and isinstance(item[1], str):
-                    f, name, kind, line = item
-                    rel = f.relative_to(ROOT)
-                    print(f"    {rel}:{line}  -- {kind} {name}")
-                elif len(item) == 4 and isinstance(item[1], Path):
-                    f1, f2, l1, l2 = item
-                    r1 = f1.relative_to(ROOT)
-                    r2 = f2.relative_to(ROOT)
-                    print(f"    {r1}:{l1} ~ {r2}:{l2}")
+
+    if orphaned:
+        total += len(orphaned)
+        print(f"\n  Orphaned files  ({len(orphaned)}):")
+        for f, reason in orphaned:
+            print(f"    {f.relative_to(ROOT)}  -- {reason}")
+
+    if unused:
+        total += len(unused)
+        print(f"\n  Unused symbols  ({len(unused)}):")
+        for f, name, kind, line in unused:
+            print(f"    {f.relative_to(ROOT)}:{line}  -- {kind} {name}")
+
+    if methods:
+        total += len(methods)
+        print(f"\n  Unused methods  ({len(methods)}):")
+        for f, name, kind, line in methods:
+            print(f"    {f.relative_to(ROOT)}:{line}  -- {kind} {name}")
+
+    if consts:
+        total += len(consts)
+        print(f"\n  Dead constants  ({len(consts)}):")
+        for f, name, line in consts:
+            print(f"    {f.relative_to(ROOT)}:{line}  -- {name}")
+
+    if dups:
+        total += len(dups)
+        print(f"\n  Duplicate blocks  ({len(dups)}):")
+        for f1, f2, l1, l2 in dups:
+            print(f"    {f1.relative_to(ROOT)}:{l1} ~ {f2.relative_to(ROOT)}:{l2}")
+
+    if cycles:
+        total += len(cycles)
+        print(f"\n  Circular imports  ({len(cycles)}):")
+        for cycle in cycles:
+            print(f"    {cycle}")
 
     if total == 0:
         print("\n  [OK] No AST issues found.")
@@ -704,7 +881,7 @@ def _show_ast_results(orphaned, unused, methods, consts, dups, cycles):
         return False
 
 
-def _show_coverage_results(issues: list):
+def _show_coverage_results(issues: list[tuple[str, float, str]]) -> bool:
     print()
     print("  COVERAGE AUDIT RESULTS")
     print()
@@ -725,87 +902,6 @@ def _show_coverage_results(issues: list):
     return False
 
 
-def _audit_test_quality() -> list[str]:
-    """Test rule enforcement — runs in full mode only.
-
-    Each check maps 1:1 to a rule in ai_rules.md §2 or §15.
-    Sleep calls annotated with '# noqa: SLEEP' are skipped — add the
-    comment on the same line as the sleep() call, with a justification.
-    """
-    import ast
-
-    tests_dir = TESTS
-    if not tests_dir.exists():
-        return []
-
-    issues: list[str] = []
-
-    class _Visitor(ast.NodeVisitor):
-        def __init__(self, source_lines: list[str]) -> None:
-            self.violations: list[str] = []
-            self._lines = source_lines
-
-        def _has_noqa(self, lineno: int) -> bool:
-            """Check if the source line at lineno contains '# noqa: SLEEP'."""
-            if 1 <= lineno <= len(self._lines):
-                return "# noqa: SLEEP" in self._lines[lineno - 1]
-            return False
-
-        def visit_Call(self, node: ast.Call) -> None:
-            # §15.3: load_config() ban — unambiguous: function name
-            if isinstance(node.func, ast.Name) and node.func.id == "load_config":
-                self.violations.append("load_config() call (§15.3)")
-                self.generic_visit(node)
-                return
-
-            # Check if this is a sleep() call
-            if not (isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "sleep"
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id in ("time", "asyncio")):
-                self.generic_visit(node)
-                return
-
-            # Skip if annotated with noqa: SLEEP
-            if self._has_noqa(node.lineno):
-                self.generic_visit(node)
-                return
-
-            # Everything else is a violation
-            self.violations.append(f"{node.func.value.id}.sleep() (§15 DETERMINISM)")
-            self.generic_visit(node)
-
-        def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            # §6: inline mock ban — whitelist exact names, no regex
-            ALLOWED_MOCKS = frozenset({
-                "MockLLM", "MockEmbedder", "Mock", "AsyncMock", "MagicMock",
-                "NonCallableMock", "PropertyMock",
-            })
-            if node.name.endswith("Mock") and node.name not in ALLOWED_MOCKS:
-                self.violations.append(f"inline mock class '{node.name}' (§6)")
-            self.generic_visit(node)
-
-    for path in tests_dir.rglob("*.py"):
-        if path.name in ("conftest.py", "test_config.py"):
-            continue
-
-        try:
-            source = path.read_text(encoding="utf-8")
-            lines = source.splitlines()
-            tree = ast.parse(source)
-        except SyntaxError:
-            continue
-
-        visitor = _Visitor(lines)
-        visitor.visit(tree)
-
-        for v in visitor.violations:
-            rel = path.relative_to(ROOT)
-            issues.append(f"  {rel}: {v}")
-
-    return issues
-
-
 def _show_test_audit_results(issues: list[str]) -> bool:
     print()
     print("  TEST QUALITY AUDIT")
@@ -822,79 +918,121 @@ def _show_test_audit_results(issues: list[str]) -> bool:
     return False
 
 
+def _show_non_ascii_results(issues: list[tuple[Path, int, str, str]]) -> bool:
+    print()
+    print("  I18N / NON-ASCII AUDIT")
+    print()
+
+    if not issues:
+        print("\n  [OK] No non-ASCII identifiers or emoji found.")
+        return True
+
+    cyrillic = [i for i in issues if i[2] == "cyrillic-id"]
+    emoji_id = [i for i in issues if i[2] == "emoji-id"]
+    emoji_comment = [i for i in issues if i[2] == "emoji-comment"]
+
+    if cyrillic:
+        print(f"\n  [!] Cyrillic identifiers  ({len(cyrillic)}):")
+        for f, line, _, msg in cyrillic:
+            print(f"    {f.relative_to(ROOT)}:{line}  {msg}")
+
+    if emoji_id:
+        print(f"\n  [!] Emoji identifiers  ({len(emoji_id)}):")
+        for f, line, _, msg in emoji_id:
+            print(f"    {f.relative_to(ROOT)}:{line}  {msg}")
+
+    if emoji_comment:
+        print(f"\n  [!] Emoji in comments  ({len(emoji_comment)}):")
+        for f, line, _, msg in emoji_comment:
+            print(f"    {f.relative_to(ROOT)}:{line}  {msg}")
+
+    print(f"\n  [!] {len(issues)} issue(s) found — review recommended.")
+    return False
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 def main() -> int:
-    # Always log to file in project root
     log = setup_logging()
     log.__enter__()
 
+    def _on_sigint(_signum: int, _frame: types.FrameType | None) -> NoReturn:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _on_sigint)
+
     try:
-        print()
-        print("  CHECK ALL — Unified project validation")
-        print()
-        print("  [1]  tests          — pytest only (fast)")
-        print("  [2]  tests+coverage — pytest + branch coverage + audit")
-        print("  [3]  lint           — ruff + mypy")
-        print("  [4]  audit          — AST dead code audit (no tests)")
-        print("  [5]  full           — lint → tests → coverage → audit")
-        print()
+        _print_menu()
 
         try:
             choice = input("  Choice [5]: ").strip() or "5"
-        except (EOFError, KeyboardInterrupt):
-            print("\n  Cancelled.")
+        except EOFError:
+            print("\n  ! Input stream closed. Exiting.")
+            return 1
+        except KeyboardInterrupt:
+            print("\n  ! Interrupted by user. Exiting.")
             return 0
 
         ok = True
+        py = get_python(ROOT)
+
+        if choice in ("0", "exit", "q", "quit"):
+            print("\n  Bye.\n")
+            return 0
 
         if choice == "1":
-            ok &= _run_cmd([sys.executable, "-m", "pytest", str(TESTS), "-v", "--tb=short"], "TESTS")
+            ok &= _run_cmd([py, "-m", "pytest", str(TESTS), "-v", "--tb=short"], "TESTS")
 
         elif choice == "2":
-            ok &= _run_cmd([
-                sys.executable, "-m", "pytest", str(TESTS),
-                "--cov=src/ai_assistant", "--cov-branch",
-                "--cov-report=term-missing:skip-covered",
-                "-v", "--tb=short",
-            ], "TESTS + COVERAGE")
-            cov_ok = _show_coverage_results(run_coverage_audit())
-            ok &= cov_ok
+            ok &= _run_cmd(
+                [
+                    py, "-m", "pytest", str(TESTS),
+                    "--cov=src/ai_assistant", "--cov-branch",
+                    "--cov-report=term-missing:skip-covered",
+                    "-v", "--tb=short",
+                ],
+                "TESTS + COVERAGE",
+            )
+            ok &= _show_coverage_results(run_coverage_audit())
 
         elif choice == "3":
-            ok &= _run_cmd([sys.executable, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
-            ok &= _run_cmd([sys.executable, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
+            ok &= _run_cmd([py, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
+            ok &= _run_cmd([py, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
 
         elif choice == "4":
-            orphaned, unused, methods, consts, dups, cycles = run_ast_audit(SRC)
-            ast_ok = _show_ast_results(orphaned, unused, methods, consts, dups, cycles)
+            ast_ok = _show_ast_results(*run_ast_audit(SRC))
             ok &= ast_ok
 
         elif choice == "5":
-            # Full pipeline
-            ok &= _run_cmd([sys.executable, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
+            ok &= _run_cmd([py, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
             if not ok:
                 print("\n  Stopping — fix lint errors first.")
                 return 1
 
-            ok &= _run_cmd([sys.executable, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
+            ok &= _run_cmd([py, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
             if not ok:
                 print("\n  Stopping — fix type errors first.")
                 return 1
 
-            ok &= _run_cmd([
-                sys.executable, "-m", "pytest", str(TESTS),
-                "--cov=src/ai_assistant", "--cov-branch",
-                "--cov-report=term-missing:skip-covered",
-                "-v", "--tb=short",
-            ], "TESTS + COVERAGE")
+            ok &= _run_cmd(
+                [
+                    py, "-m", "pytest", str(TESTS),
+                    "--cov=src/ai_assistant", "--cov-branch",
+                    "--cov-report=term-missing:skip-covered",
+                    "-v", "--tb=short",
+                ],
+                "TESTS + COVERAGE",
+            )
             if not ok:
                 print("\n  Stopping — fix test failures first.")
                 return 1
 
-            cov_ok = _show_coverage_results(run_coverage_audit())
-            ast_ok = _show_ast_results(*run_ast_audit(SRC))
-            test_ok = _show_test_audit_results(_audit_test_quality())
+            ok &= _show_coverage_results(run_coverage_audit())
+            ok &= _show_ast_results(*run_ast_audit(SRC))
+            ok &= _show_test_audit_results(_audit_test_quality())
+            ok &= _show_non_ascii_results(_audit_non_ascii(SRC))
 
-            ok &= cov_ok and ast_ok and test_ok
+        elif choice == "6":
+            ok &= _show_non_ascii_results(_audit_non_ascii(SRC))
 
         else:
             print(f"\n  [ERR] Unknown choice: {choice}")
@@ -909,9 +1047,21 @@ def main() -> int:
 
         return 0 if ok else 1
 
+    except EOFError:
+        print("\n  ! Input stream closed. Exiting.")
+        return 1
+    except KeyboardInterrupt:
+        print("\n  ! Interrupted by user. Exiting.")
+        return 0
+    except Exception as e:
+        print(f"\n  ! Unexpected error: {e}")
+        try:
+            input("  Press Enter to continue...")
+        except EOFError:
+            return 1
+        return 1
     finally:
         log.__exit__(None, None, None)
-        # Print log path to console (bypassing closed log)
         sys.stdout.write(f"\n  Log saved to: {log.log_path}\n")
         sys.stdout.flush()
 

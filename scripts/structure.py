@@ -8,10 +8,9 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 # Hard exclusions — never traversed
-HARD_EXCLUDE = {
+HARD_EXCLUDE = frozenset({
     ".git",
     "__pycache__",
     ".pytest_cache",
@@ -26,7 +25,7 @@ HARD_EXCLUDE = {
     "htmlcov",
     ".venv",
     "venv",
-}
+})
 
 
 def load_patterns(root: Path, filename: str) -> list[str]:
@@ -45,7 +44,7 @@ def load_patterns(root: Path, filename: str) -> list[str]:
 def is_ignored(path: Path, root: Path, patterns: list[str]) -> bool:
     """Check if path matches any ignore pattern.
 
-    Supports basic gitignore semantics:
+    Supports basic gitignore semantics (no '**' recursive glob).
     - "*.pyc" matches any file with .pyc extension (any depth)
     - "build/" matches directory named "build" (any depth)
     - "exact" matches file or directory named "exact" (any depth)
@@ -53,25 +52,21 @@ def is_ignored(path: Path, root: Path, patterns: list[str]) -> bool:
     rel = path.relative_to(root).as_posix()
     name = path.name
     for pat in patterns:
-        # Negative patterns not supported
         if pat.startswith("!"):
-            continue
-        # Directory pattern
+            continue  # negative patterns not supported
         if pat.endswith("/"):
             if not path.is_dir():
                 continue
             pat_name = pat[:-1]
-            if fnmatch.fnmatch(name, pat_name):
+            if name == pat_name or rel == pat_name:
                 return True
-            if rel == pat_name or rel.startswith(pat_name + "/"):
+            if rel.startswith(pat_name + "/"):
                 return True
             continue
-        # Wildcard pattern — match basename or full relative path
         if "*" in pat or "?" in pat:
             if fnmatch.fnmatch(name, pat) or fnmatch.fnmatch(rel, pat):
                 return True
             continue
-        # Exact name match at any depth
         if name == pat or rel == pat or rel.startswith(pat + "/"):
             return True
     return False
@@ -102,8 +97,8 @@ def fmt_size(n: int) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024:
             if unit == "B":
-                return f"{int(size)} {unit}"
-            return f"{size:.1f} {unit}" if size != int(size) else f"{int(size)} {unit}"
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
         size /= 1024
     return f"{size:.1f} TB"
 
@@ -111,7 +106,7 @@ def fmt_size(n: int) -> str:
 def count_lines(path: Path) -> int:
     """Count lines in a text file."""
     try:
-        return len(path.read_text(encoding="utf-8", errors="replace").splitlines())
+        return len(path.read_text(encoding="utf-8").splitlines())
     except Exception:
         return 0
 
@@ -155,9 +150,9 @@ def build(root: Path, use_color: bool = False) -> str:
     py_loc = sum(count_lines(f) for f in py_files)
 
     # Tree rendering: directories first, then files, both alphabetically
-    tree: dict[str, Any] = {}
+    tree: dict[str, dict | None] = {}
     for e in entries:
-        node: dict[str, Any] = tree
+        node = tree
         parts = e.relative_to(root).parts
         for i, part in enumerate(parts):
             if i == len(parts) - 1 and e.is_file():
@@ -165,7 +160,7 @@ def build(root: Path, use_color: bool = False) -> str:
             else:
                 node = node.setdefault(part, {})  # Directory
 
-    def render(node: dict[str, Any], prefix: str = "") -> list[str]:
+    def render(node: dict[str, dict | None], prefix: str = "") -> str:
         dirs = sorted(k for k, v in node.items() if v is not None)
         files_only = sorted(k for k, v in node.items() if v is None)
         items = dirs + files_only
@@ -174,16 +169,16 @@ def build(root: Path, use_color: bool = False) -> str:
             is_last = i == len(items) - 1
             branch = "└── " if is_last else "├── "
             out.append(f"{prefix}{branch}{k}")
-            if node[k] is not None:  # recurse into directory
+            if node[k] is not None:
                 ext = "    " if is_last else "│   "
-                out.extend(render(node[k], prefix + ext))
-        return out
+                out.append(render(node[k], prefix + ext))
+        return "\n".join(out)
 
     # ANSI colors
     g = "\x1b[32m" if use_color else ""
     r = "\x1b[0m" if use_color else ""
 
-    lines = [
+    header = "\n".join([
         f"{g}# Project Structure{r}",
         f"**Generated:** {datetime.now().isoformat()}",
         f"**Root:** `{root}`",
@@ -197,11 +192,11 @@ def build(root: Path, use_color: bool = False) -> str:
         f"| Total size | {fmt_size(total_size)} |",
         "",
         "```",
-    ]
-    lines.extend(render(tree))
-    lines.append("```")
+        render(tree),
+        "```",
+    ])
 
-    return "\n".join(lines)
+    return header
 
 
 def main() -> int:
@@ -240,15 +235,12 @@ def main() -> int:
 
     if args.stdout:
         print(text)
-    else:
-        if args.output is not None:
-            out = args.output
-        else:
-            data_dir = args.root / "data"
-            data_dir.mkdir(parents=True, exist_ok=True)
-            out = data_dir / "structure.txt"
-        out.write_text(text, encoding="utf-8")
-        print(f"[OK] {out}")
+        return 0
+
+    out = args.output or (args.root / "data" / "structure.txt")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    print(f"[OK] {out}")
     return 0
 
 

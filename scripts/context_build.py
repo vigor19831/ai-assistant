@@ -42,8 +42,10 @@ REQUIRED_DOCS = ["ai_rules.md", "architectural_strategy.md", "DRIFT.md"]
 
 # Files that are ALWAYS full in compact mode (except tests/scripts)
 ALWAYS_FULL = {
-    "config.yaml", "pyproject.toml", ".gitignore",
+    "config.example.yaml", "pyproject.toml", ".gitignore",
 }
+
+_DOC_TRUNCATE_LIMIT: int = 25000
 
 # Skip
 SKIP_FILES = [
@@ -67,6 +69,8 @@ SKIP_FILES = [
 
 def find_project_root() -> Path:
     script_dir = Path(__file__).resolve().parent
+    if script_dir.name == "scripts" and script_dir.parent.exists():
+        return script_dir.parent
     for parent in [script_dir, *script_dir.parents]:
         if (parent / "README.md").exists() and (parent / "pyproject.toml").exists():
             return parent
@@ -151,7 +155,8 @@ def scan(root: Path, mode: str):
             if need_content:
                 try:
                     content = path.read_text(encoding="utf-8", errors="replace")
-                except OSError:
+                except OSError as exc:
+                    logger.warning("Skipping unreadable file: %s (%s)", rel, exc)
                     continue
 
             if is_py:
@@ -182,7 +187,13 @@ def scan(root: Path, mode: str):
                 if is_scripts or is_tests:
                     # List only
                     all_files.append((rel, None, size, "listed"))
-                elif basename in ALWAYS_FULL or "core" in parts or "api" in parts or "handlers" in basename or "schemas" in basename:
+                elif (
+                    basename in ALWAYS_FULL
+                    or "core" in parts
+                    or "api" in parts
+                    or "handlers" in basename
+                    or "schemas" in basename
+                ):
                     all_files.append((rel, content, size, "full"))
                 elif is_py:
                     all_files.append((rel, content, size, "signature"))
@@ -287,7 +298,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
             f"## {title}",
             f"> Auto-extracted from: `{rel}`",
             "```markdown",
-            content[:25000],
+            content[:_DOC_TRUNCATE_LIMIT],
             "```",
             "",
             "---",
@@ -410,7 +421,11 @@ def menu():
         print(f"  {marker} [{i}] {opt}")
 
     while True:
-        raw = input("\nChoice [1-3], Enter = 2: ").strip()
+        try:
+            raw = input("\nChoice [1-3], Enter = 2: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
         if raw == "":
             return "compact"
         if raw.isdigit() and 1 <= int(raw) <= 3:
@@ -435,10 +450,6 @@ def main():
         mode = args.mode
 
     root = find_project_root()
-
-    script_parent = Path(__file__).resolve().parent
-    if script_parent.name == "scripts" and script_parent.parent.exists():
-        root = script_parent.parent
 
     all_files, py_files, metrics = scan(root, mode)
 

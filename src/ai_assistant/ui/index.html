@@ -98,7 +98,25 @@
         }
         .message.user { background: var(--accent); color: white; border-bottom-right-radius: 4px; }
         .message.assistant { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-        .message.assistant.streaming::after { content: '▋'; animation: blink 1s infinite; margin-left: 4px; color: var(--accent); }
+        .message.assistant.streaming::after {
+            content: '.....';
+            display: inline-block;
+            margin-left: 6px;
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 1.15em;
+            letter-spacing: 2px;
+            vertical-align: bottom;
+            animation: dotBounce 1.3s infinite ease-in-out;
+            transform-origin: bottom center;
+            white-space: nowrap;
+        }
+
+        @keyframes dotBounce {
+            0%, 100% { opacity: 0.35; transform: translateY(0); }
+            50% { opacity: 1; transform: translateY(-4px); }
+        }
+
         @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
 
         .message code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; }
@@ -128,11 +146,46 @@
         .message.collapsible { max-height: 400px; overflow: hidden; position: relative; }
         .message.collapsible::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 60px; background: linear-gradient(transparent, var(--surface)); pointer-events: none; }
         .message.user.collapsible::after { background: linear-gradient(transparent, var(--accent)); }
+
+        .reasoning-block {
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: rgba(48, 54, 61, 0.5);
+        }
+        .reasoning-block summary {
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #8b949e;
+            cursor: pointer;
+            user-select: none;
+            list-style: none;
+        }
+        .reasoning-block summary::-webkit-details-marker { display: none; }
+        .reasoning-block summary::before {
+            content: '▶ ';
+            display: inline-block;
+            transition: transform 0.2s;
+        }
+        .reasoning-block[open] summary::before {
+            transform: rotate(90deg);
+        }
+        .reasoning-content {
+            padding: 8px 12px 12px;
+            font-size: 13px;
+            color: #8b949e;
+            border-top: 1px solid var(--border);
+        }
+        .reasoning-content p { margin-bottom: 6px; }
+        .reasoning-content p:last-child { margin-bottom: 0; }
+        .answer-block {
+            /* No extra styles needed, inherits .message defaults */
+        }
+
         .expand-btn { position: relative; z-index: 2; background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; margin-top: -10px; align-self: center; }
         .expand-btn:hover { background: var(--border); }
 
-        .typing-indicator { display: none; align-self: flex-start; background: var(--surface); border: 1px solid var(--border); padding: 12px 16px; border-radius: 12px; border-bottom-left-radius: 4px; margin-left: 40px; }
-        .typing-indicator.active { display: flex; }
+        .typing-indicator { display: none !important; }
         .typing-indicator span { width: 6px; height: 6px; background: var(--text); border-radius: 50%; margin: 0 2px; animation: bounce 1.4s infinite ease-in-out; }
         .typing-indicator span:nth-child(1) { animation-delay: 0s; }
         .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
@@ -400,6 +453,237 @@
         let manualScrollLockTimer = null;
         let lastContainerHeight = 0;
 
+        // ===== Reasoning Parser State =====
+        // Stateful incremental parser for reasoning tags during streaming.
+        // Avoids O(n²) re-parsing and handles split tags across chunks.
+        const REASONING_TAGS = [
+            // === XML/HTML-like: longer/specific tags first (to avoid prefix matching)
+            { open: '<thinking',    close: '</thinking',    xmlLike: true },
+            { open: '<reasoning',   close: '</reasoning',   xmlLike: true },
+            { open: '<thought',     close: '</thought',     xmlLike: true },
+            { open: '<analysis',    close: '</analysis',    xmlLike: true },
+            { open: '<reflect',     close: '</reflect',     xmlLike: true },
+            { open: '<scratchpad',  close: '</scratchpad',  xmlLike: true },
+            { open: '<cot',         close: '</cot',         xmlLike: true },
+            { open: '<plan',        close: '</plan',        xmlLike: true },
+            { open: '<step',        close: '</step',        xmlLike: true },
+            { open: '<think',       close: '</think',       xmlLike: true },
+            // Alternative closing tags for think (some models)
+            { open: '<think',       close: '<answer',       xmlLike: true },
+            // Special tokens
+            { open: '<|thinking|>',      close: '<|/thinking|>' },
+            { open: '<|thought|>',       close: '<|/thought|>' },
+            { open: '<|reasoning|>',     close: '<|/reasoning|>' },
+            { open: '<|reflect|>',       close: '<|/reflect|>' },
+            { open: '<|begin_of_thought|>', close: '<|end_of_thought|>' },
+            { open: '<|begin_of_reasoning|>', close: '<|end_of_reasoning|>' },
+            // Double/triple brackets
+            { open: '[[Thinking]]',      close: '[[/Thinking]]' },
+            { open: '[[Reasoning]]',     close: '[[/Reasoning]]' },
+            { open: '[[Thought]]',       close: '[[/Thought]]' },
+            { open: '[[Analysis]]',      close: '[[/Analysis]]' },
+            { open: '<<<REASONING>>>',   close: '<<<END REASONING>>>' },
+            { open: '<<<THINKING>>>',    close: '<<<END THINKING>>>' },
+            // Single brackets
+            { open: '[BEGIN_REASONING]', close: '[END_REASONING]' },
+            { open: '[BEGIN_THINKING]',  close: '[END_THINKING]' },
+            { open: '[BEGIN_ANALYSIS]',  close: '[END_ANALYSIS]' },
+            { open: '[BEGIN_THOUGHT]',   close: '[END_THOUGHT]' },
+            // Single brackets
+            { open: '[Thinking]',   close: '[/Thinking]' },
+            { open: '[Reasoning]',  close: '[/Reasoning]' },
+            { open: '[Thought]',    close: '[/Thought]' },
+            { open: '[Analysis]',   close: '[/Analysis]' },
+            // Dash separators
+            { open: '--- Reasoning ---',    close: '--- Answer ---' },
+            { open: '--- Thinking ---',     close: '--- Response ---' },
+            { open: '--- Analysis ---',     close: '--- Final Answer ---' },
+            // Bold headers
+            { open: '### Reasoning',    close: '### Answer',      lineAnchored: true },
+            { open: '### Thinking',     close: '### Response',    lineAnchored: true },
+            { open: '### Analysis',     close: '### Final Answer',lineAnchored: true },
+            { open: '### Reflection',   close: '### Output',      lineAnchored: true },
+            { open: '### Chain of Thought', close: '### Answer', lineAnchored: true },
+            { open: '### Step-by-step',   close: '### Answer',    lineAnchored: true },
+            // Bold headers
+            { open: '**Reasoning:**',   close: '**Answer:**',      lineAnchored: true },
+            { open: '**Thinking:**',    close: '**Response:**',    lineAnchored: true },
+            { open: '**Analysis:**',    close: '**Conclusion:**',  lineAnchored: true },
+            { open: '**Chain of Thought:**', close: '**Answer:**', lineAnchored: true },
+            // Process style
+            { open: 'Thinking Process:',close: 'Final Answer:',  lineAnchored: true },
+            { open: 'Reasoning Process:',close: 'Answer:',         lineAnchored: true },
+            { open: 'Analysis Process:', close: 'Conclusion:',     lineAnchored: true },
+        ];
+
+        function _parseReasoning(text) {
+            for (const tag of REASONING_TAGS) {
+                let openIdx, afterOpen;
+
+                // For lineAnchored tags, search only at the start of a line or text
+                if (tag.lineAnchored) {
+                    const patterns = [
+                        '\n' + tag.open,
+                        '\r\n' + tag.open,
+                        tag.open // start of text
+                    ];
+                    openIdx = -1;
+                    let matchedPrefix = '';
+                    for (const p of patterns) {
+                        const idx = text.indexOf(p);
+                        if (idx !== -1 && (openIdx === -1 || idx < openIdx)) {
+                            openIdx = idx;
+                            matchedPrefix = p;
+                        }
+                    }
+                    if (openIdx === -1) continue;
+                    // Shift openIdx to the start of the tag itself (without \n)
+                    if (matchedPrefix.startsWith('\r\n')) openIdx += 2;
+                    else if (matchedPrefix.startsWith('\n')) openIdx += 1;
+                } else {
+                    openIdx = text.indexOf(tag.open);
+                    if (openIdx === -1) continue;
+                }
+
+                if (tag.xmlLike) {
+                    const tagEnd = text.indexOf('>', openIdx);
+                    if (tagEnd === -1) {
+                        return {
+                            reasoning: text.slice(openIdx + tag.open.length),
+                            answer: text.slice(0, openIdx),
+                            hasReasoning: true,
+                            isOpen: true,
+                            openTagName: tag.open,
+                        };
+                    }
+                    afterOpen = tagEnd + 1;
+
+                    const closeIdx = text.indexOf(tag.close, afterOpen);
+                    if (closeIdx === -1) {
+                        return {
+                            reasoning: text.slice(afterOpen),
+                            answer: text.slice(0, openIdx),
+                            hasReasoning: true,
+                            isOpen: true,
+                            openTagName: tag.open,
+                        };
+                    }
+
+                    const gtIdx = text.indexOf('>', closeIdx);
+                    if (gtIdx === -1) {
+                        return {
+                            reasoning: text.slice(afterOpen),
+                            answer: text.slice(0, openIdx),
+                            hasReasoning: true,
+                            isOpen: true,
+                            openTagName: tag.open,
+                        };
+                    }
+
+                    return {
+                        reasoning: text.slice(afterOpen, closeIdx),
+                        answer: text.slice(0, openIdx) + text.slice(gtIdx + 1),
+                        hasReasoning: true,
+                        isOpen: false,
+                        openTagName: tag.open,
+                    };
+
+                } else {
+                    afterOpen = openIdx + tag.open.length;
+
+                    // For lineAnchored closing tags also account for line start
+                    let closeIdx;
+                    if (tag.lineAnchored) {
+                        const closePatterns = [
+                            '\n' + tag.close,
+                            '\r\n' + tag.close,
+                            tag.close
+                        ];
+                        closeIdx = -1;
+                        for (const p of closePatterns) {
+                            const idx = text.indexOf(p, afterOpen);
+                            if (idx !== -1 && (closeIdx === -1 || idx < closeIdx)) {
+                                closeIdx = idx;
+                            }
+                        }
+                    } else {
+                        closeIdx = text.indexOf(tag.close, afterOpen);
+                    }
+
+                    if (closeIdx === -1) {
+                        return {
+                            reasoning: text.slice(afterOpen),
+                            answer: text.slice(0, openIdx),
+                            hasReasoning: true,
+                            isOpen: true,
+                            openTagName: tag.open,
+                        };
+                    }
+
+                    // For lineAnchored closing tags, we calculate the end position
+                    let closeEnd;
+                    if (tag.lineAnchored) {
+                        // Find the end of the line after the closing tag
+                        const afterClose = closeIdx + tag.close.length;
+                        const nlIdx = text.indexOf('\n', afterClose);
+                        closeEnd = nlIdx === -1 ? text.length : nlIdx + 1;
+                    } else {
+                        closeEnd = closeIdx + tag.close.length;
+                    }
+
+                    return {
+                        reasoning: text.slice(afterOpen, closeIdx),
+                        answer: text.slice(0, openIdx) + text.slice(closeEnd),
+                        hasReasoning: true,
+                        isOpen: false,
+                        openTagName: tag.open,
+                    };
+                }
+            }
+
+            return {
+                reasoning: '',
+                answer: text,
+                hasReasoning: false,
+                isOpen: false,
+                openTagName: '',
+            };
+        }
+
+        function _approxTokens(text) {
+            if (!text) return 0;
+            const words = text.split(/\s+/).filter(Boolean).length;
+            return words > 0 ? Math.ceil(words / 0.75) : 0;
+        }
+
+        function _renderReasoningBlock(reasoning, isOpen, isStreaming) {
+            const hasContent = reasoning.length > 0;
+            const approxTokens = _approxTokens(reasoning);
+            const tokenLabel = hasContent ? `~${approxTokens} tokens` : (isStreaming ? 'thinking...' : '');
+            const summaryText = '🤔 Reasoning' + (tokenLabel ? ' · ' + tokenLabel : '');
+
+            // During streaming with open tag: keep expanded so user sees progress
+            // After streaming: collapsed by default
+            const openAttr = (isOpen && isStreaming) ? ' open' : '';
+
+            const contentHtml = hasContent ? renderMarkdown(reasoning) : '<em>...</em>';
+
+            return `<details class="reasoning-block"${openAttr}><summary>${escapeHtml(summaryText)}</summary><div class="reasoning-content">${contentHtml}</div></details>`;
+        }
+
+        function _renderAssistantContent(content, streaming) {
+            const parsed = _parseReasoning(content);
+            const reasoningBlock = parsed.hasReasoning
+                ? _renderReasoningBlock(parsed.reasoning, parsed.isOpen, streaming)
+                : '';
+            const answerHtml = renderMarkdown(parsed.answer);
+
+            if (reasoningBlock) {
+                return reasoningBlock + '<div class="answer-block">' + answerHtml + '</div>';
+            }
+            return answerHtml;
+        }
+
         const settings = {
             apiBase: '',
             apiKey: 'sk-local-api-key',
@@ -431,7 +715,15 @@
                 try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
                 catch { return fallback; }
             },
-            set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} },
+            set(key, value) {
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                } catch (e) {
+                    if (e.name === 'QuotaExceededError' || e.code === 22) {
+                        showToast('⚠️ Storage full. Export & delete old chats.');
+                    }
+                }
+            },
             remove(key) { try { localStorage.removeItem(key); } catch {} }
         };
 
@@ -684,7 +976,21 @@
 
         // ===== Markdown =====
         function renderMarkdown(text) {
-            text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // 1. Extract code blocks BEFORE escaping to preserve original code
+            const codeBlocks = [];
+            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+                const id = codeBlocks.length;
+                codeBlocks.push({code: code.trim(), lang: lang || 'text'});
+                return `\x00CODE${id}\x00`;
+            });
+            const inlineCodes = [];
+            text = text.replace(/`([^`]+)`/g, (_, code) => {
+                inlineCodes.push(code);
+                return `\x00INLINE${inlineCodes.length-1}\x00`;
+            });
+
+            // 2. Escape HTML in the remaining text only
+            text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
             // Tables
             const tableRegex = /^((?:\|[^\n]*)+\n)(\|[-:\s|]+\|\n)((?:\|[^\n]*\n)+)/gm;
@@ -698,18 +1004,6 @@
                 });
                 html += '</tbody></table>';
                 return html;
-            });
-
-            const codeBlocks = [];
-            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
-                const id = codeBlocks.length;
-                codeBlocks.push({code: code.trim(), lang: lang || 'text'});
-                return `\x00CODE${id}\x00`;
-            });
-            const inlineCodes = [];
-            text = text.replace(/`([^`]+)`/g, (_, code) => {
-                inlineCodes.push(code);
-                return `\x00INLINE${inlineCodes.length-1}\x00`;
             });
             text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
                 const safeUrl = url.replace(/[<"']/g, '');
@@ -771,7 +1065,7 @@
             }).filter(Boolean).join('');
 
             inlineCodes.forEach((code, i) => {
-                text = text.replace(`\x00INLINE${i}\x00`, `<code>${code}</code>`);
+                text = text.replace(`\x00INLINE${i}\x00`, `<code>${escapeHtml(code)}</code>`);
             });
             codeBlocks.forEach(({code, lang}, i) => {
                 const html = `<pre><code class="language-${lang}">${escapeHtml(code)}</code><button class="copy-code-btn" onclick="copyCode(this)">Copy</button></pre>`;
@@ -820,10 +1114,17 @@
             bubble.className = `message ${msg.role}`;
             if (!msg.content && msg.role === 'assistant') bubble.classList.add('streaming');
 
-            const isLong = msg.content.length > 1200 && msg.role === 'assistant';
-            if (isLong) bubble.classList.add('collapsible');
+            if (msg.role === 'user') {
+                bubble.innerHTML = escapeHtml(msg.content);
+            } else {
+                bubble.innerHTML = _renderAssistantContent(msg.content, false);
+            }
 
-            bubble.innerHTML = msg.role === 'user' ? escapeHtml(msg.content) : renderMarkdown(msg.content);
+            // Collapsible applies only to answer text, not reasoning
+            const parsedForLength = msg.role === 'assistant' ? _parseReasoning(msg.content) : null;
+            const answerText = parsedForLength ? parsedForLength.answer : msg.content;
+            const isLong = answerText.length > 1200 && msg.role === 'assistant';
+            if (isLong) bubble.classList.add('collapsible');
 
             content.appendChild(meta);
             content.appendChild(bubble);
@@ -870,20 +1171,26 @@
 
         function updateMessage(id, content) {
             const msg = messages.find(m => m.id === id);
-            if (msg) msg.content = content;
+            if (!msg) return;
+            msg.content = content;
             const wrapper = container.querySelector(`[data-id="${id}"]`);
-            if (wrapper) {
-                const bubble = wrapper.querySelector('.message');
-                bubble.innerHTML = renderMarkdown(content);
-                // highlight только если есть code blocks и стриминг закончился
-                if (!isStreaming) {
-                    bubble.querySelectorAll('pre code').forEach(block => typeof hljs !== 'undefined' && hljs.highlightElement(block));
-                }
+            if (!wrapper) return;
+            const bubble = wrapper.querySelector('.message');
+            if (!bubble) return;
+
+            if (msg.role === 'user') {
+                bubble.innerHTML = escapeHtml(content);
+            } else {
+                bubble.innerHTML = _renderAssistantContent(content, isStreaming);
+            }
+
+            if (!isStreaming) {
+                bubble.querySelectorAll('pre code').forEach(block => typeof hljs !== 'undefined' && hljs.highlightElement(block));
             }
             scrollToBottomIfNeeded();
         }
 
-        // Отдельная функция для финального сохранения
+        // Standalone function for final persistence
         function finalizeMessage(id) {
             saveSessionMessages(currentSessionId, messages);
         }
@@ -1013,6 +1320,16 @@
             isStreaming = true;
             sendBtn.style.display = 'none';
             stopBtn.classList.add('active');
+            // Streaming indicator now only inside the message block
+
+            let fullText = '';
+            let reasoningText = '';
+
+            let firstTokenTimeout = setTimeout(() => {
+                if (isStreaming && !fullText && !reasoningText) {
+                    showToast('⏳ Model is thinking... First token delayed');
+                }
+            }, 15000);
 
             const assistantMsg = addMessage('assistant', '');
             const assistantDiv = container.querySelector(`[data-id="${assistantMsg.id}"] .message`);
@@ -1044,7 +1361,6 @@
                 if (!response.body) throw new Error('Response body is null');
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
-                let fullText = '';
                 let buffer = '';
 
                 while (true) {
@@ -1053,7 +1369,7 @@
                     const chunk = decoder.decode(result.value, {stream: true});
                     buffer += chunk;
                     const lines = buffer.split('\n');
-                    buffer = lines.pop(); // сохраняем неполную строку
+                    buffer = lines.pop();
                     for (const line of lines) {
                         if (!line.startsWith('data: ')) continue;
                         const data = line.slice(6);
@@ -1061,37 +1377,74 @@
                         try {
                             const parsed = JSON.parse(data);
                             const delta = parsed.choices?.[0]?.delta?.content;
-                            if (delta) { fullText += delta; updateMessage(assistantMsg.id, fullText); }
+                            const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || parsed.choices?.[0]?.delta?.reasoning;
+
+                            let updated = false;
+                            if (reasoning) {
+                                reasoningText += reasoning;
+                                updated = true;
+                            }
+                            if (delta !== undefined && delta !== null) {
+                                fullText += delta;
+                                updated = true;
+                            }
+                            if (updated) {
+                                const displayText = reasoningText
+                                    ? `<think>${reasoningText}</think>\n\n${fullText}`
+                                    : fullText;
+                                updateMessage(assistantMsg.id, displayText);
+                            }
                         } catch (e) { console.error('Parse error:', e, 'Data:', data); }
                     }
                 }
-                // Обработаем остаток в буфере
+                // Process the remaining buffer
                 if (buffer.startsWith('data: ')) {
                     const data = buffer.slice(6);
                     if (data !== '[DONE]') {
                         try {
                             const parsed = JSON.parse(data);
                             const delta = parsed.choices?.[0]?.delta?.content;
-                            if (delta) { fullText += delta; updateMessage(assistantMsg.id, fullText); }
-                        } catch (e) { console.error('SSE parse error:', e, 'Line:', line); }
+                            const reasoning = parsed.choices?.[0]?.delta?.reasoning_content ?? parsed.choices?.[0]?.delta?.reasoning;
+
+                            let updated = false;
+                            if (reasoning) {
+                                reasoningText += reasoning;
+                                updated = true;
+                            }
+                            if (delta) {
+                                fullText += delta;
+                                updated = true;
+                            }
+                            if (updated) {
+                                const displayText = reasoningText
+                                    ? `<think>${reasoningText}</think>\n\n${fullText}`
+                                    : fullText;
+                                updateMessage(assistantMsg.id, displayText);
+                            }
+                        } catch (e) { console.error('SSE parse error:', e); }
                     }
                 }
                 assistantDiv.classList.remove('streaming');
             } catch (err) {
-                if (err.name === 'AbortError') {
-                    assistantDiv.classList.remove('streaming');
-                } else {
-                    assistantDiv.innerHTML = '<span style="color:var(--danger)">Error: ' + escapeHtml(err.message) + '</span>';
-                    assistantDiv.classList.remove('streaming');
+                assistantDiv.classList.remove('streaming');
+                if (err.name !== 'AbortError') {
+                    fullText = '**Error:** ' + err.message;
                 }
-            }
-            finalizeMessage(assistantMsg.id);
+            } finally {
+                clearTimeout(firstTokenTimeout);
+                isStreaming = false;
+                // saveTimeout removed — no-op
+                const finalText = reasoningText
+                    ? `<think>${reasoningText}</think>\n\n${fullText}`
+                    : fullText;
+                updateMessage(assistantMsg.id, finalText);
+                finalizeMessage(assistantMsg.id);
 
-            isStreaming = false;
-            abortController = null;
-            sendBtn.style.display = 'flex';
-            stopBtn.classList.remove('active');
-            input.focus();
+                abortController = null;
+                sendBtn.style.display = 'flex';
+                stopBtn.classList.remove('active');
+                input.focus();
+            }
         }
 
         function stopGeneration() {
@@ -1148,7 +1501,8 @@
             input.focus();
             input.dispatchEvent(new Event('input'));
             const idx = messages.findIndex(m => m.id === id);
-            for (let i = messages.length - 1; i >= idx; i--) removeMessage(messages[i].id);
+            const toRemove = messages.slice(idx).map(m => m.id);
+            toRemove.forEach(mid => removeMessage(mid));
         }
 
         function newChat() {
@@ -1165,7 +1519,7 @@
             if (messages.length === 0) { showToast('Nothing to export'); return; }
             let md = `# Chat Export\n\n`;
             messages.forEach(m => {
-                            md += `### ${m.role === 'user' ? '**User**' : '**Assistant**'} · ${formatTime(m.timestamp)}\\n\\n${m.content}\\n\\n---\\n\\n`;
+                md += `### ${m.role === 'user' ? '**User**' : '**Assistant**'} · ${formatTime(m.timestamp)}\n\n${m.content}\n\n---\n\n`;
             });
             const blob = new Blob([md], {type: 'text/markdown'});
             const url = URL.createObjectURL(blob);
@@ -1305,6 +1659,11 @@
                 if (indexPollInterval) {
                     clearInterval(indexPollInterval);
                     indexPollInterval = null;
+                }
+                // Emergency save: if streaming was interrupted by reload,
+                // persist whatever assistant content we have so far
+                if (currentSessionId && messages.length > 0) {
+                    saveSessionMessages(currentSessionId, messages);
                 }
             });
         }

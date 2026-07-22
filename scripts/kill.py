@@ -24,12 +24,34 @@ except ImportError:
 _KILL_NAMES = ("llama-server", "llama-server.exe", "uvicorn")
 
 
+def _extract_port(url: str) -> int | None:
+    """Extract port from URL like http://host:port/path or http://host/path."""
+    if not url:
+        return None
+    # Handle //host:port/path — skip scheme
+    stripped = url.split("//", 1)[-1]  # host:port/path or host/path
+    host_part = stripped.split("/", 1)[0]  # host:port or host
+    if ":" not in host_part:
+        return None
+    port_str = host_part.rsplit(":", 1)[-1]  # port (last colon segment)
+    try:
+        p = int(port_str)
+        if 1 <= p <= 65535:
+            return p
+    except ValueError:
+        pass
+    return None
+
+
 def _load_project_ports(root: Path) -> tuple[int, ...]:
-    """Read ports from config.yaml, fallback to defaults."""
+    """Read ports from config.yaml. No fallback — if config is broken, we must know."""
     config_path = root / "config.yaml"
-    defaults = (8080, 8081, 8082, 8000)
-    if yaml is None or not config_path.exists():
-        return defaults
+    if yaml is None:
+        print(f"  [WARN] PyYAML not installed — cannot parse {config_path}")
+        return ()
+    if not config_path.exists():
+        print(f"  [WARN] {config_path} not found — no project ports to check")
+        return ()
     try:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
         ports: set[int] = set()
@@ -37,26 +59,34 @@ def _load_project_ports(root: Path) -> tuple[int, ...]:
         api_port = data.get("port")
         if isinstance(api_port, int):
             ports.add(api_port)
-        # LLM server port(s) from api_base
+        # LLM server port from api_base
         llm_config = data.get("llm", {})
-        api_base = llm_config.get("api_base", "")
-        for part in api_base.split(":"):
-            try:
-                p = int(part.rstrip("/").split("/")[-1])
-                if 1 <= p <= 65535:
-                    ports.add(p)
-            except ValueError:
-                continue
-        return tuple(ports) if ports else defaults
-    except Exception:
-        return defaults
+        llm_port = _extract_port(llm_config.get("api_base", ""))
+        if llm_port is not None:
+            ports.add(llm_port)
+        # Embedder port from api_base
+        embedder_config = data.get("embedder", {})
+        emb_port = _extract_port(embedder_config.get("api_base", ""))
+        if emb_port is not None:
+            ports.add(emb_port)
+        # Reranker port from api_base
+        reranker_config = data.get("reranker", {})
+        rer_port = _extract_port(reranker_config.get("api_base", ""))
+        if rer_port is not None:
+            ports.add(rer_port)
+        if not ports:
+            print("  [WARN] No ports found in config — check api_base URLs")
+        return tuple(ports)
+    except Exception as exc:
+        print(f"  [WARN] Failed to read {config_path}: {exc}")
+        return ()
 
 
-def _port_holder_pid(port: int) -> int | None:
-    """Return PID of process holding *port*, or None."""
+def _port_holder_pids(port: int) -> list[int]:
+    """Return all PIDs holding *port*, or empty list."""
+    pids: list[int] = []
     try:
         if os.name == "nt":
-            # netstat -ano | findstr :PORT
             result = subprocess.run(
                 ["netstat", "-ano"],
                 capture_output=True,
@@ -64,15 +94,24 @@ def _port_holder_pid(port: int) -> int | None:
                 check=False,
             )
             for line in result.stdout.splitlines():
-                if f":{port}" in line and ("LISTENING" in line or "ESTABLISHED" in line):
-                    parts = line.strip().split()
-                    if parts:
-                        try:
-                            return int(parts[-1])
-                        except ValueError:
-                            continue
+                if "LISTENING" not in line:
+                    continue
+                if f":{port}" not in line:
+                    continue
+                parts = line.strip().split()
+                if len(parts) < 5:
+                    continue
+                local_addr = parts[1]
+                if not local_addr.endswith(f":{port}"):
+                    continue
+                try:
+                    pid = int(parts[-1])
+                    if pid not in pids:
+                        pids.append(pid)
+                except ValueError:
+                    continue
         else:
-            # lsof -ti:PORT or ss -ltnp
+            # lsof returns one PID per line; fuser returns space-separated PIDs
             for cmd in (
                 ["lsof", "-ti", f":{port}"],
                 ["fuser", f"{port}/tcp"],
@@ -84,13 +123,16 @@ def _port_holder_pid(port: int) -> int | None:
                     check=False,
                 )
                 if result.returncode == 0 and result.stdout.strip():
-                    try:
-                        return int(result.stdout.strip().split()[0])
-                    except (ValueError, IndexError):
-                        continue
+                    for token in result.stdout.strip().split():
+                        try:
+                            pid = int(token)
+                            if pid not in pids:
+                                pids.append(pid)
+                        except ValueError:
+                            continue
     except Exception:
         pass
-    return None
+    return pids
 
 
 def _kill_pid(pid: int, force: bool = False) -> bool:
@@ -128,9 +170,9 @@ def _kill_by_name(name: str) -> int:
             )
             if result.returncode == 0:
                 killed += 1
-            # Also try killall
+            # killall without -q to surface errors (stdout captured anyway)
             subprocess.run(
-                ["killall", "-q", name],
+                ["killall", name],
                 capture_output=True,
                 check=False,
             )
@@ -170,17 +212,19 @@ def main() -> int:
     # 2. Kill by port holders
     print("\n[2/3] Killing port holders...")
     for port in project_ports:
-        pid = _port_holder_pid(port)
-        if pid is not None:
-            print(f"  Port {port} held by PID {pid} — terminating...")
-            _kill_pid(pid)
+        pids = _port_holder_pids(port)
+        if pids:
+            print(f"  Port {port} held by PID(s) {pids} — terminating...")
+            for pid in pids:
+                _kill_pid(pid)
             if not _wait_port_free(port, timeout=2.0):
                 print(f"  Port {port} still held — forcing kill...")
-                _kill_pid(pid, force=True)
+                for pid in pids:
+                    _kill_pid(pid, force=True)
             if _wait_port_free(port, timeout=1.0):
                 print(f"  [OK] Port {port} freed")
             else:
-                print(f"  [FAIL] Port {port} STILL held (permission denied?)")
+                print(f"  [FAIL] Port {port} STILL held (zombie/D-state?)")
         else:
             print(f"  [OK] Port {port} already free")
 

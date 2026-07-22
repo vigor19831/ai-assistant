@@ -38,10 +38,6 @@ def main() -> int:
 
     import ctypes
 
-    def _quote_ps(s: str) -> str:
-        """Escape single quotes for PowerShell single-quoted string."""
-        return s.replace("'", "''")
-
     # If already admin — just open PowerShell directly
     if ctypes.windll.shell32.IsUserAnAdmin():
         os.system(f'start powershell -NoExit -Command "{ps_script}"')

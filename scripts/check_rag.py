@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
+import signal
 import sys
 import time
 from dataclasses import dataclass
@@ -28,16 +28,22 @@ try:
 except ImportError:
     sys.exit("ERROR: httpx is required. Run: pip install httpx")
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _SCRIPT_DIR.parent
+
+_SEP = "─" * 60
+_SEP_RESULT = "=" * 60
+
+# Module-level state for logging restoration
+_orig_stdout: Any | None = None
+_orig_stderr: Any | None = None
+_log_file_handle: Any | None = None
 
 
-# =============================================================================
-# Logging to data/ (git-ignored)
-# =============================================================================
+# ── Logging to data/ (git-ignored) ───────────────────────────────────────────
 
 class _Tee:
-    def __init__(self, *streams):
+    def __init__(self, *streams: Any) -> None:
         self.streams = streams
 
     def write(self, data: str) -> None:
@@ -51,29 +57,36 @@ class _Tee:
 
 
 def _setup_logging() -> Path:
-    log_dir = PROJECT_ROOT / "data"
+    log_dir = _PROJECT_ROOT / "data"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "check_rag_last.log"
-    log_file = open(log_path, "w", encoding="utf-8", buffering=1)
-    # FIX: Save originals for restoration
-    _Tee._orig_stdout = sys.stdout
-    _Tee._orig_stderr = sys.stderr
-    sys.stdout = _Tee(sys.stdout, log_file)
-    sys.stderr = _Tee(sys.stderr, log_file)
+    global _orig_stdout, _orig_stderr, _log_file_handle
+    _orig_stdout = sys.stdout
+    _orig_stderr = sys.stderr
+    _log_file_handle = open(log_path, "w", encoding="utf-8", buffering=1)
+    sys.stdout = _Tee(_orig_stdout, _log_file_handle)
+    sys.stderr = _Tee(_orig_stderr, _log_file_handle)
     return log_path
 
 
 def _restore_logging() -> None:
-    """Restore stdout/stderr. Call before sys.exit()."""
-    if hasattr(_Tee, "_orig_stdout"):
-        sys.stdout = _Tee._orig_stdout
-    if hasattr(_Tee, "_orig_stderr"):
-        sys.stderr = _Tee._orig_stderr
+    """Restore stdout/stderr and close the log file."""
+    global _orig_stdout, _orig_stderr, _log_file_handle
+    if _orig_stdout is not None:
+        sys.stdout = _orig_stdout
+        _orig_stdout = None
+    if _orig_stderr is not None:
+        sys.stderr = _orig_stderr
+        _orig_stderr = None
+    if _log_file_handle is not None:
+        try:
+            _log_file_handle.close()
+        except OSError:
+            pass
+        _log_file_handle = None
 
 
-# =============================================================================
-# Immutable test corpus and expectations
-# =============================================================================
+# ── Immutable test corpus and expectations ────────────────────────────────────
 
 @dataclass(frozen=True)
 class SourceDoc:
@@ -98,9 +111,9 @@ class TestCase:
     sources_must_contain: tuple[str, ...] = ()
     # NONE of these may appear in sources (noise resistance)
     sources_must_not_contain: tuple[str, ...] = ()
-    # NEW: Answer must be grounded in retrieved sources (not LLM memory)
+    # Answer must be grounded in retrieved sources (not LLM memory)
     require_faithfulness: bool = True
-    # NEW: All facts in answer must be traceable to sources (for multihop)
+    # All facts in answer must be traceable to sources (for multihop)
     require_source_coverage: bool = False
     description: str = ""
 
@@ -332,9 +345,7 @@ TEST_CASES: list[TestCase] = [
 ]
 
 
-# =============================================================================
-# API helpers
-# =============================================================================
+# ── API helpers ────────────────────────────────────────────────────────────────
 
 def _source_text(src: Any) -> str:
     if isinstance(src, str):
@@ -393,7 +404,6 @@ async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
 
     async with httpx.AsyncClient(headers=headers) as client:
         for ns, docs in by_ns.items():
-            # FIX: Use clear flag instead of broken document_ids delete
             print(f"[CLEAR] namespace '{ns}'")
             r = await _request_with_retry(
                 client, "POST",
@@ -422,7 +432,6 @@ async def query_rag(
     query: str,
     namespace: str,
 ) -> dict[str, Any]:
-    # FIX: Remove top_k hardcode, use server default
     r = await _request_with_retry(
         client, "POST",
         f"{url.rstrip('/')}/api/v1/rag/query",
@@ -431,18 +440,16 @@ async def query_rag(
     return r.json()
 
 
-# =============================================================================
-# Test runner
-# =============================================================================
+# ── Test runner ───────────────────────────────────────────────────────────────
 
-async def run_tests(url: str, api_key: str, timeout: float) -> None:
+async def run_tests(url: str, api_key: str, timeout: float) -> int:
     passed = 0
     total = len(TEST_CASES)
 
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
         for case in TEST_CASES:
-            print(f"\n{'─' * 60}")
+            print(f"\n{_SEP}")
             print(f"[{case.test_id}] {case.description}")
             print(f"    Query : {case.query}")
             print(f"    NS    : {case.namespace}")
@@ -498,21 +505,14 @@ async def run_tests(url: str, api_key: str, timeout: float) -> None:
                     if forbidden.lower() in src_text:
                         errors.append(f"sources contain noise '{forbidden}'")
 
-            # === NEW: Faithfulness check ===
-            # Answer must be grounded in retrieved sources, not LLM memory
+            # === Faithfulness check ===
             if case.require_faithfulness and has_sources:
-                # Extract all "significant" words from answer (length > 3)
-                answer_words = {w.lower() for w in answer.split() if len(w) > 3}
-                # Words that appear in sources
-                source_words = set(src_text.split())
-                # Key facts from answer_must_contain must be in sources
                 for kw in case.answer_must_contain:
                     kw_lower = kw.lower()
                     if kw_lower not in src_text:
                         errors.append(f"faithfulness: '{kw}' not found in sources (LLM memory?)")
 
-            # === NEW: Source coverage check ===
-            # For multihop: all required facts must be traceable to sources
+            # === Source coverage check ===
             if case.require_source_coverage and has_sources:
                 for kw in case.sources_must_contain:
                     kw_lower = kw.lower()
@@ -528,7 +528,7 @@ async def run_tests(url: str, api_key: str, timeout: float) -> None:
             if not errors:
                 passed += 1
 
-    print(f"\n{'=' * 60}")
+    print(f"\n{_SEP_RESULT}")
     print(f"FINAL: {passed}/{total} passed")
     if passed != total:
         print("\nSome tests failed. Do NOT edit this script.")
@@ -539,14 +539,15 @@ async def run_tests(url: str, api_key: str, timeout: float) -> None:
         print("  • namespace isolation               (isolation-1)")
         print("  • multi-chunk reasoning             (multihop-1, edge-2)")
         print("  • faithfulness / source coverage    (retrieval-1, multihop-1)")
-        _restore_logging()
-        sys.exit(1)
+        return 1
     else:
         print("\nAll tests passed. RAG meets the benchmark.")
-        _restore_logging()
+        return 0
 
 
-def main() -> None:
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def main() -> int:
     log_path = _setup_logging()
     print(f"[INFO] Log: {log_path}")
 
@@ -557,18 +558,30 @@ def main() -> None:
     parser.add_argument("--skip-index", action="store_true", help="Skip indexing")
     args = parser.parse_args()
 
+    def _on_sigint(_signum: int, _frame: Any) -> None:
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGINT, _on_sigint)
+
     try:
         if not args.skip_index:
             ok = asyncio.run(index_all(args.url, args.api_key, TEST_SOURCES))
             if not ok:
                 print("[FATAL] Indexing failed")
-                _restore_logging()
-                sys.exit(1)
+                return 1
 
-        asyncio.run(run_tests(args.url, args.api_key, args.timeout))
+        return asyncio.run(run_tests(args.url, args.api_key, args.timeout))
+    except EOFError:
+        print("\n  ! Input stream closed. Exiting.")
+        return 1
+    except KeyboardInterrupt:
+        print("\n  ! Interrupted by user. Exiting.")
+        return 0
+    except Exception as e:
+        print(f"\n  ! Unexpected error: {e}")
+        return 1
     finally:
         _restore_logging()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

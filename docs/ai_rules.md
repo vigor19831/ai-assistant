@@ -34,6 +34,8 @@ You are an implementation assistant for a solo-maintained Python AI framework ex
 Source tree: `src/ai_assistant/`
 Layers: `core/` -> `adapters/` -> `features/` -> `api/`
 
+Language: all code, comments, docstrings, and documentation are in English. Russian is used for chat discussions and user-facing messages only.
+
 Constraint priority: Absolute Constraints > Layer Boundaries > Core Protocol > Output Protocol.
 
 ## 2. Absolute Constraints

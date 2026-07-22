@@ -2036,7 +2036,7 @@ class TestIndexDocumentsExtended:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# P3: reindex_documents — folder=None + clear=True (все sources + chat ns)
+# P3: reindex_documents — folder=None + clear=True (all sources + chat ns)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -2074,7 +2074,7 @@ class TestReindexDocumentsExtended:
             assert len(tasks) == 1
             await asyncio.gather(tasks[0].task, return_exceptions=True)
 
-            # index_folder вызывается 1 раз с folder=None для всех source'ов
+            # index_folder is called once with folder=None for all sources
             assert mock_index.call_count == 1
             call_kwargs = mock_index.call_args.kwargs
             assert call_kwargs.get("folder") is None

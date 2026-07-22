@@ -3,48 +3,45 @@
 
 import json
 import os
+import shlex
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 VENV = ".venv"
 PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+_SEP = "─" * 50
 
-# Menu layout constants
-_NUM_W = 6
-_NAME_W = 34
-_COL_W = _NUM_W + _NAME_W + 4
-
-# Auto-activate venv
-_venv = Path(__file__).parent / ".venv"
+# ── Auto-activate venv ───────────────────────────────────────────────────────
+_venv = Path(__file__).parent / VENV
 _venv_py = _venv / PY
-if _venv.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
+if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
     if "--venv-relaunched" not in sys.argv:
         os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
 def get_python(root: Path) -> str:
-    return str(root / VENV / PY)
+    """Return venv python if available, otherwise system python."""
+    venv_py = root / VENV / PY
+    return str(venv_py) if venv_py.exists() else sys.executable
 
 
-# Scripts excluded from the menu (setup, internal tools)
-_EXCLUDED_SCRIPTS = frozenset({
-    "setup.py",
-    "__init__.py",
-})
+_EXCLUDED_SCRIPTS = frozenset({"setup.py", "__init__.py"})
 
 
-def collect(root: Path, subdir: str) -> list[Path]:
+def collect_scripts(root: Path, subdir: str = "scripts") -> list[Path]:
+    """Return sorted list of runnable scripts, excluding internal files."""
     d = root / subdir
+    if not d.exists():
+        return []
     return sorted(
         p for p in d.glob("*.py")
         if p.name not in _EXCLUDED_SCRIPTS
     )
-
-
-def _sort(files: list[Path]) -> list[Path]:
-    return sorted(files, key=lambda p: p.name)
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -57,74 +54,69 @@ def _fmt_duration(seconds: float) -> str:
     return f"{minutes}m {secs:.1f}s"
 
 
-def _fmt_ago(timestamp: float) -> str:
-    if timestamp == 0:
-        return "never"
-    delta = time.time() - timestamp
-    if delta < 60:
-        return "just now"
-    if delta < 3600:
-        return f"{int(delta // 60)}m ago"
-    if delta < 86400:
-        return f"{int(delta // 3600)}h ago"
-    return f"{int(delta // 86400)}d ago"
+def _history_path(root: Path) -> Path:
+    return root / "data" / ".run_history.json"
 
 
-def _get_docstring(path: str) -> str:
-    try:
-        with open(path, encoding="utf-8") as f:
-            first = f.readline()
-            if first.startswith('"""'):
-                line = f.readline().strip()
-                return line.rstrip('"').strip()
-    except Exception:
-        pass
-    return ""
-
-
-def _load_history(root: Path) -> dict[str, dict[str, object]]:
-    hist_file = root / "data" / ".run_history.json"
+def _load_history(root: Path) -> dict[str, dict]:
+    hist_file = _history_path(root)
+    if not hist_file.exists():
+        return {}
     try:
         with open(hist_file, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (json.JSONDecodeError, OSError):
         return {}
 
 
-def _save_history(root: Path, history: dict[str, dict[str, object]]) -> None:
-    hist_file = root / "data" / ".run_history.json"
+def _save_history(root: Path, history: dict) -> None:
+    """Atomic write: temp file + rename to avoid corruption on crash."""
+    hist_file = _history_path(root)
+    tmp_path: Path | None = None
     try:
         hist_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(hist_file, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=hist_file.parent,
+            prefix=".run_history_tmp_", suffix=".json", delete=False,
+        ) as tmp:
+            json.dump(history, tmp, indent=2)
+            tmp_path = Path(tmp.name)
+        tmp_path.replace(hist_file)
+        tmp_path = None  # Successfully moved, no cleanup needed
     except Exception:
         pass
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
-def print_menu(scripts, history, last, last_time):
+# ── UI ───────────────────────────────────────────────────────────────────────
+def print_menu(
+    scripts: list[tuple[str, str]],
+    history: dict,
+    last: str | None,
+    last_time: float | None,
+) -> None:
     print()
+    print(_SEP)
     print(f"   SCRIPT RUNNER          {time.strftime('%H:%M:%S')}")
-    print()
+    print(_SEP)
 
-    idx = 1
+    if not scripts:
+        print("  (no scripts found in scripts/)")
+    else:
+        for idx, (name, path) in enumerate(scripts, 1):
+            is_last = (path == last)
+            hist = history.get(path, {})
+            status = hist.get("status", "")
+            mark = "o" if status == "ok" else "x" if status == "fail" else "-"
+            prefix = "* " if is_last else "  "
+            print(f"  {prefix}[{idx:2d}] {mark} {name[:34]}")
 
-    idx = 1
-    for name, path in scripts:
-        is_last = (path == last)
-        hist = history.get(path, {})
-        status = hist.get("status", "")
-        mark = "o" if status == "ok" else "x" if status == "fail" else "-"
-        prefix = "* " if is_last else "  "
-        name_fmt = name[:_NAME_W]
-        desc = _get_docstring(path)
-        if desc:
-            line = f"{name_fmt} - {desc[:22]}"
-        else:
-            line = name_fmt
-        print(f"  {prefix}[{idx:2d}] {mark} {line}")
-        idx += 1
-
-    print()
+    print(_SEP)
     print("  [r] Rerun last  [0] Exit")
 
     if last:
@@ -135,18 +127,27 @@ def print_menu(scripts, history, last, last_time):
             print(f"\n  > Last: {last_name}")
     else:
         print("\n  > No script run yet")
+    print(_SEP)
     print()
 
 
-def run(py, target, root, extra, history):
+def run(
+    py: str,
+    target: str,
+    root: Path,
+    extra: list[str],
+    history: dict,
+) -> tuple[int, float]:
     cmd = [py, target] + extra
     name = Path(target).name
     now = time.strftime("%H:%M:%S")
 
     print()
+    print(_SEP)
     print(f"  RUN: {name}")
     print(f"  TIME: {now}")
     print(f"  {' '.join(cmd)}")
+    print(_SEP)
     print()
 
     start = time.perf_counter()
@@ -163,22 +164,29 @@ def run(py, target, root, extra, history):
     _save_history(root, history)
 
     print()
+    print(_SEP)
     print(f"  RESULT: {status}")
+    print(_SEP)
     print()
     input("  Press Enter... ")
     return res.returncode, elapsed
 
 
-def main():
+# ── Main ─────────────────────────────────────────────────────────────────────
+def main() -> int:
     root = Path(__file__).parent.resolve()
     py = get_python(root)
 
-    ordered = _sort(collect(root, "scripts"))
-    scripts = [(f.name, str(f)) for f in ordered]
-
+    scripts = [(f.name, str(f)) for f in collect_scripts(root)]
     history = _load_history(root)
-    last = None
-    last_time = None
+    last: str | None = None
+    last_time: float | None = None
+
+    # Graceful Ctrl+C — raise KeyboardInterrupt instead of default traceback
+    def _on_sigint(_signum, _frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGINT, _on_sigint)
+
     while True:
         try:
             print_menu(scripts, history, last, last_time)
@@ -193,7 +201,7 @@ def main():
                 continue
 
             try:
-                parts = choice.split()
+                parts = shlex.split(choice)
                 num = int(parts[0])
             except ValueError:
                 print("  ? Invalid input")
@@ -203,8 +211,8 @@ def main():
             extra = parts[1:] if len(parts) > 1 else []
 
             found = False
-            for i, (_, t) in enumerate(scripts, 1):
-                if i == num:
+            for idx_script, (_, t) in enumerate(scripts, 1):
+                if idx_script == num:
                     last = t
                     _, last_time = run(py, t, root, extra, history)
                     found = True
