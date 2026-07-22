@@ -89,6 +89,15 @@ def count_loc(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.strip())
 
 
+def _truncate_doc(content: str) -> str:
+    if len(content) <= _DOC_TRUNCATE_LIMIT:
+        return content
+    cut = content.rfind('\n', 0, _DOC_TRUNCATE_LIMIT + 1)
+    if cut > 0:
+        return content[:cut]
+    return content[:_DOC_TRUNCATE_LIMIT]
+
+
 def extract_imports(source: str) -> tuple[list[str], list[str]]:
     try:
         tree = ast.parse(source)
@@ -185,12 +194,16 @@ def scan(root: Path, mode: str):
 
             else:  # compact
                 if is_scripts or is_tests:
-                    # List only
-                    all_files.append((rel, None, size, "listed"))
+                    if basename == "conftest.py":
+                        all_files.append((rel, content, size, "full"))
+                    else:
+                        # List only
+                        all_files.append((rel, None, size, "listed"))
                 elif (
                     basename in ALWAYS_FULL
                     or "core" in parts
                     or "api" in parts
+                    or "features" in parts
                     or "handlers" in basename
                     or "schemas" in basename
                 ):
@@ -298,7 +311,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
             f"## {title}",
             f"> Auto-extracted from: `{rel}`",
             "```markdown",
-            content[:_DOC_TRUNCATE_LIMIT],
+            _truncate_doc(content),
             "```",
             "",
             "---",
@@ -452,6 +465,11 @@ def main():
     root = find_project_root()
 
     all_files, py_files, metrics = scan(root, mode)
+
+    # Recalculate metrics based on what actually goes into context
+    metrics["total"] = len(all_files)
+    metrics["py"] = sum(1 for r, c, s, t in all_files if r.endswith(".py"))
+    metrics["loc"] = sum(count_loc(c) for r, c, s, t in all_files if c is not None)
 
     logger.info("Total: %d | Python: %d | LOC: %d", metrics["total"], metrics["py"], metrics["loc"])
 
