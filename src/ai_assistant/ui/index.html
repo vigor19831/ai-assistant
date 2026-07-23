@@ -1,12 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Assistant</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https:; img-src 'self' data: blob: https: http:;">    <title>AI Assistant</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+
+    <link rel="stylesheet" href="static/github-dark.min.css">
+    <script src="static/highlight.min.js"></script>
+    <script src="static/marked.min.js"></script>
+    <link rel="stylesheet" href="static/katex.min.css">
+    <script src="static/katex.min.js"></script>
+    <script src="static/purify.min.js"></script>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -16,63 +22,37 @@
         }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
 
-        .sidebar {
-            width: 260px; background: var(--sidebar); border-right: 1px solid var(--border);
-            display: flex; flex-direction: column; flex-shrink: 0; transition: transform 0.3s ease;
-        }
-        .sidebar-header {
-            padding: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px;
-        }
+        .sidebar { width: 260px; background: var(--sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; transition: transform 0.3s ease; }
+        .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
         .sidebar-header h2 { font-size: 13px; font-weight: 600; color: var(--text-bright); flex: 1; }
-        .sidebar-header button {
-            background: var(--surface); border: 1px solid var(--border); color: var(--text);
-            border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-        }
+        .sidebar-header button { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
         .sidebar-header button:hover { background: var(--surface-hover); color: var(--text-bright); }
         .chat-list { flex: 1; overflow-y: auto; padding: 8px; }
-        .chat-item {
-            padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
-            margin-bottom: 4px; display: flex; align-items: center; gap: 8px; position: relative;
-            border: 1px solid transparent; transition: all 0.15s;
-        }
+        .chat-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; position: relative; border: 1px solid transparent; transition: all 0.15s; }
         .chat-item:hover { background: var(--surface); }
+        .chat-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         .chat-item.active { background: var(--surface); border-color: var(--border); }
         .chat-item .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .chat-item .time { font-size: 10px; color: #6e7681; flex-shrink: 0; }
-        .chat-item .del {
-            opacity: 0; background: none; border: none; color: var(--danger); cursor: pointer; font-size: 14px; padding: 0 2px;
-        }
+        .chat-item .del { opacity: 0; background: none; border: none; color: var(--danger); cursor: pointer; font-size: 14px; padding: 0 2px; }
         .chat-item:hover .del { opacity: 1; }
         .chat-item .del:hover { transform: scale(1.1); }
 
         .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
-        .header {
-            padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px;
-            background: rgba(13,17,23,0.95); backdrop-filter: blur(8px); z-index: 10; flex-shrink: 0;
-        }
+        .header { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; background: rgba(13,17,23,0.95); backdrop-filter: blur(8px); z-index: 10; flex-shrink: 0; }
         .header h1 { font-size: 15px; font-weight: 600; color: var(--text-bright); }
-        .menu-btn {
-            background: none; border: 1px solid var(--border); color: var(--text); border-radius: 8px;
-            width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-        }
+        .menu-btn { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .menu-btn:hover { background: var(--surface-hover); }
         .namespace-badge { background: var(--success); color: white; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
         .header-actions { margin-left: auto; display: flex; gap: 6px; }
-        .icon-btn {
-            background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 8px;
-            width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-        }
+        .icon-btn { background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 8px; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .icon-btn:hover { background: var(--surface-hover); color: var(--text-bright); }
 
-        .namespace-hint {
-            font-size: 11px; color: #8b949e; padding: 6px 16px 0; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
-        }
+        .namespace-hint { font-size: 11px; color: #8b949e; padding: 6px 16px 0; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
         .namespace-hint code { background: var(--surface); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 11px; }
         .namespace-hint span { margin-left: auto; }
 
-        .chat-container {
-            flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px;
-        }
+        .chat-container { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
         .chat-container::-webkit-scrollbar { width: 8px; }
         .chat-container::-webkit-scrollbar-track { background: transparent; }
         .chat-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
@@ -93,122 +73,63 @@
         .message-actions button { background: transparent; border: none; color: #8b949e; cursor: pointer; font-size: 11px; padding: 2px 4px; border-radius: 4px; }
         .message-actions button:hover { color: var(--text-bright); background: var(--surface); }
 
-        .message {
-            padding: 12px 16px; border-radius: 12px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; font-size: 14px; min-width: 0;
-        }
-        .message.user { background: var(--accent); color: white; border-bottom-right-radius: 4px; }
+        .message { padding: 12px 16px; border-radius: 12px; line-height: 1.5; word-wrap: break-word; font-size: 14px; min-width: 0; }
+        .message.user { background: var(--accent); color: white; border-bottom-right-radius: 4px; white-space: pre-wrap; }
         .message.assistant { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-        .message.assistant.streaming::after {
-            content: '.....';
-            display: inline-block;
-            margin-left: 6px;
-            color: var(--accent);
-            font-weight: 700;
-            font-size: 1.15em;
-            letter-spacing: 2px;
-            vertical-align: bottom;
-            animation: dotBounce 1.3s infinite ease-in-out;
-            transform-origin: bottom center;
-            white-space: nowrap;
-        }
-
-        @keyframes dotBounce {
-            0%, 100% { opacity: 0.35; transform: translateY(0); }
-            50% { opacity: 1; transform: translateY(-4px); }
-        }
-
-        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+        .message.assistant.streaming { white-space: pre-wrap; }
+        .message.assistant.streaming::after { content: '▋'; display: inline-block; margin-left: 2px; color: var(--accent); font-weight: 700; animation: blink 1s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
 
         .message code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; }
-        .message pre { background: #161b22; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; position: relative; }
-        .message pre code { padding: 0; background: none; font-size: 13px; line-height: 1.5; }
+        .message pre { background: #161b22; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 4px 0; position: relative; }
+        .message pre code { padding: 0; background: none; font-size: 13px; line-height: 1.5; display: block; }
         .copy-code-btn { position: absolute; top: 6px; right: 6px; background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; opacity: 0; transition: opacity 0.2s; }
         .message pre:hover .copy-code-btn { opacity: 1; }
         .copy-code-btn:hover { background: var(--border); }
 
-        .message p { margin-bottom: 10px; line-height: 1.6; }
+        .message p { margin: 0; line-height: 1.5; }
+        .message p:empty { display: none; }
         .message p:last-child { margin-bottom: 0; }
-        .message ul, .message ol { margin: 8px 0 10px 20px; line-height: 1.6; }
-        .message li { margin-bottom: 4px; }
-        .message h1, .message h2, .message h3, .message h4 { margin: 14px 0 8px 0; color: var(--text-bright); font-weight: 600; }
+        .message ul, .message ol { margin: 2px 0 4px 18px; line-height: 1.5; }
+        .message li { margin-bottom: 1px; }
+        .message h1, .message h2, .message h3, .message h4 { margin: 6px 0 3px 0; color: var(--text-bright); font-weight: 600; }
         .message h1 { font-size: 17px; } .message h2 { font-size: 15px; } .message h3 { font-size: 14px; } .message h4 { font-size: 13px; }
         .message strong { color: var(--text-bright); font-weight: 600; }
         .message a { color: #58a6ff; text-decoration: none; }
         .message a:hover { text-decoration: underline; }
-        .message blockquote { border-left: 3px solid var(--border); padding-left: 12px; margin: 8px 0; color: #8b949e; }
-        .message hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
-        .message table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; }
+        .message blockquote { border-left: 3px solid var(--border); padding-left: 12px; margin: 3px 0; color: #8b949e; }
+        .message hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+        .message table { border-collapse: collapse; margin: 4px 0; width: 100%; font-size: 13px; }
         .message th, .message td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
         .message th { background: var(--surface-hover); font-weight: 600; }
         .message tr:nth-child(even) { background: rgba(48,54,61,0.3); }
         .message del { text-decoration: line-through; color: #8b949e; }
+        .math-block { margin: 12px 0; overflow-x: auto; text-align: center; }
+        .math-inline { vertical-align: middle; }
+        .katex-error { color: var(--danger); font-size: 12px; }
 
         .message.collapsible { max-height: 400px; overflow: hidden; position: relative; }
         .message.collapsible::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 60px; background: linear-gradient(transparent, var(--surface)); pointer-events: none; }
         .message.user.collapsible::after { background: linear-gradient(transparent, var(--accent)); }
 
-        .reasoning-block {
-            margin-bottom: 12px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: rgba(48, 54, 61, 0.5);
-        }
-        .reasoning-block summary {
-            padding: 8px 12px;
-            font-size: 12px;
-            color: #8b949e;
-            cursor: pointer;
-            user-select: none;
-            list-style: none;
-        }
+        .reasoning-block { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; background: rgba(48, 54, 61, 0.5); }
+        .reasoning-block summary { padding: 8px 12px; font-size: 12px; color: #8b949e; cursor: pointer; user-select: none; list-style: none; }
         .reasoning-block summary::-webkit-details-marker { display: none; }
-        .reasoning-block summary::before {
-            content: '▶ ';
-            display: inline-block;
-            transition: transform 0.2s;
-        }
-        .reasoning-block[open] summary::before {
-            transform: rotate(90deg);
-        }
-        .reasoning-content {
-            padding: 8px 12px 12px;
-            font-size: 13px;
-            color: #8b949e;
-            border-top: 1px solid var(--border);
-        }
+        .reasoning-block summary::before { content: '▶ '; display: inline-block; transition: transform 0.2s; }
+        .reasoning-block[open] summary::before { transform: rotate(90deg); }
+        .reasoning-content { padding: 8px 12px 12px; font-size: 13px; color: #8b949e; border-top: 1px solid var(--border); }
         .reasoning-content p { margin-bottom: 6px; }
         .reasoning-content p:last-child { margin-bottom: 0; }
-        .answer-block {
-            /* No extra styles needed, inherits .message defaults */
-        }
 
         .expand-btn { position: relative; z-index: 2; background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; margin-top: -10px; align-self: center; }
         .expand-btn:hover { background: var(--border); }
 
-        .typing-indicator { display: none !important; }
-        .typing-indicator span { width: 6px; height: 6px; background: var(--text); border-radius: 50%; margin: 0 2px; animation: bounce 1.4s infinite ease-in-out; }
-        .typing-indicator span:nth-child(1) { animation-delay: 0s; }
-        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
-
-        .input-area {
-            padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end;
-            background: var(--bg); flex-shrink: 0; position: relative;
-        }
+        .input-area { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; background: var(--bg); flex-shrink: 0; position: relative; }
         .input-wrapper { flex: 1; display: flex; flex-direction: column; gap: 4px; position: relative; }
         .input-hint { font-size: 11px; color: #6e7681; display: flex; justify-content: space-between; padding: 0 4px; }
-        #messageInput {
-            width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-            padding: 10px 14px; color: inherit; font-size: 14px; resize: none; min-height: 44px; max-height: 200px;
-            font-family: inherit; line-height: 1.5;
-        }
-        #messageInput:focus { outline: none; border-color: var(--accent); }
-        .attach-btn, .send-btn, .stop-btn {
-            background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 12px;
-            width: 40px; height: 40px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-            transition: all 0.2s;
-        }
+        #messageInput { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; color: inherit; font-size: 14px; resize: none; min-height: 44px; max-height: 200px; font-family: inherit; line-height: 1.5; }
+        #messageInput:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+        .attach-btn, .send-btn, .stop-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 12px; width: 40px; height: 40px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
         .attach-btn:hover { background: var(--surface-hover); color: var(--text-bright); }
         .send-btn { background: var(--accent); border-color: var(--accent); color: white; }
         .send-btn:hover { background: var(--accent-hover); }
@@ -218,31 +139,18 @@
         .stop-btn:hover { background: #ff6b6b; }
 
         .attachments { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 4px; }
-        .attachment {
-            background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px;
-            font-size: 12px; display: flex; align-items: center; gap: 6px; color: var(--text);
-        }
+        .attachment { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; font-size: 12px; display: flex; align-items: center; gap: 6px; color: var(--text); }
         .attachment .remove { cursor: pointer; color: var(--danger); font-weight: bold; }
         .attachment .remove:hover { color: #ff6b6b; }
 
-        .drag-overlay {
-            position: fixed; inset: 0; background: rgba(13,17,23,0.85); border: 3px dashed var(--accent);
-            display: none; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(4px);
-        }
+        .drag-overlay { position: fixed; inset: 0; background: rgba(13,17,23,0.85); border: 3px dashed var(--accent); display: none; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(4px); }
         .drag-overlay.active { display: flex; }
         .drag-overlay p { color: var(--text-bright); font-size: 18px; font-weight: 600; }
 
-        .scroll-to-bottom {
-            position: fixed; bottom: 84px; right: 20px; background: var(--surface); border: 1px solid var(--border);
-            color: var(--text); border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: none;
-            align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100; transition: all 0.2s;
-        }
+        .scroll-to-bottom { position: fixed; bottom: 84px; right: 20px; background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 50%; width: 36px; height: 36px; cursor: pointer; display: none; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 100; transition: all 0.2s; }
         .scroll-to-bottom.visible { display: flex; }
         .scroll-to-bottom:hover { background: var(--surface-hover); color: var(--text-bright); }
-        .scroll-to-bottom .new-dot {
-            position: absolute; top: -2px; right: -2px; width: 10px; height: 10px;
-            background: var(--accent); border-radius: 50%; border: 2px solid var(--bg); display: none;
-        }
+        .scroll-to-bottom .new-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: var(--accent); border-radius: 50%; border: 2px solid var(--bg); display: none; }
         .scroll-to-bottom.has-new .new-dot { display: block; }
 
         .empty-state { text-align: center; padding: 60px 20px; color: #8b949e; display: flex; flex-direction: column; align-items: center; gap: 12px; }
@@ -250,30 +158,17 @@
         .empty-state h3 { font-size: 16px; color: var(--text); }
         .empty-state p { font-size: 13px; max-width: 400px; line-height: 1.5; }
 
-        .toast {
-            position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
-            background: var(--surface); border: 1px solid var(--border); color: var(--text-bright);
-            padding: 10px 20px; border-radius: 8px; font-size: 13px; opacity: 0; transition: all 0.3s; z-index: 1001; pointer-events: none;
-        }
+        .toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface); border: 1px solid var(--border); color: var(--text-bright); padding: 10px 20px; border-radius: 8px; font-size: 13px; opacity: 0; transition: all 0.3s; z-index: 1001; pointer-events: none; }
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-        .modal-overlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center;
-            z-index: 1000; backdrop-filter: blur(4px);
-        }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(4px); }
         .modal-overlay.active { display: flex; }
-        .modal {
-            background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
-            width: 90%; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-        }
+        .modal { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 90%; max-width: 520px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
         .modal h2 { font-size: 16px; margin-bottom: 16px; color: var(--text-bright); }
         .modal-row { margin-bottom: 16px; }
         .modal-row label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .modal-row input, .modal-row textarea, .modal-row select {
-            width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-            padding: 8px 12px; color: inherit; font-family: inherit; font-size: 13px;
-        }
-        .modal-row input:focus, .modal-row textarea:focus, .modal-row select:focus { outline: none; border-color: var(--accent); }
+        .modal-row input, .modal-row textarea, .modal-row select { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: inherit; font-family: inherit; font-size: 13px; }
+        .modal-row input:focus, .modal-row textarea:focus, .modal-row select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
         .modal-row textarea { min-height: 80px; resize: vertical; }
         .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
         .modal-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px; }
@@ -286,49 +181,50 @@
         .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 50; display: none; }
         .sidebar-overlay.active { display: block; }
 
+        @media (prefers-reduced-motion: reduce) {
+            .message-wrapper, .toast, .modal-overlay, .sidebar, .chat-item, .copy-code-btn, .scroll-to-bottom { transition: none !important; animation: none !important; }
+            .message.assistant.streaming::after { animation: none !important; }
+        }
         @media (max-width: 768px) {
             .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
             .sidebar.open { transform: translateX(0); }
             .message-wrapper { max-width: 95%; }
             .message-meta { opacity: 1; }
         }
-
         @media (min-width: 769px) {
             .sidebar { transform: translateX(0) !important; }
             .menu-btn { display: none; }
             .sidebar-overlay { display: none !important; }
         }
     </style>
-<base target="_blank">
+    <base target="_blank">
 </head>
 <body>
 
-    <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
+    <div class="sidebar" id="sidebar" role="navigation" aria-label="Chat history">
         <div class="sidebar-header">
             <h2>💬 Chats</h2>
-            <button onclick="newChat()" title="New Chat">+ New</button>
+            <button onclick="newChat()" title="New Chat" aria-label="Create new chat">+ New</button>
         </div>
-        <div class="chat-list" id="chatList"></div>
+        <div class="chat-list" id="chatList" role="list"></div>
     </div>
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
-    <!-- Main -->
     <div class="main">
         <div class="header">
-            <button class="menu-btn" onclick="toggleSidebar()">
+            <button class="menu-btn" onclick="toggleSidebar()" aria-label="Toggle sidebar">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
             </button>
             <h1>AI Assistant</h1>
-            <span class="namespace-badge" id="currentNs">default</span>
+            <span class="namespace-badge" id="currentNs" aria-label="Current namespace">default</span>
             <div class="header-actions">
-                <button class="icon-btn" onclick="exportChat()" title="Export">
+                <button class="icon-btn" onclick="exportChat()" title="Export" aria-label="Export chat">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 </button>
-                <button class="icon-btn" onclick="openIndexModal()" title="Index Documents">
+                <button class="icon-btn" onclick="openIndexModal()" title="Index Documents" aria-label="Index documents">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 14l-6-6-6 6"/></svg>
                 </button>
-                <button class="icon-btn" onclick="openSettings()" title="Settings">
+                <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Open settings">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.67 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.67 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.67a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                 </button>
             </div>
@@ -336,10 +232,10 @@
 
         <div class="namespace-hint" id="namespaceHint">
             <span>Use <code>[prefix]</code> to switch namespace context</span>
-            <span>Press <code>Ctrl+Enter</code> to send · <code>Esc</code> to cancel</span>
+            <span>Press <code>Enter</code> to send · <code>Shift+Enter</code> for new line</span>
         </div>
 
-        <div class="chat-container" id="chatContainer">
+        <div class="chat-container" id="chatContainer" aria-live="polite" aria-atomic="false">
             <div class="empty-state" id="emptyState">
                 <div class="icon">🤖</div>
                 <h3>How can I help you today?</h3>
@@ -347,46 +243,42 @@
             </div>
         </div>
 
-        <div class="typing-indicator" id="typingIndicator"><span></span><span></span><span></span></div>
-
-        <button class="scroll-to-bottom" id="scrollBtn" onclick="forceScrollToBottom()" title="Scroll to bottom">
+        <button class="scroll-to-bottom" id="scrollBtn" onclick="forceScrollToBottom()" title="Scroll to bottom" aria-label="Scroll to bottom">
             <span class="new-dot" id="newDot"></span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
 
-        <!-- Input -->
         <div class="input-area" id="inputArea">
-            <input type="file" id="fileInput" style="display:none" multiple accept=".txt,.md,.json,.js,.py,.html,.css,.csv,.xml,.yaml,.yml,.log" onchange="handleFiles(this.files)">
-            <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file">
+            <input type="file" id="fileInput" style="display:none" multiple accept=".txt,.md,.json,.js,.py,.html,.css,.csv,.xml,.yaml,.yml,.log,image/*" onchange="handleFiles(this.files)" aria-label="Attach file">
+            <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file" aria-label="Attach file">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
             </button>
             <div class="input-wrapper">
-                <div class="attachments" id="attachments"></div>
-                <textarea id="messageInput" rows="1" placeholder="Message... (drop files here)"></textarea>
+                <div class="attachments" id="attachments" role="list" aria-label="Attached files"></div>
+                <textarea id="messageInput" rows="1" placeholder="Message... (drop files here)" aria-label="Message input"></textarea>
                 <div class="input-hint">
                     <span>Shift+Enter for new line</span>
                     <span id="tokenCount"></span>
                 </div>
             </div>
-            <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()">
+            <button type="button" class="send-btn" id="sendBtn" onclick="sendMessage()" aria-label="Send message">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
-            <button type="button" class="stop-btn" id="stopBtn" onclick="stopGeneration()">
+            <button type="button" class="stop-btn" id="stopBtn" onclick="stopGeneration()" aria-label="Stop generation">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
             </button>
         </div>
     </div>
 
-    <!-- Drag Overlay -->
     <div class="drag-overlay" id="dragOverlay"><p>📎 Drop files to attach</p></div>
 
-    <!-- Settings Modal -->
-    <div class="modal-overlay" id="settingsModal">
+    <div class="modal-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="modal">
-            <h2>⚙️ Settings</h2>
-            <div class="modal-row"><label>API Base URL</label><input type="text" id="settingApiBase" placeholder="http://localhost:11434/v1"></div>
+            <h2 id="settingsTitle">⚙️ Settings</h2>
+            <div class="modal-row"><label>API Base URL</label><input type="url" id="settingApiBase" placeholder="http://127.0.0.1:8000"></div>
             <div class="modal-row"><label>API Key</label><input type="password" id="settingApiKey" placeholder="sk-..."></div>
             <div class="modal-row"><label>Model</label><input type="text" id="settingModel" placeholder="gpt-4, llama2, etc."></div>
+            <div class="modal-row"><label>Temperature</label><input type="number" id="settingTemperature" value="0.3" min="0" max="2" step="0.1"></div>
             <div class="modal-row"><label>System Prompt</label><textarea id="settingSystemPrompt" placeholder="You are a helpful assistant..."></textarea></div>
             <div class="modal-row"><label>Max History Messages</label><input type="number" id="settingMaxHistory" value="20" min="2" max="100"></div>
             <div class="modal-actions">
@@ -397,10 +289,9 @@
         </div>
     </div>
 
-    <!-- Index Modal -->
-    <div class="modal-overlay" id="indexModal">
+    <div class="modal-overlay" id="indexModal" role="dialog" aria-modal="true" aria-labelledby="indexTitle">
         <div class="modal">
-            <h2>📚 Index Documents</h2>
+            <h2 id="indexTitle">📚 Index Documents</h2>
             <div class="modal-row">
                 <label>Folder (optional)</label>
                 <input type="text" id="indexFolder" placeholder="Leave empty to index all configured sources">
@@ -422,22 +313,21 @@
         </div>
     </div>
 
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script>
     (function() {
         'use strict';
 
-        // ===== Constants =====
-        const SETTINGS_KEY = 'ai_chat_settings_v2';
-        const SESSIONS_KEY = 'ai_chat_sessions_v2';
-        const CURRENT_ID_KEY = 'ai_chat_current_session_id';
+        const SETTINGS_KEY = 'ai_chat_settings_v3';
+        const SESSIONS_KEY = 'ai_chat_sessions_v3';
+        const CURRENT_ID_KEY = 'ai_chat_current_session_id_v3';
         const SCROLL_THRESHOLD = 100;
-        const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+        const MAX_FILE_SIZE = 5 * 1024 * 1024;
         const SCROLL_THROTTLE_MS = 150;
-        const MANUAL_SCROLL_LOCK_MS = 5000; // Lock auto-scroll for 5s after user scrolls up
+        const MANUAL_SCROLL_LOCK_MS = 5000;
+        const MAX_INPUT_LENGTH = 50000;
 
-        // ===== State =====
         let sessions = [];
         let currentSessionId = null;
         let messages = [];
@@ -453,356 +343,205 @@
         let manualScrollLockTimer = null;
         let lastContainerHeight = 0;
 
-        // ===== Reasoning Parser State =====
-        // Stateful incremental parser for reasoning tags during streaming.
-        // Avoids O(n²) re-parsing and handles split tags across chunks.
+        marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+        const markedRenderer = new marked.Renderer();
+
+        markedRenderer.code = ({ text, lang }) => {
+            let highlighted = escapeHtml(text);
+            try {
+                if (lang && hljs.getLanguage(lang)) {
+                    highlighted = hljs.highlight(text, { language: lang }).value;
+                }
+            } catch(e) {}
+            return `<pre><code class="hljs language-${lang || 'text'}">${highlighted}</code><button class="copy-code-btn" onclick="copyCode(this)" aria-label="Copy code">Copy</button></pre>`;
+        };
+
+        markedRenderer.link = ({ href, title, text }) => {
+            let safeHref = '#';
+            try {
+                const url = new URL(href, window.location.origin);
+                if (url.protocol === 'http:' || url.protocol === 'https:') {
+                    safeHref = url.href;
+                }
+            } catch (e) {}
+            return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(title || '')}">${escapeHtml(text)}</a>`;
+        };
+        marked.use({ renderer: markedRenderer });
+
+        function renderMarkdown(text) {
+            const codeBlocks = [], mathPlaceholders = [];
+            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (m, lang, code) => { codeBlocks.push({ code, lang: lang || 'text' }); return `\x00CB${codeBlocks.length - 1}\x00`; });
+            text = text.replace(/`([^`]+)`/g, (m, code) => { codeBlocks.push({ code, lang: 'inline' }); return `\x00CB${codeBlocks.length - 1}\x00`; });
+            text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m, p1) => { mathPlaceholders.push({ type: 'block', math: p1.trim() }); return `\x00M${mathPlaceholders.length - 1}\x00`; });
+            text = text.replace(/\$([^\$\n]+?)\$/g, (m, p1) => { mathPlaceholders.push({ type: 'inline', math: p1.trim() }); return `\x00M${mathPlaceholders.length - 1}\x00`; });
+
+            let html = marked.parse(text);
+            html = html.replace(/\x00M(\d+)\x00/g, (m, id) => {
+                try { return `<div class="math-block">${katex.renderToString(mathPlaceholders[id].math, { displayMode: true, throwOnError: false, trust: false, strict: true })}</div>`; }
+                catch (e) { return `<pre class="katex-error">${escapeHtml(mathPlaceholders[id].math)}</pre>`; }
+            });
+            codeBlocks.forEach((block, i) => {
+                let hl = escapeHtml(block.code);
+                try { if (block.lang !== 'inline' && hljs.getLanguage(block.lang)) hl = hljs.highlight(block.code, { language: block.lang }).value; } catch(e) {}
+                if (block.lang === 'inline') {
+                    html = html.replace(`\x00CB${i}\x00`, `<code>${hl}</code>`);
+                } else {
+                    html = html.replace(`\x00CB${i}\x00`, `<pre><code class="hljs language-${block.lang}">${hl}</code><button class="copy-code-btn" onclick="copyCode(this)" aria-label="Copy code">Copy</button></pre>`);
+                }
+            });
+
+            return DOMPurify.sanitize(html, {
+                ALLOWED_TAGS: ['p','br','strong','em','del','a','ul','ol','li','blockquote','hr','h1','h2','h3','h4','table','thead','tbody','tr','th','td','pre','code','div','span','details','summary','img'],
+                ALLOWED_ATTR: ['href','title','class','target','rel','open','src','alt','width','height']
+            });
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, "&amp;")
+                       .replace(/</g, "&lt;")
+                       .replace(/>/g, "&gt;")
+                       .replace(/"/g, "&quot;")
+                       .replace(/'/g, "&#039;");
+        }
+
         const REASONING_TAGS = [
-            // === XML/HTML-like: longer/specific tags first (to avoid prefix matching)
-            { open: '<thinking',    close: '</thinking',    xmlLike: true },
-            { open: '<reasoning',   close: '</reasoning',   xmlLike: true },
-            { open: '<thought',     close: '</thought',     xmlLike: true },
-            { open: '<analysis',    close: '</analysis',    xmlLike: true },
-            { open: '<reflect',     close: '</reflect',     xmlLike: true },
-            { open: '<scratchpad',  close: '</scratchpad',  xmlLike: true },
-            { open: '<cot',         close: '</cot',         xmlLike: true },
-            { open: '<plan',        close: '</plan',        xmlLike: true },
-            { open: '<step',        close: '</step',        xmlLike: true },
-            { open: '<think',       close: '</think',       xmlLike: true },
-            // Alternative closing tags for think (some models)
-            { open: '<think',       close: '<answer',       xmlLike: true },
-            // Special tokens
-            { open: '<|thinking|>',      close: '<|/thinking|>' },
-            { open: '<|thought|>',       close: '<|/thought|>' },
-            { open: '<|reasoning|>',     close: '<|/reasoning|>' },
-            { open: '<|reflect|>',       close: '<|/reflect|>' },
-            { open: '<|begin_of_thought|>', close: '<|end_of_thought|>' },
-            { open: '<|begin_of_reasoning|>', close: '<|end_of_reasoning|>' },
-            // Double/triple brackets
-            { open: '[[Thinking]]',      close: '[[/Thinking]]' },
-            { open: '[[Reasoning]]',     close: '[[/Reasoning]]' },
-            { open: '[[Thought]]',       close: '[[/Thought]]' },
-            { open: '[[Analysis]]',      close: '[[/Analysis]]' },
-            { open: '<<<REASONING>>>',   close: '<<<END REASONING>>>' },
-            { open: '<<<THINKING>>>',    close: '<<<END THINKING>>>' },
-            // Single brackets
-            { open: '[BEGIN_REASONING]', close: '[END_REASONING]' },
-            { open: '[BEGIN_THINKING]',  close: '[END_THINKING]' },
-            { open: '[BEGIN_ANALYSIS]',  close: '[END_ANALYSIS]' },
-            { open: '[BEGIN_THOUGHT]',   close: '[END_THOUGHT]' },
-            // Single brackets
-            { open: '[Thinking]',   close: '[/Thinking]' },
-            { open: '[Reasoning]',  close: '[/Reasoning]' },
-            { open: '[Thought]',    close: '[/Thought]' },
-            { open: '[Analysis]',   close: '[/Analysis]' },
-            // Dash separators
-            { open: '--- Reasoning ---',    close: '--- Answer ---' },
-            { open: '--- Thinking ---',     close: '--- Response ---' },
-            { open: '--- Analysis ---',     close: '--- Final Answer ---' },
-            // Bold headers
-            { open: '### Reasoning',    close: '### Answer',      lineAnchored: true },
-            { open: '### Thinking',     close: '### Response',    lineAnchored: true },
-            { open: '### Analysis',     close: '### Final Answer',lineAnchored: true },
-            { open: '### Reflection',   close: '### Output',      lineAnchored: true },
-            { open: '### Chain of Thought', close: '### Answer', lineAnchored: true },
-            { open: '### Step-by-step',   close: '### Answer',    lineAnchored: true },
-            // Bold headers
-            { open: '**Reasoning:**',   close: '**Answer:**',      lineAnchored: true },
-            { open: '**Thinking:**',    close: '**Response:**',    lineAnchored: true },
-            { open: '**Analysis:**',    close: '**Conclusion:**',  lineAnchored: true },
-            { open: '**Chain of Thought:**', close: '**Answer:**', lineAnchored: true },
-            // Process style
-            { open: 'Thinking Process:',close: 'Final Answer:',  lineAnchored: true },
-            { open: 'Reasoning Process:',close: 'Answer:',         lineAnchored: true },
-            { open: 'Analysis Process:', close: 'Conclusion:',     lineAnchored: true },
+            { open: '<thinking', close: '</thinking', xmlLike: true }, { open: '<reasoning', close: '</reasoning', xmlLike: true },
+            { open: '<thought', close: '</thought', xmlLike: true }, { open: '<analysis', close: '</analysis', xmlLike: true },
+            { open: '<reflect', close: '</reflect', xmlLike: true }, { open: '<scratchpad', close: '</scratchpad', xmlLike: true },
+            { open: '<cot', close: '</cot', xmlLike: true }, { open: '<plan', close: '</plan', xmlLike: true },
+            { open: '<step', close: '</step', xmlLike: true }, { open: '<think', close: '</think', xmlLike: true },
+            { open: '<think', close: '<answer', xmlLike: true }, { open: '<|thinking|>', close: '<|/thinking|>' },
+            { open: '<|thought|>', close: '<|/thought|>' }, { open: '<|reasoning|>', close: '<|/reasoning|>' },
+            { open: '[[Thinking]]', close: '[[/Thinking]]' }, { open: '[[Reasoning]]', close: '[[/Reasoning]]' },
+            { open: '### Reasoning', close: '### Answer', lineAnchored: true }, { open: '### Thinking', close: '### Response', lineAnchored: true }
         ];
 
         function _parseReasoning(text) {
-            for (const tag of REASONING_TAGS) {
-                let openIdx, afterOpen;
+            const cbs = [];
+            text = text.replace(/```[\s\S]*?```/g, m => { cbs.push(m); return `\x00C${cbs.length - 1}\x00`; });
+            text = text.replace(/`[^`]+`/g, m => { cbs.push(m); return `\x00C${cbs.length - 1}\x00`; });
 
-                // For lineAnchored tags, search only at the start of a line or text
-                if (tag.lineAnchored) {
-                    const patterns = [
-                        '\n' + tag.open,
-                        '\r\n' + tag.open,
-                        tag.open // start of text
-                    ];
-                    openIdx = -1;
-                    let matchedPrefix = '';
-                    for (const p of patterns) {
-                        const idx = text.indexOf(p);
-                        if (idx !== -1 && (openIdx === -1 || idx < openIdx)) {
-                            openIdx = idx;
-                            matchedPrefix = p;
-                        }
-                    }
-                    if (openIdx === -1) continue;
-                    // Shift openIdx to the start of the tag itself (without \n)
-                    if (matchedPrefix.startsWith('\r\n')) openIdx += 2;
-                    else if (matchedPrefix.startsWith('\n')) openIdx += 1;
-                } else {
-                    openIdx = text.indexOf(tag.open);
-                    if (openIdx === -1) continue;
-                }
+            for (const tag of REASONING_TAGS) {
+                let openIdx = tag.lineAnchored ? (() => {
+                    for (const p of ['\n' + tag.open, '\r\n' + tag.open, tag.open]) {
+                        const idx = text.indexOf(p); if (idx !== -1) return p.startsWith('\r\n') ? idx + 2 : p.startsWith('\n') ? idx + 1 : idx;
+                    } return -1;
+                })() : text.indexOf(tag.open);
+                if (openIdx === -1) continue;
 
                 if (tag.xmlLike) {
                     const tagEnd = text.indexOf('>', openIdx);
-                    if (tagEnd === -1) {
-                        return {
-                            reasoning: text.slice(openIdx + tag.open.length),
-                            answer: text.slice(0, openIdx),
-                            hasReasoning: true,
-                            isOpen: true,
-                            openTagName: tag.open,
-                        };
-                    }
-                    afterOpen = tagEnd + 1;
-
-                    const closeIdx = text.indexOf(tag.close, afterOpen);
-                    if (closeIdx === -1) {
-                        return {
-                            reasoning: text.slice(afterOpen),
-                            answer: text.slice(0, openIdx),
-                            hasReasoning: true,
-                            isOpen: true,
-                            openTagName: tag.open,
-                        };
-                    }
-
+                    if (tagEnd === -1) return { reasoning: restore(text.slice(openIdx + tag.open.length), cbs), answer: restore(text.slice(0, openIdx), cbs), hasReasoning: true, isOpen: true };
+                    const closeIdx = text.indexOf(tag.close, tagEnd + 1);
+                    if (closeIdx === -1) return { reasoning: restore(text.slice(tagEnd + 1), cbs), answer: restore(text.slice(0, openIdx), cbs), hasReasoning: true, isOpen: true };
                     const gtIdx = text.indexOf('>', closeIdx);
-                    if (gtIdx === -1) {
-                        return {
-                            reasoning: text.slice(afterOpen),
-                            answer: text.slice(0, openIdx),
-                            hasReasoning: true,
-                            isOpen: true,
-                            openTagName: tag.open,
-                        };
-                    }
-
-                    return {
-                        reasoning: text.slice(afterOpen, closeIdx),
-                        answer: text.slice(0, openIdx) + text.slice(gtIdx + 1),
-                        hasReasoning: true,
-                        isOpen: false,
-                        openTagName: tag.open,
-                    };
-
+                    return { reasoning: restore(text.slice(tagEnd + 1, closeIdx), cbs), answer: restore(text.slice(0, openIdx) + (gtIdx === -1 ? '' : text.slice(gtIdx + 1)), cbs), hasReasoning: true, isOpen: false };
                 } else {
-                    afterOpen = openIdx + tag.open.length;
-
-                    // For lineAnchored closing tags also account for line start
-                    let closeIdx;
+                    const afterOpen = openIdx + tag.open.length;
+                    let closeIdx = -1;
                     if (tag.lineAnchored) {
-                        const closePatterns = [
-                            '\n' + tag.close,
-                            '\r\n' + tag.close,
-                            tag.close
-                        ];
-                        closeIdx = -1;
-                        for (const p of closePatterns) {
-                            const idx = text.indexOf(p, afterOpen);
-                            if (idx !== -1 && (closeIdx === -1 || idx < closeIdx)) {
-                                closeIdx = idx;
-                            }
+                        for (const p of ['\n' + tag.close, '\r\n' + tag.close, tag.close]) {
+                            const idx = text.indexOf(p, afterOpen); if (idx !== -1 && (closeIdx === -1 || idx < closeIdx)) closeIdx = idx;
                         }
-                    } else {
-                        closeIdx = text.indexOf(tag.close, afterOpen);
-                    }
-
-                    if (closeIdx === -1) {
-                        return {
-                            reasoning: text.slice(afterOpen),
-                            answer: text.slice(0, openIdx),
-                            hasReasoning: true,
-                            isOpen: true,
-                            openTagName: tag.open,
-                        };
-                    }
-
-                    // For lineAnchored closing tags, we calculate the end position
-                    let closeEnd;
-                    if (tag.lineAnchored) {
-                        // Find the end of the line after the closing tag
-                        const afterClose = closeIdx + tag.close.length;
-                        const nlIdx = text.indexOf('\n', afterClose);
-                        closeEnd = nlIdx === -1 ? text.length : nlIdx + 1;
-                    } else {
-                        closeEnd = closeIdx + tag.close.length;
-                    }
-
-                    return {
-                        reasoning: text.slice(afterOpen, closeIdx),
-                        answer: text.slice(0, openIdx) + text.slice(closeEnd),
-                        hasReasoning: true,
-                        isOpen: false,
-                        openTagName: tag.open,
-                    };
+                    } else { closeIdx = text.indexOf(tag.close, afterOpen); }
+                    if (closeIdx === -1) return { reasoning: restore(text.slice(afterOpen), cbs), answer: restore(text.slice(0, openIdx), cbs), hasReasoning: true, isOpen: true };
+                    const closeEnd = tag.lineAnchored ? (text.indexOf('\n', closeIdx + tag.close.length) === -1 ? text.length : text.indexOf('\n', closeIdx + tag.close.length) + 1) : closeIdx + tag.close.length;
+                    return { reasoning: restore(text.slice(afterOpen, closeIdx), cbs), answer: restore(text.slice(0, openIdx) + text.slice(closeEnd), cbs), hasReasoning: true, isOpen: false };
                 }
             }
-
-            return {
-                reasoning: '',
-                answer: text,
-                hasReasoning: false,
-                isOpen: false,
-                openTagName: '',
-            };
+            return { reasoning: '', answer: restore(text, cbs), hasReasoning: false, isOpen: false };
         }
-
-        function _approxTokens(text) {
-            if (!text) return 0;
-            const words = text.split(/\s+/).filter(Boolean).length;
-            return words > 0 ? Math.ceil(words / 0.75) : 0;
-        }
-
-        function _renderReasoningBlock(reasoning, isOpen, isStreaming) {
-            const hasContent = reasoning.length > 0;
-            const approxTokens = _approxTokens(reasoning);
-            const tokenLabel = hasContent ? `~${approxTokens} tokens` : (isStreaming ? 'thinking...' : '');
-            const summaryText = '🤔 Reasoning' + (tokenLabel ? ' · ' + tokenLabel : '');
-
-            // During streaming with open tag: keep expanded so user sees progress
-            // After streaming: collapsed by default
-            const openAttr = (isOpen && isStreaming) ? ' open' : '';
-
-            const contentHtml = hasContent ? renderMarkdown(reasoning) : '<em>...</em>';
-
-            return `<details class="reasoning-block"${openAttr}><summary>${escapeHtml(summaryText)}</summary><div class="reasoning-content">${contentHtml}</div></details>`;
-        }
+        function restore(text, blocks) { return text.replace(/\x00C(\d+)\x00/g, (m, id) => blocks[parseInt(id)] || ''); }
 
         function _renderAssistantContent(content, streaming) {
             const parsed = _parseReasoning(content);
-            const reasoningBlock = parsed.hasReasoning
-                ? _renderReasoningBlock(parsed.reasoning, parsed.isOpen, streaming)
-                : '';
-            const answerHtml = renderMarkdown(parsed.answer);
-
-            if (reasoningBlock) {
-                return reasoningBlock + '<div class="answer-block">' + answerHtml + '</div>';
-            }
-            return answerHtml;
+            const rb = parsed.hasReasoning ? `<details class="reasoning-block"${parsed.isOpen && streaming ? ' open' : ''}><summary>🤔 Reasoning</summary><div class="reasoning-content">${parsed.reasoning ? renderMarkdown(parsed.reasoning) : '<em>...</em>'}</div></details>` : '';
+            return rb ? rb + '<div class="answer-block">' + renderMarkdown(parsed.answer) + '</div>' : renderMarkdown(parsed.answer);
         }
 
-        const settings = {
-            apiBase: '',
-            apiKey: 'sk-local-api-key',
-            model: 'local',
-            systemPrompt: '',
-            maxHistory: 20
-        };
+        const settings = { apiBase: '', apiKey: 'local', model: 'local', temperature: 0.3, systemPrompt: '', maxHistory: 20 };
 
-        // ===== DOM Cache =====
         const $ = id => document.getElementById(id);
-        const input = $('messageInput');
-        const container = $('chatContainer');
-        const nsBadge = $('currentNs');
-        const scrollBtn = $('scrollBtn');
-        const toastEl = $('toast');
-        const attachmentsEl = $('attachments');
-        const chatListEl = $('chatList');
-        const sidebar = $('sidebar');
-        const sidebarOverlay = $('sidebarOverlay');
-        const dragOverlay = $('dragOverlay');
-        const sendBtn = $('sendBtn');
-        const stopBtn = $('stopBtn');
-        const tokenCountEl = $('tokenCount');
-        const emptyState = $('emptyState');
+        const input = $('messageInput'), container = $('chatContainer'), nsBadge = $('currentNs'), scrollBtn = $('scrollBtn'), toastEl = $('toast');
+        const attachmentsEl = $('attachments'), chatListEl = $('chatList'), sidebar = $('sidebar'), sidebarOverlay = $('sidebarOverlay');
+        const dragOverlay = $('dragOverlay'), sendBtn = $('sendBtn'), stopBtn = $('stopBtn'), tokenCountEl = $('tokenCount'), emptyState = $('emptyState');
 
-        // ===== Storage Helpers =====
         const storage = {
-            get(key, fallback) {
-                try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
-                catch { return fallback; }
-            },
-            set(key, value) {
-                try {
-                    localStorage.setItem(key, JSON.stringify(value));
-                } catch (e) {
-                    if (e.name === 'QuotaExceededError' || e.code === 22) {
-                        showToast('⚠️ Storage full. Export & delete old chats.');
-                    }
-                }
-            },
+            get(key, fb) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch { return fb; } },
+            set(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch (e) { if (e.name === 'QuotaExceededError') showToast('⚠️ Storage full.'); return false; } },
             remove(key) { try { localStorage.removeItem(key); } catch {} }
         };
 
-        // ===== Init =====
-        loadSettings();
-        loadSessions();
-        initDragAndDrop();
-        setupScrollHandling();
-        setupKeyboardShortcuts();
-        setupModalDismiss();
-        setupBeforeUnload();
-        input.focus();
+        function getApiBase() {
+            const base = settings.apiBase.trim();
+            return base ? base.replace(/\/+$/, '').replace(/\/v1$/, '') : '';
+        }
 
-        // ===== Sessions =====
+        function atomicSave(sessionId, msgs) {
+            try {
+                localStorage.setItem('ai_chat_msgs_' + sessionId, JSON.stringify(msgs));
+                const s = sessions.find(x => x.id === sessionId);
+                if (s) {
+                    s.messageCount = msgs.length; s.updatedAt = Date.now();
+                    if (msgs.length > 0) { const u = msgs.find(m => m.role === 'user'); if (u) s.title = u.content.slice(0, 40).replace(/\n/g, ' ') || 'New Chat'; }
+                    localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+                }
+                return true;
+            } catch (e) { if (e.name === 'QuotaExceededError') showToast('⚠️ Storage full.'); return false; }
+        }
+
+        async function fetchWithRetry(url, options, externalSignal, retries = 2, timeoutMs = 10000) {
+            for (let i = 0; i <= retries; i++) {
+                const controller = new AbortController();
+                if (externalSignal) externalSignal.addEventListener('abort', () => controller.abort());
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                try {
+                    const res = await fetch(url, { ...options, signal: controller.signal });
+                    clearTimeout(timeoutId);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    return res;
+                } catch (err) {
+                    clearTimeout(timeoutId);
+                    if (externalSignal?.aborted) throw err;
+                    if (i === retries) throw err;
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            }
+        }
+
+        loadSettings(); loadSessions(); initDragAndDrop(); setupScrollHandling(); setupKeyboardShortcuts(); setupModalDismiss(); setupBeforeUnload(); input.focus();
+
         function loadSessions() {
             sessions = storage.get(SESSIONS_KEY, []);
             const savedId = localStorage.getItem(CURRENT_ID_KEY);
-            if (savedId && sessions.find(s => s.id === savedId)) {
-                switchSession(savedId, false);
-            } else {
-                createSession();
-            }
-            renderChatList();
-        }
-
-        function saveSessions() {
-            storage.set(SESSIONS_KEY, sessions);
-        }
-
-        function getMessagesKey(id) { return 'ai_chat_msgs_' + id; }
-
-        function loadSessionMessages(id) {
-            return storage.get(getMessagesKey(id), []);
-        }
-
-        function saveSessionMessages(id, msgs) {
-            storage.set(getMessagesKey(id), msgs);
-            const s = sessions.find(x => x.id === id);
-            if (!s) return;
-            s.messageCount = msgs.length;
-            s.updatedAt = Date.now();
-            if (msgs.length > 0) {
-                const firstUser = msgs.find(m => m.role === 'user');
-                if (firstUser) s.title = firstUser.content.slice(0, 40).replace(/\n/g, ' ') || 'New Chat';
-            }
-            saveSessions();
+            if (savedId && sessions.find(s => s.id === savedId)) switchSession(savedId, false);
+            else createSession();
             renderChatList();
         }
 
         function createSession() {
-            const id = generateId();
-            const session = { id, title: 'New Chat', updatedAt: Date.now(), messageCount: 0 };
-            sessions.unshift(session);
-            saveSessions();
-            switchSession(id, false);
-            renderChatList();
-            return id;
+            const id = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+            sessions.unshift({ id, title: 'New Chat', updatedAt: Date.now(), messageCount: 0 });
+            if (!atomicSave(id, [])) { sessions.shift(); return null; }
+            switchSession(id, false); renderChatList(); return id;
         }
 
-        function switchSession(id, closeSidebar = true) {
+        function switchSession(targetId, closeSidebar = true) {
             if (isStreaming) { showToast('Stop generation first'); return; }
-            if (currentSessionId) saveSessionMessages(currentSessionId, messages);
-            currentSessionId = id;
-            localStorage.setItem(CURRENT_ID_KEY, id);
-            messages = loadSessionMessages(id);
+            const idToSave = currentSessionId;
+            if (idToSave) atomicSave(idToSave, [...messages]);
+            currentSessionId = targetId;
+            localStorage.setItem(CURRENT_ID_KEY, targetId);
+            messages = storage.get('ai_chat_msgs_' + targetId, []);
             renderMessages();
             if (closeSidebar && window.innerWidth < 769) toggleSidebar();
         }
 
         function deleteSession(id, e) {
-            e.stopPropagation();
-            if (!confirm('Delete this chat?')) return;
+            e.stopPropagation(); if (!confirm('Delete this chat?')) return;
             sessions = sessions.filter(s => s.id !== id);
-            storage.remove(getMessagesKey(id));
-            saveSessions();
-            if (currentSessionId === id) {
-                if (sessions.length > 0) switchSession(sessions[0].id, false);
-                else createSession();
-            }
+            storage.remove('ai_chat_msgs_' + id); storage.set(SESSIONS_KEY, sessions);
+            if (currentSessionId === id) { if (sessions.length > 0) switchSession(sessions[0].id, false); else createSession(); }
             renderChatList();
         }
 
@@ -812,883 +551,295 @@
             sessions.forEach(s => {
                 const el = document.createElement('div');
                 el.className = 'chat-item' + (s.id === currentSessionId ? ' active' : '');
+                el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0');
                 const time = new Date(s.updatedAt).toLocaleDateString(undefined, {month:'short', day:'numeric'});
-                el.innerHTML = `
-                    <span class="title">${escapeHtml(s.title)}</span>
-                    <span class="time">${time}</span>
-                    <button class="del" onclick="deleteSession('${s.id}', event)">×</button>
-                `;
+                el.innerHTML = `<span class="title">${escapeHtml(s.title)}</span><span class="time">${time}</span><button class="del" onclick="deleteSession('${s.id}', event)" aria-label="Delete">×</button>`;
+                el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchSession(s.id); } });
                 el.onclick = () => switchSession(s.id);
                 chatListEl.appendChild(el);
             });
         }
 
-        // ===== Settings =====
-        function loadSettings() {
-            Object.assign(settings, storage.get(SETTINGS_KEY, {}));
-        }
-
+        function loadSettings() { Object.assign(settings, storage.get(SETTINGS_KEY, {})); if (typeof settings.temperature !== 'number') settings.temperature = 0.3; }
         function saveSettings() {
-            settings.apiBase = $('settingApiBase').value.trim();
-            settings.apiKey = $('settingApiKey').value.trim();
-            settings.model = $('settingModel').value.trim();
-            settings.systemPrompt = $('settingSystemPrompt').value.trim();
-            settings.maxHistory = parseInt($('settingMaxHistory').value, 10) || 20;
-            storage.set(SETTINGS_KEY, settings);
-            closeSettings();
-            showToast('Settings saved');
+            settings.apiBase = $('settingApiBase').value.trim(); settings.apiKey = $('settingApiKey').value.trim();
+            settings.model = $('settingModel').value.trim(); settings.temperature = parseFloat($('settingTemperature').value) || 0.3;
+            settings.systemPrompt = $('settingSystemPrompt').value.trim(); settings.maxHistory = parseInt($('settingMaxHistory').value, 10) || 20;
+            storage.set(SETTINGS_KEY, settings); closeSettings(); showToast('Settings saved');
         }
-
-        function openSettings() {
-            $('settingApiBase').value = settings.apiBase;
-            $('settingApiKey').value = settings.apiKey;
-            $('settingModel').value = settings.model;
-            $('settingSystemPrompt').value = settings.systemPrompt;
-            $('settingMaxHistory').value = settings.maxHistory;
-            $('settingsModal').classList.add('active');
-        }
-
+        function openSettings() { $('settingApiBase').value = settings.apiBase; $('settingApiKey').value = settings.apiKey; $('settingModel').value = settings.model; $('settingTemperature').value = settings.temperature; $('settingSystemPrompt').value = settings.systemPrompt; $('settingMaxHistory').value = settings.maxHistory; $('settingsModal').classList.add('active'); }
         function closeSettings() { $('settingsModal').classList.remove('active'); }
+        function clearAllData() { if (!confirm('Delete ALL data?')) return; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('ai_chat_')) localStorage.removeItem(k); } location.reload(); }
 
-        function clearAllData() {
-            if (!confirm('Delete ALL chats and settings? This cannot be undone.')) return;
-            const keys = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith('ai_chat_')) keys.push(key);
-            }
-            keys.forEach(k => localStorage.removeItem(k));
-            location.reload();
-        }
-
-        // ===== Scroll (FIXED v2: no more jitter during streaming) =====
-        function isNearBottom() {
-            return container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_THRESHOLD;
-        }
-
-        /**
-         * FIXED v2: The root cause was that 'scroll' event fires asynchronously (debounced
-         * via rAF), while updateMessage() calls scrollToBottomIfNeeded() synchronously
-         * on every API chunk. By the time the scroll event handler set userScrolledUp,
-         * several auto-scrolls had already happened, causing the "jitter" effect.
-         *
-         * Solution — three layers of defense:
-         * 1. WHEEL / TOUCHMOVE listeners (synchronous, fire BEFORE scroll) instantly
-         *    set manualScrollLock when user scrolls up, blocking auto-scroll for 5s.
-         * 2. Height-gate: skip scroll if container height hasn't changed since last call.
-         * 3. Throttle: during streaming, max one auto-scroll per 150ms.
-         */
+        function isNearBottom() { return container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_THRESHOLD; }
         function scrollToBottomIfNeeded() {
-            // Layer 1: manual scroll lock (set by wheel/touchmove going up)
-            if (manualScrollLock || userScrolledUp) {
-                hasNewContent = true;
-                scrollBtn.classList.add('has-new');
-                updateScrollButton();
-                return;
-            }
-            // Layer 2: height gate — don't scroll if nothing new was added
-            const currentHeight = container.scrollHeight;
-            if (currentHeight === lastContainerHeight) return;
-            lastContainerHeight = currentHeight;
-            // Layer 3: throttle during streaming
-            const now = Date.now();
-            if (isStreaming && now - lastScrollTime < SCROLL_THROTTLE_MS) return;
-            lastScrollTime = now;
-
-            container.scrollTop = container.scrollHeight;
-            updateScrollButton();
+            if (manualScrollLock || userScrolledUp) { scrollBtn.classList.add('has-new'); return; }
+            const h = container.scrollHeight; if (h === lastContainerHeight) return; lastContainerHeight = h;
+            if (isStreaming && Date.now() - lastScrollTime < SCROLL_THROTTLE_MS) return;
+            lastScrollTime = Date.now(); container.scrollTop = h; updateScrollButton();
         }
+        function forceScrollToBottom() { container.scrollTop = container.scrollHeight; userScrolledUp = false; manualScrollLock = false; clearTimeout(manualScrollLockTimer); scrollBtn.classList.remove('has-new'); updateScrollButton(); }
+        function updateScrollButton() { const nb = isNearBottom(); scrollBtn.classList.toggle('visible', !nb); if (nb) { userScrolledUp = false; scrollBtn.classList.remove('has-new'); } }
 
-        function forceScrollToBottom() {
-            container.scrollTop = container.scrollHeight;
-            userScrolledUp = false;
-            hasNewContent = false;
-            manualScrollLock = false;
-            clearTimeout(manualScrollLockTimer);
-            scrollBtn.classList.remove('has-new');
-            updateScrollButton();
-        }
-
-        function updateScrollButton() {
-            const nearBottom = isNearBottom();
-            scrollBtn.classList.toggle('visible', !nearBottom);
-            if (nearBottom) {
-                userScrolledUp = false;
-                hasNewContent = false;
-                scrollBtn.classList.remove('has-new');
-            }
-        }
         function setupScrollHandling() {
-            // Synchronous wheel listener — fires BEFORE scroll, catches intent instantly
-            container.addEventListener('wheel', (e) => {
-                if (e.deltaY < -3) { // scrolling up
-                    manualScrollLock = true;
-                    userScrolledUp = true;
-                    clearTimeout(manualScrollLockTimer);
-                    manualScrollLockTimer = setTimeout(() => {
-                        manualScrollLock = false;
-                    }, MANUAL_SCROLL_LOCK_MS);
-                    updateScrollButton();
-                }
-            }, { passive: true });
-
-            // Touch support — same idea for mobile
-            let touchStartY = 0;
-            container.addEventListener('touchstart', (e) => {
-                touchStartY = e.touches[0].clientY;
-            }, { passive: true });
-            container.addEventListener('touchmove', (e) => {
-                const deltaY = touchStartY - e.touches[0].clientY;
-                if (deltaY < -10) { // finger moving down = scrolling up
-                    manualScrollLock = true;
-                    userScrolledUp = true;
-                    clearTimeout(manualScrollLockTimer);
-                    manualScrollLockTimer = setTimeout(() => {
-                        manualScrollLock = false;
-                    }, MANUAL_SCROLL_LOCK_MS);
-                    updateScrollButton();
-                }
-            }, { passive: true });
-
-            // Async scroll listener — confirms state after the fact
+            container.addEventListener('wheel', e => { if (e.deltaY < -3) { manualScrollLock = true; userScrolledUp = true; clearTimeout(manualScrollLockTimer); manualScrollLockTimer = setTimeout(() => manualScrollLock = false, MANUAL_SCROLL_LOCK_MS); updateScrollButton(); } }, { passive: true });
             let ticking = false;
-            container.addEventListener('scroll', () => {
-                if (!ticking) {
-                    requestAnimationFrame(() => {
-                        const nearBottom = isNearBottom();
-                        if (!nearBottom && !userScrolledUp) {
-                            userScrolledUp = true;
-                        }
-                        if (nearBottom && userScrolledUp) {
-                            userScrolledUp = false;
-                            hasNewContent = false;
-                            scrollBtn.classList.remove('has-new');
-                        }
-                        updateScrollButton();
-                        ticking = false;
-                    });
-                    ticking = true;
-                }
-            }, { passive: true });
-
+            container.addEventListener('scroll', () => { if (!ticking) { requestAnimationFrame(() => { if (!isNearBottom() && !userScrolledUp) userScrolledUp = true; if (isNearBottom() && userScrolledUp) { userScrolledUp = false; scrollBtn.classList.remove('has-new'); } updateScrollButton(); ticking = false; }); ticking = true; } }, { passive: true });
             window.addEventListener('resize', updateScrollButton);
         }
 
-        // ===== Markdown =====
-        function renderMarkdown(text) {
-            // 1. Extract code blocks BEFORE escaping to preserve original code
-            const codeBlocks = [];
-            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
-                const id = codeBlocks.length;
-                codeBlocks.push({code: code.trim(), lang: lang || 'text'});
-                return `\x00CODE${id}\x00`;
-            });
-            const inlineCodes = [];
-            text = text.replace(/`([^`]+)`/g, (_, code) => {
-                inlineCodes.push(code);
-                return `\x00INLINE${inlineCodes.length-1}\x00`;
-            });
-
-            // 2. Escape HTML in the remaining text only
-            text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-            // Tables
-            const tableRegex = /^((?:\|[^\n]*)+\n)(\|[-:\s|]+\|\n)((?:\|[^\n]*\n)+)/gm;
-            text = text.replace(tableRegex, (match, header, sep, rows) => {
-                const parseRow = (row) => row.trim().slice(1, -1).split('|').map(c => c.trim());
-                const headers = parseRow(header);
-                const bodyRows = rows.trim().split('\n').map(parseRow);
-                let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
-                bodyRows.forEach(row => {
-                    html += '<tr>' + row.map(c => `<td>${c}</td>`).join('') + '</tr>';
-                });
-                html += '</tbody></table>';
-                return html;
-            });
-            text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
-                const safeUrl = url.replace(/[<"']/g, '');
-                if (/^(https?:|mailto:|#)/.test(safeUrl)) {
-                    return `<a href="${safeUrl}" target="_blank" rel="noopener">${label}</a>`;
-                }
-                return `<a href="#" onclick="return false;" title="Blocked: ${safeUrl}">${label}</a>`;
-            });
-            text = text.replace(/^---+$/gm, '<hr>').replace(/^\*\*\*+$/gm, '<hr>');
-            text = text.replace(/^#### (.*$)/gim, '<h4>$1</h4>').replace(/^### (.*$)/gim, '<h3>$1</h3>')
-                       .replace(/^## (.*$)/gim, '<h2>$1</h2>').replace(/^# (.*$)/gim, '<h1>$1</h1>');
-
-            // Strikethrough
-            text = text.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-
-            // Blockquotes
-            const lines = text.split('\n'), result = [];
-            let inQuote = false;
-            function flushQuote() { if (inQuote) { result.push('</blockquote>'); inQuote = false; } }
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const q = line.match(/^&gt; (.*)$/);
-                if (q) { if (!inQuote) { result.push('<blockquote>'); inQuote = true; } result.push(q[1]); }
-                else { flushQuote(); result.push(line); }
-            }
-            flushQuote();
-            text = result.join('\n');
-
-            text = text.replace(/(?<!\*)\*\*\*([^*\n]+)\*\*\*(?!\*)/g, '<strong><em>$1</em></strong>');
-            text = text.replace(/(?<!\*)\*\*([^*\n]+)\*\*(?!\*)/g, '<strong>$1</strong>');
-            text = text.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
-
-            // Lists
-            const listLines = text.split('\n'), listResult = [];
-            let listType = null, listBuffer = [];
-            function flushList() {
-                if (!listType) return;
-                const tag = listType === 'ol' ? 'ol' : 'ul';
-                listResult.push(`<${tag}>${listBuffer.join('')}</${tag}>`);
-                listType = null; listBuffer = [];
-            }
-            for (let i = 0; i < listLines.length; i++) {
-                const line = listLines[i];
-                const ul = line.match(/^[-*] (.*)$/);
-                const ol = line.match(/^\d+\. (.*)$/);
-                if (ul) { if (listType !== 'ul') { flushList(); listType = 'ul'; } listBuffer.push(`<li>${ul[1]}</li>`); }
-                else if (ol) { if (listType !== 'ol') { flushList(); listType = 'ol'; } listBuffer.push(`<li>${ol[1]}</li>`); }
-                else { flushList(); listResult.push(line); }
-            }
-            flushList();
-            text = listResult.join('\n');
-
-            const blocks = text.split(/\n\n+/);
-            text = blocks.map(block => {
-                block = block.trim(); if (!block) return '';
-                if (/^<(h[1-4]|pre|ul|ol|li|blockquote|hr|table)/.test(block)) return block;
-                if (block.includes('\n')) return '<p>' + block.replace(/\n/g, '<br>') + '</p>';
-                return '<p>' + block + '</p>';
-            }).filter(Boolean).join('');
-
-            inlineCodes.forEach((code, i) => {
-                text = text.replace(`\x00INLINE${i}\x00`, `<code>${escapeHtml(code)}</code>`);
-            });
-            codeBlocks.forEach(({code, lang}, i) => {
-                const html = `<pre><code class="language-${lang}">${escapeHtml(code)}</code><button class="copy-code-btn" onclick="copyCode(this)">Copy</button></pre>`;
-                text = text.replace(`\x00CODE${i}\x00`, html);
-            });
-            return text;
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // ===== Messages UI =====
-        function generateId() {
-            return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-        }
-
-        function formatTime(ts) {
-            return new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-        }
-
+        function formatTime(ts) { return new Date(ts).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
         function createMessageElement(msg) {
-            const wrapper = document.createElement('div');
-            wrapper.className = `message-wrapper ${msg.role}`;
-            wrapper.dataset.id = msg.id;
-
-            const avatar = document.createElement('div');
-            avatar.className = `avatar ${msg.role}`;
-            avatar.textContent = msg.role === 'user' ? '👤' : '🤖';
-
-            const content = document.createElement('div');
-            content.className = 'message-content';
-
-            const meta = document.createElement('div');
-            meta.className = 'message-meta';
-            meta.innerHTML = `<span>${formatTime(msg.timestamp)}</span>`;
-            if (msg.role === 'assistant') {
-                meta.innerHTML += `<div class="message-actions"><button onclick="copyMessage('${msg.id}')">Copy</button><button onclick="regenerateMessage('${msg.id}')">Regenerate</button></div>`;
-            } else {
-                meta.innerHTML += `<div class="message-actions"><button onclick="editMessage('${msg.id}')">Edit</button></div>`;
-            }
-
-            const bubble = document.createElement('div');
-            bubble.className = `message ${msg.role}`;
+            const wrapper = document.createElement('div'); wrapper.className = `message-wrapper ${msg.role}`; wrapper.dataset.id = msg.id;
+            const avatar = document.createElement('div'); avatar.className = `avatar ${msg.role}`; avatar.textContent = msg.role === 'user' ? '👤' : '🤖'; avatar.setAttribute('aria-hidden', 'true');
+            const content = document.createElement('div'); content.className = 'message-content';
+            const meta = document.createElement('div'); meta.className = 'message-meta'; meta.innerHTML = `<span>${formatTime(msg.timestamp)}</span>`;
+            meta.innerHTML += msg.role === 'assistant'
+                ? `<div class="message-actions"><button onclick="copyMessage('${msg.id}')" aria-label="Copy">Copy</button><button onclick="regenerateMessage('${msg.id}')" aria-label="Regenerate">Regenerate</button></div>`
+                : `<div class="message-actions"><button onclick="editMessage('${msg.id}')" aria-label="Edit">Edit</button></div>`;
+            const bubble = document.createElement('div'); bubble.className = `message ${msg.role}`;
             if (!msg.content && msg.role === 'assistant') bubble.classList.add('streaming');
-
-            if (msg.role === 'user') {
-                bubble.innerHTML = escapeHtml(msg.content);
-            } else {
-                bubble.innerHTML = _renderAssistantContent(msg.content, false);
+            bubble.innerHTML = msg.role === 'user' ? escapeHtml(msg.content) : _renderAssistantContent(msg.content, false);
+            content.appendChild(meta); content.appendChild(bubble);
+            if (msg.role === 'assistant' && _parseReasoning(msg.content).answer.length > 1200) {
+                bubble.classList.add('collapsible');
+                const btn = document.createElement('button'); btn.className = 'expand-btn'; btn.textContent = 'Show more';
+                btn.onclick = () => { bubble.classList.remove('collapsible'); btn.remove(); }; content.appendChild(btn);
             }
-
-            // Collapsible applies only to answer text, not reasoning
-            const parsedForLength = msg.role === 'assistant' ? _parseReasoning(msg.content) : null;
-            const answerText = parsedForLength ? parsedForLength.answer : msg.content;
-            const isLong = answerText.length > 1200 && msg.role === 'assistant';
-            if (isLong) bubble.classList.add('collapsible');
-
-            content.appendChild(meta);
-            content.appendChild(bubble);
-
-            if (isLong) {
-                const btn = document.createElement('button');
-                btn.className = 'expand-btn';
-                btn.textContent = 'Show more';
-                btn.onclick = () => { bubble.classList.remove('collapsible'); btn.remove(); };
-                content.appendChild(btn);
-            }
-
-            wrapper.appendChild(avatar);
-            wrapper.appendChild(content);
-            return wrapper;
+            wrapper.appendChild(avatar); wrapper.appendChild(content); return wrapper;
         }
 
         function renderMessages() {
             container.innerHTML = '';
-            if (messages.length === 0) {
-                emptyState.style.display = '';
-                container.appendChild(emptyState);
-                return;
-            }
+            if (messages.length === 0) { emptyState.style.display = ''; container.appendChild(emptyState); return; }
             messages.forEach(msg => container.appendChild(createMessageElement(msg)));
-            container.querySelectorAll('pre code').forEach(block => typeof hljs !== 'undefined' && hljs.highlightElement(block));
             scrollToBottomIfNeeded();
         }
 
         function addMessage(role, content) {
-            const msg = { role, content, timestamp: Date.now(), id: generateId() };
+            const msg = { role, content, timestamp: Date.now(), id: Math.random().toString(36).substring(2, 15) + Date.now().toString(36) };
             messages.push(msg);
-            if (messages.length === 1) {
-                const es = container.querySelector('.empty-state');
-                if (es) es.style.display = 'none';
-            }
-            const el = createMessageElement(msg);
-            container.appendChild(el);
-            el.querySelectorAll('pre code').forEach(block => { if (typeof hljs !== 'undefined') hljs.highlightElement(block); });
-            saveSessionMessages(currentSessionId, messages);
-            scrollToBottomIfNeeded();
-            return msg;
+            if (messages.length === 1) { const es = container.querySelector('.empty-state'); if (es) es.style.display = 'none'; }
+            const el = createMessageElement(msg); container.appendChild(el);
+            atomicSave(currentSessionId, messages); scrollToBottomIfNeeded(); return msg;
         }
 
-        function updateMessage(id, content) {
-            const msg = messages.find(m => m.id === id);
-            if (!msg) return;
+        function updateMessage(id, content, streamingNow) {
+            const msg = messages.find(m => m.id === id); if (!msg) return;
             msg.content = content;
-            const wrapper = container.querySelector(`[data-id="${id}"]`);
-            if (!wrapper) return;
-            const bubble = wrapper.querySelector('.message');
-            if (!bubble) return;
+            const wrapper = container.querySelector(`[data-id="${id}"]`); if (!wrapper) return;
+            const bubble = wrapper.querySelector('.message'); if (!bubble) return;
 
-            if (msg.role === 'user') {
-                bubble.innerHTML = escapeHtml(content);
+            if (streamingNow) {
+                bubble.textContent = content || 'Thinking…';
+                bubble.classList.add('streaming');
             } else {
-                bubble.innerHTML = _renderAssistantContent(content, isStreaming);
-            }
-
-            if (!isStreaming) {
-                bubble.querySelectorAll('pre code').forEach(block => typeof hljs !== 'undefined' && hljs.highlightElement(block));
+                bubble.innerHTML = _renderAssistantContent(content, false);
+                bubble.classList.remove('streaming');
             }
             scrollToBottomIfNeeded();
         }
 
-        // Standalone function for final persistence
-        function finalizeMessage(id) {
-            saveSessionMessages(currentSessionId, messages);
-        }
+        function removeMessage(id) { messages = messages.filter(m => m.id !== id); const el = container.querySelector(`[data-id="${id}"]`); if (el) el.remove(); atomicSave(currentSessionId, messages); }
+        function detectNamespace(text) { const m = text.match(/^\[([a-zA-Z0-9_.-]+)\]\s*/i); return m ? m[1].toLowerCase() : 'default'; }
 
-        function removeMessage(id) {
-            messages = messages.filter(m => m.id !== id);
-            const el = container.querySelector(`[data-id="${id}"]`);
-            if (el) el.remove();
-            saveSessionMessages(currentSessionId, messages);
-        }
-
-        // ===== Namespace =====
-        function detectNamespace(text) {
-            const match = text.match(/^\[(\w+)\]\s*/i);
-            return match ? match[1].toLowerCase() : 'default';
-        }
-
-        // ===== Files / Attachments =====
         function initDragAndDrop() {
             let dragCount = 0;
-            window.addEventListener('dragenter', e => {
-                if (e.dataTransfer.types.includes('Files')) { dragCount++; dragOverlay.classList.add('active'); }
-            });
+            window.addEventListener('dragenter', e => { if (e.dataTransfer.types.includes('Files')) { dragCount++; dragOverlay.classList.add('active'); } });
             window.addEventListener('dragleave', e => { dragCount--; if (dragCount === 0) dragOverlay.classList.remove('active'); });
             window.addEventListener('dragover', e => e.preventDefault());
-            window.addEventListener('drop', e => {
-                e.preventDefault();
-                dragCount = 0;
-                dragOverlay.classList.remove('active');
-                if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
-            });
+            window.addEventListener('drop', e => { e.preventDefault(); e.stopPropagation(); dragCount = 0; dragOverlay.classList.remove('active'); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
         }
 
-        function handleFiles(files) {
+        async function handleFiles(files) {
             const filesArray = Array.from(files);
-            if (attachedFiles.length + filesArray.length > 10) {
-                showToast('Max 10 files allowed');
-                return;
-            }
-            filesArray.forEach(file => {
-                if (file.size > MAX_FILE_SIZE) {
-                    showToast(`File too large: ${file.name}`);
-                    return;
-                }
+            if (attachedFiles.length + filesArray.length > 10) { showToast('Max 10 files allowed'); return; }
+            const allowed = /\.(txt|md|json|js|py|html|css|csv|xml|yaml|yml|log)$/i;
+            for (const file of filesArray) {
+                if (file.size > MAX_FILE_SIZE) { showToast(`File too large: ${file.name}`); continue; }
                 const reader = new FileReader();
-                reader.onload = e => {
-                    if (file.type.startsWith('image/')) {
-                        attachedFiles.push({name: file.name, type: 'image', content: e.target.result});
-                        insertAtCursor(`\n![${file.name}](${e.target.result})\n`);
-                    } else {
-                        attachedFiles.push({name: file.name, type: 'text', content: e.target.result});
-                        insertAtCursor('\n```' + file.name + '\n' + e.target.result + '\n```\n');
+                const readPromise = new Promise(resolve => { reader.onload = e => resolve(e.target.result); reader.onerror = () => resolve(null); });
+                if (file.type.startsWith('image/')) {
+                    reader.readAsDataURL(file); const res = await readPromise;
+                    if (res) { attachedFiles.push({name: file.name, type: 'image', content: res}); insertAtCursor(`\n![${file.name}](${res})\n`); }
+                } else if (file.type.startsWith('text/') || allowed.test(file.name)) {
+                    const res = await file.text();
+                    if (res) {
+                        attachedFiles.push({name: file.name, type: 'text', content: res});
+                        insertAtCursor('\n```' + file.name.replace(/[`\\]/g, '') + '\n' + res + '\n```\n');
                     }
-                    renderAttachments();
-                    autoResizeInput();
-                    updateTokenCount();
-                };
-                if (file.type.startsWith('image/')) reader.readAsDataURL(file);
-                else reader.readAsText(file);
-            });
+                } else { showToast(`Unsupported: ${file.name}`); }
+            }
+            renderAttachments(); autoResizeInput(); updateTokenCount();
         }
 
         function renderAttachments() {
             attachmentsEl.innerHTML = '';
             attachedFiles.forEach((f, i) => {
-                const el = document.createElement('div');
-                el.className = 'attachment';
-                const icon = f.type === 'image' ? '🖼️' : '📄';
-                el.innerHTML = `${icon} ${escapeHtml(f.name)} <span class="remove" onclick="removeAttachment(${i})">×</span>`;
+                const el = document.createElement('div'); el.className = 'attachment'; el.setAttribute('role', 'listitem');
+                el.innerHTML = `${f.type === 'image' ? '🖼️' : '📄'} ${escapeHtml(f.name)} <span class="remove" onclick="removeAttachment(${i})" aria-label="Remove">×</span>`;
                 attachmentsEl.appendChild(el);
             });
         }
-
-        function removeAttachment(i) {
-            attachedFiles.splice(i, 1);
-            renderAttachments();
-        }
-
+        function removeAttachment(i) { attachedFiles.splice(i, 1); renderAttachments(); }
         function insertAtCursor(text) {
-            const start = input.selectionStart;
-            const end = input.selectionEnd;
+            if (input.value.length + text.length > MAX_INPUT_LENGTH) { showToast('⚠️ Text too long.'); return; }
+            const start = input.selectionStart, end = input.selectionEnd;
             input.value = input.value.slice(0, start) + text + input.value.slice(end);
-            input.selectionStart = input.selectionEnd = start + text.length;
-            input.focus();
-            input.dispatchEvent(new Event('input'));
+            input.selectionStart = input.selectionEnd = start + text.length; input.focus(); input.dispatchEvent(new Event('input'));
         }
+        function autoResizeInput() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 200) + 'px'; }
 
-        function autoResizeInput() {
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 200) + 'px';
-        }
-
-        // ===== Send / Stream =====
         async function sendMessage() {
-            let text = input.value.trim();
-            if (!text || isStreaming) return;
+            let text = input.value.trim(); if (!text || isStreaming) return;
 
-            currentNs = detectNamespace(text);
+            const nsMatch = text.match(/^\[([a-zA-Z0-9_.-]+)\]\s*/i);
+            currentNs = nsMatch ? nsMatch[1].toLowerCase() : 'default';
             nsBadge.textContent = currentNs;
-
             if (messages.length === 0) {
                 const s = sessions.find(x => x.id === currentSessionId);
-                if (s) {
-                    s.title = text.slice(0, 40).replace(/\n/g, ' ') || 'New Chat';
-                    s.updatedAt = Date.now();
-                    saveSessions();
-                    renderChatList();
-                }
+                if (s) { s.title = text.slice(0, 40).replace(/\n/g, ' ') || 'New Chat'; s.updatedAt = Date.now(); storage.set(SESSIONS_KEY, sessions); renderChatList(); }
             }
-
-            addMessage('user', text);
-            input.value = '';
-            autoResizeInput();
-            attachedFiles = [];
-            renderAttachments();
-            updateTokenCount();
-
-            // Reset all scroll state for fresh message
-            userScrolledUp = false;
-            hasNewContent = false;
-            manualScrollLock = false;
-            clearTimeout(manualScrollLockTimer);
-            scrollBtn.classList.remove('has-new');
-            lastScrollTime = 0;
-            lastContainerHeight = 0;
-
-            isStreaming = true;
-            sendBtn.style.display = 'none';
-            stopBtn.classList.add('active');
-            // Streaming indicator now only inside the message block
-
-            let fullText = '';
-            let reasoningText = '';
-
-            let firstTokenTimeout = setTimeout(() => {
-                if (isStreaming && !fullText && !reasoningText) {
-                    showToast('⏳ Model is thinking... First token delayed');
-                }
-            }, 15000);
-
+            addMessage('user', text); input.value = ''; autoResizeInput(); attachedFiles = []; renderAttachments(); updateTokenCount();
+            userScrolledUp = false; manualScrollLock = false; clearTimeout(manualScrollLockTimer); scrollBtn.classList.remove('has-new'); lastScrollTime = 0; lastContainerHeight = 0;
+            isStreaming = true; sendBtn.style.display = 'none'; stopBtn.classList.add('active');
+            let fullText = '', reasoningText = '';
+            setTimeout(() => { if (isStreaming && !fullText && !reasoningText) showToast('⏳ Model is thinking...'); }, 30000);
             const assistantMsg = addMessage('assistant', '');
             const assistantDiv = container.querySelector(`[data-id="${assistantMsg.id}"] .message`);
             assistantDiv.classList.add('streaming');
 
             const apiMessages = [];
-            if (settings.systemPrompt) {
-                apiMessages.push({role: 'system', content: settings.systemPrompt});
-            }
-            const history = messages.slice(-settings.maxHistory - 1, -1);
-            history.forEach(m => { if (m.role !== 'system') apiMessages.push({role: m.role, content: m.content}); });
-            apiMessages.push({role: 'user', content: text});
+            if (settings.systemPrompt) apiMessages.push({role: 'system', content: settings.systemPrompt});
+            messages.slice(-settings.maxHistory - 1, -1).forEach(m => { if (m.role !== 'system') apiMessages.push({role: m.role, content: m.content}); });
+            const apiText = nsMatch ? text.replace(nsMatch[0], '').trim() : text;
+            apiMessages.push({role: 'user', content: apiText});
 
             abortController = new AbortController();
-
             try {
-                const base = settings.apiBase || '';
-                const response = await fetch(base + '/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local')
-                    },
-                    body: JSON.stringify({ model: settings.model || 'local', messages: apiMessages, stream: true }),
-                    signal: abortController.signal
-                });
-                if (!response.ok) throw new Error('HTTP ' + response.status);
+                const response = await fetchWithRetry(getApiBase() + '/v1/chat/completions', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') },
+                    body: JSON.stringify({ model: settings.model || 'local', messages: apiMessages, stream: true, temperature: settings.temperature })
+                }, abortController.signal, 2, 120000);
 
-                if (!response.body) throw new Error('Response body is null');
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
+                const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
                 while (true) {
-                    const result = await reader.read();
-                    if (result.done) break;
-                    const chunk = decoder.decode(result.value, {stream: true});
-                    buffer += chunk;
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
+                    const result = await reader.read(); if (result.done) break;
+                    buffer += decoder.decode(result.value, {stream: true});
+                    const lines = buffer.split('\n'); buffer = lines.pop();
                     for (const line of lines) {
                         if (!line.startsWith('data: ')) continue;
-                        const data = line.slice(6);
-                        if (data === '[DONE]') continue;
+                        const data = line.slice(6); if (data === '[DONE]') continue;
                         try {
                             const parsed = JSON.parse(data);
                             const delta = parsed.choices?.[0]?.delta?.content;
                             const reasoning = parsed.choices?.[0]?.delta?.reasoning_content || parsed.choices?.[0]?.delta?.reasoning;
-
-                            let updated = false;
-                            if (reasoning) {
-                                reasoningText += reasoning;
-                                updated = true;
-                            }
-                            if (delta !== undefined && delta !== null) {
-                                fullText += delta;
-                                updated = true;
-                            }
-                            if (updated) {
-                                const displayText = reasoningText
-                                    ? `<think>${reasoningText}</think>\n\n${fullText}`
-                                    : fullText;
-                                updateMessage(assistantMsg.id, displayText);
-                            }
-                        } catch (e) { console.error('Parse error:', e, 'Data:', data); }
+                            if (reasoning) reasoningText += reasoning;
+                            if (delta !== undefined && delta !== null) fullText += delta;
+                            updateMessage(assistantMsg.id, reasoningText ? `<thinking>${reasoningText}</thinking>\n\n${fullText}` : fullText, true);
+                        } catch (e) {}
                     }
                 }
-                // Process the remaining buffer
-                if (buffer.startsWith('data: ')) {
-                    const data = buffer.slice(6);
-                    if (data !== '[DONE]') {
+                if (buffer.trim()) {
+                    for (const line of buffer.split('\n')) {
+                        if (!line.startsWith('data: ')) continue;
+                        const data = line.slice(6); if (data === '[DONE]') continue;
                         try {
                             const parsed = JSON.parse(data);
-                            const delta = parsed.choices?.[0]?.delta?.content;
-                            const reasoning = parsed.choices?.[0]?.delta?.reasoning_content ?? parsed.choices?.[0]?.delta?.reasoning;
-
-                            let updated = false;
-                            if (reasoning) {
-                                reasoningText += reasoning;
-                                updated = true;
-                            }
-                            if (delta) {
-                                fullText += delta;
-                                updated = true;
-                            }
-                            if (updated) {
-                                const displayText = reasoningText
-                                    ? `<think>${reasoningText}</think>\n\n${fullText}`
-                                    : fullText;
-                                updateMessage(assistantMsg.id, displayText);
-                            }
-                        } catch (e) { console.error('SSE parse error:', e); }
+                            if (parsed.choices?.[0]?.delta?.reasoning_content || parsed.choices?.[0]?.delta?.reasoning) reasoningText += (parsed.choices[0].delta.reasoning_content || parsed.choices[0].delta.reasoning);
+                            if (parsed.choices?.[0]?.delta?.content) fullText += parsed.choices[0].delta.content;
+                            updateMessage(assistantMsg.id, reasoningText ? `<thinking>${reasoningText}</thinking>\n\n${fullText}` : fullText, true);
+                        } catch (e) {}
                     }
                 }
                 assistantDiv.classList.remove('streaming');
             } catch (err) {
                 assistantDiv.classList.remove('streaming');
-                if (err.name !== 'AbortError') {
-                    fullText = '**Error:** ' + err.message;
-                }
+                if (err.name !== 'AbortError') fullText = '**Error:** ' + err.message;
             } finally {
-                clearTimeout(firstTokenTimeout);
                 isStreaming = false;
-                // saveTimeout removed — no-op
-                const finalText = reasoningText
-                    ? `<think>${reasoningText}</think>\n\n${fullText}`
-                    : fullText;
-                updateMessage(assistantMsg.id, finalText);
-                finalizeMessage(assistantMsg.id);
-
-                abortController = null;
-                sendBtn.style.display = 'flex';
-                stopBtn.classList.remove('active');
-                input.focus();
+                const finalText = reasoningText ? `<thinking>${reasoningText}</thinking>\n\n${fullText}` : fullText;
+                updateMessage(assistantMsg.id, finalText, false);
+                atomicSave(currentSessionId, messages);
+                abortController = null; sendBtn.style.display = 'flex'; stopBtn.classList.remove('active'); input.focus();
             }
         }
 
-        function stopGeneration() {
-            if (abortController) {
-                abortController.abort();
-                showToast('Generation stopped');
-            }
-        }
+        function stopGeneration() { if (abortController) { abortController.abort(); showToast('Generation stopped'); } }
 
-        // ===== Input =====
-        input.addEventListener('input', () => {
-            autoResizeInput();
-            updateTokenCount();
-        });
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-            if (e.key === 'Escape' && isStreaming) stopGeneration();
-        });
+        input.addEventListener('input', () => { autoResizeInput(); updateTokenCount(); });
+        input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } if (e.key === 'Escape' && isStreaming) stopGeneration(); });
+        function updateTokenCount() { const len = input.value.length; tokenCountEl.textContent = len > 0 ? `~${Math.ceil(len/4)} tokens` : ''; }
 
-        function updateTokenCount() {
-            const len = input.value.length;
-            tokenCountEl.textContent = len > 0 ? `~${Math.ceil(len/4)} tokens` : '';
-        }
-
-        // ===== Actions =====
-        function copyCode(btn) {
-            const code = btn.previousElementSibling.textContent;
-            navigator.clipboard.writeText(code).then(() => {
-                btn.textContent = 'Copied!';
-                setTimeout(() => btn.textContent = 'Copy', 2000);
-            });
-        }
-
-        function copyMessage(id) {
-            const msg = messages.find(m => m.id === id);
-            if (msg) navigator.clipboard.writeText(msg.content).then(() => showToast('Copied to clipboard'));
-        }
-
-        function regenerateMessage(id) {
-            const idx = messages.findIndex(m => m.id === id);
-            if (idx <= 0) return;
-            const userMsg = messages[idx - 1];
-            if (userMsg.role !== 'user') return;
-            removeMessage(id);
-            input.value = userMsg.content;
-            sendMessage();
-        }
-
-        function editMessage(id) {
-            if (isStreaming) { showToast('Stop generation first'); return; }
-            const msg = messages.find(m => m.id === id);
-            if (!msg) return;
-            input.value = msg.content;
-            input.focus();
-            input.dispatchEvent(new Event('input'));
-            const idx = messages.findIndex(m => m.id === id);
-            const toRemove = messages.slice(idx).map(m => m.id);
-            toRemove.forEach(mid => removeMessage(mid));
-        }
+        function copyCode(btn) { const code = btn.parentElement.querySelector('code'); if (!code) return; navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }); }
+        function copyMessage(id) { const msg = messages.find(m => m.id === id); if (!msg) return; navigator.clipboard.writeText(msg.role === 'assistant' ? _parseReasoning(msg.content).answer : msg.content).then(() => showToast('Copied')); }
+        function regenerateMessage(id) { const idx = messages.findIndex(m => m.id === id); if (idx <= 0) return; const u = messages[idx - 1]; if (u.role !== 'user') return; removeMessage(id); removeMessage(u.id); input.value = u.content; sendMessage(); }
+        function editMessage(id) { if (isStreaming) return; const msg = messages.find(m => m.id === id); if (!msg) return; input.value = msg.content; input.focus(); input.dispatchEvent(new Event('input')); messages.slice(messages.findIndex(m => m.id === id)).forEach(m => removeMessage(m.id)); currentNs = detectNamespace(msg.content); nsBadge.textContent = currentNs; }
 
         function newChat() {
             if (isStreaming) { showToast('Stop generation first'); return; }
-            createSession();
-            renderMessages();
-            input.value = '';
-            autoResizeInput();
-            updateTokenCount();
-            showToast('New chat started');
+            if (!createSession()) { showToast('⚠️ Could not create chat. Storage might be full.'); return; }
+            renderMessages(); input.value = ''; autoResizeInput(); updateTokenCount(); showToast('New chat started');
         }
 
         function exportChat() {
             if (messages.length === 0) { showToast('Nothing to export'); return; }
             let md = `# Chat Export\n\n`;
-            messages.forEach(m => {
-                md += `### ${m.role === 'user' ? '**User**' : '**Assistant**'} · ${formatTime(m.timestamp)}\n\n${m.content}\n\n---\n\n`;
-            });
-            const blob = new Blob([md], {type: 'text/markdown'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `chat-${new Date().toISOString().slice(0,10)}.md`;
-            a.click();
-            URL.revokeObjectURL(url);
-            showToast('Exported as Markdown');
+            messages.forEach(m => { md += `### ${m.role === 'user' ? '**User**' : '**Assistant**'} · ${formatTime(m.timestamp)}\n\n${m.role === 'assistant' ? _parseReasoning(m.content).answer : m.content}\n\n---\n\n`; });
+            const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], {type: 'text/markdown'}));
+            a.download = `chat-${new Date().toISOString().slice(0,10)}.md`; a.click(); URL.revokeObjectURL(a.href); showToast('Exported');
         }
 
-        // ===== Sidebar =====
-        function toggleSidebar() {
-            sidebar.classList.toggle('open');
-            sidebarOverlay.classList.toggle('active');
-        }
+        function toggleSidebar() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); }
+        let toastTimeout; function showToast(text) { clearTimeout(toastTimeout); toastEl.textContent = text; toastEl.classList.add('show'); toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 2500); }
 
-        // ===== Toast =====
-        let toastTimeout;
-        function showToast(text) {
-            clearTimeout(toastTimeout);
-            toastEl.textContent = text;
-            toastEl.classList.add('show');
-            toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 2500);
-        }
-
-        // ===== Index Documents =====
-        function openIndexModal() {
-            $('indexModal').classList.add('active');
-            $('indexStatusRow').style.display = 'none';
-            $('indexStatus').textContent = '';
-            const btn = $('indexStartBtn');
-            btn.disabled = false;
-            btn.textContent = 'Start Indexing';
-        }
-
-        function closeIndexModal() {
-            $('indexModal').classList.remove('active');
-            if (indexPollInterval) {
-                clearInterval(indexPollInterval);
-                indexPollInterval = null;
-            }
-        }
-
+        function openIndexModal() { $('indexModal').classList.add('active'); $('indexStatusRow').style.display = 'none'; $('indexStatus').textContent = ''; const b=$('indexStartBtn'); b.disabled=false; b.textContent='Start Indexing'; }
+        function closeIndexModal() { $('indexModal').classList.remove('active'); if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; } }
         async function startIndexing() {
-            const folder = $('indexFolder').value.trim() || null;
-            const clear = $('indexClear').checked;
-            const btn = $('indexStartBtn');
-            const statusRow = $('indexStatusRow');
-            const statusEl = $('indexStatus');
-
-            btn.disabled = true;
-            btn.textContent = 'Starting...';
-            statusRow.style.display = 'block';
-            statusEl.textContent = 'Sending request...';
-
-            const base = (settings.apiBase || '').replace(/\/$/, '');
-            const url = base ? base + '/api/v1/rag/reindex' : '/api/v1/rag/reindex';
-
+            const folder = $('indexFolder').value.trim() || null, clear = $('indexClear').checked, b=$('indexStartBtn'), sr=$('indexStatusRow'), se=$('indexStatus');
+            b.disabled = true; b.textContent = 'Starting...'; sr.style.display = 'block'; se.textContent = 'Sending...';
             try {
-                const resp = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local')
-                    },
-                    body: JSON.stringify({ folder: folder, clear: clear })
-                });
-                if (!resp.ok) {
-                    const err = await resp.text();
-                    throw new Error('HTTP ' + resp.status + ': ' + err);
-                }
-                const data = await resp.json();
-                statusEl.textContent = 'Started: ' + data.task_id;
-                showToast('Indexing started');
-                pollIndexStatus(data.task_id);
-            } catch (err) {
-                statusEl.textContent = 'Error: ' + err.message;
-                btn.disabled = false;
-                btn.textContent = 'Retry';
-                showToast('Indexing failed: ' + err.message);
-            }
+                const resp = await fetch(getApiBase() + '/api/v1/rag/reindex', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') }, body: JSON.stringify({ folder, clear }) });
+                if (!resp.ok) throw new Error(await resp.text());
+                const data = await resp.json(); se.textContent = 'Started: ' + data.task_id; showToast('Indexing started'); pollIndexStatus(data.task_id);
+            } catch (err) { se.textContent = 'Error: ' + err.message; b.disabled = false; b.textContent = 'Retry'; showToast('Failed: ' + err.message); }
         }
-
         function pollIndexStatus(taskId) {
             if (indexPollInterval) clearInterval(indexPollInterval);
-            const base = (settings.apiBase || '').replace(/\/$/, '');
-            const url = base
-                ? base + '/api/v1/rag/reindex/status/' + taskId
-                : '/api/v1/rag/reindex/status/' + taskId;
-            const statusEl = $('indexStatus');
-            const btn = $('indexStartBtn');
-
+            const se = $('indexStatus'), b = $('indexStartBtn');
             indexPollInterval = setInterval(async () => {
                 try {
-                    const resp = await fetch(url, {
-                        headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') }
-                    });
+                    const resp = await fetch(getApiBase() + '/api/v1/rag/reindex/status/' + taskId, { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') } });
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    const data = await resp.json();
-                    statusEl.textContent = JSON.stringify(data, null, 2);
-                    const status = data.status;
-                    if (status === 'completed' || status === 'failed') {
-                        clearInterval(indexPollInterval);
-                        indexPollInterval = null;
-                        btn.disabled = false;
-                        btn.textContent = 'Start Indexing';
-                        showToast(status === 'completed' ? 'Indexing completed' : 'Indexing failed');
+                    const data = await resp.json(); se.textContent = JSON.stringify(data, null, 2);
+                    if (data.status === 'completed' || data.status === 'failed') {
+                        clearInterval(indexPollInterval); indexPollInterval = null; b.disabled = false; b.textContent = 'Start Indexing';
+                        showToast(data.status === 'completed' ? 'Indexing completed' : 'Indexing failed');
                     }
-                } catch (err) {
-                    statusEl.textContent = 'Poll error: ' + err.message;
-                }
+                } catch (err) { se.textContent = 'Poll error: ' + err.message; }
             }, 2000);
         }
 
-        // ===== Keyboard & Event Setup =====
         function setupKeyboardShortcuts() {
-            document.addEventListener('keydown', (e) => {
-                if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); }
+            document.addEventListener('keydown', e => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'k') e.preventDefault();
                 if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') { e.preventDefault(); newChat(); }
-                if (e.key === 'Escape') {
-                    closeSettings();
-                    if (sidebar.classList.contains('open')) toggleSidebar();
-                }
+                if (e.key === 'Escape') { if ($('settingsModal').classList.contains('active')) closeSettings(); else if ($('indexModal').classList.contains('active')) closeIndexModal(); else if (sidebar.classList.contains('open')) toggleSidebar(); }
             });
         }
-
         function setupModalDismiss() {
-            document.querySelectorAll('.modal-overlay').forEach(el => {
-                el.addEventListener('click', (e) => { if (e.target === el) el.classList.remove('active'); });
-            });
+            document.querySelectorAll('.modal-overlay').forEach(el => el.addEventListener('click', e => { if (e.target === el) { if (el.id === 'indexModal') closeIndexModal(); else if (el.id === 'settingsModal') closeSettings(); else el.classList.remove('active'); } }));
         }
-
-        // ===== BeforeUnload Cleanup =====
         function setupBeforeUnload() {
-            window.addEventListener('beforeunload', () => {
-                if (indexPollInterval) {
-                    clearInterval(indexPollInterval);
-                    indexPollInterval = null;
-                }
-                // Emergency save: if streaming was interrupted by reload,
-                // persist whatever assistant content we have so far
-                if (currentSessionId && messages.length > 0) {
-                    saveSessionMessages(currentSessionId, messages);
-                }
-            });
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; } if (currentSessionId && messages.length > 0) atomicSave(currentSessionId, messages); } });
+            window.addEventListener('beforeunload', () => { if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; } if (currentSessionId && messages.length > 0) atomicSave(currentSessionId, messages); });
         }
-        // ===== Expose to window for inline onclick handlers =====
-        window.newChat = newChat;
-        window.toggleSidebar = toggleSidebar;
-        window.deleteSession = deleteSession;
-        window.sendMessage = sendMessage;
-        window.stopGeneration = stopGeneration;
-        window.exportChat = exportChat;
-        window.openSettings = openSettings;
-        window.closeSettings = closeSettings;
-        window.saveSettings = saveSettings;
-        window.clearAllData = clearAllData;
-        window.openIndexModal = openIndexModal;
-        window.closeIndexModal = closeIndexModal;
-        window.startIndexing = startIndexing;
-        window.copyCode = copyCode;
-        window.copyMessage = copyMessage;
-        window.regenerateMessage = regenerateMessage;
-        window.editMessage = editMessage;
-        window.handleFiles = handleFiles;
-        window.removeAttachment = removeAttachment;
-        window.forceScrollToBottom = forceScrollToBottom;
 
+        window.newChat = newChat; window.toggleSidebar = toggleSidebar; window.deleteSession = deleteSession; window.sendMessage = sendMessage;
+        window.stopGeneration = stopGeneration; window.exportChat = exportChat; window.openSettings = openSettings; window.closeSettings = closeSettings;
+        window.saveSettings = saveSettings; window.clearAllData = clearAllData; window.openIndexModal = openIndexModal; window.closeIndexModal = closeIndexModal;
+        window.startIndexing = startIndexing; window.copyCode = copyCode; window.copyMessage = copyMessage; window.regenerateMessage = regenerateMessage;
+        window.editMessage = editMessage; window.handleFiles = handleFiles; window.removeAttachment = removeAttachment; window.forceScrollToBottom = forceScrollToBottom;
     })();
     </script>
 </body>
