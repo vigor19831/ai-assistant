@@ -77,8 +77,6 @@
         .message.user { background: var(--accent); color: white; border-bottom-right-radius: 4px; white-space: pre-wrap; }
         .message.assistant { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
         .message.assistant.streaming { white-space: pre-wrap; }
-        .message.assistant.streaming::after { content: '▋'; display: inline-block; margin-left: 2px; color: var(--accent); font-weight: 700; animation: blink 1s step-end infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
 
         .message code { background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; font-size: 0.9em; }
         .message pre { background: #161b22; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 4px 0; position: relative; }
@@ -183,7 +181,7 @@
 
         @media (prefers-reduced-motion: reduce) {
             .message-wrapper, .toast, .modal-overlay, .sidebar, .chat-item, .copy-code-btn, .scroll-to-bottom { transition: none !important; animation: none !important; }
-            .message.assistant.streaming::after { animation: none !important; }
+
         }
         @media (max-width: 768px) {
             .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
@@ -198,6 +196,7 @@
         }
     </style>
     <base target="_blank">
+<base target="_blank">
 </head>
 <body>
 
@@ -318,6 +317,10 @@
     <script>
     (function() {
         'use strict';
+        if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined' || typeof hljs === 'undefined') {
+            document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#c9d1d9;font-family:sans-serif;"><h1>⚠️ Error: static libraries not loaded.<br><small style="font-weight:normal;font-size:16px;">Check that static/marked.min.js, static/purify.min.js, and static/highlight.min.js exist.</small></h1></div>';
+            return;
+        }
 
         const SETTINGS_KEY = 'ai_chat_settings_v3';
         const SESSIONS_KEY = 'ai_chat_sessions_v3';
@@ -336,8 +339,7 @@
         let currentNs = 'default';
         let attachedFiles = [];
         let userScrolledUp = false;
-        let hasNewContent = false;
-        let indexPollInterval = null;
+                let indexPollInterval = null;
         let lastScrollTime = 0;
         let manualScrollLock = false;
         let manualScrollLockTimer = null;
@@ -353,7 +355,7 @@
                     highlighted = hljs.highlight(text, { language: lang }).value;
                 }
             } catch(e) {}
-            return `<pre><code class="hljs language-${lang || 'text'}">${highlighted}</code><button class="copy-code-btn" onclick="copyCode(this)" aria-label="Copy code">Copy</button></pre>`;
+            return `<pre><code class="hljs language-${lang || 'text'}">${highlighted}</code><button class="copy-code-btn" aria-label="Copy code">Copy</button></pre>`;
         };
 
         markedRenderer.link = ({ href, title, text }) => {
@@ -386,7 +388,7 @@
                 if (block.lang === 'inline') {
                     html = html.replace(`\x00CB${i}\x00`, `<code>${hl}</code>`);
                 } else {
-                    html = html.replace(`\x00CB${i}\x00`, `<pre><code class="hljs language-${block.lang}">${hl}</code><button class="copy-code-btn" onclick="copyCode(this)" aria-label="Copy code">Copy</button></pre>`);
+                    html = html.replace(`\x00CB${i}\x00`, `<pre><code class="hljs language-${block.lang}">${hl}</code><button class="copy-code-btn" aria-label="Copy code">Copy</button></pre>`);
                 }
             });
 
@@ -403,8 +405,8 @@
                        .replace(/"/g, "&quot;")
                        .replace(/'/g, "&#039;");
         }
-
         const REASONING_TAGS = [
+            { open: '<think>', close: '</think>', xmlLike: false },
             { open: '<thinking', close: '</thinking', xmlLike: true }, { open: '<reasoning', close: '</reasoning', xmlLike: true },
             { open: '<thought', close: '</thought', xmlLike: true }, { open: '<analysis', close: '</analysis', xmlLike: true },
             { open: '<reflect', close: '</reflect', xmlLike: true }, { open: '<scratchpad', close: '</scratchpad', xmlLike: true },
@@ -455,10 +457,15 @@
 
         function _renderAssistantContent(content, streaming) {
             const parsed = _parseReasoning(content);
-            const rb = parsed.hasReasoning ? `<details class="reasoning-block"${parsed.isOpen && streaming ? ' open' : ''}><summary>🤔 Reasoning</summary><div class="reasoning-content">${parsed.reasoning ? renderMarkdown(parsed.reasoning) : '<em>...</em>'}</div></details>` : '';
-            return rb ? rb + '<div class="answer-block">' + renderMarkdown(parsed.answer) + '</div>' : renderMarkdown(parsed.answer);
+            let rb = '';
+            if (parsed.hasReasoning) {
+                rb = `<details class="reasoning-block"${(parsed.isOpen || streaming) ? ' open' : ''}><summary>🤔 Reasoning</summary><div class="reasoning-content">${parsed.reasoning ? renderMarkdown(parsed.reasoning) : '<em>...</em>'}</div></details>`;
+            } else if (streaming && !content.trim()) {
+                rb = `<div class="reasoning-block" style="border:none; background:transparent;"><div class="reasoning-content" style="border:none; padding:0; color: var(--text-bright);"><em>🤔 Thinking...</em></div></div>`;
+            }
+            const answerHtml = parsed.answer ? renderMarkdown(parsed.answer) : '';
+            return rb + (answerHtml ? '<div class="answer-block">' + answerHtml + '</div>' : '');
         }
-
         const settings = { apiBase: '', apiKey: 'local', model: 'local', temperature: 0.3, systemPrompt: '', maxHistory: 20 };
 
         const $ = id => document.getElementById(id);
@@ -509,7 +516,7 @@
             }
         }
 
-        loadSettings(); loadSessions(); initDragAndDrop(); setupScrollHandling(); setupKeyboardShortcuts(); setupModalDismiss(); setupBeforeUnload(); input.focus();
+        loadSettings(); loadSessions(); initDragAndDrop(); setupScrollHandling(); setupKeyboardShortcuts(); setupModalDismiss(); setupBeforeUnload(); setupEventDelegation(); input.focus();
 
         function loadSessions() {
             sessions = storage.get(SESSIONS_KEY, []);
@@ -624,14 +631,33 @@
             atomicSave(currentSessionId, messages); scrollToBottomIfNeeded(); return msg;
         }
 
+        let _updatePending = false, _updateQueued = null;
         function updateMessage(id, content, streamingNow) {
             const msg = messages.find(m => m.id === id); if (!msg) return;
             msg.content = content;
+            if (streamingNow) {
+                if (_updatePending) { _updateQueued = { id, content, streamingNow }; return; }
+                _updatePending = true;
+                requestAnimationFrame(() => {
+                    _updatePending = false;
+                    _applyUpdate(id, content, streamingNow);
+                    if (_updateQueued) { const q = _updateQueued; _updateQueued = null; updateMessage(q.id, q.content, q.streamingNow); }
+                });
+            } else {
+                _applyUpdate(id, content, streamingNow);
+            }
+        }
+        function _applyUpdate(id, content, streamingNow) {
             const wrapper = container.querySelector(`[data-id="${id}"]`); if (!wrapper) return;
             const bubble = wrapper.querySelector('.message'); if (!bubble) return;
-
             if (streamingNow) {
-                bubble.textContent = content || 'Thinking…';
+                let html = '';
+                if (content) {
+                    try { html = _renderAssistantContent(content, true); }
+                    catch (e) { html = escapeHtml(content); }
+                }
+                if (!html || !html.trim()) bubble.textContent = 'Thinking...';
+                else bubble.innerHTML = html;
                 bubble.classList.add('streaming');
             } else {
                 bubble.innerHTML = _renderAssistantContent(content, false);
@@ -704,8 +730,9 @@
             userScrolledUp = false; manualScrollLock = false; clearTimeout(manualScrollLockTimer); scrollBtn.classList.remove('has-new'); lastScrollTime = 0; lastContainerHeight = 0;
             isStreaming = true; sendBtn.style.display = 'none'; stopBtn.classList.add('active');
             let fullText = '', reasoningText = '';
-            setTimeout(() => { if (isStreaming && !fullText && !reasoningText) showToast('⏳ Model is thinking...'); }, 30000);
             const assistantMsg = addMessage('assistant', '');
+            updateMessage(assistantMsg.id, '', true);
+            requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
             const assistantDiv = container.querySelector(`[data-id="${assistantMsg.id}"] .message`);
             assistantDiv.classList.add('streaming');
 
@@ -834,12 +861,39 @@
             document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; } if (currentSessionId && messages.length > 0) atomicSave(currentSessionId, messages); } });
             window.addEventListener('beforeunload', () => { if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; } if (currentSessionId && messages.length > 0) atomicSave(currentSessionId, messages); });
         }
+        function setupEventDelegation() {
+            container.addEventListener('click', e => {
+                const btn = e.target.closest('.copy-code-btn');
+                if (btn) { e.preventDefault(); copyCode(btn); }
+            });
+        }
 
         window.newChat = newChat; window.toggleSidebar = toggleSidebar; window.deleteSession = deleteSession; window.sendMessage = sendMessage;
         window.stopGeneration = stopGeneration; window.exportChat = exportChat; window.openSettings = openSettings; window.closeSettings = closeSettings;
         window.saveSettings = saveSettings; window.clearAllData = clearAllData; window.openIndexModal = openIndexModal; window.closeIndexModal = closeIndexModal;
         window.startIndexing = startIndexing; window.copyCode = copyCode; window.copyMessage = copyMessage; window.regenerateMessage = regenerateMessage;
         window.editMessage = editMessage; window.handleFiles = handleFiles; window.removeAttachment = removeAttachment; window.forceScrollToBottom = forceScrollToBottom;
+
+        function runSelfTest() {
+            const tests = [];
+            const assert = (name, cond) => tests.push({ name, ok: cond });
+            assert('marked loaded', typeof marked !== 'undefined');
+            assert('DOMPurify loaded', typeof DOMPurify !== 'undefined');
+            assert('hljs loaded', typeof hljs !== 'undefined');
+            assert('escapeHtml works', escapeHtml('<script>') === '&lt;script&gt;');
+            assert('parseReasoning think', _parseReasoning('<think>abc</think>def').reasoning === 'abc');
+            assert('parseReasoning answer', _parseReasoning('<think>abc</think>def').answer === 'def');
+            assert('renderMarkdown empty', renderMarkdown('') === '');
+            assert('renderMarkdown code', renderMarkdown('```js\nx\n```').includes('<pre>'));
+            const md = document.createElement('div'); md.innerHTML = renderMarkdown('[link](http://example.com)');
+            assert('renderMarkdown link safe', md.querySelector('a').getAttribute('href') === 'http://example.com/');
+            const report = tests.map(t => (t.ok ? '✅' : '❌') + ' ' + t.name).join('\n');
+            console.log('Self-test:\n' + report);
+            if (tests.every(t => t.ok)) console.log('All tests passed.');
+            else console.error('Some tests failed.');
+            return tests.every(t => t.ok);
+        }
+        if (location.search.includes('test=1')) runSelfTest();
     })();
     </script>
 </body>
