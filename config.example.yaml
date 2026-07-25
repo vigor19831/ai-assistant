@@ -1,47 +1,18 @@
-# =============================================================================
-# AI ASSISTANT — CONFIGURATION
-# =============================================================================
-# Copy this file to config.yaml and edit values for your setup.
-# See README.md for setup instructions.
-#
-# QUICK REFERENCE: what to change when switching LLM size
-#   4B models (Gemma-4B, Qwen-3.5-4B):
-#     llm.max_tokens: 4096, llm.temperature: 0.3, llm.server_context_size: 4096
-#     rag.prompt_name: rag_strict, rag.top_k: 3, rag.token_margin_min: 512
-#     namespaces.*.chunk_size: 512, chunker.chunk_size: 512
-#   8B+ models (Qwen3-8B, Llama-3.1-8B):
-#     llm.max_tokens: 8192, llm.temperature: 0.5, llm.server_context_size: 32768
-#     rag.prompt_name: rag_simple, rag.top_k: 10, rag.token_margin_min: 1024
-#     namespaces.*.chunk_size: 1024, chunker.chunk_size: 1024
-#   70B models:
-#     llm.max_tokens: 4096-8192, llm.temperature: 0.5, llm.server_context_size: 131072
-#     rag.prompt_name: rag_simple, rag.top_k: 15, rag.token_margin_min: 4096
-#     namespaces.*.chunk_size: 2048, chunker.chunk_size: 2048
-#   NOTE: after changing chunk_size, you MUST reindex documents.
-
 app_name: ai-assistant
 debug: false
 host: 127.0.0.1
 port: 8000
 config_version: "1"
 
-# =============================================================================
-# INFRASTRUCTURE — rarely changed
-# =============================================================================
-# These settings are environment-specific, not model-specific.
-# Change only when moving to a new machine or changing ports.
-
 cors:
-  allow_origins:
-    - "http://localhost"
-    - "http://127.0.0.1"
+  allow_origins: ["http://localhost", "http://127.0.0.1"]
   allow_credentials: true
   allow_methods: ["*"]
   allow_headers: ["*"]
 
 chat:
   history_limit: 10
-  max_context_tokens: 4096
+  max_context_tokens: 8192  # 4096 for 4B, 8192 for 8B+
 
 storage:
   provider: sqlite
@@ -51,32 +22,25 @@ security:
   api_key: local
   admin_enabled: false
   max_body_size: 10485760
-  allowed_hosts:
-    - "localhost"
-    - "127.0.0.1"
+  allowed_hosts: ["localhost", "127.0.0.1"]
   openai_routes_require_auth: true
 
 logging:
-  level: "INFO"
-  file: "./data/app.log"
-  format: "text"
+  level: INFO
+  file: ./data/app.log
+  format: text
   max_bytes: 10485760
   backup_count: 2
 
 ui:
-  static_path: "./ui"
-
-# =============================================================================
-# EMBEDDER-SPECIFIC — change when switching embedding model
-# =============================================================================
-# CRITICAL: embedder.dim MUST equal vector_store.dim below.
+  static_path: ./ui
 
 embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: nomic-embed-text-v2-moe
-  dim: 768
+  model: nomic-embed-text-v2-moe  # base name, no quant suffix
+  dim: 768  # must match vector_store.dim
   timeout: 60.0
   connect_timeout: 5.0
   n_gpu_layers: 0
@@ -85,124 +49,73 @@ embedder:
   mmap: true
   mlock: false
 
-# =============================================================================
-# RERANKER-SPECIFIC — change when switching reranker
-# =============================================================================
-# Set provider: null to disable. "local" requires server on api_base port.
-
 reranker:
-  provider: local
+  provider: null  # null to disable, local to enable
   model: bge_reranker_v2_m3
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
 
-# =============================================================================
-# VECTOR STORE — dim MUST match embedder.dim above
-# =============================================================================
-# Only change provider (faiss/memory) or paths. Dim is tied to embedder.
-
 vector_store:
   provider: faiss
   index_path: ./data/indices
   metric: cosine
-  dim: 768
+  dim: 768  # must match embedder.dim
   max_chunks: 100000
   max_document_size: 10485760
-
-# =============================================================================
-# MODEL-SPECIFIC — change when switching LLM
-# =============================================================================
-# See QUICK REFERENCE at the top of this file.
 
 llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
   api_key: null
-  model: qwen_qwen3.5-4b
+  model: google_gemma-4-E4B-it  # base name, no quant suffix
   available_models:
-    - qwen_qwen3.5-4b
-    - google_gemma-4-e2b-it
-    - google_gemma-4-e2b-it
-  max_tokens: 4096
-  temperature: 0.3
+    - Qwen_Qwen3.5-4B
+    - google_gemma-4-E4B-it
+  max_tokens: 1024  # 4B:4096, 8B+:8192, 70B:4096-8192
+  temperature: 0.3  # 4B:0.3, 8B+:0.5
   top_p: 0.95
   top_k: 40
-  min_p: 0.05
+  min_p: 0.0
   repeat_penalty: 1.1
   presence_penalty: 0.0
   frequency_penalty: 0.0
   stop_sequences: []
   timeout: 300.0
   connect_timeout: 5.0
-  server_context_size: 4096
+  server_context_size: 8192  # 4B:4096, 8B+:32768, 70B:131072
   n_gpu_layers: 999
-  n_batch: 512
-  n_ubatch: 64
+  n_batch: 32
+  n_ubatch: 16
   mmap: true
   mlock: false
 
-# =============================================================================
-# RAG TUNING — change when switching LLM size (4B vs 8B+)
-# =============================================================================
-# See QUICK REFERENCE at the top of this file.
-
 rag:
-  steps:
-    - embed_query
-    - retrieve
-    - rerank
-    - build_context
-    - generate
+  steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
-  prompt_name: rag_strict
-  top_k: 3
-  default_namespace: "test"
-  token_margin_min: 512
+  prompt_name: rag_strict  # 4B:rag_strict, 8B+:rag_simple
+  top_k: 3  # 4B:3, 8B+:10, 70B:15
+  default_namespace: test
+  token_margin_min: 1024  # 4B:512, 8B+:1024, 70B:4096
   token_margin_pct: 0.15
-
   sources:
     - namespace: test
-      path: ./data/documents/test
+      path: ./data/documents/test  # relative path, no machine-specific dirs
       include: ["*.txt"]
       recursive: false
-
-    # Example: work documents (prefix [w] in chat)
-    # - namespace: work
-    #   path: ./data/documents/work
-    #   include: ["*.md", "*.txt", "*.pdf"]
-    #   recursive: true
-
   chat_exports_root: data/chat_exports
   index_chat_exports: false
-
-# =============================================================================
-# NAMESPACE TUNING — chunk_size depends on LLM size
-# =============================================================================
-# See QUICK REFERENCE at the top of this file.
-# NOTE: After changing chunk_size, you MUST reindex documents.
 
 namespaces:
   test:
     prefix: t
-    chunk_size: 512
+    chunk_size: 256  # 4B:512, 8B+:1024, 70B:2048; reindex after change
     prompt: rag_strict
-
-# =============================================================================
-# CHUNKER — usually matches namespace chunk_size
-# =============================================================================
-# See QUICK REFERENCE at the top of this file.
 
 chunker:
   provider: simple
-  chunk_size: 512
+  chunk_size: 256  # 4B:512, 8B+:1024, 70B:2048
   chunk_overlap: 50
-
-# =============================================================================
-# TOKENIZER — rarely changed
-# =============================================================================
-# "cl100k_base" is a safe conservative estimate for all local models.
-# Change only if you need exact billing checks with OpenAI API.
 
 tokenizer:
   provider: tiktoken
