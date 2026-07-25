@@ -127,17 +127,25 @@ async def _call_search(
 
 
 async def _call_llm(
-    llm: ILLM, messages: list[Message], config: RetryConfig, sampling: SamplingConfig | None = None
+    llm: ILLM,
+    messages: list[Message],
+    config: RetryConfig,
+    sampling: SamplingConfig | None = None,
 ) -> AssistantMessage:
     """Call LLM with retry."""
-    kwargs: dict[str, object] = {}
     if sampling is not None:
-        kwargs["max_tokens"] = sampling.max_tokens
-        kwargs["temperature"] = sampling.temperature
-        kwargs["top_p"] = sampling.top_p
-        if sampling.stop_sequences:
-            kwargs["stop"] = list(sampling.stop_sequences)
-    return await retry_with_config(lambda: llm.complete(messages, **kwargs), config)
+        stop = list(sampling.stop_sequences) if sampling.stop_sequences else None
+        return await retry_with_config(
+            lambda: llm.complete(
+                messages,
+                max_tokens=sampling.max_tokens,
+                temperature=sampling.temperature,
+                top_p=sampling.top_p,
+                stop=stop,
+            ),
+            config,
+        )
+    return await retry_with_config(lambda: llm.complete(messages), config)
 
 
 async def _call_rerank(

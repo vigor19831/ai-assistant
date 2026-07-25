@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.config import RAGStep
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
+from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
     SystemMessage,
     UserMessage,
 )
-from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline

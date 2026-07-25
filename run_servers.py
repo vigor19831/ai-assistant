@@ -152,8 +152,11 @@ def _start_llm_server(cfg: dict, root: Path, llama_log: Path) -> None:
         "--host", "127.0.0.1", "--port", str(LLM_PORT),
         "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
         "-c", str(llm_cfg.get("server_context_size", 4096)),
+        "--parallel", "1",
         "-lv", "1",
     ]
+    if llm_cfg.get("flash_attn"):
+        cmd.extend(["--flash-attn", "on"])
     _run(cmd, llama_log)
     if wait_port(LLM_PORT):
         print(f"  + LLM ready  http://127.0.0.1:{LLM_PORT}\n")
