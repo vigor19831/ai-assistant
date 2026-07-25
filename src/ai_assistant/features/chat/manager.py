@@ -9,12 +9,14 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.config import RAGStep
+from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
     AssistantMessage,
     SystemMessage,
     UserMessage,
 )
+from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.pipeline import RAGPipeline
@@ -127,6 +129,8 @@ class ChatManager:
         tokenizer: ITokenizer | None = None,
         rag_steps: list[RAGStep] | None = None,
         system_message: str | None = None,
+        sampling: SamplingConfig | None = None,
+        min_relevance_score: float | None = None,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
@@ -142,6 +146,8 @@ class ChatManager:
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
+        self.sampling = sampling
+        self.min_relevance_score = min_relevance_score
         self._prefix_map = build_prefix_map(self.namespaces)
 
         # Build pipeline internally — ChatManager owns its pipeline.
@@ -279,10 +285,13 @@ class ChatManager:
         pipeline_config = PipelineConfig(
             top_k=self.top_k,
             namespace=namespace,
-            prompt_name=ns_cfg.prompt if ns_cfg else "rag_strict",
+            prompt_name=ns_cfg.prompt if ns_cfg else DEFAULT_RAG_PROMPT,
             prompt_version=self.prompt_version,
             token_margin_min=self.token_margin_min,
             token_margin_pct=self.token_margin_pct,
+            system_message=self.system_message,
+            sampling=self.sampling or SamplingConfig(),
+            min_relevance_score=self.min_relevance_score,
         )
 
         data = PipelineData(

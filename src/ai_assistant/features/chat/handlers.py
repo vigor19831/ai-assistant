@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ai_assistant.api.deps import InitializedAppState, get_state
+from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG, AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.features.chat.manager import ChatManager
@@ -47,6 +48,8 @@ def get_chat_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> ChatManager:
     """Create ChatManager from state adapters — pipeline is built internally."""
+    llm_cfg = state.config.llm
+    rag_cfg = state.config.rag
     return ChatManager(
         llm=state.llm,
         reranker=state.reranker,
@@ -56,12 +59,19 @@ def get_chat_manager(
         embedder=state.embedder,
         vector_store=state.vector_store,
         namespaces=state.config.namespaces,
-        prompt_version=state.config.rag.prompt_version,
-        top_k=state.config.rag.top_k,
-        token_margin_min=state.config.rag.token_margin_min,
-        token_margin_pct=state.config.rag.token_margin_pct,
+        prompt_version=rag_cfg.prompt_version,
+        top_k=rag_cfg.top_k,
+        token_margin_min=rag_cfg.token_margin_min,
+        token_margin_pct=rag_cfg.token_margin_pct,
         tokenizer=state.tokenizer,
-        system_message=state.config.llm.system_message,
+        system_message=llm_cfg.system_message,
+        sampling=SamplingConfig(
+            max_tokens=llm_cfg.max_tokens,
+            temperature=llm_cfg.temperature,
+            top_p=llm_cfg.top_p,
+            stop_sequences=tuple(llm_cfg.stop_sequences),
+        ),
+        min_relevance_score=rag_cfg.min_relevance_score,
     )
 
 

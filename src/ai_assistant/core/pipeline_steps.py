@@ -10,7 +10,7 @@ import asyncio
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from ai_assistant.core.domain.configs import RetryConfig
+from ai_assistant.core.domain.configs import RetryConfig, SamplingConfig
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
@@ -127,10 +127,17 @@ async def _call_search(
 
 
 async def _call_llm(
-    llm: ILLM, messages: list[Message], config: RetryConfig
+    llm: ILLM, messages: list[Message], config: RetryConfig, sampling: SamplingConfig | None = None
 ) -> AssistantMessage:
     """Call LLM with retry."""
-    return await retry_with_config(lambda: llm.complete(messages), config)
+    kwargs: dict[str, object] = {}
+    if sampling is not None:
+        kwargs["max_tokens"] = sampling.max_tokens
+        kwargs["temperature"] = sampling.temperature
+        kwargs["top_p"] = sampling.top_p
+        if sampling.stop_sequences:
+            kwargs["stop"] = list(sampling.stop_sequences)
+    return await retry_with_config(lambda: llm.complete(messages, **kwargs), config)
 
 
 async def _call_rerank(
@@ -198,7 +205,7 @@ async def condense_question(data: PipelineData) -> PipelineData:
 
     try:
         response = await _call_llm(
-            llm, [UserMessage(text=prompt)], retry_cfg
+            llm, [UserMessage(text=prompt)], retry_cfg, sampling=cfg.sampling
         )
         condensed = response.text.strip() if response.text else ""
         if not condensed:
@@ -340,6 +347,9 @@ async def rerank(data: PipelineData) -> PipelineData:
 
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
+        if cfg.min_relevance_score is not None:
+            results = [r for r in results if r.score >= cfg.min_relevance_score]
+
         if results:
             scores = [r.score for r in results]
             _logger.debug(
@@ -381,9 +391,11 @@ async def build_context(data: PipelineData) -> PipelineData:
     if not data.chunks:
         return data.with_context("")
     lines: list[str] = []
+    seen: set[str] = set()
     for i, chunk in enumerate(data.chunks, start=1):
-        if not chunk.text:
+        if not chunk.text or chunk.id in seen:
             continue
+        seen.add(chunk.id)
         lines.append(f"[Document {i}]\n{chunk.text}")
     context = "\n\n".join(lines)
     _logger.debug(
@@ -550,7 +562,7 @@ async def generate(data: PipelineData) -> PipelineData:
     response: AssistantMessage | None = None
 
     try:
-        response = await _call_llm(llm, messages, retry_cfg)
+        response = await _call_llm(llm, messages, retry_cfg, sampling=cfg.sampling)
     except AdapterError as exc:
         _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_UNAVAILABLE, detail=str(exc)).with_response(
@@ -602,7 +614,7 @@ async def hyde_query(data: PipelineData) -> PipelineData:
         )
     ]
     try:
-        hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages, retry_cfg)
+        hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages, retry_cfg, sampling=cfg.sampling)
     except Exception as exc:
         _logger.exception(
             "hyde_query: LLM call failed", extra={"trace_id": data.trace_id}

@@ -188,3 +188,20 @@ class RetryConfig:
     backoff: float = 2.0
     max_delay: float | None = None
     jitter: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SamplingConfig:
+    """Configuration for LLM sampling parameters.
+
+    Attributes:
+        max_tokens: Maximum tokens to generate per completion.
+        temperature: Sampling temperature (0.0 = deterministic, 1.0 = random).
+        top_p: Nucleus sampling probability threshold.
+        stop_sequences: Sequences that stop generation.
+    """
+
+    max_tokens: int = 1024
+    temperature: float = 0.3
+    top_p: float = 0.95
+    stop_sequences: tuple[str, ...] = ()

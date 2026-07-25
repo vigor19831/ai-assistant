@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
-from .configs import RetryConfig
+from .configs import RetryConfig, SamplingConfig
 
 if TYPE_CHECKING:
     from .documents import Chunk
@@ -52,6 +52,8 @@ class PipelineConfig:
     token_margin_pct: float = 0.1
     retry: RetryConfig = field(default_factory=RetryConfig)
     system_message: str | None = None
+    sampling: SamplingConfig = field(default_factory=SamplingConfig)
+    min_relevance_score: float | None = None
 
     def __post_init__(self) -> None:
         if self.top_k < 1:

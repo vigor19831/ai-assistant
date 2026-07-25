@@ -212,6 +212,7 @@ class RAGConfig(BaseSettings):
     max_tool_iterations: int = 5
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
+    min_relevance_score: float | None = None
     sources: list[SourceConfig] = Field(default_factory=list)
     chat_exports_root: str = "data/chat_exports"
     index_chat_exports: bool = False

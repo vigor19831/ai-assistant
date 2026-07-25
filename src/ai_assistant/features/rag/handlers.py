@@ -17,6 +17,7 @@ from ai_assistant.api.deps import (
     get_state,
 )
 from ai_assistant.core.config import get_chat_namespace
+from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -45,14 +46,23 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 def _get_rag_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> RAGManager:
+    llm_cfg = state.config.llm
+    rag_cfg = state.config.rag
     return RAGManager(
         llm=state.llm,
         vector_store=state.vector_store,
         embedder=state.embedder,
         reranker=state.reranker,
-        token_margin_min=state.config.rag.token_margin_min,
-        token_margin_pct=state.config.rag.token_margin_pct,
+        token_margin_min=rag_cfg.token_margin_min,
+        token_margin_pct=rag_cfg.token_margin_pct,
         tokenizer=state.tokenizer,
+        sampling=SamplingConfig(
+            max_tokens=llm_cfg.max_tokens,
+            temperature=llm_cfg.temperature,
+            top_p=llm_cfg.top_p,
+            stop_sequences=tuple(llm_cfg.stop_sequences),
+        ),
+        min_relevance_score=rag_cfg.min_relevance_score,
     )
 
 

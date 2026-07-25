@@ -6,6 +6,8 @@ import time
 from dataclasses import replace
 from typing import Any
 
+from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
+from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import ConfigurationError
 from ai_assistant.core.domain.messages import UserMessage
@@ -142,6 +144,8 @@ class RAGManager:
         tokenizer: ITokenizer | None = None,
         rag_steps: list[str] | None = None,
         system_message: str | None = None,
+        sampling: SamplingConfig | None = None,
+        min_relevance_score: float | None = None,
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
@@ -170,12 +174,14 @@ class RAGManager:
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
         self.system_message = system_message
+        self.sampling = sampling
+        self.min_relevance_score = min_relevance_score
 
     async def query(
         self,
         query_text: str,
         top_k: int = 5,
-        prompt_name: str = "rag_strict",
+        prompt_name: str = DEFAULT_RAG_PROMPT,
         prompt_version: str = "v1",
         namespace: str = "default",
     ) -> dict[str, Any]:
@@ -191,6 +197,8 @@ class RAGManager:
             token_margin_min=self.token_margin_min,
             token_margin_pct=self.token_margin_pct,
             system_message=self.system_message,
+            sampling=self.sampling or SamplingConfig(),
+            min_relevance_score=self.min_relevance_score,
         )
         data = PipelineData(
             query=UserMessage(text=query_text),

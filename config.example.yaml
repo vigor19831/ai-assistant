@@ -11,8 +11,8 @@ cors:
   allow_headers: ["*"]
 
 chat:
-  history_limit: 10
-  max_context_tokens: 8192  # 4096 for 4B, 8192 for 8B+
+  history_limit: 10                     # 4B model: 10 | 8B+: 20-50 | 70B: 100+
+  max_context_tokens: 4096              # 4B: 4096 | 8B+: 8192 | 70B: 32768+
 
 storage:
   provider: sqlite
@@ -39,18 +39,18 @@ embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: nomic-embed-text-v2-moe  # base name, no quant suffix
-  dim: 768  # must match vector_store.dim
+  model: nomic-embed-text-v2-moe        # light: nomic-embed-text-v1.5 | heavy: v2-moe
+  dim: 768                              # v1.5: 768 | MiniLM: 384 | must match vector_store.dim
   timeout: 60.0
   connect_timeout: 5.0
-  n_gpu_layers: 0
-  n_batch: 128
-  n_ubatch: 32
+  n_gpu_layers: 0                       # 0 = CPU only (save VRAM) | 10+ = if VRAM free
+  n_batch: 128                          # 4GB VRAM: 128 | 12GB+: 512
+  n_ubatch: 32                          # 4GB: 32 | 12GB+: 128
   mmap: true
   mlock: false
 
 reranker:
-  provider: null  # null to disable, local to enable
+  provider: local                       # null = disable (low RAM) | local = enable
   model: bge_reranker_v2_m3
   api_base: http://127.0.0.1:8082
   api_key: null
@@ -60,7 +60,7 @@ vector_store:
   provider: faiss
   index_path: ./data/indices
   metric: cosine
-  dim: 768  # must match embedder.dim
+  dim: 768                              # must match embedder.dim
   max_chunks: 100000
   max_document_size: 10485760
 
@@ -68,39 +68,40 @@ llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
   api_key: null
-  model: google_gemma-4-E4B-it  # base name, no quant suffix
+  model: google_gemma-4-E4B-it
   available_models:
     - Qwen_Qwen3.5-4B
     - google_gemma-4-E4B-it
-  max_tokens: 1024  # 4B:4096, 8B+:8192, 70B:4096-8192
-  temperature: 0.3  # 4B:0.3, 8B+:0.5
-  top_p: 0.95
-  top_k: 40
-  min_p: 0.0
-  repeat_penalty: 1.1
-  presence_penalty: 0.0
-  frequency_penalty: 0.0
+  max_tokens: 1024                      # 4B: 1024 | 8B+: 4096 | 70B: 8192
+  temperature: 0.3                      # 4B: 0.3 | 8B+: 0.5-0.7 | 70B: 0.7-0.9
+  top_p: 0.95                           # 4B: 0.90-0.95 | 8B+: 0.95
+  top_k: 40                             # 4B: 20-40 | 8B+: 40 | 70B: 40-80
+  min_p: 0.0                            # 4B: 0.0 | 8B+: 0.0-0.05 | 70B: 0.05-0.1
+  repeat_penalty: 1.1                   # 4B: 1.1-1.15 | 8B+: 1.0-1.05 | 70B: 1.0
+  presence_penalty: 0.0                 # 4B: 0.0 | 8B+: 0.0-0.5 | 70B: 0.0-1.0
+  frequency_penalty: 0.0                # 4B: 0.0 | 8B+: 0.0-0.5 | 70B: 0.0-1.0
   stop_sequences: []
   timeout: 300.0
   connect_timeout: 5.0
-  server_context_size: 8192  # 4B:4096, 8B+:32768, 70B:131072
-  n_gpu_layers: 999
-  n_batch: 32
-  n_ubatch: 16
+  server_context_size: 4096             # 4B: 4096 | 8B+: 32768 | 70B: 131072
+  n_gpu_layers: 12                      # CPU: 0 | 4GB VRAM: 10-15 | 12GB: 25-35 | 24GB+: all
+  n_batch: 64                           # 4GB: 64 | 12GB: 128 | 24GB+: 512
+  n_ubatch: 32                          # 4GB: 32 | 12GB: 64 | 24GB+: 128
   mmap: true
   mlock: false
 
 rag:
   steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
-  prompt_name: rag_strict  # 4B:rag_strict, 8B+:rag_simple
-  top_k: 3  # 4B:3, 8B+:10, 70B:15
+  prompt_name: rag_strict               # 4B: rag_strict | 8B+: rag_simple
+  top_k: 3                              # 4B: 3 | 8B+: 10 | 70B: 15
   default_namespace: test
-  token_margin_min: 1024  # 4B:512, 8B+:1024, 70B:4096
-  token_margin_pct: 0.15
+  token_margin_min: 512                 # 4B: 512 | 8B+: 1024 | 70B: 4096
+  token_margin_pct: 0.15                # 4B: 0.15 | 8B+: 0.20 | 70B: 0.25
+min_relevance_score: 0.35               # 4B: 0.35 | 8B+: 0.30 | 70B: 0.25 — small models need cleaner context; adjust to your document noise level
   sources:
     - namespace: test
-      path: ./data/documents/test  # relative path, no machine-specific dirs
+      path: ./data/documents/test
       include: ["*.txt"]
       recursive: false
   chat_exports_root: data/chat_exports
@@ -109,13 +110,13 @@ rag:
 namespaces:
   test:
     prefix: t
-    chunk_size: 256  # 4B:512, 8B+:1024, 70B:2048; reindex after change
-    prompt: rag_strict
+    chunk_size: 512                     # 4B: 512 | 8B+: 1024 | 70B: 2048 (reindex after change)
+    prompt: rag_strict                  # 4B: rag_strict | 8B+: rag_simple
 
 chunker:
   provider: simple
-  chunk_size: 256  # 4B:512, 8B+:1024, 70B:2048
-  chunk_overlap: 50
+  chunk_size: 512                       # 4B: 512 | 8B+: 1024 | 70B: 2048
+  chunk_overlap: 100                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
 
 tokenizer:
   provider: tiktoken
