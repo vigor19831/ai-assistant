@@ -11,8 +11,8 @@ cors:
   allow_headers: ["*"]
 
 chat:
-  history_limit: 10                     # 4B model: 10 | 8B+: 20-50 | 70B: 100+
-  max_context_tokens: 2048              # 4B: 2048-4096 | 8B+: 8192 | 70B: 32768+
+  history_limit: 6                     # 4B model: 5-10 | 8B+: 20-50 | 70B: 100+
+  max_context_tokens: 1536              # 4B: 1024-4096 | 8B+: 8192 | 70B: 32768+
 
 storage:
   provider: sqlite
@@ -72,11 +72,11 @@ llm:
   available_models:
     - google_gemma-4-E4B-it
   max_tokens: 1024                      # 4B: 1024-2048 | 8B+: 4096 | 70B: 8192
-  temperature: 0.3                      # 4B: 0.3 | 8B+: 0.5-0.7 | 70B: 0.7-0.9
-  top_p: 0.95                           # 4B: 0.90-0.95 | 8B+: 0.95
-  top_k: 40                             # 4B: 20-40 | 8B+: 40 | 70B: 40-80
+  temperature: 0.1                      # 4B: 0.1-0.3 | 8B+: 0.5-0.7 | 70B: 0.7-0.9
+  top_p: 0.90                           # 4B: 0.90-0.95 | 8B+: 0.95
+  top_k: 20                             # 4B: 20-40 | 8B+: 40 | 70B: 40-80
   min_p: 0.0                            # 4B: 0.0 | 8B+: 0.0-0.05 | 70B: 0.05-0.1
-  repeat_penalty: 1.1                   # 4B: 1.1-1.15 | 8B+: 1.0-1.05 | 70B: 1.0
+  repeat_penalty: 1.15                   # 4B: 1.1-1.15 | 8B+: 1.0-1.05 | 70B: 1.0
   presence_penalty: 0.0                 # 4B: 0.0 | 8B+: 0.0-0.5 | 70B: 0.0-1.0
   frequency_penalty: 0.0                # 4B: 0.0 | 8B+: 0.0-0.5 | 70B: 0.0-1.0
   stop_sequences: []
@@ -93,11 +93,11 @@ rag:
   steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
   prompt_name: rag_strict               # 4B: rag_strict | 8B+: rag_simple
-  top_k: 4                              # 4B: 3 | 8B+: 10 | 70B: 15
+  top_k: 6                              # 4B: 3-8 | 8B+: 10 | 70B: 15
   default_namespace: test
   token_margin_min: 512                 # 4B: 512 | 8B+: 1024 | 70B: 4096
   token_margin_pct: 0.15                # 4B: 0.15 | 8B+: 0.20 | 70B: 0.25
-  min_relevance_score: 0.35               # 4B: 0.35 | 8B+: 0.30 | 70B: 0.25 — small models need cleaner context; adjust to your document noise level
+  min_relevance_score: 0.28               # 4B: 0.35 | 8B+: 0.30 | 70B: 0.25 — small models need cleaner context; adjust to your document noise level
   sources:
     - namespace: test
       path: ./data/documents/test
@@ -109,13 +109,13 @@ rag:
 namespaces:
   test:
     prefix: t
-    chunk_size: 256                     # 4B: 256-512 | 8B+: 1024 | 70B: 2048 (reindex after change)
+    chunk_size: 512                     # 4B: 256-512 | 8B+: 1024 | 70B: 2048 (reindex after change)
     prompt: rag_strict                  # 4B: rag_strict | 8B+: rag_simple
 
 chunker:
   provider: simple
-  chunk_size: 256                       # 4B: 256-512 | 8B+: 1024 | 70B: 2048
-  chunk_overlap: 50                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
+  chunk_size: 512                       # 4B: 256-512 | 8B+: 1024 | 70B: 2048
+  chunk_overlap: 100                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
 
 tokenizer:
   provider: tiktoken

@@ -86,12 +86,12 @@ rag:
 
 # 5. Namespace prefix for chat
 #    prefix: single character used in chat, e.g. [m] query
-#    prompt: rag_strict | rag_default | rag_creative
+#    prompt: rag_strict | rag_simple
 namespaces:
   mydocs:
     prefix: m
     chunk_size: 512
-    prompt: rag_strict
+    prompt: rag_strict | rag_simple
 ```
 
 ### 3. Download Tokenizers (local models only)
