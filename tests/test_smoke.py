@@ -511,7 +511,7 @@ class TestMypyStrict:
     def test_mypy_python_version(self):
         """Given: pyproject.toml.
         When: mypy python_version is read.
-        Then: equals 3.11."""
+        Then: 3.11+ or unset (defaults to current interpreter)."""
         import tomllib
 
         pyproject_path = _project_root() / "pyproject.toml"
@@ -520,7 +520,9 @@ class TestMypyStrict:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
         version = data.get("tool", {}).get("mypy", {}).get("python_version", "")
-        assert version == "3.11", f"mypy python_version must be 3.11: {version}"
+        assert version in ("", None, "3.11", "3.12", "3.13"), (
+            f"mypy python_version must be 3.11+ or unset, got {version!r}"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

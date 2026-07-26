@@ -53,6 +53,7 @@ Never:
 - `print()`, `pprint()`, `logging.basicConfig()` -- use `get_logger(name)` only
 - Orphaned code -- remove callee if last caller removed
 - Add a dependency without immediately updating `pyproject.toml` / `requirements.txt`
+- Python syntax requiring version > 3.11. Forbidden: `type` statements (PEP 695), `typing.TypeAliasType`, `warnings.deprecated`, and any 3.12+ only forms. Project minimum is 3.11.
 
 Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, LRU eviction in `MemoryVectorStore` until RAM pressure measured, prompt registry / semver until 5+ versions in active use.
 

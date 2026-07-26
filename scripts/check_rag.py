@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import signal
+import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +37,119 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent
 
 _SEP = "─" * 60
 _SEP_RESULT = "=" * 60
+
+
+# ── Embedded resource monitor ────────────────────────────────────────────────
+
+class _ResourceMonitor:
+    """Background sampler for RAM/CPU/GPU. Writes plain text to data/."""
+
+    def __init__(self, interval: float = 3.0) -> None:
+        self.interval = interval
+        self.lines: list[str] = []
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._start_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _sample(self) -> None:
+        ts = datetime.now().strftime("%H:%M:%S")
+        parts = [ts]
+
+        # RAM / CPU
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            ram_used = round(mem.used / (1024 ** 3), 2)
+            ram_total = round(mem.total / (1024 ** 3), 2)
+            ram_pct = mem.percent
+            cpu = psutil.cpu_percent(interval=0.5)
+            parts += [f"{ram_used:.2f}", f"{ram_total:.2f}", f"{ram_pct:.1f}", f"{cpu:.1f}"]
+        except Exception:
+            parts += ["0.00", "0.00", "0.0", "0.0"]
+
+        # GPU
+        try:
+            smi = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if smi.returncode == 0 and smi.stdout.strip():
+                p = [x.strip() for x in smi.stdout.strip().split(",")]
+                parts += [p[0], f"{p[1]}/{p[2]}", p[3]]
+            else:
+                raise RuntimeError("nvidia-smi empty")
+        except Exception:
+            parts += ["N/A", "N/A", "N/A"]
+
+        self.lines.append("  ".join(parts))
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            self._sample()
+            self._stop.wait(self.interval)
+
+    def start(self) -> None:
+        self.lines.append(f"=== Resource Monitor: {self._start_ts} ===")
+        self.lines.append(f"Interval: {self.interval}s")
+        self.lines.append("")
+        self.lines.append("Time     RAM_Used  RAM_Total  RAM%   CPU%   GPU%   VRAM_Used/Total  Temp_C")
+        self.lines.append("-" * 70)
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+        if len(self.lines) <= 4:
+            return
+
+        # Parse numeric values for summary
+        ram_vals: list[float] = []
+        vram_vals: list[int] = []
+        temp_vals: list[int] = []
+        for line in self.lines:
+            if line.startswith("=") or line.startswith("Interval") or line.startswith("Time") or line.startswith("-"):
+                continue
+            cols = line.split()
+            if len(cols) >= 5:
+                with contextlib.suppress(ValueError):
+                    ram_vals.append(float(cols[1]))
+            if len(cols) >= 8:
+                vram_part = cols[6]
+                if "/" in vram_part:
+                    with contextlib.suppress(ValueError):
+                        vram_vals.append(int(vram_part.split("/")[0]))
+                with contextlib.suppress(ValueError):
+                    temp_vals.append(int(cols[7]))
+
+        self.lines.append("")
+        self.lines.append("=== Summary ===")
+        if ram_vals:
+            self.lines.append(f"Peak RAM:  {max(ram_vals):.2f} GB")
+        if vram_vals:
+            self.lines.append(f"Peak VRAM: {max(vram_vals)} MB")
+        if temp_vals:
+            self.lines.append(f"Peak Temp: {max(temp_vals)} C")
+
+        log = _PROJECT_ROOT / "data" / f"check_rag_perf_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log.write_text("\n".join(self.lines), encoding="utf-8")
+        print(f"\n[Monitor] Log saved: {log}")
+        if ram_vals:
+            print(f"[Monitor] Peak RAM:  {max(ram_vals):.2f} GB")
+        if vram_vals:
+            print(f"[Monitor] Peak VRAM: {max(vram_vals)} MB")
+        if temp_vals:
+            print(f"[Monitor] Peak Temp: {max(temp_vals)} C")
+
 
 # Module-level state for logging restoration
 _orig_stdout: Any | None = None
@@ -59,7 +176,8 @@ class _Tee:
 def _setup_logging() -> Path:
     log_dir = _PROJECT_ROOT / "data"
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / "check_rag_last.log"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"check_rag_{ts}.log"
     global _orig_stdout, _orig_stderr, _log_file_handle
     _orig_stdout = sys.stdout
     _orig_stderr = sys.stderr
@@ -651,6 +769,9 @@ def main() -> int:
         raise KeyboardInterrupt
     signal.signal(signal.SIGINT, _on_sigint)
 
+    monitor = _ResourceMonitor(interval=3.0)
+    monitor.start()
+
     try:
         if not args.skip_index:
             ok = asyncio.run(index_all(args.url, args.api_key, TEST_SOURCES))
@@ -670,6 +791,7 @@ def main() -> int:
         return 1
     finally:
         _restore_logging()
+        monitor.stop()
 
 
 if __name__ == "__main__":
