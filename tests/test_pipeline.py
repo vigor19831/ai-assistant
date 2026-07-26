@@ -86,6 +86,10 @@ class FakeLLM:
         messages: list,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
     ) -> AssistantMessage:
         return AssistantMessage(text=self._response)
 
@@ -494,7 +498,16 @@ class TestGenerate:
         captured_messages: list = []
 
         class ValidLimitLLM:
-            async def complete(self, messages, max_tokens=None, temperature=None):
+            async def complete(
+                self,
+                messages,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+                stop=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+            ):
                 captured_messages.extend(messages)
                 return AssistantMessage(text="fallback")
 
@@ -528,7 +541,16 @@ class TestGenerate:
         captured_messages: list = []
 
         class CapturingLLM:
-            async def complete(self, messages, max_tokens=None, temperature=None):
+            async def complete(
+                self,
+                messages,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+                stop=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+            ):
                 captured_messages.extend(messages)
                 return AssistantMessage(text="captured")
 
@@ -595,7 +617,16 @@ class TestGenerate:
         When: generate is called.
         Then: PipelineData returned with error and fallback response."""
         class FailingLLM:
-            async def complete(self, messages, max_tokens=None, temperature=None):
+            async def complete(
+                self,
+                messages,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+                stop=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+            ):
                 raise AdapterError("LLM down")
 
             def get_context_limit(self) -> int | None:
@@ -625,7 +656,16 @@ class TestGenerate:
         When: generate is called.
         Then: error response without exception; no TypeError."""
         class NoLimitLLM:
-            async def complete(self, messages, max_tokens=None, temperature=None):
+            async def complete(
+                self,
+                messages,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+                stop=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+            ):
                 return AssistantMessage(text="should not reach")
 
             def get_context_limit(self) -> int | None:
@@ -657,7 +697,16 @@ class TestGenerate:
         captured_calls: list = []
 
         class CapturingLLM:
-            async def complete(self, messages, max_tokens=None, temperature=None):
+            async def complete(
+                self,
+                messages,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+                stop=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+            ):
                 captured_calls.append(messages)
                 return AssistantMessage(text="I don't have specific information about that.")
 
@@ -867,7 +916,16 @@ class TestCondenseQuestion:
         When: condense_question is called.
         Then: error added; original query preserved as fallback."""
         class FailingLLM:
-            async def complete(self, messages, max_tokens=None, temperature=None):
+            async def complete(
+                self,
+                messages,
+                max_tokens=None,
+                temperature=None,
+                top_p=None,
+                stop=None,
+                frequency_penalty=None,
+                presence_penalty=None,
+            ):
                 raise AdapterError("LLM down")
 
         data = PipelineData(
