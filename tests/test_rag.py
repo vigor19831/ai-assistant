@@ -1502,6 +1502,26 @@ class TestRAGHandlersTraceId:
         _assert_all_logs_have_trace_id(caplog)
 
     @pytest.mark.asyncio
+    async def test_query_rag_empty_query_returns_guard_response(self, caplog, mock_state):
+        """Given: empty query string (edge-3 from check_rag.py).
+        When: query_rag handler called.
+        Then: returns guard response without calling manager; logs trace_id."""
+        caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
+
+        mock_manager = MagicMock()
+        mock_manager.query = AsyncMock()
+
+        req = QueryRequest(query="", namespace="default")
+        resp = await query_rag(req, mock_manager, mock_state)
+
+        assert "please provide" in resp.answer.lower()
+        assert resp.sources == []
+        assert resp.chunks_used == 0
+        assert resp.errors == []
+        mock_manager.query.assert_not_awaited()
+        _assert_all_logs_have_trace_id(caplog)
+
+    @pytest.mark.asyncio
     async def test_delete_chunks_logs_trace_id(self, caplog, mock_state):
         caplog.set_level(logging.INFO, logger="ai_assistant.rag.handlers")
         mock_state.vector_store.delete = AsyncMock()

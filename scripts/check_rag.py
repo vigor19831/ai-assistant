@@ -235,6 +235,8 @@ class TestCase:
     require_faithfulness: bool = True
     # All facts in answer must be traceable to sources (for multihop)
     require_source_coverage: bool = False
+    # Language tag for filtering and cross-lingual tests
+    lang: str = "en"
     description: str = ""
 
 
@@ -255,15 +257,39 @@ TEST_SOURCES: list[SourceDoc] = [
         "tech",
         "Python is a high-level general-purpose programming language. It was created by Guido van Rossum and first released in 1991. Python supports multiple programming paradigms.",
     ),
+    # Russian personal namespace
+    SourceDoc(
+        "personal_ru",
+        "Мой любимый цвет — синий. Я выбрал его в детстве, потому что он напоминает мне о море и небе. Это мой единственный любимый цвет.",
+    ),
+    SourceDoc(
+        "personal_ru",
+        "Я работаю программистом с 2020 года. Мой основной язык — Python. До этого я работал системным администратором.",
+    ),
+    # Russian tech namespace
+    SourceDoc(
+        "tech_ru",
+        "Python — это высокоуровневый язык программирования общего назначения. Он был создан Гвидо ван Россумом и впервые выпущен в 1991 году. Python поддерживает несколько парадигм программирования.",
+    ),
     # Noise document in personal — RAG must ignore it
     SourceDoc(
         "personal",
         "I love eating apples. Apples are red and crunchy. My favorite fruit is definitely the apple because it is healthy and sweet.",
     ),
+    # Noise document in personal_ru — RAG must ignore it
+    SourceDoc(
+        "personal_ru",
+        "Я люблю есть яблоки. Яблоки красные и хрустящие. Мой любимый фрукт — яблоко, потому что оно полезное и сладкое.",
+    ),
     # Contradictory doc — isolated in separate namespace for deterministic conflict tests
     SourceDoc(
         "personal_conflict",
         "My favorite color is red. I changed it last year.",
+    ),
+    # Russian contradictory doc
+    SourceDoc(
+        "personal_conflict_ru",
+        "Мой любимый цвет — красный. Я изменил его в прошлом году.",
     ),
 ]
 
@@ -490,27 +516,7 @@ TEST_CASES: list[TestCase] = [
         description="Prompt injection. Must not obey hidden commands. Should refuse or say 'don't know'.",
     ),
 
-    # 15. Empty query — must handle gracefully.
-    TestCase(
-        test_id="edge-3",
-        query="",
-        namespace="personal",
-        answer_must_contain_any=(
-            "don't know",
-            "not sure",
-            "no information",
-            "not mentioned",
-            "cannot answer",
-            "please provide",
-            "missing",
-        ),
-        answer_must_not_contain=("blue", "python", "apple"),
-        expect_sources=False,
-        require_faithfulness=False,
-        description="Empty string. Must not crash and must not invent answer.",
-    ),
-
-    # 16. Conflict resolution — contradictory facts in isolated namespace.
+    # 15. Conflict resolution — contradictory facts in isolated namespace.
     TestCase(
         test_id="conflict-1",
         query="What is my favorite color?",
@@ -526,7 +532,7 @@ TEST_CASES: list[TestCase] = [
         description="Two documents: color=blue and color=red. Must not invent a third color or mix them silently.",
     ),
 
-    # 17. Model must not emit dialog markers (protect against chat format leakage).
+    # 16. Model must not emit dialog markers (protect against chat format leakage).
     TestCase(
         test_id="format-1",
         query="What is my favorite color?",
@@ -543,6 +549,86 @@ TEST_CASES: list[TestCase] = [
         sources_must_contain=("blue",),
         require_faithfulness=True,
         description="Answer must not contain role markers from the chat template.",
+    ),
+
+    # ── Russian & cross-lingual suite ───────────────────────────────────────
+
+    # 17. Cross-lingual retrieval: English query against Russian document.
+    TestCase(
+        test_id="cross-1",
+        query="What is my favorite color?",
+        namespace="personal_ru",
+        lang="cross",
+        answer_must_contain_any=("blue", "синий"),
+        answer_must_not_contain=("red", "green", "yellow"),
+        expect_sources=True,
+        sources_must_contain=("синий", "море"),
+        sources_must_not_contain=("яблоко", "фрукт"),
+        require_faithfulness=True,
+        description="English query must retrieve Russian document. Tests cross-lingual embedding quality.",
+    ),
+
+    # 18. Monolingual Russian retrieval.
+    TestCase(
+        test_id="retrieval-ru-1",
+        query="Какой мой любимый цвет?",
+        namespace="personal_ru",
+        lang="ru",
+        answer_must_contain_any=("синий", "blue"),
+        answer_must_not_contain=("красный", "зелёный", "жёлтый"),
+        expect_sources=True,
+        sources_must_contain=("синий", "море", "небе"),
+        sources_must_not_contain=("яблоко", "фрукт"),
+        require_faithfulness=True,
+        description="Russian query to Russian document. Tests monolingual retrieval.",
+    ),
+
+    # 19. Missing data in Russian context — must reject in English (API language).
+    TestCase(
+        test_id="missing-ru-1",
+        query="What is my favorite food?",
+        namespace="personal_ru",
+        lang="cross",
+        answer_must_contain_any=(
+            "don't know",
+            "not sure",
+            "no information",
+            "not mentioned",
+            "cannot answer",
+            "please provide",
+        ),
+        answer_must_not_contain=("pizza", "sushi", "burger", "apple", "яблоко"),
+        expect_sources=False,
+        require_faithfulness=False,
+        description="No food data in Russian index. Must reject in English API language.",
+    ),
+
+    # 20. Semantic retrieval in Russian.
+    TestCase(
+        test_id="semantic-ru-1",
+        query="Какой оттенок я предпочитаю?",
+        namespace="personal_ru",
+        lang="ru",
+        answer_must_contain_any=("синий", "blue"),
+        expect_sources=True,
+        sources_must_contain=("синий",),
+        require_faithfulness=True,
+        description="Synonym retrieval in Russian ('оттенок' vs 'цвет'). Tests embedding quality.",
+    ),
+
+    # 21. Conflict resolution — Russian contradictory facts.
+    TestCase(
+        test_id="conflict-ru-1",
+        query="Какой мой любимый цвет?",
+        namespace="personal_conflict_ru",
+        lang="ru",
+        answer_must_contain_any=("синий", "красный", "conflict", "contradict"),
+        answer_must_not_contain=("фиолетовый", "зелёный", "жёлтый", "оранжевый"),
+        expect_sources=True,
+        sources_must_contain_any=("синий", "красный"),
+        sources_must_not_contain=("яблоко", "фрукт"),
+        require_faithfulness=True,
+        description="Two Russian documents: color=blue and color=red. Must not invent third color.",
     ),
 ]
 
@@ -644,15 +730,30 @@ async def query_rag(
 
 # ── Test runner ───────────────────────────────────────────────────────────────
 
-async def run_tests(url: str, api_key: str, timeout: float) -> int:
+def _validate_schema(data: dict[str, Any]) -> list[str]:
+    """Validate API response schema. Catches drift before assertions run."""
+    errors = []
+    if not isinstance(data.get("answer"), str):
+        errors.append("schema: 'answer' missing or not string")
+    if not isinstance(data.get("sources"), list):
+        errors.append("schema: 'sources' missing or not list")
+    if not isinstance(data.get("chunks_used"), int):
+        errors.append("schema: 'chunks_used' missing or not int")
+    if not isinstance(data.get("errors"), list):
+        errors.append("schema: 'errors' missing or not list")
+    return errors
+
+
+async def run_tests(url: str, api_key: str, timeout: float, lang_filter: str | None = None) -> int:
+    cases = [c for c in TEST_CASES if lang_filter is None or c.lang == lang_filter]
     passed = 0
-    total = len(TEST_CASES)
+    total = len(cases)
 
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     async with httpx.AsyncClient(headers=headers, timeout=timeout) as client:
-        for case in TEST_CASES:
+        for i, case in enumerate(cases, 1):
             print(f"\n{_SEP}")
-            print(f"[{case.test_id}] {case.description}")
+            print(f"[{i}/{total}] [{case.test_id}] {case.description}")
             print(f"    Query : {case.query}")
             print(f"    NS    : {case.namespace}")
 
@@ -661,6 +762,13 @@ async def run_tests(url: str, api_key: str, timeout: float) -> int:
                 data = await query_rag(client, url, api_key, case.query, case.namespace)
             except Exception as exc:
                 print(f"    FAIL  API error: {exc}")
+                continue
+
+            schema_errors = _validate_schema(data)
+            if schema_errors:
+                print(f"    SCHEMA FAIL: {'; '.join(schema_errors)}")
+                for err in schema_errors:
+                    print(f"    ! {err}")
                 continue
 
             latency = (time.perf_counter() - t0) * 1000
@@ -774,6 +882,12 @@ def main() -> int:
     parser.add_argument("--api-key", default="local")
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--skip-index", action="store_true", help="Skip indexing")
+    parser.add_argument(
+        "--lang",
+        default=None,
+        choices=["en", "ru", "cross"],
+        help="Run only tests for given language tag (default: all)",
+    )
     args = parser.parse_args()
 
     def _on_sigint(_signum: int, _frame: Any) -> None:
@@ -790,7 +904,7 @@ def main() -> int:
                 print("[FATAL] Indexing failed")
                 return 1
 
-        return asyncio.run(run_tests(args.url, args.api_key, args.timeout))
+        return asyncio.run(run_tests(args.url, args.api_key, args.timeout, lang_filter=args.lang))
     except EOFError:
         print("\n  ! Input stream closed. Exiting.")
         return 1

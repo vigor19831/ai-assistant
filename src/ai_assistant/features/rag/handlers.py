@@ -191,6 +191,19 @@ async def query_rag(
     cfg = state.config.rag
     ns = req.namespace or cfg.default_namespace
     query_text = req.query
+    if not query_text or not query_text.strip():
+        # NOTE: English response required by check_rag.py edge-3.
+        # When i18n is added, migrate to localized message and update test.
+        _logger.info(
+            "RAG query rejected: empty input",
+            extra={"trace_id": trace_id},
+        )
+        return QueryResponse(
+            answer="Please provide a question.",
+            sources=[],
+            errors=[],
+            chunks_used=0,
+        )
 
     # Always strip prefix from query text; use parsed namespace only if
     # no explicit namespace was requested (req.namespace is None).
