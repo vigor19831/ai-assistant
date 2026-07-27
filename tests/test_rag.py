@@ -43,6 +43,7 @@ from ai_assistant.features.rag.schemas import (
     DeleteRequest,
     IndexRequest,
     QueryRequest,
+    RagMetrics,
     ReindexRequest,
     SaveChatRequest,
 )
@@ -92,6 +93,46 @@ class TestRAGManager:
         assert result["chunks_used"] == 1
         assert len(result["sources"]) == 1
         assert result["sources"][0]["id"] == "c1"
+
+    @pytest.mark.asyncio
+    async def test_query_returns_metrics(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
+        """RAGManager.query must include diagnostic metrics in response."""
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(return_value=[
+            Chunk(
+                id="c1",
+                text="Paris is the capital of France.",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            )
+        ])
+        mock_reranker.rerank = AsyncMock(return_value=[
+            RerankResult(chunk=Chunk(
+                id="c1",
+                text="Paris is the capital of France.",
+                embedding=[0.1] * 384,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ), score=0.95)
+        ])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(return_value=AssistantMessage(text="Paris"))
+
+        mgr = RAGManager(
+            llm=mock_llm,
+            vector_store=mock_vector_store,
+            embedder=mock_embedder,
+            reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await mgr.query("What is the capital of France?")
+
+        assert "metrics" in result
+        metrics = result["metrics"]
+        assert metrics is not None
+        assert metrics["chunks_used"] == len(result["sources"])
+        assert isinstance(metrics["rerank_scores"], list)
+        assert isinstance(metrics["duration_ms"], int)
+        assert metrics["duration_ms"] >= 0
 
     @pytest.mark.asyncio
     async def test_query_namespace_routing(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):

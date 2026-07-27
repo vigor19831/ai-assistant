@@ -672,6 +672,17 @@ async def run_tests(url: str, api_key: str, timeout: float) -> int:
             print(f"    Answer: {answer[:120]}...")
             print(f"    Src   : {len(sources)} chunks")
 
+            metrics = data.get("metrics")
+            if metrics:
+                print(
+                    f"    Metrics: Chunks={metrics['chunks_used']}  "
+                    f"Scores={metrics['rerank_scores']}  "
+                    f"CtxTok={metrics['context_tokens']}  "
+                    f"Template={metrics['prompt_name']}  "
+                    f"PipelineErrors={metrics['pipeline_errors']}  "
+                    f"Time={metrics['duration_ms']}ms"
+                )
+
             errors: list[str] = []
 
             # --- answer: ALL required phrases must be present ---

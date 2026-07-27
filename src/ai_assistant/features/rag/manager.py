@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import replace
 from typing import Any
@@ -231,6 +232,21 @@ class RAGManager:
                 "errors": len(result.errors),
             },
         )
+        context_tokens = 0
+        if self.tokenizer is not None and result.context:
+            context_tokens = await asyncio.to_thread(
+                self.tokenizer.count, result.context
+            )
+
+        metrics = {
+            "chunks_used": len(result.chunks),
+            "rerank_scores": list(result.rerank_scores) if result.rerank_scores else [],
+            "context_tokens": context_tokens,
+            "prompt_name": prompt_name,
+            "pipeline_errors": list(result.errors),
+            "duration_ms": duration_ms,
+        }
+
         return {
             "answer": result.response.text if result.response else "",
             "sources": [
@@ -243,6 +259,7 @@ class RAGManager:
             ],
             "chunks_used": len(result.chunks),
             "errors": list(result.errors),
+            "metrics": metrics,
         }
 
     async def health(self) -> dict[str, Any]:

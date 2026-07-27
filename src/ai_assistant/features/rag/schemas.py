@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "DeleteRequest",
@@ -15,6 +15,7 @@ __all__ = [
     "NamespaceListResponse",
     "QueryRequest",
     "QueryResponse",
+    "RagMetrics",
     "ReindexRequest",
     "SaveChatRequest",
 ]
@@ -52,13 +53,27 @@ class QueryRequest(BaseModel):
     namespace: str | None = Field(default=None, description="Query namespace")
 
 
+class RagMetrics(BaseModel):
+    """Diagnostic snapshot of a single RAG query."""
+
+    chunks_used: int
+    rerank_scores: list[float]
+    context_tokens: int
+    prompt_name: str
+    pipeline_errors: list[str]
+    duration_ms: int
+
+
 class QueryResponse(BaseModel):
     """RAG query response."""
+
+    model_config = ConfigDict(extra="ignore")
 
     answer: str
     sources: list[dict[str, Any]] = Field(default_factory=list)
     chunks_used: int
     errors: list[str] = Field(default_factory=list)
+    metrics: RagMetrics | None = None
 
 
 class DeleteRequest(BaseModel):

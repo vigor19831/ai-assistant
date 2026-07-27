@@ -39,8 +39,8 @@ embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: nomic-embed-text-v2-moe        # light: nomic-embed-text-v1.5 | heavy: v2-moe
-  dim: 768                              # v1.5: 768 | MiniLM: 384 | must match vector_store.dim
+  model: nomic-embed-text-v1.5
+  dim: 768                              # must match vector_store.dim
   timeout: 60.0
   connect_timeout: 5.0
   n_gpu_layers: 0                       # 0 = CPU only (save VRAM) | 10+ = if VRAM free
@@ -50,8 +50,11 @@ embedder:
   mlock: false
 
 reranker:
-  provider: local                       # null = disable (low RAM) | local = enable
-  model: bge_reranker_v2_m3
+  provider: local
+  model: jina-reranker-v2-base-multilingual
+  api_base: http://127.0.0.1:8082
+  api_key: null
+  timeout: 30.0
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
@@ -90,17 +93,17 @@ llm:
   mlock: false
 
 rag:
-  steps: [embed_query, retrieve, rerank, build_context, generate]
+  steps: [embed_query, retrieve, build_context, generate]
   prompt_version: v1
   prompt_name: rag_strict               # 4B: rag_strict | 8B+: rag_simple
-  top_k: 6                              # 4B: 3-8 | 8B+: 10 | 70B: 15
+  top_k: 8                              # 4B: 3-8 | 8B+: 10 | 70B: 15
   default_namespace: test
   token_margin_min: 512                 # 4B: 512 | 8B+: 1024 | 70B: 4096
   token_margin_pct: 0.15                # 4B: 0.15 | 8B+: 0.20 | 70B: 0.25
-  min_relevance_score: 0.28               # 4B: 0.35 | 8B+: 0.30 | 70B: 0.25 — small models need cleaner context; adjust to your document noise level
+  min_relevance_score: 28             # 0.10-0.45 small models need cleaner context; adjust to your document noise level
   sources:
     - namespace: test
-      path: ./data/documents/test
+      path: D:\rag\test
       include: ["*.txt"]
       recursive: false
   chat_exports_root: data/chat_exports
