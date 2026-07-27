@@ -259,7 +259,7 @@ Optional diagnostic and maintenance scripts in `scripts/`. Most users only need 
 |--------|-------------|
 | `download_tokenizers.py` | **Once**, after installing local models |
 | `check_llm.py` | Verify LLM connection |
-| `check_rag.py` | Test full RAG pipeline |
+| `check_rag.py` | Immutable RAG benchmark — do not edit, fix the pipeline instead |
 | `check_all.py` | Run all checks |
 | `kill.py` | Emergency shutdown of all servers |
 | `clean_cache.py` | Remove temporary / cache files |
@@ -278,6 +278,46 @@ Or use the interactive menu:
 ```bash
 python run_scripts.py
 ```
+
+## RAG Quality Benchmark
+
+`scripts/check_rag.py` is the single source of truth for RAG correctness.
+It is **immutable** — do not edit it to make tests pass. Fix the pipeline
+(embedder, reranker, prompt, or LLM) instead.
+
+```bash
+# Full run (re-index + test)
+python scripts/check_rag.py
+
+# Test only, reuse existing indices
+python scripts/check_rag.py --skip-index
+
+# Run only English, Russian, or cross-lingual tests
+python scripts/check_rag.py --lang en
+python scripts/check_rag.py --lang ru
+python scripts/check_rag.py --lang cross
+```
+
+### What it checks
+
+| Category | Tests |
+|----------|-------|
+| **Retrieval** | Exact match, named entity, date, synonym, one-word query |
+| **Faithfulness** | Answer must be grounded in retrieved sources, not LLM memory |
+| **Noise resistance** | Irrelevant documents must not leak into answer or sources |
+| **Namespace isolation** | Query to wrong namespace must not return data from other namespaces |
+| **Multi-hop reasoning** | Connecting facts across multiple chunks |
+| **Safety** | Prompt injection, false premises, option traps |
+| **Cross-lingual** | English query against Russian documents (and vice versa) |
+| **Conflict resolution** | Contradictory facts must not be silently mixed |
+
+### Interpreting results
+
+- **Do NOT edit the script.** If a test fails, improve the pipeline.
+- Check `data/check_rag_*.log` for per-test latency and metrics.
+- Use `--lang` to isolate language-specific failures.
+- A `SCHEMA FAIL` means the API response drifted from the expected
+  contract — fix the endpoint, not the benchmark.
 
 ## Troubleshooting
 
