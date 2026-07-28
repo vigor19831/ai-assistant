@@ -212,7 +212,6 @@ class RAGConfig(BaseSettings):
     max_tool_iterations: int = 5
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
-    min_relevance_score: float | None = None
     sources: list[SourceConfig] = Field(default_factory=list)
     chat_exports_root: str = "data/chat_exports"
     index_chat_exports: bool = False
@@ -312,7 +311,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "1"
+    config_version: str = "2"
     log_file: str | None = None
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)

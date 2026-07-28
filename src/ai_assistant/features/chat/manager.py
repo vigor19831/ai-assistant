@@ -130,7 +130,6 @@ class ChatManager:
         rag_steps: list[RAGStep] | None = None,
         system_message: str | None = None,
         sampling: SamplingConfig | None = None,
-        min_relevance_score: float | None = None,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
@@ -147,7 +146,6 @@ class ChatManager:
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
         self.sampling = sampling
-        self.min_relevance_score = min_relevance_score
         self._prefix_map = build_prefix_map(self.namespaces)
 
         # Build pipeline internally — ChatManager owns its pipeline.
@@ -291,7 +289,6 @@ class ChatManager:
             token_margin_pct=self.token_margin_pct,
             system_message=self.system_message,
             sampling=self.sampling or SamplingConfig(),
-            min_relevance_score=self.min_relevance_score,
         )
 
         data = PipelineData(

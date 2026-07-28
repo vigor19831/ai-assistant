@@ -317,6 +317,10 @@ async def retrieve(data: PipelineData) -> PipelineData:
         _logger.debug(
             "retrieve done", extra={"trace_id": data.trace_id, "chunks": len(chunks)}
         )
+        _logger.info(
+            f"rag.retrieve trace={data.trace_id} ns={namespace} "
+            f"top_k={top_k} returned={len(chunks)} exhausted={len(chunks) < top_k}"
+        )
         return data.with_chunks(chunks)
     except Exception as exc:
         _logger.exception("retrieve failed", extra={"trace_id": data.trace_id})
@@ -355,8 +359,10 @@ async def rerank(data: PipelineData) -> PipelineData:
 
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
-        if cfg.min_relevance_score is not None:
-            results = [r for r in results if r.score >= cfg.min_relevance_score]
+        _logger.info(
+            f"rag.rerank trace={data.trace_id} in={len(data.chunks)} "
+            f"out={len(results)} top={round(results[0].score, 4) if results else None}"
+        )
 
         if results:
             scores = [r.score for r in results]
@@ -487,6 +493,10 @@ async def generate(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_MISSING)
 
     query_text = data.query.text
+    _logger.info(
+        f"rag.generate trace={data.trace_id} chunks={len(data.chunks)} "
+        f"context_len={len(data.context)} query='{query_text[:80]}'"
+    )
     cfg = _get_config(data)
     prompt_version = cfg.prompt_version
     prompt_name = cfg.prompt_name

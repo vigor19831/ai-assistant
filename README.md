@@ -166,7 +166,7 @@ Key sections in `config.yaml`:
 | `vector_store` | FAISS or memory, index path, dimension |
 | `chunker` | Document splitting strategy |
 | `chat` | History limit, max context tokens |
-| `rag` | Pipeline steps, top_k, thresholds, document `sources` |
+| `rag` | Pipeline steps, top_k, document `sources` |
 | `namespaces` | Per-namespace prefix, chunk size, prompt override |
 | `storage` | SQLite database path |
 | `security` | API key, `admin_enabled`, body size limits |

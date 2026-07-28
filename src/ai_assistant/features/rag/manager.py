@@ -146,7 +146,6 @@ class RAGManager:
         rag_steps: list[str] | None = None,
         system_message: str | None = None,
         sampling: SamplingConfig | None = None,
-        min_relevance_score: float | None = None,
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
@@ -176,7 +175,6 @@ class RAGManager:
         self.tokenizer = tokenizer
         self.system_message = system_message
         self.sampling = sampling
-        self.min_relevance_score = min_relevance_score
 
     async def query(
         self,
@@ -199,7 +197,6 @@ class RAGManager:
             token_margin_pct=self.token_margin_pct,
             system_message=self.system_message,
             sampling=self.sampling or SamplingConfig(),
-            min_relevance_score=self.min_relevance_score,
         )
         data = PipelineData(
             query=UserMessage(text=query_text),

@@ -53,7 +53,6 @@ class PipelineConfig:
     retry: RetryConfig = field(default_factory=RetryConfig)
     system_message: str | None = None
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
-    min_relevance_score: float | None = None
 
     def __post_init__(self) -> None:
         if self.top_k < 1:

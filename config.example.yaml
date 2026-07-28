@@ -12,7 +12,7 @@ cors:
 
 chat:
   history_limit: 6                        # 4B model: 5-10 | 8B+: 20-50 | 70B: 100+
-  max_context_tokens: 1536                # 4B: 1024-4096 | 8B+: 8192 | 70B: 32768+
+  max_context_tokens: 1024                # 4B: 1024-4096 | 8B+: 8192 | 70B: 32768+
 
 storage:
   provider: sqlite
@@ -71,6 +71,8 @@ llm:
   model: google_gemma-4-E4B-it
   available_models:
     - google_gemma-4-E4B-it
+    - Qwen_Qwen3.5-4B
+    - microsoft_Phi-4-mini-reasoning
   max_tokens: 1024                       # 4B: 1024-2048 | 8B+: 4096 | 70B: 8192
   temperature: 0.1                       # 4B: 0.1-0.3 | 8B+: 0.5-0.7 | 70B: 0.7-0.9
   top_p: 0.90                            # 4B: 0.90-0.95 | 8B+: 0.95
@@ -90,14 +92,13 @@ llm:
   mlock: false
 
 rag:
-  steps: [embed_query, retrieve, rerank, build_context, generate]
+  steps: [hyde_query, embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
   prompt_name: rag_strict               # 4B: rag_strict | 8B+: rag_simple
   top_k: 10                              # 4B: 3-8 | 8B+: 10 | 70B: 15
   default_namespace: test
   token_margin_min: 512                 # 4B: 512 | 8B+: 1024 | 70B: 4096
   token_margin_pct: 0.15                # 4B: 0.15 | 8B+: 0.20 | 70B: 0.25
-  min_relevance_score: 0.25             # 0.10-0.45 small models need cleaner context; adjust to your document noise level
   sources:
     - namespace: test
       path: D:\rag\test

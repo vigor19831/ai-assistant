@@ -71,7 +71,6 @@ def get_chat_manager(
             top_p=llm_cfg.top_p,
             stop_sequences=tuple(llm_cfg.stop_sequences),
         ),
-        min_relevance_score=rag_cfg.min_relevance_score,
     )
 
 
