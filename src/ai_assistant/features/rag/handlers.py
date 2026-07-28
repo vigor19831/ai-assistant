@@ -56,6 +56,7 @@ def _get_rag_manager(
         token_margin_min=rag_cfg.token_margin_min,
         token_margin_pct=rag_cfg.token_margin_pct,
         tokenizer=state.tokenizer,
+        system_message=llm_cfg.system_message,
         sampling=SamplingConfig(
             max_tokens=llm_cfg.max_tokens,
             temperature=llm_cfg.temperature,

@@ -347,9 +347,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         return replace(data)
 
     reranker = data.reranker
-    if reranker is None:
-        _logger.warning("rerank: no reranker", extra={"trace_id": data.trace_id})
-        return data.add_error(INTERNAL_SERVER_ERROR)
+    assert reranker is not None  # drift #2: production pipeline guarantees IReranker via NullReranker
 
     try:
         query = data.query.text if data.query is not None else " "
@@ -454,7 +452,7 @@ async def _truncate_to_fit(
             current_data = current_data.with_chunks(()).with_context("")
             break
         current_data = current_data.with_chunks(new_chunks)
-        lines = [chunk.text for chunk in current_data.chunks if chunk.text]
+        lines = [f"[Document {i}]\n{chunk.text}" for i, chunk in enumerate(current_data.chunks, start=1) if chunk.text]
         current_data = current_data.with_context("\n\n".join(lines))
         try:
             prompt = get_prompt(

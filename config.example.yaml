@@ -39,7 +39,7 @@ embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: bge-m3-Q8_0
+  model: bge-m3
   dim: 1024                             # must match vector_store.dim
   timeout: 60.0
   connect_timeout: 5.0
@@ -51,7 +51,7 @@ embedder:
 
 reranker:
   provider: local
-  model: bge-reranker-v2-m3-Q8_0
+  model: bge-reranker-v2-m3
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
@@ -92,13 +92,13 @@ llm:
   mlock: false
 
 rag:
-  steps: [hyde_query, embed_query, retrieve, rerank, build_context, generate]
+  steps: [hyde_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
   prompt_name: rag_strict               # 4B: rag_strict | 8B+: rag_simple
-  top_k: 10                              # 4B: 3-8 | 8B+: 10 | 70B: 15
+  top_k: 5                              # 4B: 3-8 | 8B+: 10 | 70B: 15
   default_namespace: test
-  token_margin_min: 512                 # 4B: 512 | 8B+: 1024 | 70B: 4096
-  token_margin_pct: 0.15                # 4B: 0.15 | 8B+: 0.20 | 70B: 0.25
+  token_margin_min: 256                 # 4B: 512 | 8B+: 1024 | 70B: 4096
+  token_margin_pct: 0.10                # 4B: 0.15 | 8B+: 0.20 | 70B: 0.25
   sources:
     - namespace: test
       path: D:\rag\test
@@ -116,7 +116,7 @@ namespaces:
 chunker:
   provider: simple
   chunk_size: 512                       # 4B: 256-512 | 8B+: 1024 | 70B: 2048
-  chunk_overlap: 100                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
+  chunk_overlap: 50                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
 
 tokenizer:
   provider: tiktoken

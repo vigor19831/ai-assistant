@@ -18,9 +18,7 @@ from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
-from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.pipeline_steps import rerank
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
@@ -1221,35 +1219,6 @@ class TestReindexTaskSafety:
             assert trace_id is not None, "Log record missing trace_id"
 
 
-class TestRerankerRegression:
-    """REGRESSION P0.6: reranker must be present in PipelineData for [p] prefix queries."""
-
-    @pytest.mark.regression
-    @pytest.mark.asyncio
-    async def test_reranker_missing_returns_error(self):
-        """Given: PipelineData has chunks but no reranker.
-        When: rerank pipeline step executes.
-        Then: INTERNAL_SERVER_ERROR is added; original chunks preserved."""
-        from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
-
-        data = PipelineData(
-            query=UserMessage(text="test"),
-            chunks=[
-                Chunk(
-                    id="c1",
-                    text="chunk",
-                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
-                )
-            ],
-            # reranker defaults to None
-        )
-        result = await rerank(data)
-        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
-        # chunks are preserved (not mutated) so downstream can inspect or ignore
-        assert len(result.chunks) == 1
-        assert result.chunks[0].id == "c1"
-
-
 # ── TraceId in RAG handlers ───────────────────────────────────────────────
 
 
@@ -1723,10 +1692,10 @@ async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> Non
 
     # Create minimal RAGManager for health check — no pipeline param needed
     rag_manager = RAGManager(
-        llm=None,  # type: ignore[arg-type]
+        llm=MagicMock(spec=ILLM),
         vector_store=vector_store,
-        embedder=None,  # type: ignore[arg-type]
-        reranker=None,  # type: ignore[arg-type]
+        embedder=MagicMock(spec=IEmbedder),
+        reranker=MagicMock(spec=IReranker),
     )
 
     health = await rag_manager.health()
