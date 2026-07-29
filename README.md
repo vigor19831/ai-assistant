@@ -319,6 +319,47 @@ python scripts/check_rag.py --lang cross
 - A `SCHEMA FAIL` means the API response drifted from the expected
   contract — fix the endpoint, not the benchmark.
 
+## RAG LLM Model Requirements
+
+The RAG pipeline quality is bottlenecked by the **LLM**, not the retriever. A perfect embedder + reranker cannot compensate for a model that is too small to reason over the retrieved context.
+
+### Small Models (3–5B parameters)
+
+Models like **Gemma 4 E4B**, **Phi-4-mini (3.8B)**, or **SmolLM3 (3B)** can run on 4 GB VRAM and are sufficient for:
+
+- Simple factual retrieval (single-hop questions)
+- Short answers grounded in 1–2 chunks
+- English-only or Russian-only documents with simple syntax
+
+**Limitations of 4B-class models:**
+
+- **Hallucinations on complex queries** — may ignore retrieved chunks and answer from parametric knowledge
+- **Weak multi-hop reasoning** — cannot connect facts across 3+ chunks reliably
+- **Poor conflict resolution** — when documents contradict, the model may silently merge facts or pick one at random
+- **Limited math / logic** — fails on questions requiring calculation or step-by-step deduction
+- **Context degradation** — quality drops sharply after ~4K–8K tokens even if 128K is advertised
+- **Prompt injection vulnerability** — easier to trick into ignoring instructions
+
+### Recommended Upgrades
+
+| Use Case | Minimum | Good | Excellent |
+|----------|---------|------|-----------|
+| Simple Q&A over docs | 4B (Gemma 4 E4B) | 7B (Llama 3.1 8B) | 14B+ |
+| Multi-hop reasoning | 7B | 14B | 32B+ |
+| Math / code / logic | 8B | 14B | 70B or API |
+| Multi-language RAG | 7B | 14B | 32B+ |
+| Enterprise / safety-critical | 14B | 32B | API (Claude, GPT-4, Kimi) |
+
+**VRAM requirements (Q4_K_M):**
+
+- **4B:** ~3–4 GB (GTX 1650, RTX 3050 Laptop)
+- **7–8B:** ~5–6 GB (RTX 3060, RTX 4060 Laptop)
+- **14B:** ~9–10 GB (RTX 3080, RTX 4070 Ti)
+- **32B:** ~20 GB (RTX 4090, A100 40GB)
+- **70B:** ~40 GB (A100 80GB) — use API instead
+
+**Note:** If you see "I do not have enough information" or obviously wrong answers, first check that retrieval works (indices exist, chunks are relevant). If retrieval is correct but answers are poor, **the model is too small for the task**.
+
 ## Troubleshooting
 
 ### `ModuleNotFoundError: No module named 'faiss'`
@@ -370,6 +411,16 @@ curl http://127.0.0.1:8000/api/v1/rag/reindex/status/your-task-id
 ```
 
 Tasks time out after 4 hours. Only one reindex runs at a time.
+
+### RAG answers are factually wrong despite correct retrieval
+
+If `check_rag.py` shows that the right chunks were retrieved but the LLM still hallucinates or ignores them:
+
+1. Your LLM may be too small. 4B models struggle with long contexts and complex reasoning. See [RAG LLM Model Requirements](#rag-llm-model-requirements).
+2. Try reducing `chunk_size` to 256–384 so each chunk contains a single atomic fact.
+3. Increase `top_k` to 8–10 to give the model more context (if it fits within `max_context_tokens`).
+4. For conflicting documents, use `rag_simple` prompt instead of `rag_strict` — smaller models handle simple prompts better.
+5. Reduce `temperature` to 0.05–0.1 and `max_tokens` to 256–512 to limit creative drift.
 
 ## License
 
