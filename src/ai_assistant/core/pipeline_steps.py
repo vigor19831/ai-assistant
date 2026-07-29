@@ -60,6 +60,10 @@ _logger = get_logger("pipeline.steps")
 
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
 
+# Retrieve extra candidates before reranking.
+# This improves recall without increasing final LLM context size.
+_RERANK_CANDIDATE_EXPANSION: int = 2
+
 
 def step(
     name: str,
@@ -306,10 +310,10 @@ async def retrieve(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
         cfg = _get_config(data)
-        top_k = cfg.top_k
+        fetch_k = cfg.top_k * _RERANK_CANDIDATE_EXPANSION
         namespace = cfg.namespace
         retry_cfg = cfg.retry
-        chunks = await _call_search(vector_store, embedding, top_k, namespace, retry_cfg)
+        chunks = await _call_search(vector_store, embedding, fetch_k, namespace, retry_cfg)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
@@ -319,7 +323,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
         )
         _logger.info(
             f"rag.retrieve trace={data.trace_id} ns={namespace} "
-            f"top_k={top_k} returned={len(chunks)} exhausted={len(chunks) < top_k}"
+            f"fetch_k={fetch_k} returned={len(chunks)} exhausted={len(chunks) < fetch_k}"
         )
         return data.with_chunks(chunks)
     except Exception as exc:
@@ -358,8 +362,8 @@ async def rerank(data: PipelineData) -> PipelineData:
         results = await _call_rerank(reranker, query, data.chunks, top_k, retry_cfg)
 
         _logger.info(
-            f"rag.rerank trace={data.trace_id} in={len(data.chunks)} "
-            f"out={len(results)} top={round(results[0].score, 4) if results else None}"
+            f"rag.rerank trace={data.trace_id} candidates={len(data.chunks)} "
+            f"returned={len(results)} top_score={round(results[0].score, 4) if results else None}"
         )
 
         if results:

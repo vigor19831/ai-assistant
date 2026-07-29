@@ -215,7 +215,8 @@ class TestRetrieve:
     async def test_top_k_boundary(self) -> None:
         """Given: top_k is 1 and store has 2 chunks.
         When: retrieve is called.
-        Then: exactly 1 chunk returned; top_k respected."""
+        Then: retrieve over-fetches (top_k * expansion) so reranker has
+        more candidates; final top_k is enforced by rerank step."""
         store = FakeVectorStore()
         await store.add([
             Chunk(id="c1", text="first", embedding=[0.0, 1.0, 0.0]),
@@ -229,7 +230,8 @@ class TestRetrieve:
             vector_store=store,
         )
         result = await retrieve(data)
-        assert len(result.chunks) == 1
+        # retrieve now fetches top_k * _RERANK_CANDIDATE_EXPANSION
+        assert len(result.chunks) == 2
 
     @pytest.mark.asyncio
     async def test_no_vector_store(self) -> None:
