@@ -2,7 +2,7 @@ app_name: ai-assistant
 debug: false
 host: 127.0.0.1
 port: 8000
-config_version: "1"
+config_version: "2"
 
 cors:
   allow_origins: ["http://localhost", "http://127.0.0.1"]
@@ -72,11 +72,11 @@ llm:
   available_models:
     - google_gemma-4-E4B-it
   max_tokens: 512                       # 4B: 512-2048 | 8B+: 4096 | 70B: 8192
-  temperature: 0.1                       # 4B: 0.05-0.3 | 8B+: 0.5-0.7 | 70B: 0.7-0.9
+  temperature: 0.05                      # 4B: 0.05-0.3 | 8B+: 0.5-0.7 | 70B: 0.7-0.9
   top_p: 0.95                           # 4B: 0.90-0.95 | 8B+: 0.95
-  top_k: 40                              # 4B: 20-40 | 8B+: 40 | 70B: 40-80
+  top_k: 30                              # 4B: 20-40 | 8B+: 40 | 70B: 40-80
   min_p: 0.0                             # 4B: 0.0 | 8B+: 0.0-0.05 | 70B: 0.05-0.1
-  repeat_penalty: 1.0                   # 4B: 1.0-1.15 | 8B+: 1.0-1.05 | 70B: 1.0
+  repeat_penalty: 1.10                   # 4B: 1.0-1.15 | 8B+: 1.0-1.05 | 70B: 1.0
   presence_penalty: 0.0                  # 4B: 0.0 | 8B+: 0.0-0.5 | 70B: 0.0-1.0
   frequency_penalty: 0.0                 # 4B: 0.0 | 8B+: 0.0-0.5 | 70B: 0.0-1.0
   stop_sequences:
@@ -85,19 +85,19 @@ llm:
   connect_timeout: 5.0
   server_context_size: 4096              # 4B: 2048-4096 | 8B+: 32768 | 70B: 131072
   n_gpu_layers: 999                      # CPU: 0 | 4GB VRAM: 10-15 | 12GB: 25-35 | 24GB+: all
-  n_batch: 64                           # 4GB: 64 | 12GB: 128 | 24GB+: 512
-  n_ubatch: 32                           # 4GB: 32 | 12GB: 64 | 24GB+: 128
+  n_batch: 128                           # 4GB: 64 | 12GB: 128 | 24GB+: 512
+  n_ubatch: 64                           # 4GB: 32 | 12GB: 64 | 24GB+: 128
   mmap: true
   mlock: false
 
 rag:
-  steps: [hyde_query, retrieve, rerank, build_context, generate]
+  steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
   prompt_name: rag_strict               # 4B: rag_strict | 8B+: rag_simple
-  top_k: 5                              # 4B: 3-8 | 8B+: 10 | 70B: 15
+  top_k: 3                              # 4B: 3-8 | 8B+: 10 | 70B: 15
   default_namespace: test
-  token_margin_min: 256                 # 4B: 512 | 8B+: 1024 | 70B: 4096
-  token_margin_pct: 0.10                # 4B: 0.10-0.15 | 8B+: 0.20 | 70B: 0.25
+  token_margin_min: 512                 # 4B: 512 | 8B+: 1024 | 70B: 4096
+  token_margin_pct: 0.15                # 4B: 0.10-0.15 | 8B+: 0.20 | 70B: 0.25
   sources:
     - namespace: test
       path: D:\rag\test
@@ -115,7 +115,7 @@ namespaces:
 chunker:
   provider: simple
   chunk_size: 512                       # 4B: 256-512 | 8B+: 1024 | 70B: 2048
-  chunk_overlap: 50                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
+  chunk_overlap: 100                    # 4B: 50-100 | 8B+: 100-200 | 70B: 200-400
 
 tokenizer:
   provider: tiktoken

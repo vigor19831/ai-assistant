@@ -400,16 +400,7 @@ async def build_context(data: PipelineData) -> PipelineData:
         "build_context start",
         extra={"trace_id": data.trace_id, "chunks": len(data.chunks)},
     )
-    if not data.chunks:
-        return data.with_context("")
-    lines: list[str] = []
-    seen: set[str] = set()
-    for i, chunk in enumerate(data.chunks, start=1):
-        if not chunk.text or chunk.id in seen:
-            continue
-        seen.add(chunk.id)
-        lines.append(f"[Document {i}]\n{chunk.text}")
-    context = "\n\n".join(lines)
+    context = _format_chunks(data.chunks)
     _logger.debug(
         "build_context done",
         extra={"trace_id": data.trace_id, "chars": len(context)},
@@ -417,11 +408,33 @@ async def build_context(data: PipelineData) -> PipelineData:
     return data.with_context(context)
 
 
+def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
+    """Format chunks into a single context string.
+
+    Normalizes whitespace, removes exact duplicates, and assigns
+    sequential [Document N] labels.  Preserves rank order from
+    the reranker.
+    """
+    seen_texts: set[str] = set()
+    lines: list[str] = []
+    for chunk in chunks:
+        if not chunk.text:
+            continue
+        normalized = " ".join(chunk.text.split())
+        if not normalized:
+            continue
+        if normalized in seen_texts:
+            continue
+        seen_texts.add(normalized)
+        lines.append(normalized)
+    return "\n\n".join(
+        f"[Document {i}]\n{text}" for i, text in enumerate(lines, start=1)
+    )
+
+
 def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
     """Build a minimal RAG prompt from chunks when template lookup fails."""
-    chunks_text = "\n\n".join(
-        f"[Document {i + 1}]\n{c.text}" for i, c in enumerate(chunks)
-    )
+    chunks_text = _format_chunks(chunks)
     return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
 
 
@@ -452,8 +465,7 @@ async def _truncate_to_fit(
             current_data = current_data.with_chunks(()).with_context("")
             break
         current_data = current_data.with_chunks(new_chunks)
-        lines = [f"[Document {i}]\n{chunk.text}" for i, chunk in enumerate(current_data.chunks, start=1) if chunk.text]
-        current_data = current_data.with_context("\n\n".join(lines))
+        current_data = current_data.with_context(_format_chunks(current_data.chunks))
         try:
             prompt = get_prompt(
                 prompt_name,

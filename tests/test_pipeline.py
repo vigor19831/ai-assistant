@@ -312,7 +312,7 @@ class TestBuildContext:
         """Given: chunks contain very long text.
         When: build_context is called.
         Then: context concatenates all texts with separators."""
-        long_text = "word " * 10000
+        long_text = "word " * 9999 + "word"
         data = PipelineData(
             query=UserMessage(text="hello"),
             pipeline_config=PipelineConfig(),
