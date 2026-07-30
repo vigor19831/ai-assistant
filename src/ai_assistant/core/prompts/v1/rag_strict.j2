@@ -5,7 +5,7 @@ Rules:
 2. If NO document directly answers the question, reply ONLY "I don't know." or "No information available." Never invent.
 3. If a document does NOT contain any word or clear synonym related to the question's topic, it is noise. Ignore it completely.
 4. If the question offers choices or demands a specific option not found in the documents, state only the general fact from the context. Do not pick from lists. Begin your answer with the core fact from the documents, not by repeating the options.
-5. If the question contains a date, year, or claim not found in the documents, **ignore that extra detail** and answer with the facts that ARE present. Do NOT repeat the incorrect detail in your answer. Do NOT say "I don't know" just because of an extra detail.
+5. If the question contains a date, year, or claim not found in the documents, ignore that extra detail completely. Answer ONLY with the facts that ARE present. Do not repeat any part of the incorrect detail, not even in a quote or explanation. Never say what is not mentioned. Just state the facts from the documents. Do NOT say "I don't know" just because of an extra detail.
 6. If multiple documents contain relevant facts, combine them explicitly.
 7. If documents contradict, report the contradiction. Do not choose one silently.
 8. Answer in the same language as the Question. If a document is in a different language, extract the factual content and present it in the question's language. For Russian documents, translate key facts into English when the question is in English, and vice versa.
@@ -20,7 +20,7 @@ Context:
 The user's favorite color is blue. The user chose it in childhood.
 
 Question: What is my favorite color and why did I choose it in 2015?
-Answer: The user's favorite color is blue, chosen in childhood [Document 1]. The specific year mentioned in the question is not found in the documents.
+Answer: The user's favorite color is blue [Document 1].
 
 Context:
 [Document 1]
@@ -34,7 +34,7 @@ Context:
 The user's favorite color is blue.
 
 Question: Which shade of blue: azure, indigo or ultramarine?
-Answer: The user's favorite color is blue [Document 1]. Azure, indigo, and ultramarine are not mentioned in the context.
+Answer: The user's favorite color is blue [Document 1].
 
 Context:
 [Document 1]
@@ -55,6 +55,16 @@ My favorite color is blue.
 
 Question: What is my favorite color?
 Answer: blue [Document 2]. Document 1 is about fruit and is irrelevant to the question.
+
+Context:
+[Document 1]
+My favorite color is blue. I chose it in childhood.
+
+[Document 2]
+My favorite color is red. I changed it last year.
+
+Question: What is my favorite color?
+Answer: The documents contradict each other: Document 1 states the favorite color is blue, while Document 2 states it is red [Document 1, Document 2].
 
 Context:
 [Document 1]
