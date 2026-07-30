@@ -1019,8 +1019,9 @@ class TestChatExportIsolation:
             assert indexed_namespaces[0] == "chat_test"
             assert len(indexed_docs) == 1
             assert indexed_docs[0]["content"] == "test chat content"
-            # source may include folder prefix (e.g., "test/test.md")
-            assert "test.md" in indexed_docs[0]["metadata"]["source"]
+            # source is synthetic ID for upsert isolation; source_uri is human-readable
+            assert indexed_docs[0]["metadata"]["source"].startswith("__chat__")
+            assert "test.md" in indexed_docs[0]["metadata"]["source_uri"]
 
     @pytest.mark.asyncio
     async def test_chat_export_not_in_regular_namespace_query(self, mock_vector_store):
@@ -1063,17 +1064,17 @@ class TestChatExportIsolation:
         assert len(chat_results) == 0
 
     @pytest.mark.asyncio
-    async def test_namespace_collision_detected(self, mock_state, tmp_path):
+    async def test_chat_export_ignores_existing_namespace(self, mock_state, tmp_path):
         """Given: user namespace 'chat_test' already exists with documents.
         When: saveChat called with namespace='test'.
-        Then: collision detected, chat NOT indexed, error returned."""
+        Then: chat export is indexed successfully; synthetic source prevents collision."""
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
 
         mock_state.config.rag.index_chat_exports = True
         mock_state.config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+        # Existing documents in chat_test should NOT block indexing
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["default", "test", "chat_test"])
-        mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("doc-1", ChunkMetadata(source="doc", index=0, total_chunks=1))])
 
         req = SaveChatRequest(
             content="test chat content",
@@ -1084,8 +1085,8 @@ class TestChatExportIsolation:
         result = await save_chat(req, mock_state)
 
         assert result["saved"] is True
-        assert result.get("indexed") is False
-        assert "collision" in result.get("error", "").lower()
+        assert result.get("chat_namespace") == "chat_test"
+        assert "error" not in result
 
     @pytest.mark.asyncio
     async def test_reindex_clears_chat_namespace(self, mock_state, tmp_path):

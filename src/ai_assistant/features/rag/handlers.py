@@ -431,33 +431,11 @@ async def save_chat(
             "reason": "index_chat_exports is disabled",
         }
 
-    # Collision detection: verify no user namespace uses reserved prefix
-    existing_namespaces = await state.vector_store.list_namespaces(
-        state.config.vector_store.index_path
-    )
     chat_namespace = get_chat_namespace(namespace)
-    if chat_namespace in existing_namespaces:
-        # Check if namespace already has any chunks (regardless of type)
-        any_chunks = await state.vector_store.list_by_filter(
-            {}, namespace=chat_namespace
-        )
-        if any_chunks:
-            _logger.warning(
-                "Namespace collision detected",
-                extra={
-                    "trace_id": trace_id,
-                    "base_namespace": namespace,
-                    "chat_namespace": chat_namespace,
-                },
-            )
-            return {
-                "saved": True,
-                "path": str(file_path),
-                "namespace": namespace,
-                "indexed": False,
-                "error": "Namespace collision: '" + chat_namespace + "' already exists with documents",
-            }
     try:
+        # Synthetic document ID guarantees upsert never touches user documents
+        # that happen to share a filename stem in the same namespace.
+        chat_doc_id = f"__chat__{namespace}__{file_path.stem}"
         manager = IndexingManager(
             chunker=state.chunker,
             embedder=state.embedder,
@@ -466,10 +444,11 @@ async def save_chat(
         result = await manager.index_documents(
             [
                 {
-                    "id": file_path.stem,
+                    "id": chat_doc_id,
                     "content": content,
                     "metadata": {
-                        "source": str(Path(namespace) / filename),
+                        "source": chat_doc_id,
+                        "source_uri": str(Path(namespace) / filename),
                         "folder": namespace,
                         "type": "chat_export",
                     },
