@@ -126,7 +126,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     # WHY: Background tasks may hang (reindex timeout is 4h). If we wait for
     # tasks before persisting, a hung task prevents index save entirely.
     # Slightly stale indices are acceptable; losing all indices is not.
-    # See architectural_strategy.md §5.1 — shutdown order is intentional.
+    # See architecture.md
     try:
         index_path = state.vector_store.index_path
         namespaces = await state.vector_store.list_namespaces(index_path)

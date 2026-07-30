@@ -1,7 +1,7 @@
-# Architectural Strategy
-> Version: 2026-06-29
+# Architecture
+> Version: 2026-07-30
 > Companion to: ai_rules.md
-> Purpose: Prevents AI from proposing architectural changes that create hidden problems
+> Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
 ---
 
@@ -14,9 +14,89 @@
 
 ---
 
-## 2. The AI Cannot Override These
+## 2. RAG Philosophy
 
-### 2.1. Workflow Lock
+> Every answer must be traceable to evidence. Every engineering decision must be traceable to a principle.
+
+### 2.1. Purpose
+Build a production-grade RAG system that is simple, maintainable, and explainable, while achieving state-of-the-art answer quality. Every architectural decision must improve quality, maintainability, observability, or extensibility.
+
+### 2.2. Core Principles
+
+**Retrieval is Recall**
+The retriever finds potentially useful information. It does not reason, filter answers, or make decisions.
+
+**Ranking is Ordering**
+The reranker only orders retrieved candidates. It never decides whether the model should answer.
+
+**Context is Evidence**
+Context is evidence, not an answer. The pipeline provides evidence; the LLM performs reasoning.
+
+**LLM Owns Reasoning**
+The pipeline should never simulate reasoning with heuristics. If the context is insufficient, the LLM should conclude that no supported answer exists.
+
+### 2.3. Optimize for Quality, Not Features
+The project evolves by improving retrieval quality, answer quality, and system reliability—not by increasing the number of components.
+
+Every new stage, abstraction, or algorithm must solve a measurable problem. If the same result can be achieved with a simpler design, the simpler design is preferred.
+
+### 2.4. Separation of Responsibilities
+Each pipeline stage has exactly one responsibility.
+
+```text
+Retrieve
+    ↓
+Rerank
+    ↓
+Build Context
+    ↓
+Generate
+```
+
+Business logic must not leak across stage boundaries.
+
+### 2.5. Evidence First
+Answers must be grounded in retrieved evidence, not model confidence. Unsupported claims are considered failures.
+
+### 2.6. Stable Contracts
+Components communicate only through explicit, stable contracts. Implementations may change; contracts should remain stable.
+
+### 2.7. Simplicity Over Complexity
+Prefer small, understandable improvements over clever architectures. Complexity must always have measurable value.
+
+### 2.8. Observability
+Every answer should be traceable.
+
+The system should always make it possible to understand:
+- what was retrieved;
+- what was sent to the model;
+- why the answer was produced.
+
+Good diagnostics are part of the architecture.
+
+### 2.9. Evolution
+Improve the system incrementally. Each iteration should focus on one area:
+- retrieval;
+- ranking;
+- chunking;
+- context construction;
+- evaluation.
+
+Avoid large rewrites unless a core architectural principle is violated.
+
+### 2.10. Measurement
+Every improvement must be measurable. If quality cannot be demonstrated, the change remains a hypothesis.
+
+### 2.11. Long-Term Vision
+The architecture should outlive individual components. Embedding models, rerankers, LLMs, or vector databases may change without changing the core philosophy.
+
+Research should focus on improving retrieval quality, evidence quality, context construction, evaluation, and explainability—not on adding complexity for its own sake.
+
+---
+
+## 3. The AI Cannot Override These
+
+### 3.1. Workflow Lock
 
 | User Asked For | AI Must Do | AI Must NOT Do |
 |---------------|------------|----------------|
@@ -29,13 +109,13 @@
 
 **Rule**: If the user's request does not contain the words "refactor", "restructure", "redesign", or "architectural change", AI MUST NOT propose them.
 
-### 2.2. Conversation Lock
+### 3.2. Conversation Lock
 
 - If AI proposed X and user accepted, AI cannot propose not-X in the same conversation
 - If AI previously agreed to a pattern, contradicting it requires marking as `CORE CHANGE REQUIRED`
 - AI must not "improve" its own previous accepted output without explicit user request
 
-### 2.3. Output Lock
+### 3.3. Output Lock
 
 Every AI response that includes code changes MUST start with:
 
@@ -53,13 +133,13 @@ If AI cannot check all boxes honestly, it MUST output: "No changes proposed. Cur
 
 ---
 
-## 3. Resource Ownership (The Rule That Would Have Prevented DRIFT #23)
+## 4. Resource Ownership (The Rule That Would Have Prevented DRIFT #23)
 
-### 3.1. The One Law
+### 4.1. The One Law
 
 > **Who creates a resource — closes it. Unconditionally. No flags. No exceptions.**
 
-### 3.2. What This Means
+### 4.2. What This Means
 
 ```python
 # FORBIDDEN — conditional cleanup
@@ -81,7 +161,7 @@ class GoodAdapter:
         await self._client.aclose()  # ← I CLOSE IT. ALWAYS.
 ```
 
-### 3.3. The Distinction That Matters
+### 4.3. The Distinction That Matters
 
 | | Shared CODE | Shared RESOURCE |
 |---|---|---|
@@ -93,9 +173,9 @@ class GoodAdapter:
 
 ---
 
-## 4. HTTP Client Strategy (Post-DRIFT #23)
+## 5. HTTP Client Strategy (Post-DRIFT #23)
 
-### 4.1. Current State
+### 5.1. Current State
 
 - `adapters/_http.py`: Stateless helper `async_post_json(client, url, headers, payload)`
 - Each HTTP adapter: creates own `httpx.AsyncClient` in `__init__`
@@ -103,7 +183,7 @@ class GoodAdapter:
 - `AppState`: NO `http_client` field
 - Factory: NO special handling for HTTP adapters
 
-### 4.2. Decision Tree (AI Must Follow)
+### 5.2. Decision Tree (AI Must Follow)
 
 ```
 Need HTTP POST in adapter?
@@ -113,7 +193,7 @@ Need HTTP POST in adapter?
 └── Is it shared across adapters? → REJECTED. Not allowed.
 ```
 
-### 4.3. Why Shared Client Is Banned
+### 5.3. Why Shared Client Is Banned
 
 1. Lifecycle mismatch: LLM adapter may outlive embedder
 2. Config divergence: Different timeouts, limits, mounts
@@ -123,16 +203,16 @@ Need HTTP POST in adapter?
 
 ---
 
-## 5. Shutdown Protocol
+## 6. Shutdown Protocol
 
-### 5.1. Invariants
+### 6.1. Invariants
 
 1. `shutdown()` is unconditional. No `if`. No flags.
 2. Lifespan calls `shutdown()` on every `IClosable`. It does NOT inspect internals.
 3. No-op adapters implement `shutdown()` as `pass`.
 4. Order: persist indices → adapter shutdown → metrics last.
 
-### 5.2. Lifespan Cleanup (Current)
+### 6.2. Lifespan Cleanup (Current)
 
 ```python
 # REQUIRED: lifespan does not know what adapters hold
@@ -151,9 +231,9 @@ await state.http_client.aclose()  # ← lifespan knows too much
 
 ---
 
-## 6. Refactoring: When Yes, When No
+## 7. Refactoring: When Yes, When No
 
-### 6.1. YES (Do It)
+### 7.1. YES (Do It)
 
 | Trigger | Condition |
 |---------|-----------|
@@ -163,7 +243,7 @@ await state.http_client.aclose()  # ← lifespan knows too much
 | Explicit request | User asked for it |
 | Volume reduction | Reduces files AND lines |
 
-### 6.2. NO (Reject)
+### 7.2. NO (Reject)
 
 | Trigger | Why Rejected |
 |---------|---------------|
@@ -172,9 +252,9 @@ await state.http_client.aclose()  # ← lifespan knows too much
 | "On future" | Speculative |
 | "Best practice" | External pattern, adds complexity |
 | "More flexible" | Adds abstraction for 1 use case |
-| Shared resource | See Section 3 |
+| Shared resource | See Section 4 |
 
-### 6.3. Scale Rule
+### 7.3. Scale Rule
 
 > **>3 files changed → discussion, not action.**
 
@@ -182,7 +262,7 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 
 ---
 
-## 7. Decision Log (Why These Rules Exist)
+## 8. Decision Log (Why These Rules Exist)
 
 ### #23: HTTP Client Ownership (2026-06-29)
 
@@ -190,7 +270,7 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 
 **Damage**: Hidden state, conditional shutdown, factory special-casing, reverse refactoring required.
 
-**Rule extracted**: Section 3.1 — unconditional ownership. Section 4.2 — per-adapter client only.
+**Rule extracted**: Section 4.1 — unconditional ownership. Section 5.2 — per-adapter client only.
 
 **Files touched**: 6 (deps.py, lifespan.py, 3 adapters, factory.py) — violated >3 files rule.
 
@@ -210,7 +290,7 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 
 ---
 
-## 8. Antipatterns (AI Must Never Use)
+## 9. Antipatterns (AI Must Never Use)
 
 | Pattern | Why Banned | Where It Appeared |
 |---------|-----------|-------------------|
@@ -220,11 +300,11 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 | `dict[str, Any]` metadata bags | Untyped, grows forever | DRIFT #8, #14 |
 | Lazy init (`dict[str, Callable]`) | Hidden state | ai_rules.md §2 |
 | `**kwargs` in ports | Breaks contract | ai_rules.md §2 |
-| Proposing changes when asked to find bugs | Scope creep | This document §2.1 |
+| Proposing changes when asked to find bugs | Scope creep | This document §3.1 |
 
 ---
 
-## 9. For the Non-Programmer Maintainer
+## 10. For the Non-Programmer Maintainer
 
 If AI proposes a change, ask it:
 1. **"What breaks if we do nothing?"** — If answer is "nothing", reject.
@@ -235,13 +315,11 @@ If AI proposes a change, ask it:
 
 ---
 
----
-
-## 10. The "Sacred Disk & Config" Doctrine
+## 11. The "Sacred Disk & Config" Doctrine
 
 > **Disk formats are sacred. User data outlives code. Code must serve data, not the reverse.**
 
-### 10.1. Persistence Lock
+### 11.1. Persistence Lock
 
 Disk formats (SQLite schemas, JSON structures, FAISS metadata, YAML configs) are **immutable without migration**.
 
@@ -256,7 +334,7 @@ Disk formats (SQLite schemas, JSON structures, FAISS metadata, YAML configs) are
 
 **Decision Log #5**: `ChunkMetadata` schema drift (`created_at` serialized but not in domain model) required local `_chunk_to_dict` / `_chunk_from_dict` helpers for strict deserialization. Lesson: disk format must match domain model exactly.
 
-### 10.2. Dependency & Config Freeze
+### 11.2. Dependency & Config Freeze
 
 | What | Rule |
 |------|------|
@@ -269,7 +347,7 @@ Disk formats (SQLite schemas, JSON structures, FAISS metadata, YAML configs) are
 
 **Existing ai_rules.md**: Section 2 bans Redis/Celery/etc. Section 2.1 bans config for 1-use values. This section adds the **threshold** (≥3) and the **framing** (freeze, not just caution).
 
-### 10.3. Concurrency & Async Lock
+### 11.3. Concurrency & Async Lock
 
 | What | Rule |
 |------|------|
@@ -285,7 +363,7 @@ Disk formats (SQLite schemas, JSON structures, FAISS metadata, YAML configs) are
 
 **Why**: Concurrency bugs are the hardest to debug solo. Locks add complexity that compounds over 10 years.
 
-### 10.4. The "Boring Code" Mandate
+### 11.4. The "Boring Code" Mandate
 
 Code must be readable by someone who knows only `if/else`, `for`, and `def`.
 
@@ -311,17 +389,19 @@ Code must be readable by someone who knows only `if/else`, `for`, and `def`.
 **Why**: "Pythonic magic" is unmaintainable solo. In 5 years, you will not remember why a metaclass was needed. In 10 years, Python may deprecate it.
 
 ---
-## 11. Document Meta
+
+## 12. Document Meta
 
 - **ai_rules.md** = "what is forbidden" (constraints)
-- **This document** = "how AI must behave" (behavioral lock)
+- **This document** = "how AI must behave" + "RAG philosophy" (behavioral lock)
 - **drift.md** = "what we fixed and why"
 - AI reads ALL THREE before any architectural output
 - This document takes precedence over ai_rules.md on architectural decisions
 - Changes to this document require explicit human approval
 
 ---
-## 12. RAG Invariants (Event-Proof)
+
+## 13. RAG Invariants (Event-Proof)
 
 Rules that survive model changes, hardware changes, and adapter swaps.
 
@@ -340,7 +420,8 @@ Rules that survive model changes, hardware changes, and adapter swaps.
   Prompt teaches the phrase; pipeline does not hardcode refusal.
 
 ---
-## 13. Hardware Ceiling Log
+
+## 14. Hardware Ceiling Log
 
 | Date | Hardware | LLM | Result | Limitation |
 |------|----------|-----|--------|------------|
