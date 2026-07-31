@@ -1,7 +1,14 @@
 # =============================================================================
 # QUICK START
-# 1. Change ONLY the paths and GPU settings marked with [CHANGE]
-# 2. Re-index documents after any chunk_size change
+# 1. Copy this file to config.yaml (cp config.example.yaml config.yaml)
+# 2. Replace all placeholders marked with [CHANGE] to match your setup:
+#    - API endpoints (api_base) for LLM, Embedder, Reranker
+#    - Model names for LLM, Embedder, Reranker
+#    - Embedding dimension (must match between embedder and vector_store)
+#    - Stop sequences specific to your LLM model
+#    - Documents folder path for RAG
+#    - GPU settings (n_gpu_layers, server_context_size) for your VRAM
+# 3. Re-index documents after any chunk_size change
 # =============================================================================
 
 app_name: ai-assistant
@@ -19,7 +26,7 @@ cors:
 chat:
   # Smaller history = more tokens left for RAG context. Keep 4-6 for 4B-class models.
   history_limit: 4
-  max_context_tokens: 1536
+  max_context_tokens: 1280
 
 storage:
   provider: sqlite
@@ -43,17 +50,19 @@ ui:
   static_path: ./ui
 
 # =============================================================================
-# EMBEDDER — [CHANGE] api_base to your local server
+# EMBEDDER — [CHANGE] api_base and model to match your server
 # =============================================================================
 embedder:
   provider: openai_compatible
   api_base: http://127.0.0.1:8081/v1
   api_key: null
-  model: bge-m3
+  # [CHANGE] Model name on your embedding server (e.g. bge-m3, text-embedding-3-small)
+  model: your-embedder-model
+  # [CHANGE] Must match your model's output dimension (1024 for bge-m3, 1536 for OpenAI, etc.)
   dim: 1024
   timeout: 120.0
   connect_timeout: 10.0
-  # [CHANGE] Set to 0 for CPU-only. Set to 999 if GPU has 8GB+ VRAM.
+  # [CHANGE] 0 = CPU only. 999 = all layers on GPU (needs 8GB+ VRAM).
   n_gpu_layers: 0
   n_batch: 128
   n_ubatch: 32
@@ -61,55 +70,59 @@ embedder:
   mlock: false
 
 # =============================================================================
-# RERANKER — [CHANGE] api_base to your local server
+# RERANKER — [CHANGE] api_base and model to match your server
 # =============================================================================
 reranker:
   provider: local
-  model: jina-reranker-v2-base-multilingual
+  # [CHANGE] Model name on your reranker server
+  model: your-reranker-model
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
 
+# =============================================================================
+# VECTOR STORE — [CHANGE] dim must match embedder.dim above
+# =============================================================================
 vector_store:
   provider: faiss
   index_path: ./data/indices
   metric: cosine
+  # [CHANGE] Must match embedder.dim above
   dim: 1024
   max_chunks: 100000
   max_document_size: 10485760
 
 # =============================================================================
-# LLM — [CHANGE] these 4 settings for your GPU / VRAM
+# LLM — [CHANGE] model name and GPU settings for your setup
 # =============================================================================
 llm:
   provider: openai_compatible
   api_base: http://127.0.0.1:8080/v1
   api_key: null
-  model: Qwen3-4B-Instruct-2507
-  available_models:
-    - google_gemma-4-E4B-it
-    - Qwen3-4B-Instruct-2507
-  # [CHANGE] Lower if you get out-of-memory errors on the LLM server.
-  # 4096 needs ~6GB VRAM. Use 2048 if you only have 4GB.
-  server_context_size: 4096
+  # [CHANGE] Put your model name here (e.g. Qwen3-4B-Instruct-2507, gpt-4o-mini)
+  model: your-model-name
+  available_models: []
+  # [CHANGE] 2048 = safe for 4GB VRAM. 4096 = needs ~6GB VRAM.
+  server_context_size: 2048
 
   # [CHANGE] 0 = CPU only. 999 = all layers on GPU (needs 8GB+ VRAM).
-  n_gpu_layers: 999
+  n_gpu_layers: 0
 
-  max_tokens: 768
-  temperature: 0.0        # Greedy. Safer for small models.
+  max_tokens: 512
+  temperature: 0.7
   top_p: 0.95
-  top_k: 1                # Greedy sampling. Increase to 20 if output feels "cut off".
+  top_k: 40
   min_p: 0.0
   repeat_penalty: 1.10
   presence_penalty: 0.0
   frequency_penalty: 0.0
-  stop_sequences:
-    - "<end_of_turn>"
+  # [CHANGE] Add stop sequences specific to your model
+  # (e.g. "<end_of_turn>", "<|endoftext|>", "</s>")
+  stop_sequences: []
   timeout: 300.0
   connect_timeout: 5.0
-  n_batch: 256
-  n_ubatch: 128
+  n_batch: 128
+  n_ubatch: 64
   mmap: true
   mlock: false
 
@@ -124,29 +137,29 @@ rag:
   prompt_name: rag_strict
   # 2 = less noise in context. Increase to 3 only if answers miss facts.
   top_k: 3
-  default_namespace: test
+  default_namespace: default
   token_margin_min: 384
   token_margin_pct: 0.10
   sources:
-    - namespace: test
+    - namespace: default
       # [CHANGE] Your documents folder
-      path: D:\rag\test
-      include: ["*.txt"]
-      recursive: false
+      path: ./data/documents
+      include: ["*.md", "*.txt"]
+      recursive: true
   chat_exports_root: data/chat_exports
   index_chat_exports: false
 
 namespaces:
-  test:
-    prefix: t
+  default:
+    prefix: d
     # [CHANGE] Re-index after changing this.
-    chunk_size: 384
+    chunk_size: 512
     prompt: rag_strict
 
 chunker:
   provider: simple
   # [CHANGE] Must match namespace chunk_size above.
-  chunk_size: 384
+  chunk_size: 512
   chunk_overlap: 100
 
 tokenizer:
