@@ -17,6 +17,9 @@ from ai_assistant.adapters._registry import get_registry, register
 from ai_assistant.adapters.char_fallback_tokenizer import (
     CharFallbackTokenizer,  # noqa: F401
 )
+from ai_assistant.adapters.huggingface_tokenizer import (  # noqa: F401
+    HuggingFaceTokenizer,
+)
 
 # Eager imports to trigger @register side-effects.
 # Each adapter module self-registers via @register on import.

@@ -129,6 +129,16 @@ def _load_config(root: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _load_launch_config(root: Path) -> dict:
+    """Load run_servers.yaml if present. Returns empty dict if missing."""
+    launch_path = root / "run_servers.yaml"
+    if not launch_path.exists():
+        return {}
+    import yaml
+    with launch_path.open(encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
 def _wait_for_stop() -> None:
     print("\n  > Servers running. Press Enter or Ctrl+C to stop...")
     input()
@@ -136,7 +146,7 @@ def _wait_for_stop() -> None:
 
 
 # ── Server lifecycle ─────────────────────────────────────────────────────────
-def _start_llm_server(cfg: dict, root: Path, llama_log: Path) -> None:
+def _start_llm_server(cfg: dict, launch: dict, root: Path, llama_log: Path) -> None:
     llm_cfg: dict = cfg.get("llm", {})
     model = _find_model(llm_cfg.get("model", ""), root)
     if not model:
@@ -152,11 +162,13 @@ def _start_llm_server(cfg: dict, root: Path, llama_log: Path) -> None:
         "--host", "127.0.0.1", "--port", str(LLM_PORT),
         "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
         "-c", str(llm_cfg.get("server_context_size", 4096)),
-        "--parallel", "1",
-        "-lv", "1",
     ]
     if llm_cfg.get("flash_attn"):
         cmd.extend(["--flash-attn", "on"])
+    # Low-level arguments now come exclusively from run_servers.yaml
+    extra = launch.get("llm", {}).get("extra_args", [])
+    if extra:
+        cmd.extend(extra)
     _run(cmd, llama_log)
     if wait_port(LLM_PORT):
         print(f"  + LLM ready  http://127.0.0.1:{LLM_PORT}\n")
@@ -164,7 +176,7 @@ def _start_llm_server(cfg: dict, root: Path, llama_log: Path) -> None:
         print("  ! LLM did not respond\n")
 
 
-def _start_embedder(cfg: dict, root: Path, llama_log: Path) -> None:
+def _start_embedder(cfg: dict, launch: dict, root: Path, llama_log: Path) -> None:
     emb_cfg: dict = cfg.get("embedder", {})
     model = _find_model(emb_cfg.get("model", ""), root)
     if not model:
@@ -180,8 +192,10 @@ def _start_embedder(cfg: dict, root: Path, llama_log: Path) -> None:
         "--host", "127.0.0.1", "--port", str(EMBED_PORT),
         "-ngl", str(emb_cfg.get("n_gpu_layers", 99)),
         "-c", "512", "--embedding", "--pooling", "mean",
-        "-lv", "1",
     ]
+    extra = launch.get("embedder", {}).get("extra_args", [])
+    if extra:
+        cmd.extend(extra)
     _run(cmd, llama_log)
     if wait_port(EMBED_PORT):
         print(f"  + Embedder ready  http://127.0.0.1:{EMBED_PORT}\n")
@@ -189,7 +203,7 @@ def _start_embedder(cfg: dict, root: Path, llama_log: Path) -> None:
         print("  ! Embedder did not respond\n")
 
 
-def _start_reranker(cfg: dict, root: Path, llama_log: Path) -> None:
+def _start_reranker(cfg: dict, launch: dict, root: Path, llama_log: Path) -> None:
     rerank_cfg: dict = cfg.get("reranker", {})
     if rerank_cfg.get("provider") != "local":
         return
@@ -207,8 +221,10 @@ def _start_reranker(cfg: dict, root: Path, llama_log: Path) -> None:
         "--host", "127.0.0.1", "--port", str(RERANK_PORT),
         "-ngl", str(rerank_cfg.get("n_gpu_layers", 99)),
         "-c", "2048", "--rerank",
-        "-lv", "1",
     ]
+    extra = launch.get("reranker", {}).get("extra_args", [])
+    if extra:
+        cmd.extend(extra)
     _run(cmd, llama_log)
     if wait_port(RERANK_PORT):
         print(f"  + Reranker ready  http://127.0.0.1:{RERANK_PORT}\n")
@@ -250,6 +266,7 @@ def start(root: Path) -> int:
             pid_file.unlink(missing_ok=True)
 
     cfg = _load_config(root)
+    launch = _load_launch_config(root)
     (root / "data").mkdir(exist_ok=True)
 
     llama_log = root / "data" / "llama.log"
@@ -257,9 +274,9 @@ def start(root: Path) -> int:
         llama_log.unlink()
 
     try:
-        _start_llm_server(cfg, root, llama_log)
-        _start_embedder(cfg, root, llama_log)
-        _start_reranker(cfg, root, llama_log)
+        _start_llm_server(cfg, launch, root, llama_log)
+        _start_embedder(cfg, launch, root, llama_log)
+        _start_reranker(cfg, launch, root, llama_log)
 
         venv_py = _ensure_venv(root)
         if venv_py is None:

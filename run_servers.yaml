@@ -1,0 +1,23 @@
+# =============================================================================
+# Deployment overrides for llama-server (read by run_servers.py).
+# This file is optional. If present, extra_args are appended to the server
+# command for the specified service (llm / embedder / reranker).
+# Currently NOT needed – models work with their built‑in defaults.
+# =============================================================================
+
+llm:
+  extra_args:
+    - "--parallel"
+    - "1"
+    - "-lv"
+    - "1"
+
+embedder:
+  extra_args:
+    - "-lv"
+    - "1"
+
+reranker:
+  extra_args:
+    - "-lv"
+    - "1"
