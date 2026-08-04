@@ -17,9 +17,6 @@ from ai_assistant.adapters._registry import get_registry, register
 from ai_assistant.adapters.char_fallback_tokenizer import (
     CharFallbackTokenizer,  # noqa: F401
 )
-from ai_assistant.adapters.huggingface_tokenizer import (  # noqa: F401
-    HuggingFaceTokenizer,
-)
 
 # Eager imports to trigger @register side-effects.
 # Each adapter module self-registers via @register on import.
@@ -27,6 +24,9 @@ from ai_assistant.adapters.chunker_simple import SimpleChunker  # noqa: F401
 from ai_assistant.adapters.embedder_mock import MockEmbedder  # noqa: F401
 from ai_assistant.adapters.embedder_openai_compatible import (  # noqa: F401
     OpenAICompatibleEmbedder,
+)
+from ai_assistant.adapters.huggingface_tokenizer import (  # noqa: F401
+    HuggingFaceTokenizer,
 )
 from ai_assistant.adapters.llm_mock import MockLLM  # noqa: F401
 from ai_assistant.adapters.llm_openai_compatible import (  # noqa: F401

@@ -3,142 +3,215 @@
 Local AI assistant framework. FastAPI + RAG with namespaces.
 Offline-first, OpenAI-compatible LLM/embedder adapters.
 
-**Solo-maintained.** Published as-is — no contributions accepted.
+**Solo-maintained. Published as-is.**
 
-![Chat - example](docs/screenshot.png)
-
-## What is this
-
-- **LLM**: any OpenAI-compatible server (llama.cpp, Ollama, vLLM, etc.)
-- **Embedder**: any OpenAI-compatible server (nomic-embed-text, etc.)
-- **Reranker**: optional API-based reranking (set `provider: null` to disable)
-- **Vector store**: FAISS (persistent) or memory (ephemeral)
-- **Storage**: SQLite
-- **API**: OpenAI-compatible HTTP API (`/v1/chat/completions`, `/v1/models`) + native endpoints
+---
 
 ## Requirements
 
 - Python 3.11+
-- LLM server running
-- Embedder server running
+- llama.cpp server or any OpenAI-compatible API
+- GGUF models (LLM required; embedder and reranker optional)
+
+---
 
 ## Quick Start
 
+### 1. Clone and enter project
+
 ```bash
-# 1. Install
+git clone <repo-url> ai-assistant
+cd ai-assistant
+```
+
+### 2. Create virtual environment
+
+**Linux/macOS:**
+```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
-pip install .
-# Optional: FAISS for persistent vector store
-pip install .[faiss]
+source .venv/bin/activate
+```
 
-# 2. Configure
+**Windows:**
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### 3. Install
+
+```bash
+pip install -e ".[dev,faiss]"
+pip install pytest-cov
+```
+
+### 4. Build llama.cpp (static, no shared library dependencies)
+
+**Linux/macOS:**
+```bash
+mkdir -p vendor
+cd vendor
+git clone --depth 1 https://github.com/ggerganov/llama.cpp.git llama_source
+cd llama_source
+mkdir build && cd build
+cmake .. -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
+cmake --build . -j8 --config Release
+mkdir -p ../../llama
+cp bin/llama-server bin/llama-cli ../../llama/
+cd ../..
+rm -rf llama_source
+```
+
+**Windows (PowerShell):**
+```powershell
+mkdir -p vendor
+cd vendor
+git clone --depth 1 https://github.com/ggerganov/llama.cpp.git llama_source
+cd llama_source
+mkdir build && cd build
+cmake .. -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
+cmake --build . -j8 --config Release
+mkdir -p ../../llama
+cp bin/Release/llama-server.exe bin/Release/llama-cli.exe ../../llama/
+cd ../..
+rm -rf llama_source
+```
+
+> **GPU support:** change `OFF` to `ON` for `-DGGML_CUDA`. Requires CUDA Toolkit installed.
+
+### 5. Configure
+
+```bash
 cp config.example.yaml config.yaml
-# Edit config.yaml: set llm.api_base, embedder.api_base, rag.sources
+```
 
-# 3. Download tokenizers (local models only)
+Edit `config.yaml`:
+- Set `llm.model` to your GGUF filename
+- Set `embedder.model` to your embedding GGUF filename
+- Adjust `n_gpu_layers` for your hardware (0 = CPU only)
+
+### 6. Download models
+
+Place `.gguf` files in `vendor/models/`.
+
+### 7. Download tokenizers (for tiktoken)
+
+```bash
 python scripts/download_tokenizers.py
+```
 
-# 4. Start
-python -m uvicorn ai_assistant.main:create_app --reload
-# Or use run_servers.py for local llama.cpp setup
+### 8. Start servers
 
-# 5. Verify
-python scripts/check_llm.py
-python scripts/check_rag.py
+```bash
+python run_servers.py
 ```
 
 Open http://localhost:8000/ui.
 
-## Configuration
+### 9. Verify
 
-Key sections in `config.yaml`:
+```bash
+python scripts/check_all.py
+```
+
+---
+
+## Project Structure
+
+```
+.
+├── src/ai_assistant/     # Application code
+│   ├── core/             # Domain, ports, config
+│   ├── adapters/         # LLM, embedder, reranker, vector store
+│   ├── features/         # Chat, RAG
+│   └── api/              # FastAPI routes, middleware
+├── tests/                # 862 tests
+├── scripts/              # check_all.py, check_rag.py, etc.
+├── vendor/               # External binaries and models
+│   ├── llama/            # llama.cpp static binaries
+│   └── models/           # GGUF model files
+├── config.yaml           # Your personal config (git-ignored)
+├── config.example.yaml   # Template in repo
+└── pyproject.toml        # Dependencies and tool settings
+```
+
+---
+
+## Updating llama.cpp
+
+**Linux/macOS:**
+```bash
+cd vendor
+git clone --depth 1 https://github.com/ggerganov/llama.cpp.git llama_source
+cd llama_source && mkdir build && cd build
+cmake .. -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
+cmake --build . -j8 --config Release
+cp bin/llama-server bin/llama-cli ../../llama/
+cd ../.. && rm -rf llama_source
+```
+
+**Windows:** same, but copy from `bin/Release/`.
+
+---
+
+## Running Tests
+
+```bash
+# Full check (ruff + mypy + tests + coverage)
+python scripts/check_all.py
+
+# Tests only
+python -m pytest tests/ -x -q
+
+# RAG quality
+python scripts/check_rag.py
+```
+
+---
+
+## Configuration Reference
 
 | Section | Purpose |
 |---------|---------|
-| `llm` | Model, API endpoint, sampling |
-| `embedder` | Embedding model, dimension (must match `vector_store.dim`) |
-| `reranker` | Optional reranking API |
+| `llm` | Model, API endpoint, sampling, GPU layers |
+| `embedder` | Embedding model, dimension, GPU layers |
+| `reranker` | Reranker model and provider |
 | `vector_store` | FAISS or memory, index path, dimension |
-| `rag` | Pipeline steps, top_k, document `sources` |
+| `rag` | Pipeline steps, sources |
 | `namespaces` | Per-namespace prefix, chunk size, prompt |
-| `security` | API key, admin endpoints, body size limits |
+| `security` | API key, admin endpoints |
 
-`config.yaml` is git-ignored. `config.example.yaml` is the template in repo.
+---
 
-## Usage
-
-### RAG Namespaces
-
-RAG is opt-in. Start a message with a namespace prefix to search documents:
-
-```
-[m] what is the architecture?
-```
-
-Configure prefixes per namespace in `config.yaml`:
-
-```yaml
-namespaces:
-  mydocs:
-    prefix: m
-    chunk_size: 512
-    prompt: rag_strict
-```
-
-### Index Documents
-
-After editing `rag.sources`, open the web UI at `http://localhost:8000/ui` and click the **Index** button, or use the API.
-
-### API Examples
+## API Examples
 
 **OpenAI-compatible chat:**
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"your-model-name","messages":[{"role":"user","content":"[m] what is this?"}]}'
+  -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-**Native RAG query:**
+**RAG query (native):**
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
   -H "Content-Type: application/json" \
-  -d '{"query":"[m] what is this?", "namespace":"mydocs"}'
+  -d '{"query":"[m] what is the architecture?", "namespace":"main"}'
 ```
 
-## RAG Quality
-
-`scripts/check_rag.py` is the single source of truth for RAG correctness.
-Do not edit it to make tests pass — fix the pipeline (embedder, reranker, prompt, or LLM) instead.
-
-```bash
-python scripts/check_rag.py        # Full run (re-index + test)
-python scripts/check_rag.py --skip-index   # Test only, reuse indices
-```
-
-## RAG LLM Model Requirements
-
-RAG quality is bottlenecked by the **LLM**, not the retriever. Small models (3–5B) handle simple Q&A but struggle with multi-hop reasoning, conflict resolution, and long-context fidelity.
-
-| Use Case | Minimum | Good | Excellent |
-|----------|---------|------|-----------|
-| Simple Q&A | 4B | 7B | 14B+ |
-| Multi-hop / logic | 7B | 14B | 32B+ |
-| Multi-language | 7B | 14B | 32B+ |
-
-VRAM (Q4_K_M): 4B ~3–4 GB, 7–8B ~5–6 GB, 14B ~9–10 GB, 32B ~20 GB.
-
-If retrieval is correct but answers are wrong, the model is likely too small for the task.
+---
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| `ModuleNotFoundError: No module named 'faiss'` | `pip install faiss-cpu` |
-| `embedder.dim != vector_store.dim` | Set both `dim` values to the same number in `config.yaml` |
-| "I do not have enough information" | Check namespaces exist (`/api/v1/rag/namespaces`), verify prefix matches, re-index |
-| `401 Unauthorized` on `/api/v1/*` | Legacy endpoints need `Authorization: Bearer <key>`; OpenAI-compatible `/v1/*` does not |
-| RAG answers wrong despite correct retrieval | Model too small, or reduce `chunk_size` to 256–384 and `temperature` to 0.05–0.1 |
+| `libllama-server-impl.so: not found` | Rebuild with `-DBUILD_SHARED_LIBS=OFF` |
+| mypy fails on Python 3.14+ | Use Python 3.11–3.13, or wait for mypy update |
+| `faiss-cpu not installed` | `pip install faiss-cpu` |
+| Servers not responding | Check `data/llama.log` |
+| RAG answers wrong | Try larger model or reduce `chunk_size` / `temperature` |
+
+---
 
 ## Documentation
 
@@ -148,4 +221,4 @@ If retrieval is correct but answers are wrong, the model is likely too small for
 
 ## License
 
-Licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](LICENSE).

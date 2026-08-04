@@ -46,7 +46,7 @@ class HuggingFaceTokenizer(ITokenizer):
         try:
             self._tokenizer = Tokenizer.from_file(resolved)
         except Exception as exc:
-            logger.exception("Failed to load tokenizer from %s", resolved)
+            logger.exception(f"Failed to load tokenizer from {resolved}")
             raise AdapterError(
                 f"Failed to load tokenizer from {resolved}: {exc}"
             ) from exc

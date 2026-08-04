@@ -10,6 +10,7 @@ import pytest
 
 from ai_assistant.adapters._registry import get_registry
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
+from ai_assistant.adapters.huggingface_tokenizer import HuggingFaceTokenizer
 from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.domain.errors import AdapterError
@@ -230,3 +231,169 @@ class TestTiktokenTokenizerInternals:
             with patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None):
                 with pytest.raises(AdapterError, match="No tokenizer backend available"):
                     tok.count("hello world")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HuggingFaceTokenizer tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestHuggingFaceTokenizer:
+    """Given: HuggingFaceTokenizer adapter.
+    When: various scenarios are tested.
+    Then: all error paths and success paths are covered."""
+
+    def test_tokenizers_not_installed_raises_adapter_error(self) -> None:
+        """Given: tokenizers package not installed.
+        When: HuggingFaceTokenizer is instantiated.
+        Then: AdapterError is raised."""
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", None
+        ):
+            with pytest.raises(
+                AdapterError,
+                match="tokenizers package is not installed",
+            ):
+                HuggingFaceTokenizer(TokenizerConfigData(model_name="dummy"))
+
+    def test_empty_model_name_raises_adapter_error(self) -> None:
+        """Given: config with empty model_name.
+        When: HuggingFaceTokenizer is instantiated.
+        Then: AdapterError is raised."""
+        mock_tok = MagicMock()
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            with pytest.raises(
+                AdapterError,
+                match="requires model_name",
+            ):
+                HuggingFaceTokenizer(TokenizerConfigData(model_name=""))
+
+    def test_file_not_found_raises_adapter_error(self) -> None:
+        """Given: path to non-existent file.
+        When: HuggingFaceTokenizer is instantiated.
+        Then: AdapterError is raised."""
+        mock_tok = MagicMock()
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            with pytest.raises(
+                AdapterError,
+                match="Tokenizer file not found",
+            ):
+                HuggingFaceTokenizer(
+                    TokenizerConfigData(model_name="/nonexistent/tokenizer.json")
+                )
+
+    def test_load_failure_raises_adapter_error(self, tmp_path: Path) -> None:
+        """Given: valid file path but Tokenizer.from_file raises.
+        When: HuggingFaceTokenizer is instantiated.
+        Then: AdapterError is raised."""
+        tokenizer_file = tmp_path / "tokenizer.json"
+        tokenizer_file.write_text("invalid")
+
+        mock_tok = MagicMock()
+        mock_tok.from_file.side_effect = RuntimeError("corrupt")
+
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            with pytest.raises(
+                AdapterError,
+                match="Failed to load tokenizer",
+            ):
+                HuggingFaceTokenizer(
+                    TokenizerConfigData(model_name=str(tokenizer_file))
+                )
+
+    def test_successful_load_and_count(self, tmp_path: Path) -> None:
+        """Given: valid tokenizer.json.
+        When: count is called.
+        Then: correct token count is returned."""
+        tokenizer_file = tmp_path / "tokenizer.json"
+        tokenizer_file.write_text("{}")
+
+        mock_encoding = MagicMock()
+        mock_encoding.tokens = [1, 2, 3, 4, 5]
+
+        mock_instance = MagicMock()
+        mock_instance.encode.return_value = mock_encoding
+
+        mock_tok = MagicMock()
+        mock_tok.from_file.return_value = mock_instance
+
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            tok = HuggingFaceTokenizer(
+                TokenizerConfigData(model_name=str(tokenizer_file))
+            )
+            assert tok.count("hello") == 5
+
+    def test_count_failure_raises_adapter_error(self, tmp_path: Path) -> None:
+        """Given: loaded tokenizer.
+        When: encode raises.
+        Then: AdapterError is raised."""
+        tokenizer_file = tmp_path / "tokenizer.json"
+        tokenizer_file.write_text("{}")
+
+        mock_instance = MagicMock()
+        mock_instance.encode.side_effect = RuntimeError("fail")
+
+        mock_tok = MagicMock()
+        mock_tok.from_file.return_value = mock_instance
+
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            tok = HuggingFaceTokenizer(
+                TokenizerConfigData(model_name=str(tokenizer_file))
+            )
+            with pytest.raises(
+                AdapterError,
+                match="Tokenization failed",
+            ):
+                tok.count("hello")
+
+    def test_model_name_property(self, tmp_path: Path) -> None:
+        """Given: loaded tokenizer with path.
+        When: model_name is accessed.
+        Then: path is returned."""
+        tokenizer_file = tmp_path / "tokenizer.json"
+        tokenizer_file.write_text("{}")
+
+        mock_instance = MagicMock()
+        mock_instance.encode.return_value = MagicMock(tokens=[])
+
+        mock_tok = MagicMock()
+        mock_tok.from_file.return_value = mock_instance
+
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            tok = HuggingFaceTokenizer(
+                TokenizerConfigData(model_name=str(tokenizer_file))
+            )
+            assert tok.model_name == str(tokenizer_file)
+
+    def test_shutdown_does_nothing(self, tmp_path: Path) -> None:
+        """Given: loaded tokenizer.
+        When: shutdown is called.
+        Then: no error occurs."""
+        tokenizer_file = tmp_path / "tokenizer.json"
+        tokenizer_file.write_text("{}")
+
+        mock_instance = MagicMock()
+        mock_instance.encode.return_value = MagicMock(tokens=[])
+
+        mock_tok = MagicMock()
+        mock_tok.from_file.return_value = mock_instance
+
+        with patch(
+            "ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok
+        ):
+            tok = HuggingFaceTokenizer(
+                TokenizerConfigData(model_name=str(tokenizer_file))
+            )
+            import asyncio
+            asyncio.run(tok.shutdown())
