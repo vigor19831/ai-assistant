@@ -20,6 +20,7 @@ from ai_assistant.adapters.char_fallback_tokenizer import (
 
 # Eager imports to trigger @register side-effects.
 # Each adapter module self-registers via @register on import.
+from ai_assistant.adapters.chunker_recursive import RecursiveChunker  # noqa: F401
 from ai_assistant.adapters.chunker_simple import SimpleChunker  # noqa: F401
 from ai_assistant.adapters.embedder_mock import MockEmbedder  # noqa: F401
 from ai_assistant.adapters.embedder_openai_compatible import (  # noqa: F401

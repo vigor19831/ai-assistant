@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
+from ai_assistant.adapters.chunker_recursive import RecursiveChunker
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
@@ -2035,3 +2036,53 @@ class TestFaissVectorStoreBugFixes:
             [1.0, 0.0, 0.0], top_k=5, namespace="test"
         )
         assert results == []
+
+
+async def test_recursive_chunker_preserves_structure():
+    config = ChunkerConfigData(chunk_size=100)
+    chunker = RecursiveChunker(config)
+    doc = Document(
+        id="test.md",
+        content=(
+            "First paragraph here.\n\n"
+            "Second paragraph with more text.\n\n"
+            "Third one."
+        ),
+    )
+    chunks = await chunker.chunk(doc)
+    assert len(chunks) >= 1
+    for c in chunks:
+        assert len(c.text) <= 100
+    full = "".join(c.text for c in chunks)
+    assert "First paragraph" in full
+    assert "Second paragraph" in full
+
+
+async def test_recursive_chunker_fallback_to_characters():
+    config = ChunkerConfigData(chunk_size=10, chunk_overlap=0)
+    chunker = RecursiveChunker(config)
+    doc = Document(id="test.txt", content="abcdefghij" * 5)
+    chunks = await chunker.chunk(doc)
+    for c in chunks:
+        assert len(c.text) <= 10
+    assert "".join(c.text for c in chunks) == "abcdefghij" * 5
+
+
+async def test_recursive_chunker_empty_document():
+    config = ChunkerConfigData(chunk_size=50, chunk_overlap=0)
+    chunker = RecursiveChunker(config)
+    doc = Document(id="empty.txt", content="")
+    assert await chunker.chunk(doc) == []
+
+
+async def test_recursive_chunker_sentence_overlap():
+    config = ChunkerConfigData(chunk_size=40, chunk_overlap=25)
+    chunker = RecursiveChunker(config)
+    doc = Document(
+        id="overlap.txt",
+        content="Sentence one here. Sentence two here. Sentence three here. End.",
+    )
+    chunks = await chunker.chunk(doc)
+    assert len(chunks) >= 2
+    # Start of chunk[1] must come from the end of chunk[0]
+    assert chunks[1].text[:10] in chunks[0].text
