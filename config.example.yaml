@@ -68,6 +68,8 @@ embedder:
   n_ubatch: 32
   mmap: true
   mlock: false
+  # For testing without a real embedding server, use:
+  # provider: mock
 
 # =============================================================================
 # RERANKER — [CHANGE] api_base and model to match your server
@@ -79,6 +81,9 @@ reranker:
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
+  # Alternative: cloud API reranker (Cohere / Jina compatible)
+  # provider: api
+  # api_key: your-api-key-here
 
 # =============================================================================
 # VECTOR STORE — [CHANGE] dim must match embedder.dim above
@@ -101,6 +106,11 @@ llm:
   api_key: null
   # [CHANGE] Put your model name here (e.g. Qwen3-4B-Instruct-2507, gpt-4o-mini)
   model: your-model-name
+  # Optional: list available models for OpenAI-compatible endpoints.
+  # If empty, the adapter will not expose a /models endpoint.
+  # available_models:
+  #   - your-model-name
+  #   - another-model
   available_models: []
   # [CHANGE] 2048 = safe for 4GB VRAM. 4096 = needs ~6GB VRAM.
   server_context_size: 2048
@@ -125,11 +135,31 @@ llm:
   n_ubatch: 64
   mmap: true
   mlock: false
+  # For testing without a real LLM, use:
+  # provider: mock
 
 # =============================================================================
 # RAG — [CHANGE] prompt_name and top_k based on test results
 # =============================================================================
 rag:
+  # -------------------------------------------------------------------
+  # Pipeline steps (order matters, runs sequentially)
+  # Available steps: embed_query, retrieve, multi_query_retrieve,
+  #   hyde_query, condense_question, rerank, build_context, generate.
+  #
+  # TIP: condense_question rewrites follow-up questions using chat history.
+  #      Add it before embed_query to handle multi-turn conversations.
+  #      hyde_query replaces embed_query (generates a hypothetical document
+  #      for better retrieval) – typically used without retrieve step.
+  #      multi_query_retrieve replaces embed_query + retrieve by generating
+  #      multiple search queries and combining results.
+  #
+  # Examples:
+  #   Standard: [embed_query, retrieve, rerank, build_context, generate]
+  #   Multi-query: [multi_query_retrieve, rerank, build_context, generate]
+  #   Full: [condense_question, embed_query, retrieve, rerank, build_context, generate]
+  #   HyDE: [hyde_query, retrieve, rerank, build_context, generate]
+  # -------------------------------------------------------------------
   steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
   # Try "rag_simple" first. If check_rag.py fails on noise rejection,
@@ -156,10 +186,17 @@ namespaces:
     chunk_size: 512
     prompt: rag_strict
 
+# =============================================================================
+# CHUNKER — choose between simple and recursive
+# =============================================================================
 chunker:
+  # provider: simple   → fixed-size chunks
+  # provider: recursive → splits by paragraphs, sentences, words (better retrieval)
   provider: simple
   # [CHANGE] Must match namespace chunk_size above.
   chunk_size: 512
+  # [CHANGE] Set to ~10-15% of chunk_size (e.g. 50-100). 0 = no overlap.
+  # Overlap is especially important for the simple chunker.
   chunk_overlap: 100
 
 tokenizer:
