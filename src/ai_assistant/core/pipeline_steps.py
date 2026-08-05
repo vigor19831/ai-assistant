@@ -50,6 +50,7 @@ __all__: list[str] = [
     "embed_query",
     "generate",
     "hyde_query",
+    "multi_query_retrieve",
     "rerank",
     "retrieve",
     "STEP_REGISTRY",
@@ -614,6 +615,102 @@ async def generate(data: PipelineData) -> PipelineData:
 
     _logger.debug("generate done", extra={"trace_id": data.trace_id})
     return data.with_response(response)
+
+
+@step("multi_query_retrieve", requires={"embedder", "vector_store", "llm", "pipeline_config"})
+async def multi_query_retrieve(data: PipelineData) -> PipelineData:
+    """Generate query variations, retrieve for each, deduplicate by chunk id.
+
+    Replaces embed_query + retrieve when semantic gap between user
+    wording and document wording hurts recall. Keeps original query
+    first; variations follow. Deduplication preserves order of first
+    appearance.
+    """
+    _logger.debug("multi_query_retrieve start", extra={"trace_id": data.trace_id})
+    if data.query is None or not data.query.text:
+        _logger.warning(
+            "multi_query_retrieve: no query text", extra={"trace_id": data.trace_id}
+        )
+        return data.add_error(QUERY_TEXT_MISSING)
+
+    cfg = _get_config(data)
+    retry_cfg = cfg.retry
+
+    # Generate variations via LLM
+    prompt = get_prompt(
+        "multi_query",
+        version=cfg.prompt_version,
+        query=data.query.text,
+    )
+    if data.llm is None:
+        return data.add_error(LLM_NOT_PROVIDED)
+    try:
+        response = await _call_llm(
+            data.llm,
+            [UserMessage(text=prompt)],
+            retry_cfg,
+            sampling=cfg.sampling,
+        )
+    except Exception:
+        _logger.exception(
+            "multi_query generation failed", extra={"trace_id": data.trace_id}
+        )
+        response = None
+
+    variations: list[str] = []
+    if response is not None and response.text:
+        for line in response.text.splitlines():
+            line = line.strip()
+            if line and line.lower() != data.query.text.lower():
+                # Strip common leading artifacts (digits, bullets)
+                cleaned = line.lstrip("0123456789.-) ")
+                if cleaned:
+                    variations.append(cleaned)
+
+    queries = [data.query.text] + variations[:2]
+    _logger.debug(
+        "multi_query variations",
+        extra={"trace_id": data.trace_id, "count": len(queries), "queries": queries},
+    )
+
+    # Retrieve for each query, deduplicate by chunk id preserving order
+    seen: set[str] = set()
+    combined: list[Chunk] = []
+    if data.embedder is None or data.vector_store is None:
+        return data.add_error(
+            EMBEDDER_NOT_PROVIDED if data.embedder is None else VECTOR_STORE_NOT_PROVIDED
+        )
+    for q in queries:
+        try:
+            embeddings = await _call_embed(data.embedder, q, retry_cfg)
+            if not embeddings:
+                continue
+            chunks = await _call_search(
+                data.vector_store,
+                embeddings[0],
+                cfg.top_k * _RERANK_CANDIDATE_EXPANSION,
+                cfg.namespace,
+                retry_cfg,
+            )
+            for c in chunks:
+                if c.id not in seen:
+                    seen.add(c.id)
+                    combined.append(c)
+        except Exception as exc:
+            _logger.warning(
+                "multi_query retrieve failed for variation",
+                extra={"trace_id": data.trace_id, "query": q, "error": str(exc)},
+            )
+
+    increment_counter(
+        "ai_assistant_rag_multi_query_total",
+        labels={"namespace": cfg.namespace, "variations": str(len(queries))},
+    )
+    _logger.debug(
+        "multi_query_retrieve done",
+        extra={"trace_id": data.trace_id, "chunks": len(combined)},
+    )
+    return data.with_chunks(tuple(combined))
 
 
 @step("hyde_query", requires={"embedder", "llm"})

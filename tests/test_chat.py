@@ -16,7 +16,7 @@ from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-from ai_assistant.core.config import NamespaceConfig
+from ai_assistant.core.config import NamespaceConfig, RAGStep
 from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     RerankerConfigData,
@@ -1551,3 +1551,37 @@ class TestChatHistoryTrimming:
         assert messages[0].text == "msg4"
         assert messages[1].text == "msg5"
         assert messages[-1].text == "current"
+
+
+@pytest.mark.asyncio
+async def test_get_chat_manager_passes_rag_steps():
+    """Given: AppConfig with custom rag.steps.
+    When: get_chat_manager is called.
+    Then: ChatManager receives rag_steps from config."""
+    from unittest.mock import patch, MagicMock
+    from ai_assistant.features.chat.handlers import get_chat_manager
+
+    state = MagicMock()
+    state.config.rag.steps = [RAGStep.CONDENSE_QUESTION, RAGStep.GENERATE]
+    state.config.llm.system_message = None
+    state.config.chat.history_limit = 5
+    state.config.chat.max_context_tokens = 1000
+    state.config.rag.top_k = 3
+    state.config.rag.token_margin_min = 100
+    state.config.rag.token_margin_pct = 0.1
+    state.config.rag.prompt_version = "v1"
+    state.config.namespaces = {}
+    state.llm = MagicMock()
+    state.reranker = MagicMock()
+    state.storage = MagicMock()
+    state.embedder = MagicMock()
+    state.vector_store = MagicMock()
+    state.tokenizer = MagicMock()
+
+    with patch("ai_assistant.features.chat.handlers.ChatManager") as MockChatManager:
+        manager_instance = MockChatManager.return_value
+        get_chat_manager(state)
+        MockChatManager.assert_called_once()
+        _, kwargs = MockChatManager.call_args
+        assert "rag_steps" in kwargs
+        assert kwargs["rag_steps"] == [RAGStep.CONDENSE_QUESTION, RAGStep.GENERATE]

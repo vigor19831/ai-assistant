@@ -167,6 +167,7 @@ class RAGStep(StrEnum):
     CONDENSE_QUESTION = "condense_question"
     EMBED_QUERY = "embed_query"
     HYDE_QUERY = "hyde_query"
+    MULTI_QUERY_RETRIEVE = "multi_query_retrieve"
     RETRIEVE = "retrieve"
     RERANK = "rerank"
     BUILD_CONTEXT = "build_context"

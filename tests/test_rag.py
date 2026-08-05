@@ -36,7 +36,7 @@ from ai_assistant.features.rag.handlers import (
 )
 from ai_assistant.features.rag.indexing import cleanup_stale, index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
-from ai_assistant.core.config import CHAT_NS_PREFIX, NamespaceConfig, get_chat_namespace
+from ai_assistant.core.config import CHAT_NS_PREFIX, NamespaceConfig, RAGStep, get_chat_namespace
 from ai_assistant.features.rag.schemas import (
     DeleteRequest,
     IndexRequest,
@@ -2117,3 +2117,31 @@ class TestReindexDocumentsExtended:
             }
             assert "chat_docs" in delete_namespaces
             assert "chat_wiki" in delete_namespaces
+
+
+@pytest.mark.asyncio
+async def test_get_rag_manager_passes_rag_steps():
+    """Given: AppConfig with custom rag.steps.
+    When: _get_rag_manager is called.
+    Then: RAGManager receives rag_steps from config (as list[str])."""
+    from unittest.mock import MagicMock
+    from ai_assistant.features.rag.handlers import _get_rag_manager
+
+    state = MagicMock()
+    state.config.rag.steps = [RAGStep.EMBED_QUERY, RAGStep.RERANK]
+    state.config.llm.system_message = None
+    state.config.rag.token_margin_min = 100
+    state.config.rag.token_margin_pct = 0.1
+    state.llm = MagicMock()
+    state.reranker = MagicMock()
+    state.vector_store = MagicMock()
+    state.embedder = MagicMock()
+    state.tokenizer = MagicMock()
+
+    with patch("ai_assistant.features.rag.handlers.RAGManager") as MockRAGManager:
+        manager_instance = MockRAGManager.return_value
+        _get_rag_manager(state)
+        MockRAGManager.assert_called_once()
+        _, kwargs = MockRAGManager.call_args
+        assert "rag_steps" in kwargs
+        assert kwargs["rag_steps"] == ["embed_query", "rerank"]

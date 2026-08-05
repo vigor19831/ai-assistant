@@ -71,6 +71,7 @@ def get_chat_manager(
             top_p=llm_cfg.top_p,
             stop_sequences=tuple(llm_cfg.stop_sequences),
         ),
+        rag_steps=state.config.rag.steps,
     )
 
 

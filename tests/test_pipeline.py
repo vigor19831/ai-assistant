@@ -32,6 +32,7 @@ from ai_assistant.core.pipeline_steps import (
     embed_query,
     generate,
     hyde_query,
+    multi_query_retrieve,
     rerank,
     retrieve,
 )
@@ -1136,3 +1137,48 @@ class TestRetry:
         with pytest.raises(RuntimeError, match="attempt 3"):
             await always_fail()
         assert calls == 3  # initial + 2 retries
+
+@pytest.mark.asyncio
+async def test_multi_query_retrieve_dedup_and_fallback():
+    """Given: LLM returns 2 variations, vector store returns overlapping chunks.
+    When: multi_query_retrieve runs.
+    Then: deduplication by chunk id preserves order, original query is always included."""
+    llm = MagicMock()
+    llm.complete = AsyncMock(
+        return_value=AssistantMessage(
+            text="What color do I prefer?\nWhich hue is my favorite?"
+        )
+    )
+
+    embedder = MagicMock()
+    embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+
+    vector_store = MagicMock()
+    vector_store.search = AsyncMock(side_effect=[
+        [
+            Chunk(id="c1", text="blue", metadata=ChunkMetadata(source="s1", index=0, total_chunks=1)),
+            Chunk(id="c2", text="red", metadata=ChunkMetadata(source="s1", index=1, total_chunks=1)),
+        ],
+        [
+            Chunk(id="c2", text="red", metadata=ChunkMetadata(source="s1", index=1, total_chunks=1)),
+            Chunk(id="c3", text="green", metadata=ChunkMetadata(source="s2", index=0, total_chunks=1)),
+        ],
+        [
+            Chunk(id="c3", text="green", metadata=ChunkMetadata(source="s2", index=0, total_chunks=1)),
+            Chunk(id="c4", text="yellow", metadata=ChunkMetadata(source="s2", index=1, total_chunks=1)),
+        ],
+    ])
+
+    data = PipelineData(
+        query=UserMessage(text="What is my favorite color?"),
+        pipeline_config=PipelineConfig(),
+        llm=llm,
+        embedder=embedder,
+        vector_store=vector_store,
+    )
+    result = await multi_query_retrieve(data)
+
+    assert [c.id for c in result.chunks] == ["c1", "c2", "c3", "c4"]
+    assert len(result.errors) == 0
+    llm.complete.assert_awaited_once()
+    assert embedder.embed.await_count == 3

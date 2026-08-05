@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""structure.py — project tree with .gitignore support, metrics,
-and human-readable sizes."""
+"""structure.py — compact project tree with .gitignore support and metrics."""
 
 import argparse
 import fnmatch
@@ -9,31 +8,34 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Hard exclusions — never traversed
+# Never shown, never traversed
 HARD_EXCLUDE = frozenset({
-    ".git",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".hypothesis",
-    ".tox",
-    "node_modules",
-    "dist",
-    "build",
-    ".eggs",
-    "htmlcov",
-    ".venv",
-    "venv",
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".hypothesis", ".tox", "node_modules", "dist", "build", ".eggs",
+    "htmlcov", "venv",
+})
+
+# Shown as folder name + description, but contents are NOT traversed
+HIDDEN_FOLDERS = {
+    ".git": "Git repository (contents hidden)",
+    ".venv": "Python virtual environment (contents hidden)",
+    "data": "indexes, yaml profiles, tokenizers and logs",
+    "vendor": "llama.cpp binaries and GGUF models",
+}
+
+# Files always shown, even if ignored by .gitignore
+IMPORTANT_FILES = frozenset({
+    "config.yaml", "config.example.yaml",
+    "LICENSE", "README.md", "pyproject.toml",
 })
 
 
 def load_patterns(root: Path, filename: str) -> list[str]:
-    """Load ignore patterns from a file (e.g. .gitignore, .structureignore)."""
+    """Load ignore patterns from a file."""
     path = root / filename
     if not path.exists():
         return []
-    patterns: list[str] = []
+    patterns = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
@@ -42,25 +44,17 @@ def load_patterns(root: Path, filename: str) -> list[str]:
 
 
 def is_ignored(path: Path, root: Path, patterns: list[str]) -> bool:
-    """Check if path matches any ignore pattern.
-
-    Supports basic gitignore semantics (no '**' recursive glob).
-    - "*.pyc" matches any file with .pyc extension (any depth)
-    - "build/" matches directory named "build" (any depth)
-    - "exact" matches file or directory named "exact" (any depth)
-    """
+    """Check if path matches any ignore pattern (basic gitignore rules)."""
     rel = path.relative_to(root).as_posix()
     name = path.name
     for pat in patterns:
         if pat.startswith("!"):
-            continue  # negative patterns not supported
+            continue
         if pat.endswith("/"):
             if not path.is_dir():
                 continue
             pat_name = pat[:-1]
-            if name == pat_name or rel == pat_name:
-                return True
-            if rel.startswith(pat_name + "/"):
+            if name == pat_name or rel == pat_name or rel.startswith(pat_name + "/"):
                 return True
             continue
         if "*" in pat or "?" in pat:
@@ -80,12 +74,8 @@ def hard_excluded(path: Path, root: Path) -> bool:
         if part.endswith(".egg-info"):
             return True
     if path.is_file() and path.suffix.lower() in {
-        ".pyc",
-        ".pyo",
-        ".so",
-        ".dll",
-        ".exe",
-        ".dylib",
+        ".pyc", ".pyo", ".so", ".dll", ".exe", ".dylib",
+        ".gguf", ".bin", ".pt", ".safetensors", ".cache", ".log",
     }:
         return True
     return False
@@ -112,31 +102,44 @@ def count_lines(path: Path) -> int:
 
 
 def build(root: Path, use_color: bool = False) -> str:
-    """Generate markdown tree with metrics."""
-    patterns = load_patterns(root, ".gitignore") + load_patterns(
-        root, ".structureignore"
-    )
+    """Generate compact markdown tree with metrics."""
+    patterns = load_patterns(root, ".gitignore") + load_patterns(root, ".structureignore")
 
-    # Collect valid entries with os.walk pruning for hard exclusions
     entries: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         current = Path(dirpath)
+
         # Prune hard-excluded directories
-        dirnames[:] = [
-            d for d in dirnames
-            if not hard_excluded(current / d, root)
-        ]
+        dirnames[:] = [d for d in dirnames if not hard_excluded(current / d, root)]
+
+        # Handle hidden folders: show them, but don't descend
+        if current.name in HIDDEN_FOLDERS and current != root:
+            entries.append(current)
+            dirnames.clear()
+            continue
+
+        # Directories
         for d in dirnames:
             d_path = current / d
-            if not d_path.is_symlink() and not is_ignored(d_path, root, patterns):
+            if d_path.is_symlink():
+                continue
+            # Always show hidden folders, even if .gitignored
+            if d in HIDDEN_FOLDERS:
                 entries.append(d_path)
+                continue
+            if not is_ignored(d_path, root, patterns):
+                entries.append(d_path)
+
+        # Files
         for f in filenames:
             f_path = current / f
-            if f_path.is_symlink():
+            if f_path.is_symlink() or hard_excluded(f_path, root):
                 continue
-            if hard_excluded(f_path, root) or is_ignored(f_path, root, patterns):
+            if f in IMPORTANT_FILES:
+                entries.append(f_path)
                 continue
-            entries.append(f_path)
+            if not is_ignored(f_path, root, patterns):
+                entries.append(f_path)
 
     # Metrics
     files = [e for e in entries if e.is_file()]
@@ -149,36 +152,50 @@ def build(root: Path, use_color: bool = False) -> str:
             pass
     py_loc = sum(count_lines(f) for f in py_files)
 
-    # Tree rendering: directories first, then files, both alphabetically
-    tree: dict[str, dict | None] = {}
+    # Build tree
+    tree: dict = {}
     for e in entries:
         node = tree
         parts = e.relative_to(root).parts
         for i, part in enumerate(parts):
             if i == len(parts) - 1 and e.is_file():
-                node[part] = None  # File marker
+                node[part] = None  # file
             else:
-                node = node.setdefault(part, {})  # Directory
+                node = node.setdefault(part, {})
 
-    def render(node: dict[str, dict | None], prefix: str = "") -> str:
-        dirs = sorted(k for k, v in node.items() if v is not None)
-        files_only = sorted(k for k, v in node.items() if v is None)
-        items = dirs + files_only
-        out: list[str] = []
-        for i, k in enumerate(items):
-            is_last = i == len(items) - 1
-            branch = "└── " if is_last else "├── "
-            out.append(f"{prefix}{branch}{k}")
-            if node[k] is not None:
-                ext = "    " if is_last else "│   "
-                out.append(render(node[k], prefix + ext))
+    # Replace empty dicts of hidden folders with description string
+    for key, desc in HIDDEN_FOLDERS.items():
+        if key in tree and isinstance(tree[key], dict) and not tree[key]:
+            tree[key] = desc
+
+    def render(node, prefix=""):
+        out = []
+        # Sort: dirs (dict values) first, then hidden (str), then files (None)
+        items = sorted(
+            node.items(),
+            key=lambda x: (
+                not isinstance(x[1], dict),      # directories first
+                isinstance(x[1], str),            # then hidden
+                x[0].lower()                      # alphabetical
+            )
+        )
+        for name, val in items:
+            if isinstance(val, dict):
+                out.append(f"{prefix}{name}/")
+                out.append(render(val, prefix + "  "))
+            elif isinstance(val, str):  # hidden folder with description
+                out.append(f"{prefix}{name}/  # {val}")
+            else:
+                out.append(f"{prefix}{name}")
         return "\n".join(out)
 
-    # ANSI colors
+    tree_text = render(tree)
+
+    # Colors
     g = "\x1b[32m" if use_color else ""
     r = "\x1b[0m" if use_color else ""
 
-    header = "\n".join([
+    return "\n".join([
         f"{g}# Project Structure{r}",
         f"**Generated:** {datetime.now().isoformat()}",
         f"**Root:** `{root}`",
@@ -192,43 +209,32 @@ def build(root: Path, use_color: bool = False) -> str:
         f"| Total size | {fmt_size(total_size)} |",
         "",
         "```",
-        render(tree),
+        tree_text,
         "```",
     ])
 
-    return header
 
+def main():
+    parser = argparse.ArgumentParser(description="Generate compact project structure")
+    parser.add_argument("--root", "-r", type=Path, default=None)
+    parser.add_argument("--output", "-o", type=Path, default=None,
+                        help="Output file (default: structure.txt in project root)")
+    parser.add_argument("--stdout", "-s", action="store_true",
+                        help="Print to stdout instead of file")
+    parser.add_argument("--color", "-c", action="store_true",
+                        help="Colorize terminal output")
+    args = parser.parse_args()
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Generate project structure file")
-    ap.add_argument("--root", "-r", type=Path, default=None)
-    ap.add_argument(
-        "--output",
-        "-o",
-        type=Path,
-        default=None,
-        help="Output file (default: structure.txt)",
-    )
-    ap.add_argument(
-        "--stdout", "-s", action="store_true", help="Print to stdout instead of file"
-    )
-    ap.add_argument(
-        "--color", "-c", action="store_true", help="Colorize terminal output"
-    )
-    args = ap.parse_args()
-
-    _scripts = Path(__file__).parent.resolve()
+    scripts_dir = Path(__file__).parent.resolve()
     if args.root is None:
-        # Scan real project root, write output to root/
-        if (_scripts.parent / "src" / "ai_assistant").exists() or (
-            _scripts.parent / "pyproject.toml"
-        ).exists():
-            args.root = _scripts.parent
+        if (scripts_dir.parent / "src" / "ai_assistant").exists() or \
+           (scripts_dir.parent / "pyproject.toml").exists():
+            args.root = scripts_dir.parent
         else:
-            args.root = _scripts
+            args.root = scripts_dir
 
     if not args.root.exists():
-        print(f"ERROR: root path does not exist: {args.root}")
+        print(f"ERROR: root path does not exist: {args.root}", file=sys.stderr)
         return 1
 
     text = build(args.root, use_color=args.color and not args.stdout)
