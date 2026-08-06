@@ -171,6 +171,7 @@ rag:
   token_margin_min: 384
   token_margin_pct: 0.10
   sources:
+    # Documents are auto-indexed every 60s when the server is running.
     - namespace: default
       # [CHANGE] Your documents folder
       path: ./data/documents

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
+from ai_assistant.api.deps import InitializedAppState
+from ai_assistant.core.config import SourceConfig
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
@@ -277,3 +283,109 @@ class RAGManager:
             "index_loaded": index_loaded,
             "chunk_count": chunk_count,
         }
+
+
+class SourceWatcher:
+    """Polls source directories and triggers reindex on filesystem changes."""
+
+    def __init__(
+        self,
+        sources: list[SourceConfig],
+        state: InitializedAppState,
+        index_fn: Callable[[SourceConfig], Awaitable[None]],
+        interval: float = 60.0,
+    ) -> None:
+        self._sources = sources
+        self._state = state
+        self._index_fn = index_fn
+        self._interval = interval
+        self._snapshots: dict[str, dict[str, tuple[float, int]]] = {}
+        self._task: asyncio.Task[None] | None = None
+        self._stop = asyncio.Event()
+        self._index_tasks: dict[str, asyncio.Task[None]] = {}
+
+    @staticmethod
+    def _scan(path: Path) -> dict[str, tuple[float, int]]:
+        """Return {abspath: (mtime, size)} for all files under path."""
+        snapshot: dict[str, tuple[float, int]] = {}
+        for root, _, files in os.walk(path):
+            for name in files:
+                fp = Path(root) / name
+                try:
+                    st = fp.stat()
+                    snapshot[str(fp)] = (st.st_mtime, st.st_size)
+                except OSError:
+                    pass
+        return snapshot
+
+    async def _check_once(self) -> None:
+        for src in self._sources:
+            path = Path(src.path)
+            if not await asyncio.to_thread(path.exists):
+                continue
+            key = str(path)
+            task = self._index_tasks.get(key)
+            if task is not None and not task.done():
+                _logger.debug(
+                    "Skipping reindex, still running", extra={"source": key}
+                )
+                continue
+            current = await asyncio.to_thread(self._scan, path)
+            previous = self._snapshots.get(key, {})
+            if current != previous:
+                self._snapshots[key] = current
+                _logger.info(
+                    "Source changed, reindexing", extra={"source": src.path}
+                )
+                self._index_tasks[key] = asyncio.create_task(
+                    self._run_index(src)
+                )
+
+    async def _run_index(self, src: SourceConfig) -> None:
+        try:
+            await asyncio.wait_for(self._index_fn(src), timeout=300.0)
+        except TimeoutError:
+            _logger.error("Reindex timed out", extra={"source": src.path})
+        except Exception:
+            _logger.exception(
+                "Auto-reindex failed", extra={"source": src.path}
+            )
+
+    async def _loop(self) -> None:
+        while not self._stop.is_set():
+            await self._check_once()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
+
+    def start(self) -> None:
+        """Start the watcher loop. Idempotent."""
+        if self._task is not None:
+            return
+        self._stop.clear()
+        self._task = asyncio.create_task(self._loop())
+
+    async def stop(self) -> None:
+        """Unconditional shutdown. Who starts the loop — stops it."""
+        self._stop.set()
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, timeout=10.0)
+            except TimeoutError:
+                _logger.warning("Watchdog loop shutdown timed out")
+                self._task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._task
+            self._task = None
+        for key, task in list(self._index_tasks.items()):
+            if not task.done():
+                try:
+                    await asyncio.wait_for(task, timeout=60.0)
+                except TimeoutError:
+                    _logger.warning(
+                        "Index task shutdown timed out",
+                        extra={"source": key},
+                    )
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+            self._index_tasks.pop(key, None)

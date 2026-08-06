@@ -35,8 +35,14 @@ from ai_assistant.features.rag.handlers import (
     save_chat,
 )
 from ai_assistant.features.rag.indexing import cleanup_stale, index_folder
-from ai_assistant.features.rag.manager import IndexingManager, RAGManager
-from ai_assistant.core.config import CHAT_NS_PREFIX, NamespaceConfig, RAGStep, get_chat_namespace
+from ai_assistant.features.rag.manager import IndexingManager, RAGManager, SourceWatcher
+from ai_assistant.core.config import (
+    CHAT_NS_PREFIX,
+    NamespaceConfig,
+    RAGStep,
+    SourceConfig,
+    get_chat_namespace,
+)
 from ai_assistant.features.rag.schemas import (
     DeleteRequest,
     IndexRequest,
@@ -2145,3 +2151,135 @@ async def test_get_rag_manager_passes_rag_steps():
         _, kwargs = MockRAGManager.call_args
         assert "rag_steps" in kwargs
         assert kwargs["rag_steps"] == ["embed_query", "rerank"]
+
+
+class TestSourceWatcher:
+    """Polling watchdog: detects filesystem changes and triggers reindex."""
+
+    @pytest.fixture
+    def mock_state(self):
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_check_once_detects_new_file(self, tmp_path, mock_state):
+        """Given: source dir with one file.
+        When: _check_once called.
+        Then: _run_index task spawned and index_fn eventually called."""
+        (tmp_path / "doc.txt").write_text("hello")
+        src = SourceConfig(namespace="test", path=str(tmp_path))
+        mock_index = AsyncMock()
+        watcher = SourceWatcher(
+            [src], mock_state, index_fn=mock_index, interval=1.0
+        )
+
+        await watcher._check_once()
+        key = str(tmp_path)
+
+        # _check_once spawns a task; await it deterministically
+        task = watcher._index_tasks.get(key)
+        assert task is not None, "expected _run_index task to be created"
+        await task
+
+        assert mock_index.call_count == 1
+        assert mock_index.call_args[0][0].path == str(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_check_once_skips_when_nothing_changes(self, tmp_path, mock_state):
+        """Given: stable source dir, snapshot already captured.
+        When: _check_once called again.
+        Then: no new task spawned."""
+        (tmp_path / "doc.txt").write_text("hello")
+        src = SourceConfig(namespace="test", path=str(tmp_path))
+        mock_index = AsyncMock()
+        watcher = SourceWatcher(
+            [src], mock_state, index_fn=mock_index, interval=1.0
+        )
+
+        await watcher._check_once()
+        key = str(tmp_path)
+        task = watcher._index_tasks.get(key)
+        assert task is not None
+        await task
+        mock_index.reset_mock()
+
+        await watcher._check_once()
+
+        assert mock_index.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_check_once_skips_if_task_running(self, tmp_path, mock_state):
+        """Given: previous index task still running.
+        When: _check_once detects change again.
+        Then: new index task is not spawned."""
+        (tmp_path / "doc.txt").write_text("hello")
+        src = SourceConfig(namespace="test", path=str(tmp_path))
+        mock_index = AsyncMock()
+        watcher = SourceWatcher(
+            [src], mock_state, index_fn=mock_index, interval=1.0
+        )
+
+        # Simulate a running task by injecting a mock task
+        watcher._index_tasks[str(tmp_path)] = MagicMock()
+        watcher._index_tasks[str(tmp_path)].done.return_value = False
+        watcher._snapshots[str(tmp_path)] = watcher._scan(tmp_path)
+
+        await watcher._check_once()
+
+        assert mock_index.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_start_stop_lifecycle(self, tmp_path, mock_state):
+        """Given: watcher created.
+        When: start() then stop().
+        Then: task created and cleaned up; no dangling references."""
+        src = SourceConfig(namespace="test", path=str(tmp_path))
+        mock_index = AsyncMock()
+        watcher = SourceWatcher(
+            [src], mock_state, index_fn=mock_index, interval=1.0
+        )
+
+        watcher.start()
+        assert watcher._task is not None
+        assert not watcher._task.done()
+
+        await watcher.stop()
+        assert watcher._task is None
+
+    @pytest.mark.asyncio
+    async def test_loop_drives_check_once(self, monkeypatch, tmp_path, mock_state):
+        """Given: _loop running with monkeypatched Event.wait.
+        When: two ticks fire.
+        Then: _check_once called at least twice, index_fn triggered."""
+        (tmp_path / "doc.txt").write_text("hello")
+        src = SourceConfig(namespace="test", path=str(tmp_path))
+        mock_index = AsyncMock()
+        watcher = SourceWatcher(
+            [src], mock_state, index_fn=mock_index, interval=1.0
+        )
+
+        check_count = 0
+        original_check = watcher._check_once
+
+        async def counting_check():
+            nonlocal check_count
+            check_count += 1
+            await original_check()
+            if check_count >= 2:
+                watcher._stop.set()
+
+        monkeypatch.setattr(watcher, "_check_once", counting_check)
+
+        # Monkeypatch only this instance's Event.wait to immediately timeout
+        async def fast_wait(timeout=None):
+            raise TimeoutError()
+
+        monkeypatch.setattr(watcher._stop, "wait", fast_wait)
+
+        watcher.start()
+        if watcher._task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher._task
+        await watcher.stop()
+
+        assert check_count >= 2
+        assert mock_index.call_count >= 1

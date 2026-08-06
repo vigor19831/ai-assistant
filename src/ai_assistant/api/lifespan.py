@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 from ai_assistant.api.deps import init_adapters
 from ai_assistant.api.security import get_expected_api_key, set_api_key
-from ai_assistant.core.config import AppConfig, load_config
+from ai_assistant.core.config import AppConfig, SourceConfig, load_config
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.logger import get_logger, setup_logging
 from ai_assistant.core.retry import with_retry
+from ai_assistant.features.rag.indexing import index_folder
+from ai_assistant.features.rag.manager import SourceWatcher
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -73,6 +75,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state = await init_adapters(config)
     app.state.app_state = state
 
+    watcher: SourceWatcher | None = None
+    if config.rag.sources:
+        async def _index_source(src: SourceConfig) -> None:
+            await index_folder(
+                folder=None,
+                clear=False,
+                chunker=state.chunker,
+                embedder=state.embedder,
+                vector_store=state.vector_store,
+                max_file_size=state.config.vector_store.max_document_size,
+                sources=[src],
+                index_path=state.vector_store.index_path,
+            )
+
+        watcher = SourceWatcher(
+            sources=config.rag.sources,
+            state=state,
+            index_fn=_index_source,
+        )
+        watcher.start()
+
     # Load persisted indices from disk via port contract
     if state.vector_store is not None:
         index_path = state.vector_store.index_path
@@ -106,6 +129,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if watcher is not None:
+            await watcher.stop()
         await _async_cleanup(app, config)
 
 
