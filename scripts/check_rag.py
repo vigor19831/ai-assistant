@@ -230,6 +230,7 @@ class TestCase:
     answer_must_contain_all_any: tuple[str, ...] = ()
     description: str = ""
     requires_future_capability: bool = False
+    use_chat_api: bool = False
 
 
 # ── Final corpus ─────────────────────────────────────────────────────────────
@@ -530,6 +531,12 @@ TEST_SOURCES: list[SourceDoc] = [
         "personal_conflict_ru",
         "Мой любимый цвет — красный. Я изменил его в прошлом году.",
     ),
+
+    # For chat-prefix e2e test: namespace matching [d] prefix in config
+    SourceDoc(
+        "default",
+        "My favorite color is blue. I chose it in childhood because it reminds me of the sea and the sky. It is my only favorite color.",
+    ),
 ]
 
 
@@ -547,8 +554,6 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("red", "green", "yellow", "i don't have a favorite"),
         expect_sources=True,
         sources_must_contain=("blue", "childhood", "sea"),
-        # sources_must_not_contain removed — with micro-corpus, noise may
-        # enter top-3 even with correct ranking; LLM is tested via answer.
         require_faithfulness=True,
         description="Direct retrieval. Answer must cite personal context. Must not pull from noise doc.",
     ),
@@ -802,7 +807,6 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("red", "green", "yellow"),
         expect_sources=True,
         sources_must_contain=("синий", "море"),
-        # sources_must_not_contain removed
         require_faithfulness=True,
         description="English query must retrieve Russian document. Tests cross-lingual embedding quality.",
     ),
@@ -815,7 +819,6 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("красный", "зелёный", "жёлтый"),
         expect_sources=True,
         sources_must_contain=("синий", "море", "небе"),
-        # sources_must_not_contain removed
         require_faithfulness=True,
         description="Russian query to Russian document. Tests monolingual retrieval.",
     ),
@@ -874,8 +877,6 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("snake", "constriction", "reptile"),
         expect_sources=True,
         sources_must_contain=("programming language",),
-        # sources_must_not_contain removed — homonym "Python" cannot be
-        # disambiguated by retrieval alone; relies on LLM discipline.
         require_faithfulness=True,
         description="Prioritize programming language over animal when both exist in tech namespace.",
         requires_future_capability=True,
@@ -909,6 +910,35 @@ TEST_CASES: list[TestCase] = [
         require_source_coverage=True,
         description="Synthesize from larger context, ignore noise (apple).",
         requires_future_capability=True,
+    ),
+
+    # ------------------------------------------------------------
+    # Chat prefix e2e — proves that [d] in chat enables RAG
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="chat-no-prefix",
+        query="What is my favorite color?",
+        namespace="personal",
+        answer_must_not_contain=("blue",),
+        answer_must_contain_any=(
+            "don't know", "not sure", "no information",
+            "don't have access", "cannot provide", "I don't have",
+        ),
+        expect_sources=False,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Chat without prefix must not retrieve facts from index.",
+    ),
+    TestCase(
+        test_id="chat-prefix-on",
+        query="[d] What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        answer_must_not_contain=("don't know", "not sure"),
+        expect_sources=True,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Chat with [d] prefix must use RAG and answer from documents.",
     ),
 ]
 
@@ -1007,6 +1037,42 @@ async def query_rag(
     return r.json()
 
 
+async def chat_query(
+    client: httpx.AsyncClient,
+    url: str,
+    api_key: str,
+    query: str,
+    namespace: str,  # ignored, kept for interface uniformity
+    timeout: float | None = None,
+    conversation_id: str | None = None,
+) -> dict[str, Any]:
+    """Send a user message to the chat API and extract answer + sources flag."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    payload: dict[str, Any] = {
+        "model": "local",
+        "messages": [{"role": "user", "content": query}],
+    }
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
+    r = await _request_with_retry(
+        client,
+        "POST",
+        f"{url.rstrip('/')}/v1/chat/completions",
+        json=payload,
+        timeout=timeout,
+    )
+    data = r.json()
+    choices = data.get("choices", [])
+    answer = choices[0].get("message", {}).get("content", "") if choices else ""
+    has_sources = "Sources:" in answer
+    return {
+        "answer": answer,
+        "sources": [{"text": "sources-present"}] if has_sources else [],
+        "chunks_used": 1 if has_sources else 0,
+        "errors": [],
+    }
+
+
 def _validate_schema(data: dict[str, Any]) -> list[str]:
     errors = []
     if not isinstance(data.get("answer"), str):
@@ -1027,6 +1093,8 @@ async def run_tests(
     contract_passed = 0
     future_passed = 0
     known_limitations = 0
+    chat_passed = 0
+    chat_total = 0
     total = len(cases)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
@@ -1038,9 +1106,15 @@ async def run_tests(
             print(f"    NS    : {case.namespace}")
             t0 = time.perf_counter()
             try:
-                data = await query_rag(
-                    client, url, api_key, case.query, case.namespace, timeout=timeout
-                )
+                if case.use_chat_api:
+                    data = await chat_query(
+                        client, url, api_key, case.query, case.namespace, timeout=timeout
+                    )
+                    print("    >>> [CHAT PREFIX E2E TEST] <<<")
+                else:
+                    data = await query_rag(
+                        client, url, api_key, case.query, case.namespace, timeout=timeout
+                    )
             except Exception as exc:
                 print(f"    FAIL  API error: {exc}")
                 continue
@@ -1134,11 +1208,15 @@ async def run_tests(
                     future_passed += 1
                 else:
                     contract_passed += 1
+                if case.use_chat_api:
+                    chat_passed += 1
             elif case.requires_future_capability:
                 status = "KNOWN LIMITATION"
                 known_limitations += 1
             else:
                 status = "FAIL"
+            if case.use_chat_api:
+                chat_total += 1
 
             print(f"    Result: {status} ({latency:.0f}ms)")
             for err in errors:
@@ -1150,6 +1228,8 @@ async def run_tests(
     contract_total = total - future_capability_count
     print(f"\n{_SEP_RESULT}")
     print(f"CONTRACT: {contract_passed}/{contract_total} passed")
+    if chat_total:
+        print(f"CHAT PREFIX E2E: {chat_passed}/{chat_total} passed")
     if known_limitations:
         print(f"KNOWN LIMITATIONS TRIGGERED: {known_limitations}")
     if future_capability_count:
