@@ -215,7 +215,6 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
             </button>
             <h1>AI Assistant</h1>
-            <span class="namespace-badge" id="currentNs" aria-label="Current namespace">default</span>
             <div class="header-actions">
                 <button class="icon-btn" onclick="exportChat()" title="Export" aria-label="Export chat">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -469,7 +468,7 @@
         const settings = { apiBase: '', apiKey: 'local', model: 'local', temperature: 0.3, systemPrompt: '', maxHistory: 20 };
 
         const $ = id => document.getElementById(id);
-        const input = $('messageInput'), container = $('chatContainer'), nsBadge = $('currentNs'), scrollBtn = $('scrollBtn'), toastEl = $('toast');
+        const input = $('messageInput'), container = $('chatContainer'), scrollBtn = $('scrollBtn'), toastEl = $('toast');
         const attachmentsEl = $('attachments'), chatListEl = $('chatList'), sidebar = $('sidebar'), sidebarOverlay = $('sidebarOverlay');
         const dragOverlay = $('dragOverlay'), sendBtn = $('sendBtn'), stopBtn = $('stopBtn'), tokenCountEl = $('tokenCount'), emptyState = $('emptyState');
 
@@ -720,8 +719,7 @@
             let text = input.value.trim(); if (!text || isStreaming) return;
 
             const nsMatch = text.match(/^\[([a-zA-Z0-9_.-]+)\]\s*/i);
-            currentNs = nsMatch ? nsMatch[1].toLowerCase() : 'default';
-            nsBadge.textContent = currentNs;
+            currentNs = nsMatch ? nsMatch[1].toLowerCase() : 'none';
             if (messages.length === 0) {
                 const s = sessions.find(x => x.id === currentSessionId);
                 if (s) { s.title = text.slice(0, 40).replace(/\n/g, ' ') || 'New Chat'; s.updatedAt = Date.now(); storage.set(SESSIONS_KEY, sessions); renderChatList(); }
@@ -739,8 +737,7 @@
             const apiMessages = [];
             if (settings.systemPrompt) apiMessages.push({role: 'system', content: settings.systemPrompt});
             messages.slice(-settings.maxHistory - 1, -1).forEach(m => { if (m.role !== 'system') apiMessages.push({role: m.role, content: m.content}); });
-            const apiText = nsMatch ? text.replace(nsMatch[0], '').trim() : text;
-            apiMessages.push({role: 'user', content: apiText});
+            apiMessages.push({role: 'user', content: text});
 
             abortController = new AbortController();
             try {

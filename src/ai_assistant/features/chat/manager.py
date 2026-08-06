@@ -84,18 +84,19 @@ class ChatManager:
 
             md = chunk.metadata
             display = md.source or "unknown"
-            url = None
+            link = None
 
             if md.source_uri:
-                # source_uri is a relative path; extract filename for display
                 display = md.source_uri.rsplit("/", 1)[-1] or md.source
-                url = md.source_uri
+                # Only treat as link if it contains a scheme or slashes
+                if "://" in md.source_uri or "/" in md.source_uri:
+                    link = md.source_uri
             elif md.original_path:
                 display = os.path.basename(md.original_path) or md.source
-                url = _path_to_file_uri(md.original_path)
+                link = _path_to_file_uri(md.original_path)
 
-            if url:
-                return f"{display} — {url}"
+            if link and link != display:
+                return f"{display} — {link}"
             return display
 
         # Deduplicate by source key while preserving order
@@ -149,11 +150,10 @@ class ChatManager:
         self._prefix_map = build_prefix_map(self.namespaces)
 
         # Build pipeline internally — ChatManager owns its pipeline.
-        # rag_steps parameter exists for tests and future overrides.
-        # Factory in handlers.py does NOT pass it; hardcoded retrieval
-        # steps are used instead. Generation is handled separately via
-        # llm.complete(), so cfg.rag.steps (which includes GENERATE)
-        # is not appropriate here.
+        # Factory in handlers.py passes cfg.rag.steps; GENERATE is
+        # stripped here because ChatManager calls llm.complete() itself.
+        # This allows YAML-level retrieval customization (multi_query,
+        # HyDE, etc.) without touching core.
         self._pipeline = self._build_pipeline(rag_steps)
 
     def _build_pipeline(self, rag_steps: list[RAGStep] | None = None) -> RAGPipeline | None:
