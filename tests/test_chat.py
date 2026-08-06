@@ -1322,6 +1322,43 @@ class TestChatManagerSources:
         assert "other.md — file:///docs/other.md" in text
         assert "Sources:" in text
 
+    @pytest.mark.asyncio
+    async def test_source_link_includes_last_modified(self, chat_manager_with_rag):
+        """Given: chunk with last_modified metadata.
+        When: stream_chat() is called.
+        Then: source line shows modification date.
+        """
+        chunk = Chunk(
+            id="c1",
+            text="doc text",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(
+                source="plan.txt",
+                index=0,
+                total_chunks=1,
+                source_uri="docs/plan.txt",
+                last_modified="2025-01-15 14:30",
+            ),
+        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter(["Answer."])
+        )
+
+        result = []
+        async for text in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result.append(text)
+
+        full_text = "".join(result)
+        assert "modified 2025-01-15 14:30" in full_text
+        assert "plan.txt" in full_text
+        assert "Sources:" in full_text
+
 
 # ── TestChatHistoryTrimming ──
 

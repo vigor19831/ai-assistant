@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -59,23 +60,24 @@ def _collect_files_sync(
             continue
 
         # Guard: skip files exceeding max size before reading into memory
-        if max_file_size is not None:
-            try:
-                file_size = file_path.stat().st_size
-                if file_size > max_file_size:
-                    _logger.warning(
-                        f"Skipping oversized file {file_path} "
-                        f"({file_size} > {max_file_size} bytes)"
-                    )
-                    continue
-            except OSError:
-                continue
+        try:
+            st = file_path.stat()
+        except OSError:
+            continue
+
+        if max_file_size is not None and st.st_size > max_file_size:
+            _logger.warning(
+                f"Skipping oversized file {file_path} "
+                f"({st.st_size} > {max_file_size} bytes)"
+            )
+            continue
 
         content = _read_file_sync(file_path)
         if not content.strip():
             continue
 
         source_uri = file_path.relative_to(root).as_posix()
+        last_modified = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
 
         docs.append(
             {
@@ -86,6 +88,8 @@ def _collect_files_sync(
                     "folder": source.namespace,
                     "source_uri": source_uri,
                     "type": "document",
+                    "last_modified": last_modified,
+                    "original_path": str(file_path),
                 },
             }
         )

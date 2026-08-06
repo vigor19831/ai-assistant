@@ -65,6 +65,7 @@ def _chunk_to_dict(chunk: Chunk) -> dict[str, Any]:
             "custom": meta.custom if meta else {},
             "original_path": meta.original_path if meta else None,
             "source_uri": meta.source_uri if meta else None,
+            "last_modified": meta.last_modified if meta else None,
         },
     }
 
@@ -80,6 +81,7 @@ def _chunk_from_dict(data: dict[str, Any]) -> Chunk:
         custom=dict(custom_raw) if custom_raw is not None else {},
         original_path=meta_raw.get("original_path"),
         source_uri=meta_raw.get("source_uri"),
+        last_modified=meta_raw.get("last_modified"),
     )
     return Chunk(
         id=data["id"],

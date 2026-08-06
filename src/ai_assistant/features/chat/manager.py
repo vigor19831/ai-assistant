@@ -88,16 +88,18 @@ class ChatManager:
 
             if md.source_uri:
                 display = md.source_uri.rsplit("/", 1)[-1] or md.source
-                # Only treat as link if it contains a scheme or slashes
-                if "://" in md.source_uri or "/" in md.source_uri:
+                if "://" in md.source_uri:
                     link = md.source_uri
-            elif md.original_path:
-                display = os.path.basename(md.original_path) or md.source
-                link = _path_to_file_uri(md.original_path)
 
+            if md.original_path:
+                link = _path_to_file_uri(md.original_path)
+                if not md.source_uri:
+                    display = os.path.basename(md.original_path) or md.source
+
+            date_str = f" (modified {md.last_modified})" if md.last_modified else ""
             if link and link != display:
-                return f"{display} — {link}"
-            return display
+                return f"{display}{date_str} — {link}"
+            return f"{display}{date_str}"
 
         # Deduplicate by source key while preserving order
         seen: set[str] = set()

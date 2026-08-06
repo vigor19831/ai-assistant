@@ -14,6 +14,7 @@ class ChunkMetadata:
     custom: dict[str, Any] = field(default_factory=dict)
     original_path: str | None = None
     source_uri: str | None = None  # Relative path from source root or chat_exports_root, e.g. "personal/notes.md"
+    last_modified: str | None = None  # Formatted mtime for audit/debug
 
 
 @dataclass(frozen=True, slots=True)

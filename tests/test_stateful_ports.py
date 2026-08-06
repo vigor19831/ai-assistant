@@ -706,3 +706,33 @@ async def test_memory_vector_store_shutdown_clears_state(tmp_path: Path) -> None
     query = [0.01] * dim
     results = await store.search(query, top_k=5, namespace=namespace)
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_memory_vector_store_roundtrip_last_modified(tmp_path: Path) -> None:
+    """Given: chunk with last_modified in metadata.
+    When: saved and reloaded.
+    Then: last_modified is preserved.
+    """
+    dim = 3
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim, index_path=str(tmp_path)))
+    chunk = Chunk(
+        id="c1",
+        text="hello",
+        embedding=[1.0, 0.0, 0.0],
+        metadata=ChunkMetadata(
+            source="s1", index=0, total_chunks=1, last_modified="2025-01-15 14:30"
+        ),
+    )
+    await store.add([chunk], namespace="ns")
+    await store.save(str(tmp_path), namespace="ns")
+    await store.shutdown()
+
+    store2 = MemoryVectorStore(VectorStoreConfigData(dim=dim))
+    await store2.load(str(tmp_path), namespace="ns")
+    try:
+        loaded = await store2.search([1.0, 0.0, 0.0], top_k=1, namespace="ns")
+        assert len(loaded) == 1
+        assert loaded[0].metadata.last_modified == "2025-01-15 14:30"
+    finally:
+        await store2.shutdown()
