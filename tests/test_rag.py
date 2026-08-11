@@ -2283,3 +2283,39 @@ class TestSourceWatcher:
 
         assert check_count >= 2
         assert mock_index.call_count >= 1
+
+def test_index_documents_closes_temporary_chunker(client, mock_state):
+    """Chunker created for namespace override must be shut down."""
+    from unittest.mock import AsyncMock, patch
+
+    from ai_assistant.core.config import NamespaceConfig
+    from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+    from ai_assistant.core.ports.chunker import IChunker
+
+    # Force different chunk_size to trigger temporary chunker creation
+    mock_state.config.namespaces["test_ns"] = NamespaceConfig(chunk_size=128)
+
+    temp_chunker = AsyncMock(spec=IChunker)
+    temp_chunker.chunk = AsyncMock(return_value=[
+        Chunk(
+            id="c1",
+            text="test chunk",
+            metadata=ChunkMetadata(source="d1", index=0, total_chunks=1),
+        )
+    ])
+    temp_chunker.shutdown = AsyncMock()
+
+    with patch(
+        "ai_assistant.features.rag.handlers.get_chunker_for_config",
+        return_value=temp_chunker,
+    ):
+        resp = client.post(
+            "/api/v1/rag/index",
+            json={
+                "documents": [{"id": "d1", "content": "hello world"}],
+                "namespace": "test_ns",
+            },
+        )
+
+    assert resp.status_code == 200
+    temp_chunker.shutdown.assert_awaited_once()

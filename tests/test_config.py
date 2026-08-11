@@ -806,3 +806,15 @@ def test_config_v2_backward_compat():
     cfg = AppConfig(**old)
     assert cfg.config_version == "2"
 
+
+@pytest.mark.parametrize("bad_path", [
+    "C:\\Users\\docs",
+    "D:/projects",
+    "E:\\data\\files",
+])
+def test_chat_exports_root_rejects_windows_absolute(bad_path):
+    """Windows drive-letter paths must be rejected as non-relative."""
+    from ai_assistant.core.config import RAGConfig
+
+    with pytest.raises(ValueError, match="path must be relative"):
+        RAGConfig(chat_exports_root=bad_path)

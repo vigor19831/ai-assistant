@@ -876,3 +876,23 @@ class TestLoggingSetup:
         logger = setup_logging(log_file=None)
         file_handlers = [h for h in logger.handlers if hasattr(h, "baseFilename")]
         assert len(file_handlers) == 0
+
+
+def test_factory_import_without_faiss():
+    """Factory must not crash when faiss-cpu is not installed."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; sys.modules['faiss'] = None; "
+        "from ai_assistant.adapters.factory import create_adapter; "
+        "print('ok')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, f"factory crashed without faiss: {result.stderr}"
+    assert "ok" in result.stdout
