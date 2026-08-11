@@ -5,13 +5,14 @@ from __future__ import annotations
 import time
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api import admin
+from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.security import (
     SECURITY_MAX_BODY,
     check_request_size,
@@ -51,14 +52,26 @@ class _HealthResponse(BaseModel):
     status: str
     version: str
     uptime_seconds: float
+    llm_ready: bool
+    embedder_ready: bool
+    vector_store_ready: bool
 
 
 @_metrics_router.get("/health", response_model=_HealthResponse)
-async def _health_endpoint() -> _HealthResponse:
+async def _health_endpoint(
+    state: Annotated[InitializedAppState, Depends(get_state)],
+) -> _HealthResponse:
+    llm_ready = state.llm is not None
+    embedder_ready = state.embedder is not None
+    vector_store_ready = state.vector_store is not None
+    all_ready = llm_ready and embedder_ready and vector_store_ready
     return _HealthResponse(
-        status="ok",
+        status="ok" if all_ready else "degraded",
         version=_VERSION,
         uptime_seconds=round(time.time() - _START_TIME, 2),
+        llm_ready=llm_ready,
+        embedder_ready=embedder_ready,
+        vector_store_ready=vector_store_ready,
     )
 
 

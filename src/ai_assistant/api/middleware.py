@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -14,8 +15,11 @@ from starlette.requests import (
 )
 
 from ai_assistant.core import metrics
+from ai_assistant.core.logger import get_logger
 
 __all__ = ["MetricsMiddleware"]
+
+_logger = get_logger("middleware")
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
@@ -34,6 +38,9 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
+        trace_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        request.state.trace_id = trace_id
+
         if self.allowed_hosts:
             host = request.headers.get("host", "").split(":")[0].lower()
             if host not in self.allowed_hosts:
@@ -50,6 +57,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             status = str(response.status_code)
+            response.headers["X-Request-ID"] = trace_id
             return response
         except StarletteHTTPException as exc:
             status = str(exc.status_code)
@@ -71,4 +79,14 @@ class MetricsMiddleware(BaseHTTPMiddleware):
                 "ai_assistant_request_duration_seconds",
                 value=duration,
                 labels={"path": path},
+            )
+            _logger.info(
+                "Request completed",
+                extra={
+                    "trace_id": trace_id,
+                    "method": method,
+                    "path": path,
+                    "status": status,
+                    "duration_ms": int(duration * 1000),
+                },
             )

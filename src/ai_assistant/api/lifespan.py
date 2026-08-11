@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.api.deps import init_adapters
@@ -60,6 +61,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
 
     mount_static(app, config)
+
+    # Ensure data directories exist before adapters try to write to them.
+    for path in (
+        Path(config.vector_store.index_path),
+        Path(config.storage.db_path).parent,
+        Path(config.rag.chat_exports_root),
+    ):
+        await asyncio.to_thread(path.mkdir, parents=True, exist_ok=True)
 
     if config.security.api_key and get_expected_api_key() is None:
         set_api_key(config.security.api_key)
