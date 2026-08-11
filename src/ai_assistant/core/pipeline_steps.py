@@ -19,6 +19,7 @@ from ai_assistant.core.domain.errors import (
     QUERY_EMBEDDING_MISSING,
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
+    RERANKER_NOT_PROVIDED,
     VECTOR_STORE_NOT_PROVIDED,
     AdapterError,
     ConfigurationError,
@@ -352,7 +353,8 @@ async def rerank(data: PipelineData) -> PipelineData:
         return replace(data)
 
     reranker = data.reranker
-    assert reranker is not None  # drift #2: production pipeline guarantees IReranker via NullReranker
+    if reranker is None:
+        return data.add_error(RERANKER_NOT_PROVIDED)
 
     try:
         query = data.query.text if data.query is not None else " "

@@ -181,7 +181,7 @@ async def main() -> int:
 
     try:
         result = await index_folder(
-            folder=args.namespace,
+            target_namespace=args.namespace,
             clear=args.clear,
             chunker=state.chunker,
             embedder=state.embedder,

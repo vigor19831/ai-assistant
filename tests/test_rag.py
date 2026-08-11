@@ -463,7 +463,7 @@ class TestRAGIndexing:
         (test / "notes.md").write_text("# Hello\nThis is a test note.")
 
         result = await index_folder(
-            folder="test",
+            target_namespace="test",
             clear=False,
             chunker=mock_chunker,
             embedder=mock_embedder,
@@ -522,7 +522,7 @@ class TestRAGIndexing:
         task = asyncio.create_task(_ticker())
         try:
             await index_folder(
-                folder="test",
+                target_namespace="test",
                 clear=False,
                 chunker=mock_chunker,
                 embedder=mock_embedder,
@@ -741,7 +741,7 @@ class TestCleanupStale:
         )
 
         result = await index_folder(
-            folder="test",
+            target_namespace="test",
             clear=False,
             chunker=mock_chunker,
             embedder=mock_embedder,
@@ -1128,7 +1128,7 @@ class TestChatExportIsolation:
                 "results": {"test": {"indexed": 1}},
             }
 
-            req = ReindexRequest(folder="test", clear=True)
+            req = ReindexRequest(target_namespace="test", clear=True)
             await reindex_documents(req, mock_state)
 
             # Capture the background task before it completes and await it.
@@ -1168,7 +1168,7 @@ class TestReindexTaskSafety:
             "ai_assistant.features.rag.handlers.index_folder",
             new=AsyncMock(return_value={"success": True}),
         ):
-            req = ReindexRequest(folder="test", clear=False)
+            req = ReindexRequest(target_namespace="test", clear=False)
             await reindex_documents(req, mock_state)
 
             # Wait for background task to complete
@@ -1202,7 +1202,7 @@ class TestReindexTaskSafety:
             "ai_assistant.features.rag.handlers.index_folder",
             new=AsyncMock(side_effect=RuntimeError("disk full")),
         ):
-            req = ReindexRequest(folder="test", clear=False)
+            req = ReindexRequest(target_namespace="test", clear=False)
             await reindex_documents(req, mock_state)
 
             # Wait for background task
@@ -1608,7 +1608,7 @@ class TestRAGHandlersTraceId:
             "ai_assistant.features.rag.handlers.index_folder",
             new=AsyncMock(return_value={"indexed": 1}),
         ):
-            req = ReindexRequest(folder="test", clear=False)
+            req = ReindexRequest(target_namespace="test", clear=False)
             resp = await reindex_documents(req, mock_state)
 
             # Capture and await the background task so all logs are in caplog.
@@ -1856,7 +1856,7 @@ class TestReadSources:
         from ai_assistant.features.rag.indexing import index_folder
 
         result = await index_folder(
-            folder=None,
+            target_namespace=None,
             clear=False,
             chunker=AsyncMock(spec=IChunker),
             embedder=AsyncMock(spec=IEmbedder),
@@ -1879,7 +1879,7 @@ class TestReadSources:
         (docs_dir / "note.md").write_text("hello")
 
         result = await index_folder(
-            folder="nonexistent",
+            target_namespace="nonexistent",
             clear=False,
             chunker=mock_chunker,
             embedder=mock_embedder,
@@ -1920,7 +1920,7 @@ class TestReadSources:
 
         # First run
         r1 = await index_folder(
-            folder="test", clear=False,
+            target_namespace="test", clear=False,
             chunker=mock_chunker, embedder=mock_embedder,
             vector_store=vector_store, sources=sources,
         )
@@ -1928,7 +1928,7 @@ class TestReadSources:
 
         # Second run — idempotent
         r2 = await index_folder(
-            folder="test", clear=False,
+            target_namespace="test", clear=False,
             chunker=mock_chunker, embedder=mock_embedder,
             vector_store=vector_store, sources=sources,
         )
@@ -2073,16 +2073,16 @@ class TestIndexDocumentsExtended:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# P3: reindex_documents — folder=None + clear=True (all sources + chat ns)
+# P3: reindex_documents — target_namespace=None + clear=True (all sources + chat ns)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestReindexDocumentsExtended:
-    """Coverage for reindex with folder=None and clear=True."""
+    """Coverage for reindex with target_namespace=None and clear=True."""
 
     @pytest.mark.asyncio
     async def test_reindex_folder_none_clears_all_chat_namespaces(self, mock_state, tmp_path):
-        """Given: folder=None and clear=True with multiple sources.
+        """Given: target_namespace=None and clear=True with multiple sources.
         When: reindex_documents handler called.
         Then: all sources reindexed; each chat namespace cleared."""
         from ai_assistant.core.config import SourceConfig
@@ -2104,17 +2104,17 @@ class TestReindexDocumentsExtended:
             "ai_assistant.features.rag.handlers.index_folder",
             new=AsyncMock(return_value={"success": True, "results": {}}),
         ) as mock_index:
-            req = ReindexRequest(folder=None, clear=True)
+            req = ReindexRequest(target_namespace=None, clear=True)
             resp = await reindex_documents(req, mock_state)
 
             tasks = list(mock_state.task_registry.get_tasks())
             assert len(tasks) == 1
             await asyncio.gather(tasks[0].task, return_exceptions=True)
 
-            # index_folder is called once with folder=None for all sources
+            # index_folder is called once with target_namespace=None for all sources
             assert mock_index.call_count == 1
             call_kwargs = mock_index.call_args.kwargs
-            assert call_kwargs.get("folder") is None
+            assert call_kwargs.get("target_namespace") is None
             assert call_kwargs.get("clear") is True
 
             delete_namespaces = {

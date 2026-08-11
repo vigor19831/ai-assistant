@@ -63,7 +63,7 @@ def _get_rag_manager(
             top_p=llm_cfg.top_p,
             stop_sequences=tuple(llm_cfg.stop_sequences),
         ),
-        rag_steps=[s.value for s in state.config.rag.steps],
+        rag_steps=list(state.config.rag.steps),
     )
 
 
@@ -295,12 +295,9 @@ async def delete_chunks(
                     to_delete.append(chunk_id)
                     continue
 
-                # FIX: Safe access to custom metadata with type checking
-                custom_value = meta.get("custom")
-                if isinstance(custom_value, dict):
-                    custom_source = custom_value.get("source")
-                    if isinstance(custom_source, str) and custom_source in doc_ids:
-                        to_delete.append(chunk_id)
+                custom = meta.get("custom")
+                if isinstance(custom, dict) and custom.get("source") in doc_ids:
+                    to_delete.append(chunk_id)
 
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
@@ -503,7 +500,7 @@ async def reindex_documents(
 ) -> dict[str, Any]:
     """Reindex documents from folders. Returns immediately, runs in background."""
     trace_id = uuid.uuid4().hex
-    folder = req.folder
+    target_namespace = req.target_namespace
     clear = req.clear
     task_id = str(uuid.uuid4())
     rag_state = state.rag_state
@@ -513,7 +510,7 @@ async def reindex_documents(
         extra={
             "trace_id": trace_id,
             "task_id": task_id,
-            "folder": folder,
+            "target_namespace": target_namespace,
             "clear": clear,
         },
     )
@@ -524,8 +521,8 @@ async def reindex_documents(
                 await rag_state.start_task(task_id)
                 # If clearing, also clear associated chat namespaces
                 if clear:
-                    if folder is not None:
-                        chat_namespaces = [get_chat_namespace(folder)]
+                    if target_namespace is not None:
+                        chat_namespaces = [get_chat_namespace(target_namespace)]
                     else:
                         # Clear chat namespaces for ALL existing namespaces
                         try:
@@ -552,7 +549,7 @@ async def reindex_documents(
                                     "Cleared chat namespace during reindex",
                                     extra={
                                         "trace_id": trace_id,
-                                        "namespace": folder,
+                                        "namespace": target_namespace,
                                         "chat_namespace": chat_ns,
                                     },
                                 )
@@ -561,14 +558,14 @@ async def reindex_documents(
                                 "Failed to clear chat namespace during reindex",
                                 extra={
                                     "trace_id": trace_id,
-                                    "namespace": folder,
+                                    "namespace": target_namespace,
                                     "chat_namespace": chat_ns,
                                 },
                             )
 
                 async with asyncio.timeout(14400.0):  # 4 hours
                     result = await index_folder(
-                        folder=folder,
+                        target_namespace=target_namespace,
                         clear=clear,
                         chunker=state.chunker,
                         embedder=state.embedder,

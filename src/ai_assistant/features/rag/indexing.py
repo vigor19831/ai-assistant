@@ -124,7 +124,7 @@ def read_sources(
 
 
 async def index_folder(
-    folder: str | None,
+    target_namespace: str | None,
     clear: bool,
     chunker: Any,
     embedder: Any,
@@ -136,7 +136,7 @@ async def index_folder(
     """Index documents from disk folders directly into vector store.
 
     Args:
-        folder: Specific folder to index, or None for all.
+        target_namespace: Specific namespace to index, or None for all.
         clear: If True, clear existing chunks in each namespace before indexing.
         chunker: IChunker instance.
         embedder: IEmbedder instance.
@@ -173,7 +173,7 @@ async def index_folder(
     processed_any = False
 
     for namespace, docs in docs_by_ns.items():
-        if folder and namespace != folder:
+        if target_namespace and namespace != target_namespace:
             continue
         processed_any = True
 
@@ -250,8 +250,8 @@ async def index_folder(
             all_errors.append(f"Indexing failed for {namespace}: {exc}")
             all_results[namespace] = {"indexed": 0, "chunks": 0}
 
-    if folder and not processed_any:
-        all_errors.append(f"Folder '{folder}' not found in configured sources")
+    if target_namespace and not processed_any:
+        all_errors.append(f"Namespace '{target_namespace}' not found in configured sources")
         return {
             "success": False,
             "results": all_results,

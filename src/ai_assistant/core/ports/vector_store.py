@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ai_assistant.core.domain.configs import VectorStoreConfigData
@@ -99,7 +99,7 @@ class IVectorStore(IClosable, ABC):
         self,
         filters: dict[str, str | int | float | bool | None],
         namespace: str = "default",
-    ) -> list[tuple[str, dict[str, str | int | float | bool | None]]]:
+    ) -> list[tuple[str, dict[str, Any]]]:
         """Return (chunk_id, metadata) matching ALL filters key-values in namespace."""
         ...
 

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_assistant.api.deps import InitializedAppState
-from ai_assistant.core.config import SourceConfig
+from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
@@ -150,18 +150,18 @@ class RAGManager:
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
         tokenizer: ITokenizer | None = None,
-        rag_steps: list[str] | None = None,
+        rag_steps: list[RAGStep] | None = None,
         system_message: str | None = None,
         sampling: SamplingConfig | None = None,
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
         step_names = rag_steps if rag_steps is not None else [
-            "embed_query",
-            "retrieve",
-            "rerank",
-            "build_context",
-            "generate",
+            RAGStep.EMBED_QUERY,
+            RAGStep.RETRIEVE,
+            RAGStep.RERANK,
+            RAGStep.BUILD_CONTEXT,
+            RAGStep.GENERATE,
         ]
         step_funcs = []
         for name in step_names:

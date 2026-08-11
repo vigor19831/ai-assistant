@@ -557,12 +557,12 @@ class TestE2ERAG:
         Then: returns 422 validation error pointing to the bad field."""
         resp = client.post(
             "/api/v1/rag/reindex",
-            json={"folder": 123, "clear": False},
+            json={"target_namespace": 123, "clear": False},
         )
         assert resp.status_code == 422
         errors = resp.json()["detail"]
         assert isinstance(errors, list)
-        assert any(e.get("loc") == ["body", "folder"] for e in errors)
+        assert any(e.get("loc") == ["body", "target_namespace"] for e in errors)
 
     def test_query_per_namespace_override(self, client, mock_state):
         """Given: namespace has custom prompt.

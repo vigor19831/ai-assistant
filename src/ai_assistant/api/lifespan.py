@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if config.rag.sources:
         async def _index_source(src: SourceConfig) -> None:
             await index_folder(
-                folder=None,
+                target_namespace=None,
                 clear=False,
                 chunker=state.chunker,
                 embedder=state.embedder,

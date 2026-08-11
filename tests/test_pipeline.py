@@ -23,6 +23,7 @@ from ai_assistant.core.domain.errors import (
     QUERY_EMBEDDING_MISSING,
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
+    RERANKER_NOT_PROVIDED,
     VECTOR_STORE_NOT_PROVIDED,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
@@ -1182,3 +1183,21 @@ async def test_multi_query_retrieve_dedup_and_fallback():
     assert len(result.errors) == 0
     llm.complete.assert_awaited_once()
     assert embedder.embed.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_rerank_without_reranker_returns_error() -> None:
+    """Given: PipelineData with reranker=None and non-empty chunks.
+    When: rerank step is called directly (bypassing pipeline validation).
+    Then: returns data with RERANKER_NOT_PROVIDED error; chunks preserved.
+    """
+    chunk = Chunk(id="c1", text="test")
+    data = PipelineData(
+        query=UserMessage(text="test"),
+        chunks=(chunk,),
+        reranker=None,
+    )
+    result = await rerank(data)
+    assert RERANKER_NOT_PROVIDED in result.errors
+    assert result.chunks == (chunk,)
+    assert result.rerank_scores is None

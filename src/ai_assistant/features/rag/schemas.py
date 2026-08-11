@@ -124,10 +124,10 @@ class SaveChatRequest(BaseModel):
 
 
 class ReindexRequest(BaseModel):
-    """Request to reindex documents from folders."""
+    """Request to reindex documents from namespaces."""
 
-    folder: str | None = Field(
-        default=None, description="Specific folder to index, or None for all."
+    target_namespace: str | None = Field(
+        default=None, description="Specific namespace to reindex, or None for all."
     )
     clear: bool = Field(
         default=False, description="If True, clear existing chunks before indexing."

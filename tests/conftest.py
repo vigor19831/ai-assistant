@@ -204,15 +204,12 @@ def mock_chunker():
 # ---------------------------------------------------------------------------
 
 
-def build_mock_state() -> MagicMock:
-    """Build a fresh mock InitializedAppState with isolated defaults.
+def build_mock_state() -> InitializedAppState:
+    """Build a fresh InitializedAppState with isolated defaults.
 
-    Uses a real AppConfig for schema fields and AsyncMock for adapters.
-    This avoids MagicMock(spec=AppConfig) which does not auto-create
-    Pydantic fields reliably.
-
-    All RAG pipeline ports are pre-configured so that real pipeline steps
-    can execute without unawaited coroutine warnings or missing return values.
+    Returns a real dataclass instance so that adding a new required field
+    to InitializedAppState raises TypeError here immediately, rather than
+    silently creating a MagicMock attribute that hides contract drift.
     """
     from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
     from ai_assistant.api.deps import InitializedAppState, RAGState
@@ -222,13 +219,8 @@ def build_mock_state() -> MagicMock:
     from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.core.ports.reranker import RerankResult
 
-    config = AppConfig()  # real config with all defaults
-    state = MagicMock(spec=InitializedAppState)
-    state.config = config  # real AppConfig, not MagicMock(spec=AppConfig)
+    config = AppConfig()
 
-    # Adapter fields — spec-constrained mocks for contract safety.
-    # AsyncMock(spec=...) keeps unconfigured async methods awaitable,
-    # while still blocking calls to attributes outside the port contract.
     from ai_assistant.core.ports.llm import ILLM
     from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.vector_store import IVectorStore
@@ -236,43 +228,45 @@ def build_mock_state() -> MagicMock:
     from ai_assistant.core.ports.storage import IChatStorage
     from ai_assistant.core.ports.reranker import IReranker
 
-    state.llm = AsyncMock(spec=ILLM)
-    state.embedder = AsyncMock(spec=IEmbedder)
-    state.vector_store = AsyncMock(spec=IVectorStore)
-    state.chunker = AsyncMock(spec=IChunker)
-    state.storage = AsyncMock(spec=IChatStorage)
-    state.reranker = AsyncMock(spec=IReranker)
-    state.tokenizer = CharFallbackTokenizer(TokenizerConfigData())
-    state.task_registry = TaskRegistry()
-    state.rag_state = RAGState()
+    llm = AsyncMock(spec=ILLM)
+    embedder = AsyncMock(spec=IEmbedder)
+    vector_store = AsyncMock(spec=IVectorStore)
+    chunker = AsyncMock(spec=IChunker)
+    storage = AsyncMock(spec=IChatStorage)
+    reranker = AsyncMock(spec=IReranker)
 
     # ── RAG pipeline port defaults ──
-    # Real pipeline steps (embed_query, retrieve, rerank, build_context, generate)
-    # need these configured. Without defaults, AsyncMock returns AsyncMock()
-    # which causes: unawaited coroutine warnings, empty embedding checks,
-    # or missing context_limit calls.
-    state.embedder.embed = AsyncMock(return_value=[[0.1] * 384])
-    state.embedder.dimension = 384
+    embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+    embedder.dimension = 384
 
-    state.llm.complete = AsyncMock(
-        return_value=AssistantMessage(text="", metadata={})
-    )
-    state.llm.get_context_limit = MagicMock(return_value=8192)
+    llm.complete = AsyncMock(return_value=AssistantMessage(text="", metadata={}))
+    llm.get_context_limit = MagicMock(return_value=8192)
 
     async def _rerank(query, chunks, top_k=None):
         return [RerankResult(chunk=c, score=1.0) for c in chunks]
 
-    state.reranker.rerank = AsyncMock(side_effect=_rerank)
+    reranker.rerank = AsyncMock(side_effect=_rerank)
 
-    state.vector_store.search = AsyncMock(return_value=[])
-    state.vector_store.add = AsyncMock(return_value=None)
-    state.vector_store.delete = AsyncMock(return_value=None)
-    state.vector_store.list_namespaces = AsyncMock(return_value=[])
-    state.vector_store.list_by_filter = AsyncMock(return_value=[])
-    state.vector_store.save = AsyncMock(return_value=None)
-    state.vector_store.load = AsyncMock(return_value=None)
+    vector_store.search = AsyncMock(return_value=[])
+    vector_store.add = AsyncMock(return_value=None)
+    vector_store.delete = AsyncMock(return_value=None)
+    vector_store.list_namespaces = AsyncMock(return_value=[])
+    vector_store.list_by_filter = AsyncMock(return_value=[])
+    vector_store.save = AsyncMock(return_value=None)
+    vector_store.load = AsyncMock(return_value=None)
 
-    return state
+    return InitializedAppState(
+        config=config,
+        task_registry=TaskRegistry(),
+        llm=llm,
+        embedder=embedder,
+        vector_store=vector_store,
+        storage=storage,
+        chunker=chunker,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        reranker=reranker,
+        rag_state=RAGState(),
+    )
 
 
 @pytest.fixture
