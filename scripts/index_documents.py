@@ -86,6 +86,8 @@ async def _shutdown_adapters(state) -> None:
         (state.vector_store, "vector_store"),
         (state.reranker, "reranker"),
         (state.storage, "storage"),
+        (state.chunker, "chunker"),
+        (state.tokenizer, "tokenizer"),
     )
     for adapter, name in adapters:
         if adapter is None:
