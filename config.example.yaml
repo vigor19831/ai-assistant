@@ -15,7 +15,7 @@ app_name: ai-assistant
 debug: false
 host: 127.0.0.1
 port: 8000
-config_version: "2"
+config_version: "3"
 
 cors:
   allow_origins: ["http://localhost", "http://127.0.0.1"]

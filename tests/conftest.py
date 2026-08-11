@@ -242,6 +242,11 @@ def build_mock_state() -> InitializedAppState:
     llm.complete = AsyncMock(return_value=AssistantMessage(text="", metadata={}))
     llm.get_context_limit = MagicMock(return_value=8192)
 
+    async def _stream(*args, **kwargs):
+        yield ""
+
+    llm.stream = _stream
+
     async def _rerank(query, chunks, top_k=None):
         return [RerankResult(chunk=c, score=1.0) for c in chunks]
 

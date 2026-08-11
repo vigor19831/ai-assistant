@@ -210,7 +210,6 @@ class RAGConfig(BaseSettings):
     prompt_name: str = "rag_strict"
     top_k: int = 5
     default_namespace: str = "default"
-    max_tool_iterations: int = 5
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
     sources: list[SourceConfig] = Field(default_factory=list)
@@ -312,8 +311,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "2"
-    log_file: str | None = None
+    config_version: str = "3"
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     chat: ChatConfig = Field(default_factory=ChatConfig)
@@ -363,6 +361,23 @@ class AppConfig(BaseSettings):
             v = {**v, "security": sec}
         return v
 
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_deprecated_fields(cls, v: Any) -> Any:
+        """Backward-compatible loader: remove orphaned v2 fields.
+
+        log_file was replaced by logging.file.
+        max_tool_iterations was never wired to any feature.
+        """
+        if type(v) is not dict:
+            return v
+        v = {k: val for k, val in v.items() if k != "log_file"}
+        rag = v.get("rag")
+        if type(rag) is dict:
+            rag = {k: val for k, val in rag.items() if k != "max_tool_iterations"}
+            v = {**v, "rag": rag}
+        return v
 
     @model_validator(mode="after")
     def _check_dimensions(self) -> AppConfig:

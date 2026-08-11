@@ -792,3 +792,17 @@ class TestSourceConfigMigration:
         assert "documents_root" not in dumped["rag"]
         assert "sources" in dumped["rag"]
 
+
+def test_config_v2_backward_compat():
+    """Old configs with removed fields load without ValidationError.
+
+    log_file moved under logging.file; max_tool_iterations was never used.
+    """
+    old = {
+        "config_version": "2",
+        "log_file": "./data/old.log",
+        "rag": {"max_tool_iterations": 5},
+    }
+    cfg = AppConfig(**old)
+    assert cfg.config_version == "2"
+
