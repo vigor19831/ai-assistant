@@ -261,7 +261,7 @@ class RAGConfig(BaseSettings):
         v = v.strip()
         if not v:
             raise ValueError("path must be non-empty")
-        if v.startswith("/") or v.startswith("\\") or v.startswith("~"):
+        if v.startswith("/") or v.startswith("\\") or v.startswith("~") or (len(v) >= 2 and v[1] == ":"):
             raise ValueError(f"path must be relative, got: {v}")
         # Reject path traversal attempts before they reach filesystem
         normalized = Path(v).as_posix()

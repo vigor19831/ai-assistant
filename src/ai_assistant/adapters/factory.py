@@ -11,6 +11,7 @@ startup when the dependency is not installed.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from ai_assistant.adapters._registry import get_registry, register
@@ -38,10 +39,14 @@ from ai_assistant.adapters.reranker_local import LocalReranker  # noqa: F401
 from ai_assistant.adapters.reranker_null import NullReranker  # noqa: F401
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage  # noqa: F401
 from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer  # noqa: F401
-from ai_assistant.adapters.vector_store_faiss import FaissVectorStore  # noqa: F401
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore  # noqa: F401
 
 __all__ = ["create_adapter", "register"]
+
+
+# Optional dependency: faiss-cpu. Import module for @register side-effect.
+with contextlib.suppress(ImportError):
+    import ai_assistant.adapters.vector_store_faiss  # noqa: F401
 
 
 def create_adapter(port: str, name: str, config: Any) -> Any:

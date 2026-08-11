@@ -92,6 +92,8 @@ async def index_documents(
             "Index documents: no documents provided",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
+        if chunker is not state.chunker:
+            await chunker.shutdown()
         return IndexResponse(
             indexed_count=0,
             chunk_count=0,
@@ -130,6 +132,8 @@ async def index_documents(
             "Index documents: all filtered by size",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
+        if chunker is not state.chunker:
+            await chunker.shutdown()
         return IndexResponse(
             indexed_count=0,
             chunk_count=0,
@@ -137,48 +141,55 @@ async def index_documents(
             errors=pre_errors,
         )
 
-    result = await manager.index_documents(filtered_docs, namespace=namespace)
-    if pre_errors:
-        result.setdefault("errors", []).extend(pre_errors)
+    try:
+        result = await manager.index_documents(filtered_docs, namespace=namespace)
+        if pre_errors:
+            result.setdefault("errors", []).extend(pre_errors)
 
-    # Auto-save after indexing
-    index_path = state.config.vector_store.index_path
-    if index_path:
-        try:
-            await asyncio.wait_for(
-                state.vector_store.save(index_path, namespace=namespace),
-                timeout=10.0,
-            )
-        except TimeoutError:
-            _logger.warning(
-                "Auto-save timed out",
-                extra={"trace_id": trace_id, "namespace": namespace},
-            )
-            raise HTTPException(
-                status_code=503, detail="Index save timed out"
-            ) from None
-        except Exception:
-            _logger.exception(
-                "Auto-save failed",
-                extra={"trace_id": trace_id, "namespace": namespace},
-            )
-            raise HTTPException(
-                status_code=500, detail="Internal server error"
-            ) from None
+        # Auto-save after indexing
+        index_path = state.config.vector_store.index_path
+        if index_path:
+            try:
+                await asyncio.wait_for(
+                    state.vector_store.save(index_path, namespace=namespace),
+                    timeout=10.0,
+                )
+            except TimeoutError:
+                _logger.warning(
+                    "Auto-save timed out",
+                    extra={"trace_id": trace_id, "namespace": namespace},
+                )
+                raise HTTPException(
+                    status_code=503, detail="Index save timed out"
+                ) from None
+            except Exception:
+                _logger.exception(
+                    "Auto-save failed",
+                    extra={"trace_id": trace_id, "namespace": namespace},
+                )
+                raise HTTPException(
+                    status_code=500, detail="Internal server error"
+                ) from None
 
-    duration_ms = int((time.perf_counter() - start) * 1000)
-    _logger.info(
-        "Index documents completed",
-        extra={
-            "trace_id": trace_id,
-            "namespace": namespace,
-            "indexed_count": result.get("indexed_count", 0),
-            "chunk_count": result.get("chunk_count", 0),
-            "duration_ms": duration_ms,
-            "errors": len(result.get("errors", [])),
-        },
-    )
-    return IndexResponse(**result, namespace=namespace)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        _logger.info(
+            "Index documents completed",
+            extra={
+                "trace_id": trace_id,
+                "namespace": namespace,
+                "indexed_count": result.get("indexed_count", 0),
+                "chunk_count": result.get("chunk_count", 0),
+                "duration_ms": duration_ms,
+                "errors": len(result.get("errors", [])),
+            },
+        )
+        return IndexResponse(**result, namespace=namespace)
+    finally:
+        if chunker is not state.chunker:
+            try:
+                await chunker.shutdown()
+            except Exception:
+                _logger.exception("Chunker shutdown failed", extra={"trace_id": trace_id})
 
 
 @router.post("/query", response_model=QueryResponse)

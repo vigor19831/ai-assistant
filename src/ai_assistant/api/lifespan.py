@@ -135,11 +135,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
-    """Async cleanup actions.
-
-    Sets app.state.shutdown_degraded = True if index persistence fails
-    so that the lifespan caller can react (e.g., non-zero exit).
-    """
+    """Async cleanup actions."""
     try:
         state = app.state.app_state
     except AttributeError:
@@ -176,7 +172,6 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         )
     except Exception:
         logger.exception("Index save failed")
-        app.state.shutdown_degraded = True
 
     # 2. Wait for background tasks before adapter shutdown
     try:
