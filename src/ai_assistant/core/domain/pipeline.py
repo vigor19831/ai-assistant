@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 from .configs import RetryConfig, SamplingConfig
 
 if TYPE_CHECKING:
-    from .documents import Chunk
-    from .messages import AssistantMessage, UserMessage
     from ..ports.embedder import IEmbedder
     from ..ports.llm import ILLM
     from ..ports.reranker import IReranker
     from ..ports.tokenizer import ITokenizer
     from ..ports.vector_store import IVectorStore
+    from .documents import Chunk
+    from .messages import AssistantMessage, UserMessage
 
 __all__ = ["PipelineData", "PipelineConfig", "ReindexStatusEntry"]
 
