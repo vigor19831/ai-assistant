@@ -42,27 +42,20 @@ python -m venv .venv
 
 ```bash
 pip install -e ".[dev,faiss]"
-pip install pytest-cov
 ```
 
 ### 4. Install llama.cpp
 
 **Option A: Pre-built binaries (recommended)**
 
-| OS | Command |
-|----|---------|
-| **Ubuntu/Debian** | `wget https://github.com/ggerganov/llama.cpp/releases/latest/download/llama.cpp-ubuntu-x64.deb && sudo dpkg -i llama.cpp-ubuntu-x64.deb` |
-| **Arch/EndeavourOS** | `yay -S llama.cpp` |
-| **Fedora** | `sudo dnf install llama.cpp` |
-| **macOS** | `brew install llama.cpp` |
-| **Windows** | Download `llama.cpp-win-x64.zip` from [GitHub Releases](https://github.com/ggerganov/llama.cpp/releases) |
+Download the latest release for your OS from [llama.cpp GitHub Releases](https://github.com/ggerganov/llama.cpp/releases) and extract `llama-server` (and `llama-cli` if needed) into the project:
 
-Then copy binaries to the project:
 ```bash
 mkdir -p vendor/llama
-cp $(which llama-server) vendor/llama/ 2>/dev/null
-cp $(which llama-cli) vendor/llama/ 2>/dev/null
-# Windows: extract zip to vendor/llama/
+# Linux/macOS: copy extracted binaries
+cp /path/to/downloaded/llama-server vendor/llama/
+cp /path/to/downloaded/llama-cli vendor/llama/ 2>/dev/null
+# Windows: extract zip to vendor\llama\
 ```
 
 **Option B: Build from source (GPU support, latest features)**
@@ -108,7 +101,7 @@ Edit `config.yaml`:
 
 Place `.gguf` files in `vendor/models/`.
 
-Recommended starter: **Qwen3-4B-Instruct** (IQ4_XS, ~2.5 GB, passes 11/16 RAG tests on 4 GB VRAM).
+Recommended starter: **Qwen3-4B-Instruct** (Q5_K_M, ~3 GB, passes 13/17 RAG tests on 4 GB VRAM).
 
 ### 7. Download tokenizers
 
@@ -134,7 +127,7 @@ python scripts/check_all.py
 
 ## Updating llama.cpp
 
-**Pre-built:** repeat the install command for your OS, then copy new binaries to `vendor/llama/`.
+**Pre-built:** download the latest release again and copy binaries to `vendor/llama/`.
 
 **From source:**
 ```bash
@@ -213,7 +206,8 @@ curl -X POST http://127.0.0.1:8000/v1/chat/completions \
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
   -H "Content-Type: application/json" \
-  -d '{"query":"[m] what is the architecture?", "namespace":"main"}'
+  -H "Authorization: Bearer local" \
+  -d '{"query":"[d] what is the architecture?"}'
 ```
 
 ---
@@ -222,7 +216,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
 
 RAG quality is bottlenecked by the **LLM**, not the retriever. Small models (3–5B) handle simple Q&A but struggle with multi-hop reasoning, conflict resolution, and noise rejection.
 
-**Key insight:** larger models follow instructions better and reject noise more reliably. For the same retrieval quality, a 7-8B model can score 14-16/16 on RAG tests where a 4B model scores 8-11/16. The difference is not in "knowledge" — it's in **instruction discipline**.
+**Key insight:** larger models follow instructions better and reject noise more reliably. For the same retrieval quality, a 7-8B model scores 16/17 where a 4B model scores 13/17. The difference is not in "knowledge" — it's in **instruction discipline**.
 
 | Use Case | 4B (Qwen3) | 7-8B (Qwen3) | 14-32B |
 |----------|-----------|-------------|--------|
@@ -231,7 +225,7 @@ RAG quality is bottlenecked by the **LLM**, not the retriever. Small models (3�
 | Noise rejection | ✗ Weak | ✓ Good | ✓ Excellent |
 | Conflict resolution | ✗ Unreliable | ✓ Good | ✓ Excellent |
 | Cross-lingual retrieval | △ Mixed | ✓ Good | ✓ Excellent |
-| RAG test score (typical) | 11/16 | 14-16/16 | 16/16 |
+| RAG test score (typical) | 13/17 | 16/17 | 16/17 |
 
 VRAM (Q4_K_M): 4B ~3–4 GB, 7–8B ~5–6 GB, 14B ~9–10 GB, 32B ~20 GB.
 

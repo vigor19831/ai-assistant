@@ -37,7 +37,7 @@ HARD_EXCLUDED = {
 }
 
 # Docs files that are ALWAYS embedded in context (search in root and docs/)
-REQUIRED_DOCS = ["ai_rules.md", "architecture.md", "DRIFT.md"]
+REQUIRED_DOCS = ["ai_rules.md", "architecture.md", "drift.md"]
 
 
 # Files that are ALWAYS full in compact mode (except tests/scripts)
@@ -303,7 +303,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     _DOC_TITLES = {
         "ai_rules.md": "AI Development Guidelines",
         "architecture.md": "Architectural Strategy",
-        "DRIFT.md": "Known Drift",
+        "drift.md": "Known Drift",
     }
     for rel, content in doc_files:
         title = _DOC_TITLES.get(rel, "Project Documentation")

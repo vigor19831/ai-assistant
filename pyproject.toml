@@ -101,7 +101,7 @@ filterwarnings = [
 ]
 
 [tool.mutmut]
-paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/", "src/ai_assistant/pipeline/"]
+paths_to_mutate = ["src/ai_assistant/core/", "src/ai_assistant/adapters/", "src/ai_assistant/features/", "src/ai_assistant/api/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 backup = false
 

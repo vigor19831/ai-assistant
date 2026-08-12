@@ -233,7 +233,7 @@ async def query_rag(
     if prompt_name is None and ns_cfg is not None:
         prompt_name = ns_cfg.prompt
     if prompt_name is None:
-        prompt_name = cfg.prompt_name or "rag_strict"
+        prompt_name = cfg.prompt_name
 
     _logger.info(
         "RAG query start",
@@ -316,7 +316,6 @@ async def delete_chunks(
                 deleted += len(to_delete)
 
         else:
-            # FIX: DeleteResponse does not accept trace_id
             return DeleteResponse(
                 deleted_chunks=0,
                 errors=["No chunk_ids, document_ids, or clear flag provided"],
