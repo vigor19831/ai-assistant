@@ -112,22 +112,35 @@ llm:
   #   - your-model-name
   #   - another-model
   available_models: []
-  # [CHANGE] 2048 = safe for 4GB VRAM. 4096 = needs ~6GB VRAM.
+  # [CHANGE] 2048 = safe for 4GB VRAM with CPU offload.
+  # With partial GPU offload you can raise this:
+  #   6144 @ n_gpu_layers=20 on 4GB VRAM (Qwen2.5-7B)
+  #   8192 @ n_gpu_layers=30 on 6GB VRAM
   server_context_size: 2048
 
   # [CHANGE] 0 = CPU only. 999 = all layers on GPU (needs 8GB+ VRAM).
+  # For 4GB VRAM + 7B model: start with 20, increase until OOM.
+  # For 6GB VRAM + 7B model: try 30-35.
   n_gpu_layers: 0
 
+  # [CHANGE] 512 = short answers. 768 = complex multihop answers.
   max_tokens: 512
-  temperature: 0.7
-  top_p: 0.95
-  top_k: 40
+  # Lower = less hallucination, better for RAG.
+  #   0.1-0.3 = strict factual (recommended)
+  #   0.7-0.9 = creative (may invent facts not in context)
+  temperature: 0.3
+  top_p: 0.9
+  top_k: 20
   min_p: 0.0
   repeat_penalty: 1.10
   presence_penalty: 0.0
   frequency_penalty: 0.0
-  # [CHANGE] Add stop sequences specific to your model
-  # (e.g. "<end_of_turn>", "<|endoftext|>", "</s>")
+  # [CHANGE] REQUIRED for local models. Without stop sequences the model
+  # may generate forever or emit special tokens. Examples:
+  #   Qwen2.5:  ["<|im_start|>", "用户:", "Human:"]
+  #   Llama 3:  ["<|eot_id|>", "<|end_of_text|>"]
+  #   Mistral:  ["</s>"]
+  #   Command-R: ["<|END_OF_TURN_TOKEN|>"]
   stop_sequences: []
   timeout: 300.0
   connect_timeout: 5.0
@@ -165,8 +178,8 @@ rag:
   # Try "rag_simple" first. If check_rag.py fails on noise rejection,
   # switch back to "rag_strict" but keep top_k at 2.
   prompt_name: rag_strict
-  # 2 = less noise in context. Increase to 3 only if answers miss facts.
-  top_k: 3
+  # 2 = less noise, best with rag_strict. 3 = more recall, use with rag_simple.
+  top_k: 2
   default_namespace: default
   token_margin_min: 384
   token_margin_pct: 0.10
@@ -201,5 +214,9 @@ chunker:
   chunk_overlap: 100
 
 tokenizer:
+  # tiktoken = OpenAI models only. For local models (Qwen, Llama, Mistral)
+  # download tokenizer via  scripts/download_tokenizers.py  then use:
+  #   provider: huggingface
+  #   model_name: ./data/tokenizers/your-model/tokenizer.json
   provider: tiktoken
   model_name: cl100k_base
