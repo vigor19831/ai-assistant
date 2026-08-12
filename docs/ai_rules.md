@@ -1,41 +1,27 @@
 # AI Rules
-> Version: 2026-06-24
+
+> Version: 2026-08-12
 > Next review: 2026-09-20
 
 # Project Brief
+
 Local AI assistant framework. FastAPI + RAG with namespaces.
 Offline-first, OpenAI-compatible LLM/embedder adapters.
 Layers: core (domain/ports) → adapters → features → api.
 
-## 0. Ground Truth
+## 0. Ground Truth & Division of Labor
 
 Only this document and `docs/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.
 
 Hierarchy: code in `src/` > this file > README.
-
 When code and rules conflict, code wins. If code violates a rule, that is known drift (see `docs/drift.md`). Propose fixing it, do not hallucinate stricter architecture.
 
-## 0.1. Human-AI Division of Labor
-
-AI may suggest improvements only when:
-- They reduce code volume (fewer files, fewer lines)
-- They fix a bug or security issue
-- They are explicitly requested by user
-
-AI must not suggest:
-- New features, adapters, or dependencies
-- Architectural changes
-- "Best practices" that add complexity
+AI may suggest improvements only when they reduce code volume, fix a bug, or are explicitly requested. AI must not suggest new features, adapters, dependencies, or architectural changes.
 
 ## 1. Identity
 
-You are an implementation assistant for a solo-maintained Python AI framework expected to survive decades.
-
-Source tree: `src/ai_assistant/`
-Layers: `core/` -> `adapters/` -> `features/` -> `api/`
-
+Implementation assistant for a solo-maintained Python AI framework expected to survive decades.
 Language: all code, comments, docstrings, and documentation are in English. Russian is used for chat discussions and user-facing messages only.
-
 Constraint priority: Absolute Constraints > Layer Boundaries > Core Protocol > Output Protocol.
 
 ## 2. Absolute Constraints
@@ -57,7 +43,7 @@ Never:
 
 Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, LRU eviction in `MemoryVectorStore` until RAM pressure measured, prompt registry / semver until 5+ versions in active use.
 
-## 2.1. Simplicity Constraints
+### 2.1. Simplicity Constraints
 
 - No new file for code <30 lines that fits in existing file
 - No new class where a function suffices
@@ -67,7 +53,8 @@ Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectorie
 - Prefer `if/else` over polymorphism when branches <3
 - Prefer plain functions over classes when no state needed
 
-## 2.2. Data Ownership
+### 2.2. Data Ownership
+
 Port objects own their configuration. Callers pass port objects, not port config fields.
 PipelineData contains only runtime state. Config values live in PipelineConfig or port objects.
 
@@ -101,14 +88,10 @@ New functionality requires new tests. Existing tests may only be updated during 
 
 Use: `data.with_chunks()`, `.with_context()`, `.with_response()`, `.add_error()`
 
-Never:
+Never mutate in-place:
 ```python
-data.metadata["foo"] = "bar"
-data.metadata.update({...})
-data.context = "new"
-data.chunks = [chunk]
-data.errors.append("err")
-data.errors += ["err"]
+data.context = "new"       # FORBIDDEN
+data.errors.append("err")  # FORBIDDEN
 ```
 
 ## 6. Adapter Discipline
@@ -123,7 +106,7 @@ All external network calls require hard timeout. All external calls use retry wi
 
 ## 8. Graceful Shutdown
 
-On SIGINT/SIGTERM: stop accepting requests, finish active tasks, close DB connections and persist indices, call `IClosable.shutdown()`, stop metrics logger last.
+See `architecture.md` §6 Shutdown Protocol. Order: persist indices → adapter shutdown → metrics last.
 
 ## 9. Output Protocol
 
@@ -167,14 +150,7 @@ File review checklist (output findings only, skip if clean):
 - STYLE: Line length <=88, double quotes, f-strings
 - SIMPLICITY: No new files/classes/functions beyond what was explicitly requested
 
-### Test review checklist (output findings only, skip if clean):
-- ISOLATION: No hardcoded paths, no mutable shared state, no mutable module-level globals
-- ASYNC: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop
-- MOCKS: Port mocks use `spec=` or `autospec=`
-- ENCAPSULATION: No access to `_private` fields in assertions
-- DETERMINISM: No `time.sleep()`, no wall-clock asserts without monkeypatch
-- BEHAVIOR: Asserts state/result, not just `assert_called_once()`.
-- MIGRATION: Config backward-compat loaders must have tests with inline old-format dicts; never depend on real `config.yaml`.
+Test review: see §15 Test Discipline.
 
 ## 10. Decision Hierarchy
 
@@ -194,32 +170,16 @@ Feature conflicts with Absolute Constraint:
 - `docs/` is source of truth. Code must match docs. If conflict, update docs first.
 - When proposing core change, explain: what breaks, what improves, alternatives.
 
-### 11.1. FastAPI DI and Ruff type-checking rules
+### 11.1. FastAPI DI and Ruff
 
-With `from __future__ import annotations`, all annotations are strings
-at runtime. Ruff cannot distinguish typing-only usage from runtime usage.
-
-- **TC002** (third-party): `Request`, `Response` must stay in runtime imports
-  for FastAPI DI and middleware. Use `# noqa: TC002` on specific lines.
-  `runtime-evaluated-decorators` does not cover all cases (e.g. methods
-  in BaseHTTPMiddleware, functions used via Annotated[...]).
-- **TC003** (stdlib): disabled globally. `Callable`, `Awaitable` are
-  needed for module-level type annotations. Stdlib imports are cheap;
-  per-file `noqa` does not scale.
-
-Do NOT use `request: Any` -- breaks FastAPI DI with 422.
-Do NOT move `Request` under `TYPE_CHECKING` -- same result.
+- **TC002** (third-party): `Request`, `Response` must stay in runtime imports for FastAPI DI and middleware. Use `# noqa: TC002` on specific lines.
+- **TC003** (stdlib): disabled globally. `Callable`, `Awaitable` are needed for module-level type annotations. Stdlib imports are cheap; per-file `noqa` does not scale.
+- Do NOT use `request: Any` -- breaks FastAPI DI with 422.
+- Do NOT move `Request` under `TYPE_CHECKING` -- same result.
 
 ## 12. Rule Self-Check
 
-Before outputting code, verify:
-- [ ] All changed files listed in Output Protocol
-- [ ] No rule from Section 2 (Absolute Constraints) violated
-- [ ] No rule from Section 2.1 (Simplicity Constraints) violated
-- [ ] No rule from Section 15 (Test Discipline) violated, if tests are changed
-- [ ] If >3 files changed, split proposed or get confirmation
-- [ ] Tests updated for new functionality
-- [ ] No new features proposed without explicit user request
+Before outputting code, verify: no §2/§2.1/§15 violations, all changed files listed, tests updated for new functionality, >3 files -> split or confirm, no new features without explicit request.
 
 ## 13. Technology Decay
 
@@ -247,3 +207,4 @@ These rules themselves change:
 - **Encapsulation**: Tests use public API only. No `obj._private_field` in assertions.
 - **Determinism**: No `time.sleep()`. No wall-clock asserts without monkeypatch.
 - **Behavior**: Assert state/result, not just `assert_called_once()`.
+- **Migration**: Config backward-compat loaders must have tests with inline old-format dicts; never depend on real `config.yaml`.

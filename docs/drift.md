@@ -1,42 +1,58 @@
 # Known Architectural Drift
-Rule: Do not add new drift if old pattern can be fixed properly.
 
-| ID | Status | File | Broken Rule | Fix / Resolution |
-|----|--------|------|-------------|------------------|
-| 1 | [FIXED 2026-06-09] | `core/ports/llm.py` | Missing `get_context_limit()` on `ILLM` port. | Added to port; all adapters updated. |
-| 2 | [FIXED 2026-06-09] | `features/rag/manager.py` | `rerank()` branched on `None` instead of Null Object pattern. | `NullReranker` introduced; `InitializedAppState.reranker: IReranker` (non-optional). |
-| 3 | [FIXED 2026-06-09] | Multiple adapters | `getattr(config, "x", default)` instead of direct access. | Replaced with `config.x`; Pydantic guarantees field presence. |
-| 4 | [FIXED 2026-06-13] | Multiple adapters | `getattr(config, "x", default)` pattern persisted. | All instances replaced with direct `config.x` access; defaults verified in `AppConfig`. |
-| 5 | [FIXED 2026-06-14] | `adapters/vector_store_faiss.py`, `adapters/vector_store_memory.py` | `ChunkMetadata` schema drift: `created_at` serialized (not in domain model), `total_chunks` missing in FAISS `add()`. | Local `_chunk_to_dict` / `_chunk_from_dict` helpers for strict deserialization matching domain model. |
-| 6 | [FIXED 2026-06-14] | `adapters/embedder_openai_compatible.py`, `adapters/reranker_api.py` | Missing `get_logger`; `AdapterError` wraps without prior `logger.exception()`. | Added `get_logger`; all `AdapterError` wraps now preceded by `logger.exception()`. |
-| 7 | [FIXED 2026-06-28] | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py`, `adapters/reranker_api.py` | Duplicate HTTP client setup (httpx.AsyncClient, POST, raise_for_status, json parse). | Extracted `async_post_json` into `adapters/_http.py`. All three adapters delegate POST/raise_for_status/JSON parsing to the helper. Retry wrappers and adapter-specific response parsing remain in place. |
-| 8 | [FIXED 2026-06-18] | `core/pipeline.py` | `PipelineData.metadata: dict[str, Any]` — untyped bag. | Replaced with explicit typed fields (`embedder`, `vector_store`, `reranker`, `llm`, `pipeline_config`, `query_embedding`, `tokenizer`, `rerank_filtered_out`, `rerank_scores`). |
-| 9 | [FIXED 2026-06-17] | `core/pipeline_steps.py` | `model: str = "gpt-4o"` default in `_estimate_tokens()` / `_truncate_to_fit()`. | Removed defaults; `_estimate_tokens()` now accepts `tokenizer: ITokenizer` parameter. `generate` step uses `data.tokenizer.model_name`. |
-| 10 | [FIXED 2026-06-27] | `core/retry.py` | `max_retries=3, delay=1.0, backoff=2.0` hardcoded in `@with_retry`. | Added `RetryConfig` dataclass in `core/domain/configs.py` and `retry_with_config()` helper in `core/retry.py`. Pipeline steps (`_call_embed`, `_call_llm`, `_call_rerank`) use runtime config from `PipelineConfig.retry`. `@with_retry` preserved for non-pipeline code (lifespan, etc.). |
-| 11 | [ACTIVE since 2026-06-09] | `core/prompts/__init__.py` | Jinja2 import in `core/` (stdlib-only layer). | Accept as grandfathered exception. Exit criteria: second template engine needed OR Jinja2 deprecated. |
-| 12 | [FIXED 2026-07-08] | `core/prompts/__init__.py` | `_make_hashable()` has no cyclic reference protection. | `visited: set[int]` guard added; returns `"<circular>"` on cycle detection. Tests pass. |
-| 13 | [FIXED 2026-06-14] | `core/domain/documents.py` | `original_path` smuggled through pipeline without contract. | Added `source_uri: str | None` to `ChunkMetadata` (CORE CHANGE). |
-| 14 | [FIXED 2026-06-26] | `api/deps.py` | `RAGState._status: dict[str, dict[str, object]]` — inner `object` untyped. | Introduced `ReindexStatusEntry` frozen dataclass in `core/domain/pipeline.py`. Typed `RAGState._status` as `dict[str, ReindexStatusEntry]`. `get_status()` still returns `dict[str, object]` for JSON API compatibility. |
-| 15 | [FIXED 2026-06-18] | `core/pipeline.py` | `_required_fields_for_steps` rejected valid `[embed_query, retrieve]` pipelines because `query_embedding` is produced, not input. | `query_embedding` removed from `retrieve` required fields. Runtime check remains for `[retrieve]` alone. |
-| 16 | [FIXED 2026-06-14] | `core/config.py` | Admin endpoints unprotected by default. | Added `admin_enabled: bool = False` to `SecurityConfig`; admin endpoints return 404 unless enabled. |
-| 17 | [FIXED 2026-06-14] | `core/ports/vector_store.py`, `adapters/vector_store_faiss.py`, `adapters/vector_store_memory.py` | `delete()` required manual `save()` — caller could forget. | `delete()` now auto-persists with rollback on failure. Manual `save()` redundant but harmless. |
-| 18 | [ACTIVE since 2026-06-14] | `api/security.py` | `_override_api_key` is process-local — does not propagate across uvicorn/gunicorn workers. | Documented in code comments and lifespan warning. Use `AI_SECURITY_API_KEY` env var for multiprocess deployments. Exit criteria: multiprocess deployment becomes primary use case. |
-| 19 | [ACTIVE since 2026-06-14] | `core/config.py` | Pydantic + PyYAML import in `core/` (stdlib-only layer). | Accept as grandfathered exception. `config_version` added with backward-compatible loader. Exit criteria: Pydantic 2y without release OR critical CVE unpatched >6mo. |
-| 20 | [FIXED 2026-06-25] | `core/utils.py` | tiktoken + tokenizers import in `core/` (stdlib-only layer). | `ITokenizer` port added; adapters in `adapters/`. `utils.py` keeps deprecated wrappers for one config_version. |
-| 21 | [FIXED 2026-06-25] | `adapters/vector_store_memory.py` | `asyncio.Lock` only on `list_by_filter`; `add`/`search`/`delete`/`save`/`load` unprotected. | All public async methods now acquire `self._lock`. Internal `_save_unlocked` / `_load_unlocked` for delete-rollback. |
-| 22 | [FIXED 2026-06-28] | `core/domain/pipeline.py`, `core/pipeline.py`, `features/chat/manager.py`, `features/rag/manager.py`, `tests/test_pipeline.py` | `tokenizer_model: str | None` field in `PipelineData` duplicated `ITokenizer.model_name`. Violated Section 2.2 (Data Ownership: port objects own their config). | Removed `tokenizer_model` from `PipelineData`; `generate` step uses `data.tokenizer.model_name` via port contract. Steps 1-2 (remove reads from pipeline_steps.py) completed 2026-06-28; Step 3 (remove field) completed 2026-06-28. |
-| 23 | [FIXED 2026-06-29] | `api/deps.py`, `api/lifespan.py`, `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py`, `adapters/reranker_api.py`, `adapters/factory.py` | Shared `httpx.AsyncClient` injected via `deps.py` into HTTP adapters created hidden `_own_client` state. Violated Section 2.2 (Data Ownership) and "who creates — who closes". `shutdown()` branched on `_own_client` instead of unconditional cleanup. | Each HTTP adapter creates and owns its `httpx.AsyncClient`. `shutdown()` unconditionally calls `aclose()`. Removed `http_client` from `AppState`/`InitializedAppState`. Factory no longer special-cases HTTP adapters. Lifespan cleanup simplified: adapters close their own resources. See `architecture.md` §5.2 for decision tree. |
-| 24 | [FIXED 2026-06-30] | `adapters/vector_store_faiss.py`, `adapters/vector_store_memory.py` | `IVectorStore.load()` leaked raw exceptions (`JSONDecodeError`, `OSError`, `AttributeError` from corrupted files) instead of wrapping in `AdapterError` per port contract §6. Lifespan loop at line 68 would crash on startup instead of skipping the bad namespace. | Both adapters now wrap all file I/O, JSON parsing, and deserialization failures in `AdapterError` with `logger.exception` before raise. Added `isinstance(meta, dict)` guard against malformed JSON arrays/primitives. Lifespan keeps narrow `except (AdapterError, VersionMismatchError)` — trusts port contract. |
-| 25 | [FIXED 2026-07-02] | `core/config.py`, `features/rag/indexing.py`, `features/rag/handlers.py` | `RAGConfig.documents_root` hardcoded `sources/` path. No way to specify arbitrary read-only document paths. Indexing logic tied to filesystem structure. | Introduced `SourceConfig` (namespace, path, include, recursive). Added `RAGConfig.sources: list[SourceConfig]`. Removed `documents_root` field; backward-compat via `model_validator(mode="before")` that migrates old key to `sources` list. `read_sources()` replaces `_discover_documents_sync()` — pure function, no hardcoded paths. `index_folder()` accepts `sources` parameter. |
-| 26 | [FIXED 2026-07-02] | `core/constants.py`, `core/query_parser.py`, `features/chat/manager.py`, `features/rag/handlers.py` | `RAG_NS_MAP` hardcoded prefix-to-namespace mapping in `core/constants.py`. RAG was always-on; prefixes were fixed (`[p]`, `[w]`, etc.) and required code changes to modify. | Removed `RAG_NS_MAP` and `RAG_PREFIX_RE` from `constants.py`. Added `prefix: str | None` to `NamespaceConfig`. Introduced `build_prefix_map()` in `query_parser.py` to derive prefixes from config. `parse_rag_query()` now accepts `prefix_map` parameter. RAG is strictly opt-in: no prefix match returns `namespace=None`, and `ChatManager` routes directly to LLM without retrieval. |
-| 27 | [FIXED 2026-07-02] | `core/config.py`, `.gitignore`, `README.md`, `scripts/setup.py` | `.env` + `.env.example` + `config.yaml` = 3+ config files in root. Secrets scattered across `.env` (pydantic-settings) and YAML (shared config). | Unified to 2-file scheme: `config.yaml` (git-ignored, personal) + `config.example.yaml` (in repo, template). `load_config()` loads single file. `pydantic-settings` env vars still work for Docker/CI. Removed `.env`, `.env.example`, and `config.local.yaml` from project. |
-| 28 | [ACTIVE since 2026-07-04] | `api/router.py`, `api/admin.py` | `admin.router` has `dependencies=[Depends(require_api_key)]` in its own definition. `assemble_routers()` wraps protected root routers (including admin via `protected_root_tags`) with another `Depends(require_api_key)`. Auth dependency is duplicated — harmless but redundant. | Accept for now. Exit criteria: either (a) remove `require_api_key` from `admin.py` and rely solely on wrapper (breaks direct use of `admin.router` outside `assemble_routers()`), or (b) remove `require_api_key` from wrapper for protected roots and add it only to admin-less routers like chat-oai. Option (b) requires special-casing admin in wrapper logic. |
-| 29 | [ACTIVE since 2026-07-05] | `core/ports/tokenizer.py` | `ITokenizer` simplified: removed `model_name`, `count(text)` instead of `count(text, model)`. TiktokenTokenizer hardcodes `cl100k_base` encoding. | Accept. If multi-encoding support needed, revisit as core change. |
-| 30 | [FIXED 2026-07-10] | `core/ports/llm.py`, `core/domain/messages.py`, `adapters/llm_openai_compatible.py`, `adapters/llm_mock.py`, `features/chat/manager.py`, `features/chat/handlers.py` | `ILLM.system_message` orphaned. Conditional cleanup regressed (DRIFT #31). | Added `SystemMessage` to domain; extended `Message` union; removed `system_message` from `ILLM`; propagated via `ChatManager.__init__` per §2.2. Unconditional `shutdown()` per §3.1. |
-| 31 | [FIXED 2026-07-06, regression fixed 2026-07-10] | `adapters/embedder_openai_compatible.py`, `adapters/llm_openai_compatible.py` | Conditional cleanup with `_closed` flag and `_lock` violated §3.1. Regression: same pattern in `llm_openai_compatible.py` not caught by original fix. | Unconditional `shutdown()` — removed `_closed`, `_lock`, `_check_open()`. Embedder: wrap `RuntimeError("closed")` in `AdapterError`. LLM: eager check via `httpx.is_closed` in `complete()`; `stream()` lazy by design. |
-| 32 | [FIXED 2026-07-06] | `adapters/storage_sqlite.py` | No schema versioning; raw sqlite3 exceptions; WAL mode unchecked; shutdown() creates empty DB; _safe_json_loads returns None for JSON null. | Added PRAGMA user_version migration system; AdapterError wrapping for all CRUD; WAL mode result check; shutdown() skips if DB missing; _safe_json_loads treats JSON null as missing. |
-| 33 | [FIXED 2026-07-06] | `core/io_utils.py` | os.replace() overwrites target permissions with tmp's 0o600. | Copy target's mode to tmp before os.replace; race-safe with try/except. |
-| 34 | [ACTIVE since 2026-07-08] | `tests/test_stateful_ports.py` | `_run_async` uses `asyncio.run()` in `ThreadPoolExecutor` for Hypothesis RuleBasedStateMachine. Violates §15 Test Discipline. | Accept. Hypothesis issue #4107 — no native async support. Exit criteria: Hypothesis adds async state machine OR state machine tests removed. |
-| 35 | [FIXED 2026-07-10] | `core/pipeline_steps.py` | `type() is UserMessage` / `type() is AssistantMessage` in `condense_question` step. Runtime type introspection instead of explicit contract. | Refactored `PipelineData.chat_history` to `tuple[tuple[str, str], ...]` (role, text pairs), eliminating need for type checking entirely. `condense_question` step now uses tuple unpacking. |
-| 36 | [FIXED 2026-07-19] | `core/config.py`, `core/domain/configs.py`, `tests/test_*.py`, `config.yaml` | `threshold` field in RAG config and tests — dead code after reranker became rank-only (§12). | Removed `threshold` from `RAGConfig`, `NamespaceConfig`, `RerankerConfigData`, and all test assertions/calls. Removed `_migrate_vector_store_relevance_threshold` and `_migrate_relevance_threshold_to_threshold` validators. Updated `config.example.yaml`. **NOTE: Violates §13 (no deprecation cycle). Acceptable because project is pre-production, solo-maintained, and no legacy configs exist. If old config.yaml surfaces, add field back temporarily or remove from config.** Reranker stays rank-only; pipeline does not filter by score. |
-| 37 | [FIXED 2026-07-28] | `core/pipeline_steps.py`, `core/config.py`, `core/domain/pipeline.py`, `features/chat/manager.py`, `features/rag/manager.py` | `min_relevance_score` reintroduced after drift #36 removal. Rank-only invariant (architecture.md §13) protects against adapter coupling, but 4B models cannot ignore noise in top_k chunks. Absolute threshold is pragmatic workaround with config-driven value until LLM upgrade. | Removed. Pipeline returned to strict rank-only (architecture.md §13). `min_relevance_score` field stripped from `PipelineConfig`, `RAGConfig`, and all managers/handlers. Backward-compat loader in `RAGConfig` preserved (§10). Exit criteria unchanged: upgrade to 8B+ model for noise rejection. |
+> Rule: Do not add new drift if old pattern can be fixed properly.
+> AI reads this file before any architectural output (Document Meta §12).
+> ACTIVE entries are constraints — do not "fix" them without explicit user request.
+> Git history is unreliable (commits often say "fix"). This file is the source of truth.
+
+## ACTIVE (7)
+
+| ID | Since | Location | Constraint | Exit Criteria |
+|----|-------|----------|------------|---------------|
+| 11 | 2026-06-09 | `core/prompts/__init__.py` | Jinja2 import in stdlib-only `core/` layer | Second template engine needed OR Jinja2 deprecated |
+| 18 | 2026-06-14 | `api/security.py` | `_override_api_key` process-local; does not propagate across uvicorn/gunicorn workers | Multiprocess deployment becomes primary use case |
+| 19 | 2026-06-14 | `core/config.py` | Pydantic + PyYAML import in stdlib-only `core/` layer. `config_version` + backward-compat loader in place | Pydantic 2y without release OR critical CVE unpatched >6mo |
+| 28 | 2026-07-04 | `api/router.py`, `api/admin.py` | `require_api_key` duplicated on admin router (harmless redundancy) | Remove from `admin.py` OR special-case admin in wrapper |
+| 29 | 2026-07-05 | `core/ports/tokenizer.py` | `ITokenizer` simplified; no multi-encoding support | Multi-encoding support needed |
+| 34 | 2026-07-08 | `tests/test_stateful_ports.py` | `asyncio.run()` in `ThreadPoolExecutor` for Hypothesis (issue #4107 — no native async) | Hypothesis adds async state machine OR tests removed |
+| 38 | 2026-08-12 | `tests/conftest.py` | `AsyncMock` cannot mock async generators → `MagicMock(side_effect=factory)` bypasses `spec=ILLM` | stdlib native async generator mock support OR `ILLM.stream` contract change |
+
+## FIXED → Rule Extracted (see docs, no details needed)
+
+| ID | Fixed | Rule / Location |
+|----|-------|-----------------|
+| 23 | 2026-06-29 | HTTP client ownership → `architecture.md` §4, §5 |
+| 22 | 2026-06-28 | Port objects own config, PipelineData carries references → `architecture.md` §8, `ai_rules.md` §2.2 |
+| 7 | 2026-06-28 | Shared CODE ok, shared RESOURCE banned → `architecture.md` §4.3, §8 |
+| 14 | 2026-06-26 | Untyped `dict[str, dict]` bags banned → `ai_rules.md` §9 antipatterns |
+| 8 | 2026-06-18 | `PipelineData.metadata: dict[str, Any]` replaced with typed fields → `ai_rules.md` §9 antipatterns |
+| 31 | 2026-07-10 | Unconditional `shutdown()`, no `_closed` flag → `architecture.md` §6 |
+| 30 | 2026-07-10 | `SystemMessage` in domain, removed from `ILLM` port → `architecture.md` §8 |
+| 37 | 2026-07-28 | `min_relevance_score` stripped; strict rank-only → `architecture.md` §13 |
+| 36 | 2026-07-19 | `threshold` removed; rank-only invariant. No deprecation cycle (pre-production, solo, no legacy configs) → `architecture.md` §13 |
+| 35 | 2026-07-10 | `chat_history: tuple[tuple[str, str], ...]` eliminates runtime type introspection |
+
+## FIXED → History (one-liners, self-contained)
+
+| ID | Fixed | Summary |
+|----|-------|---------|
+| 1 | 2026-06-09 | Added `get_context_limit()` to `ILLM` port; all adapters updated |
+| 2 | 2026-06-09 | `NullReranker` introduced; `reranker: IReranker` non-optional (Null Object) |
+| 3-4 | 2026-06-13 | Replaced `getattr(config, "x", default)` with direct `config.x`; Pydantic guarantees presence |
+| 5 | 2026-06-14 | `ChunkMetadata` schema drift on disk; strict `_chunk_to_dict`/`_chunk_from_dict` matching domain model |
+| 6 | 2026-06-14 | Added `get_logger` to adapters; all `AdapterError` wraps preceded by `logger.exception()` |
+| 9 | 2026-06-17 | Removed hardcoded `model="gpt-4o"`; `_estimate_tokens()` accepts `ITokenizer` |
+| 10 | 2026-06-27 | `RetryConfig` dataclass + `retry_with_config()` in `core/retry.py` |
+| 12 | 2026-07-08 | `_make_hashable()` cyclic ref guard; returns `"<circular>"` |
+| 13 | 2026-06-14 | Added `source_uri: str | None` to `ChunkMetadata` (CORE CHANGE) |
+| 15 | 2026-06-18 | `query_embedding` removed from `retrieve` required fields (produced, not input) |
+| 16 | 2026-06-14 | `admin_enabled: bool = False`; admin endpoints 404 unless enabled |
+| 17 | 2026-06-14 | `delete()` auto-persists with rollback on failure |
+| 20 | 2026-06-25 | `ITokenizer` port added; tiktoken/tokenizers adapters moved out of `core/` |
+| 21 | 2026-06-25 | `asyncio.Lock` on all `MemoryVectorStore` public async methods |
+| 24 | 2026-06-30 | `load()` failures wrapped in `AdapterError`; `isinstance(meta, dict)` guard |
+| 25 | 2026-07-02 | `SourceConfig` + `sources: list[SourceConfig]`; backward-compat loader for `documents_root` |
+| 26 | 2026-07-02 | `prefix: str | None` in `NamespaceConfig`; `build_prefix_map()` from config |
+| 27 | 2026-07-02 | Unified config to `config.yaml` (git-ignored) + `config.example.yaml` |
+| 32 | 2026-07-06 | PRAGMA `user_version` migration; `AdapterError` wrapping; WAL check |
+| 33 | 2026-07-06 | Copy target mode to tmp before `os.replace` (permission preservation) |

@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.testclient import TestClient
-
-# ── Logging ──
-logger = logging.getLogger(__name__)
-
 
 # ── Test config path ──
 TEST_CONFIG_PATH = str(Path(__file__).parent / "config.test.yaml")
@@ -27,51 +22,6 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 # ── Core fixtures ──
-
-
-@pytest.fixture(autouse=True)
-def reset_prompt_cache():
-    """Given: prompt cache may contain state from previous tests.
-    When: test starts.
-    Then: cache is cleared; restored after test."""
-    from ai_assistant.core import prompts as prompts_module
-
-    original_env = getattr(prompts_module, "_env_cache", None)
-    prompts_module._env_cache = {}
-
-    if getattr(prompts_module, "_render", None) is not None:
-        prompts_module._render.cache_clear()
-
-    yield
-
-    if original_env is not None:
-        prompts_module._env_cache = original_env
-    else:
-        prompts_module._env_cache = {}
-
-
-@pytest.fixture(autouse=True)
-def cleanup_test_artifacts():
-    """Given: previous tests may have created artifacts.
-    When: test finishes.
-    Then: test DBs and indices are removed."""
-    yield
-    for path in [
-        Path("./data/test_storage.db"),
-        Path("./data/test_memory.db"),
-        Path("./data/indices/test"),
-    ]:
-        if path.exists():
-            try:
-                if path.is_file():
-                    path.unlink()
-                else:
-                    import shutil
-
-                    shutil.rmtree(path)
-            except PermissionError:
-                logger.warning("Could not remove %s", path)
-
 
 @pytest.fixture
 def mock_llm():
@@ -242,10 +192,12 @@ def build_mock_state() -> InitializedAppState:
     llm.complete = AsyncMock(return_value=AssistantMessage(text="", metadata={}))
     llm.get_context_limit = MagicMock(return_value=8192)
 
-    async def _stream(*args, **kwargs):
-        yield ""
+    def _stream(*args, **kwargs):
+        async def _agen():
+            yield ""
+        return _agen()
 
-    llm.stream = _stream
+    llm.stream = MagicMock(side_effect=_stream)
 
     async def _rerank(query, chunks, top_k=None):
         return [RerankResult(chunk=c, score=1.0) for c in chunks]

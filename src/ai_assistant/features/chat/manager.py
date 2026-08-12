@@ -27,7 +27,7 @@ from ai_assistant.core.prompts import get_prompt
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.ports import (
@@ -47,7 +47,7 @@ logger = get_logger("chat")
 # Pipeline step functions — moved from deps.py to where they are used
 # ---------------------------------------------------------------------------
 
-_STEP_MAP: dict[RAGStep, Any] = {
+_STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
     RAGStep(k): v for k, v in STEP_REGISTRY.items() if k in {m.value for m in RAGStep}
 }
 

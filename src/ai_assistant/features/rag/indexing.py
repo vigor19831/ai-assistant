@@ -12,6 +12,8 @@ from ai_assistant.core.logger import get_logger
 
 if TYPE_CHECKING:
     from ai_assistant.core.config import SourceConfig
+    from ai_assistant.core.ports.chunker import IChunker
+    from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__ = ["cleanup_stale", "index_folder", "read_sources"]
@@ -126,9 +128,9 @@ def read_sources(
 async def index_folder(
     target_namespace: str | None,
     clear: bool,
-    chunker: Any,
-    embedder: Any,
-    vector_store: Any,
+    chunker: IChunker,
+    embedder: IEmbedder,
+    vector_store: IVectorStore,
     max_file_size: int | None = None,
     sources: list[SourceConfig] | None = None,
     index_path: str | None = None,

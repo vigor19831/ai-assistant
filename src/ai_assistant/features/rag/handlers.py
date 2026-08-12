@@ -19,6 +19,7 @@ from ai_assistant.api.deps import (
 from ai_assistant.core.config import get_chat_namespace
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
+from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
 from ai_assistant.features.rag.indexing import index_folder
@@ -418,7 +419,7 @@ async def save_chat(
         raise HTTPException(status_code=400, detail="Path traversal detected")
 
     try:
-        await asyncio.to_thread(file_path.write_text, content, encoding="utf-8")
+        await atomic_write(file_path, content, mode="w")
     except Exception:
         _logger.exception(
             "Failed to save file",

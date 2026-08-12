@@ -6,7 +6,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ai_assistant.api.deps import init_adapters
 from ai_assistant.api.security import get_expected_api_key, set_api_key
@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from fastapi import FastAPI
+
+    from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__ = ["lifespan"]
 
@@ -214,7 +216,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 
 @with_retry(max_retries=3, delay=0.5, backoff=2.0)
 async def _save_index_with_retry(
-    vector_store: Any, index_path: str, namespace: str
+    vector_store: IVectorStore, index_path: str, namespace: str
 ) -> None:
     """Save index with retry (10 s per attempt).
 

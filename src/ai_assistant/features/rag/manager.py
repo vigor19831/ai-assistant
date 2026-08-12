@@ -24,6 +24,7 @@ from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.core.ports import (
     ILLM,
+    IChunker,
     IEmbedder,
     IReranker,
     ITokenizer,
@@ -38,7 +39,7 @@ class IndexingManager:
 
     def __init__(
         self,
-        chunker: Any,
+        chunker: IChunker,
         embedder: IEmbedder,
         vector_store: IVectorStore,
     ) -> None:
