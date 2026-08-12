@@ -359,6 +359,7 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 | Date | Hardware | LLM | Result | Limitation |
 |---|---|---|---|---|
 | 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require >=8B params |
-| 2026-08-06 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + multi-query retrieval | 16/17 PASS + 2/2 e2e chat | trap-2 ("shade" leak) remains; e2e chat prefix tests added and passing |
+| 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen3-4B-Instruct-2507 (Q5_K_M) | 13/17 PASS + 1/2 e2e chat | trap-1, trap-2, multihop-1 FAIL; 9 known limitations; 4B weaker than 7B on RAG tasks |
+| 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + multi-query retrieval | 16/17 PASS + 2/2 e2e chat | trap-2 ("shade" leak) remains; e2e chat prefix tests added and passing |
 
 Expected fix: LLM upgrade (Qwen3-8B-Instruct, Qwen2.5-14B-Instruct). No pipeline changes required.
