@@ -465,9 +465,17 @@ async def _truncate_to_fit(
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
         if not new_chunks:
-            current_data = current_data.with_chunks(()).with_context("")
+            current_data = (
+                current_data.with_chunks(())
+                .with_context("")
+                .with_rerank_scores(None)
+            )
             break
         current_data = current_data.with_chunks(new_chunks)
+        if current_data.rerank_scores is not None:
+            current_data = current_data.with_rerank_scores(
+                current_data.rerank_scores[: len(new_chunks)]
+            )
         current_data = current_data.with_context(_format_chunks(current_data.chunks))
         try:
             prompt = get_prompt(
