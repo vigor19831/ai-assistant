@@ -1187,6 +1187,39 @@ async def test_multi_query_retrieve_dedup_and_fallback():
 
 
 @pytest.mark.asyncio
+async def test_multi_query_retrieve_preserves_meaningful_prefixes() -> None:
+    """Given: LLM returns variations with digits/dashes that are content, not artifacts.
+    When: multi_query_retrieve parses lines.
+    Then: meaningful leading digits/dashes are preserved; only 'N. ' / 'N) ' / 'N- ' stripped."""
+    llm = MagicMock()
+    llm.complete = AsyncMock(
+        return_value=AssistantMessage(
+            text="-budget overview\n1. cash flow"
+        )
+    )
+
+    embedder = MagicMock()
+    embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+
+    vector_store = MagicMock()
+    vector_store.search = AsyncMock(return_value=[])
+
+    data = PipelineData(
+        query=UserMessage(text="finance"),
+        pipeline_config=PipelineConfig(),
+        llm=llm,
+        embedder=embedder,
+        vector_store=vector_store,
+    )
+    result = await multi_query_retrieve(data)
+
+    texts_embedded = [call.args[0][0] for call in embedder.embed.await_args_list]
+    assert "-budget overview" in texts_embedded
+    assert "cash flow" in texts_embedded
+    assert "1. cash flow" not in texts_embedded
+
+
+@pytest.mark.asyncio
 async def test_rerank_without_reranker_returns_error() -> None:
     """Given: PipelineData with reranker=None and non-empty chunks.
     When: rerank step is called directly (bypassing pipeline validation).

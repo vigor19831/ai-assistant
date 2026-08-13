@@ -7,6 +7,7 @@ No in-place mutation.
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -61,6 +62,7 @@ __all__: list[str] = [
 _logger = get_logger("pipeline.steps")
 
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
+
 
 def step(
     name: str,
@@ -681,8 +683,9 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
         for line in response.text.splitlines():
             line = line.strip()
             if line and line.lower() != data.query.text.lower():
-                # Strip common leading artifacts (digits, bullets)
-                cleaned = line.lstrip("0123456789.-) ")
+                # Strip numeric list artifacts (e.g. "1.", "2)", "3-")
+                # without consuming meaningful leading digits or dashes.
+                cleaned = re.sub(r"^\s*\d+[\.\)\-]\s*", "", line)
                 if cleaned:
                     variations.append(cleaned)
 
