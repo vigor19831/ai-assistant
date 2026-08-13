@@ -245,16 +245,23 @@ async def openai_chat_completions(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
     last_user_msg = ""
-    for m in reversed(req.messages):
+    last_user_idx = -1
+    for i, m in enumerate(req.messages):
         if m.role == "user" and m.content is not None:
             last_user_msg = m.content
-            break
+            last_user_idx = i
 
     if not last_user_msg.strip():
         raise HTTPException(
             status_code=400,
             detail="At least one user message with non-empty content is required.",
         )
+
+    oai_history = [
+        {"role": m.role, "content": m.content}
+        for i, m in enumerate(req.messages)
+        if m.content is not None and i != last_user_idx
+    ]
 
     conv_id = str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -278,6 +285,7 @@ async def openai_chat_completions(
                     stop=req.stop,
                     frequency_penalty=req.frequency_penalty,
                     presence_penalty=req.presence_penalty,
+                    history=oai_history,
                 ):
                     delta = OAIDeltaChunk(
                         model=model_id,
@@ -330,6 +338,7 @@ async def openai_chat_completions(
             stop=req.stop,
             frequency_penalty=req.frequency_penalty,
             presence_penalty=req.presence_penalty,
+            history=oai_history,
         )
     except AdapterError as exc:
         _logger.warning(

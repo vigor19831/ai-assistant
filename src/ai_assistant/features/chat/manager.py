@@ -400,6 +400,7 @@ class ChatManager:
         stop: list[str] | str | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
+        history: list[dict[str, Any]] | None = None,
     ) -> AssistantMessage:
         """Process a chat message."""
         meta = metadata or {}
@@ -415,16 +416,20 @@ class ChatManager:
         )
 
         # Load history once for both condensation and message building
-        history: list[dict[str, Any]] = []
-        if self.storage:
+        if history is not None:
+            history_local: list[dict[str, Any]] = list(history)
+        elif self.storage:
             try:
-                history = await self.storage.get_history(
+                history_local = await self.storage.get_history(
                     conversation_id,
                     limit=self.history_limit,
                     offset=0,
                 )
             except Exception as exc:
                 logger.warning("History load failed", extra={"error": str(exc)})
+                history_local = []
+        else:
+            history_local = []
 
         (
             prompt_for_llm,
@@ -432,13 +437,13 @@ class ChatManager:
             namespace,
             rag_chunks,
         ) = await self._retrieve_context(
-            message, history=history, trace_id=trace_id
+            message, history=history_local, trace_id=trace_id
         )
 
         messages = await self._build_messages(
             prompt_for_llm,
             conversation_id,
-            history=history,
+            history=history_local,
             metadata=meta,
         )
 
@@ -485,7 +490,7 @@ class ChatManager:
             metadata=response.metadata,
         )
 
-        if self.storage:
+        if self.storage and history is None:
             try:
                 await self.storage.save_message(
                     conversation_id,
@@ -519,6 +524,7 @@ class ChatManager:
         stop: list[str] | str | None = None,
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
+        history: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[str]:
         """Stream chat response token by token."""
         meta = metadata or {}
@@ -534,16 +540,20 @@ class ChatManager:
         )
 
         # Load history once for both condensation and message building
-        history: list[dict[str, Any]] = []
-        if self.storage:
+        if history is not None:
+            history_local: list[dict[str, Any]] = list(history)
+        elif self.storage:
             try:
-                history = await self.storage.get_history(
+                history_local = await self.storage.get_history(
                     conversation_id,
                     limit=self.history_limit,
                     offset=0,
                 )
             except Exception as exc:
                 logger.warning("History load failed", extra={"error": str(exc)})
+                history_local = []
+        else:
+            history_local = []
 
         (
             prompt_for_llm,
@@ -551,13 +561,13 @@ class ChatManager:
             namespace,
             rag_chunks,
         ) = await self._retrieve_context(
-            message, history=history, trace_id=trace_id
+            message, history=history_local, trace_id=trace_id
         )
 
         messages = await self._build_messages(
             prompt_for_llm,
             conversation_id,
-            history=history,
+            history=history_local,
             metadata=meta,
         )
 
@@ -608,7 +618,7 @@ class ChatManager:
             yield sources_text[len(full_response):]
 
         # Save to history after streaming completes
-        if self.storage:
+        if self.storage and history is None:
             try:
                 await self.storage.save_message(
                     conversation_id,
