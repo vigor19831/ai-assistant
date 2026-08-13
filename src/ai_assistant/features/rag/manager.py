@@ -335,23 +335,30 @@ class SourceWatcher:
             current = await asyncio.to_thread(self._scan, path)
             previous = self._snapshots.get(key, {})
             if current != previous:
-                self._snapshots[key] = current
                 _logger.info(
                     "Source changed, reindexing", extra={"source": src.path}
                 )
                 self._index_tasks[key] = asyncio.create_task(
-                    self._run_index(src)
+                    self._run_index(src, key, current)
                 )
 
-    async def _run_index(self, src: SourceConfig) -> None:
+    async def _run_index(
+        self,
+        src: SourceConfig,
+        snapshot_key: str,
+        snapshot: dict[str, tuple[float, int]],
+    ) -> None:
         try:
             await asyncio.wait_for(self._index_fn(src), timeout=300.0)
         except TimeoutError:
             _logger.error("Reindex timed out", extra={"source": src.path})
+            return
         except Exception:
             _logger.exception(
                 "Auto-reindex failed", extra={"source": src.path}
             )
+            return
+        self._snapshots[snapshot_key] = snapshot
 
     async def _loop(self) -> None:
         while not self._stop.is_set():
