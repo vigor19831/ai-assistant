@@ -354,7 +354,13 @@ async def rerank(data: PipelineData) -> PipelineData:
         return data.add_error(RERANKER_NOT_PROVIDED)
 
     try:
-        query = data.query.text if data.query is not None else " "
+        query = data.query.text if data.query is not None else ""
+        if not query.strip():
+            _logger.warning(
+                "rerank: empty query, skipping",
+                extra={"trace_id": data.trace_id},
+            )
+            return data
         cfg = _get_config(data)
         top_k = cfg.top_k
         retry_cfg = cfg.retry

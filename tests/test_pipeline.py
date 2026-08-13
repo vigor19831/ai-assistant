@@ -1202,3 +1202,47 @@ async def test_rerank_without_reranker_returns_error() -> None:
     assert RERANKER_NOT_PROVIDED in result.errors
     assert result.chunks == (chunk,)
     assert result.rerank_scores is None
+
+@pytest.mark.asyncio
+async def test_rerank_skips_on_empty_query() -> None:
+    """If query is None or empty, rerank must not call the reranker."""
+    chunk = Chunk(
+        id="c1",
+        text="text",
+        metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+    )
+    mock_reranker = MagicMock()
+    mock_reranker.rerank = AsyncMock(return_value=[])
+
+    # Case 1: query is None
+    data = PipelineData(
+        query=None,
+        chunks=(chunk,),
+        reranker=mock_reranker,
+        pipeline_config=PipelineConfig(),
+    )
+    result = await rerank(data)
+    assert result.chunks == (chunk,)
+    mock_reranker.rerank.assert_not_called()
+
+    # Case 2: query text is empty
+    data = PipelineData(
+        query=UserMessage(text=""),
+        chunks=(chunk,),
+        reranker=mock_reranker,
+        pipeline_config=PipelineConfig(),
+    )
+    result = await rerank(data)
+    assert result.chunks == (chunk,)
+    mock_reranker.rerank.assert_not_called()
+
+    # Case 3: query text is whitespace only
+    data = PipelineData(
+        query=UserMessage(text="   "),
+        chunks=(chunk,),
+        reranker=mock_reranker,
+        pipeline_config=PipelineConfig(),
+    )
+    result = await rerank(data)
+    assert result.chunks == (chunk,)
+    mock_reranker.rerank.assert_not_called()
