@@ -450,7 +450,6 @@ async def _truncate_to_fit(
     query_text: str,
     limit: int,
     tokenizer: ITokenizer,
-    system_message: str | None = None,
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -460,8 +459,6 @@ async def _truncate_to_fit(
         chunks and updated_prompt will reflect the last attempted context.
     """
     prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
-    if system_message:
-        prompt_tokens += await _estimate_tokens(system_message, tokenizer=tokenizer)
     current_data = data
     while current_data.chunks and prompt_tokens > limit:
         new_chunks = current_data.chunks[:-1]
@@ -488,8 +485,6 @@ async def _truncate_to_fit(
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
-        if system_message:
-            prompt_tokens += await _estimate_tokens(system_message, tokenizer=tokenizer)
     return current_data, prompt
 
 
@@ -562,6 +557,12 @@ async def generate(data: PipelineData) -> PipelineData:
             extra={"trace_id": data.trace_id},
         )
         return data.add_error("tokenizer missing in PipelineData")
+    # Reserve space for system message upfront so truncation uses the
+    # correct budget and system_message is not double-counted.
+    system_tokens = 0
+    if cfg.system_message:
+        system_tokens = await _estimate_tokens(cfg.system_message, tokenizer=tokenizer)
+
     prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
     # Adaptive margin: cap for very large contexts to avoid wasting space.
     # Small models (<32K) keep the full percentage margin.
@@ -570,17 +571,22 @@ async def generate(data: PipelineData) -> PipelineData:
     if max_ctx > 32 * 1024:
         calculated_margin = min(calculated_margin, 8 * 1024)
     margin = max(cfg.token_margin_min, calculated_margin)
-    limit = max_ctx - margin
+    limit = max_ctx - margin - system_tokens
+    if limit <= 0:
+        return data.add_error(
+            "generate: system message exceeds context limit"
+        ).with_response(
+            AssistantMessage(
+                text="Sorry, the system message is too long to process."
+            )
+        )
 
     if prompt_tokens > limit:
         data, prompt = await _truncate_to_fit(
             data, prompt, prompt_name, prompt_version, query_text, limit,
             tokenizer=tokenizer,
-            system_message=cfg.system_message,
         )
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
-        if cfg.system_message:
-            prompt_tokens += await _estimate_tokens(cfg.system_message, tokenizer=tokenizer)
         if prompt_tokens > limit:
             error_msg = (
                 f"generate: prompt too long ({prompt_tokens} tokens) "
