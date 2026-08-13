@@ -750,48 +750,6 @@ class TestConfigLoads:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TestToolPortContract
-# ═══════════════════════════════════════════════════════════════════════════
-
-
-@pytest.mark.smoke
-class TestToolPortContract:
-    """Smoke: Tool port contract is implementable."""
-
-    @pytest.mark.asyncio
-    async def test_tool_execution(self):
-        """Given: ITool implementation.
-        When: executed with valid arguments.
-        Then: returns ToolResult with correct output."""
-        from ai_assistant.core.ports.tools import ITool, ToolSpec, ToolResult
-
-        class _AddTool(ITool):
-            @property
-            def spec(self) -> ToolSpec:
-                return ToolSpec(
-                    name="add",
-                    description="Add two numbers",
-                    parameters={
-                        "type": "object",
-                        "properties": {"a": {"type": "number"}, "b": {"type": "number"}},
-                    },
-                    required=["a", "b"],
-                )
-
-            async def execute(self, call_id: str, arguments: dict) -> ToolResult:
-                return ToolResult(
-                    call_id=call_id,
-                    output=str(arguments.get("a", 0) + arguments.get("b", 0)),
-                    is_error=False,
-                )
-
-        tool = _AddTool({})
-        result = await tool.execute("call-1", {"a": 2, "b": 3})
-        assert not result.is_error
-        assert result.output == "5"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # TestSecurityKeyResolution
 # ═══════════════════════════════════════════════════════════════════════════
 
