@@ -745,11 +745,12 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     retry_cfg = cfg.retry
 
     # Generate hypothetical answer
-    hyde_messages: list[Message] = [
-        UserMessage(
-            text=f"Write a short passage that answers this question: {data.query.text}"
-        )
-    ]
+    hyde_prompt = get_prompt(
+        "hyde",
+        version=cfg.prompt_version,
+        query=data.query.text,
+    )
+    hyde_messages: list[Message] = [UserMessage(text=hyde_prompt)]
     try:
         hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages, retry_cfg, sampling=cfg.sampling)
     except Exception as exc:
