@@ -206,6 +206,7 @@ def build_mock_state() -> InitializedAppState:
 
     reranker.rerank = AsyncMock(side_effect=_rerank)
 
+    vector_store.index_path = config.vector_store.index_path
     vector_store.search = AsyncMock(return_value=[])
     vector_store.add = AsyncMock(return_value=None)
     vector_store.delete = AsyncMock(return_value=None)
