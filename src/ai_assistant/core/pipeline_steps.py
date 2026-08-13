@@ -196,6 +196,7 @@ async def condense_question(data: PipelineData) -> PipelineData:
         )
         return data.add_error(LLM_NOT_PROVIDED)
 
+    cfg = _get_config(data)
     original_question = data.query.text
     history_lines = []
     for role, text in data.chat_history[-8:]:
@@ -204,7 +205,7 @@ async def condense_question(data: PipelineData) -> PipelineData:
 
     prompt = get_prompt(
         "condense_question",
-        version="v1",
+        version=cfg.prompt_version,
         history=history_text,
         question=original_question,
     )
