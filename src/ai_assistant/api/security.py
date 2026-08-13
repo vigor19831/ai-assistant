@@ -44,8 +44,8 @@ def get_expected_api_key() -> str | None:
     This function exists for code paths without AppState access.
     """
     env_key = os.getenv("AI_SECURITY_API_KEY")
-    if env_key is not None:
-        return env_key or None
+    if env_key:
+        return env_key
     with _lock:
         return _override_api_key
 

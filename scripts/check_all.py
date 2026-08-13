@@ -1027,8 +1027,11 @@ def main() -> int:
                 return 1
 
             ok &= _show_coverage_results(run_coverage_audit())
+            print("\n" + _SEP + "\n")
             ok &= _show_ast_results(*run_ast_audit(SRC))
+            print("\n" + _SEP + "\n")
             ok &= _show_test_audit_results(_audit_test_quality())
+            print("\n" + _SEP + "\n")
             ok &= _show_non_ascii_results(_audit_non_ascii(SRC))
 
         elif choice == "6":

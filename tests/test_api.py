@@ -161,14 +161,14 @@ class TestAPISecurity:
         """
         assert get_expected_api_key() is None
 
-    def test_empty_env_returns_none(self, monkeypatch):
-        """Given: env var is set to empty string.
+    def test_empty_env_falls_through_to_override(self, monkeypatch):
+        """Given: env var is set to empty string and runtime override exists.
         When: get_expected_api_key() is called.
-        Then: empty string is treated as absent; override is ignored.
+        Then: empty env is skipped; runtime override is returned.
         """
         monkeypatch.setenv("AI_SECURITY_API_KEY", "")
         set_api_key("override-secret")
-        assert get_expected_api_key() is None
+        assert get_expected_api_key() == "override-secret"
 
     def test_no_yaml_loading_on_hot_path(self):
         """Given: get_expected_api_key is on the hot path.
