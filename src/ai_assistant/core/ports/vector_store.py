@@ -38,17 +38,23 @@ class IVectorStore(IClosable, ABC):
     async def upsert(self, chunks: list[Chunk], namespace: str = "default") -> None:
         """Replace chunks for each source document.
 
-        For every unique ``ChunkMetadata.source`` in *chunks*, delete
-        existing chunks with the same source in the namespace, then add
-        the new ones.  If *chunks* is empty, this is a no-op.
+        For every unique ``ChunkMetadata.source`` in *chunks*, add the
+        new chunks first, then delete existing chunks with the same
+        source in the namespace.  If *chunks* is empty, this is a no-op.
 
-        Adapters may override this for atomicity or performance.
+        This default ordering (add before delete) ensures that if *add*
+        fails the old chunks remain in the index.  There is a brief
+        window where both old and new chunks coexist; adapters that need
+        true atomicity or have eviction policies should override this
+        method.
         """
         if not chunks:
             return
 
         sources: set[str] = set()
+        new_ids: set[str] = set()
         for chunk in chunks:
+            new_ids.add(chunk.id)
             if chunk.metadata is not None:
                 sources.add(chunk.metadata.source)
 
@@ -57,12 +63,12 @@ class IVectorStore(IClosable, ABC):
             old = await self.list_by_filter(
                 {"source": source}, namespace=namespace
             )
-            old_ids.extend(cid for cid, _ in old)
+            old_ids.extend(cid for cid, _ in old if cid not in new_ids)
+
+        await self.add(chunks, namespace=namespace)
 
         if old_ids:
             await self.delete(old_ids, namespace=namespace)
-
-        await self.add(chunks, namespace=namespace)
 
     @abstractmethod
     async def search(
