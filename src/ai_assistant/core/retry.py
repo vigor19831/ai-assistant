@@ -51,7 +51,7 @@ async def _async_retry_loop(
     for attempt in range(max_retries + 1):
         try:
             return await coro()
-        except (SystemExit, KeyboardInterrupt, TimeoutError):
+        except (SystemExit, KeyboardInterrupt):
             raise
         except _PERMANENT_ERRORS:
             raise

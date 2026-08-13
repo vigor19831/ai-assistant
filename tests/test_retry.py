@@ -153,10 +153,10 @@ async def test_retry_no_retry_on_keyboard_interrupt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_no_retry_on_timeout_error() -> None:
+async def test_retry_retries_on_timeout_error() -> None:
     """Given: function raises TimeoutError.
     When: called.
-    Then: propagates immediately, no retries.
+    Then: retries max_retries times, then raises.
     """
     calls: list[int] = []
 
@@ -167,7 +167,7 @@ async def test_retry_no_retry_on_timeout_error() -> None:
 
     with pytest.raises(TimeoutError, match="timed out"):
         await fn()
-    assert len(calls) == 1
+    assert len(calls) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -417,15 +417,15 @@ async def test_retry_with_config_permanent_error_not_retried() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_with_config_timeout_error_not_retried() -> None:
-    """TimeoutError must not be retried via retry_with_config."""
+async def test_retry_with_config_timeout_error_retried() -> None:
+    """TimeoutError is retried via retry_with_config."""
     coro = AsyncMock(side_effect=TimeoutError("timed out"))
     config = RetryConfig(max_retries=5, delay=0.01, backoff=1.0, jitter=False)
 
     with pytest.raises(TimeoutError):
         await retry_with_config(coro, config)
 
-    assert coro.call_count == 1
+    assert coro.call_count == 6
 
 
 @pytest.mark.asyncio
