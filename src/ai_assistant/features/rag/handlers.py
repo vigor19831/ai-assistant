@@ -441,12 +441,14 @@ async def save_chat(
         }
 
     chat_namespace = get_chat_namespace(namespace)
+    ns_cfg = state.config.namespaces.get(namespace)
+    chunker = get_chunker_for_config(state, ns_cfg.chunk_size if ns_cfg else None)
     try:
         # Synthetic document ID guarantees upsert never touches user documents
         # that happen to share a filename stem in the same namespace.
         chat_doc_id = f"__chat__{namespace}__{file_path.stem}"
         manager = IndexingManager(
-            chunker=state.chunker,
+            chunker=chunker,
             embedder=state.embedder,
             vector_store=state.vector_store,
         )
@@ -502,6 +504,12 @@ async def save_chat(
             "indexed": False,
             "error": str(e),
         }
+    finally:
+        if chunker is not state.chunker:
+            try:
+                await chunker.shutdown()
+            except Exception:
+                _logger.exception("Chunker shutdown failed", extra={"trace_id": trace_id})
 
 
 @router.post("/reindex", response_model=None)
