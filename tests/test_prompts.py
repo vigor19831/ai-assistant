@@ -1,22 +1,13 @@
-"""Tests for versioned prompt loader with Jinja2 and LRU cache."""
+"""Tests for versioned prompt loader with Jinja2."""
 
 from __future__ import annotations
 
-import dataclasses
-from ai_assistant.core.logger import get_logger
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-from ai_assistant.core.prompts import (
-    _env_cache,
-    _make_hashable,
-    _render,
-    get_prompt,
-)
-
-logger = get_logger(__name__)
+from ai_assistant.core.prompts import _env_cache, _render, get_prompt
 
 
 class TestPromptVersion:
@@ -42,16 +33,15 @@ class TestPromptVersion:
             get_prompt("dummy", version="v999")
 
 
-class TestPromptCache:
-    """Given: Jinja2 environment caching via lru_cache.
+class TestPromptEnvCache:
+    """Given: Jinja2 environment caching.
     When: get_prompt is called multiple times.
-    Then: Environment is constructed once per version; cache keys are hashable."""
+    Then: Environment is constructed once per version."""
 
     def test_get_prompt_env_cached_once(self, tmp_path: Path, monkeypatch):
         """Given: multiple calls with same version.
         When: get_prompt is called repeatedly.
         Then: Environment constructor called exactly once per version."""
-        # Prepare fake template directories
         v1 = tmp_path / "v1"
         v1.mkdir()
         (v1 / "dummy.j2").write_text("{{ x }}")
@@ -60,12 +50,10 @@ class TestPromptCache:
         v2.mkdir()
         (v2 / "dummy.j2").write_text("{{ x }}")
 
-        # Reset cache and repoint module's __file__
         monkeypatch.setattr("ai_assistant.core.prompts._env_cache", {})
         monkeypatch.setattr(
             "ai_assistant.core.prompts.__file__", str(tmp_path / "prompts.py")
         )
-        _render.cache_clear()
 
         with mock.patch("ai_assistant.core.prompts.Environment") as MockEnv:
             fake_template = mock.Mock()
@@ -82,162 +70,6 @@ class TestPromptCache:
             # Different version → new Environment
             get_prompt("dummy", version="v2", x="c")
             assert MockEnv.call_count == 2
-
-    def test_cache_hit_same_version(self, tmp_path: Path, monkeypatch):
-        """Given: identical name, version, and kwargs.
-        When: get_prompt is called twice with same args.
-        Then: second call is a cache hit; render called once."""
-        v1 = tmp_path / "v1"
-        v1.mkdir()
-        (v1 / "test.j2").write_text("{{ msg }}")
-
-        monkeypatch.setattr("ai_assistant.core.prompts._env_cache", {})
-        monkeypatch.setattr(
-            "ai_assistant.core.prompts.__file__", str(tmp_path / "prompts.py")
-        )
-        _render.cache_clear()
-
-        with mock.patch("ai_assistant.core.prompts.Environment") as MockEnv:
-            fake_template = mock.Mock()
-            fake_template.render.return_value = "rendered"
-            fake_env = mock.Mock()
-            fake_env.get_template.return_value = fake_template
-            MockEnv.return_value = fake_env
-
-            r1 = get_prompt("test", version="v1", msg="hello")
-            r2 = get_prompt("test", version="v1", msg="hello")
-
-            # Environment created once; template.render once (cache hit on second)
-            assert MockEnv.call_count == 1
-            assert fake_template.render.call_count == 1
-            assert r1 == r2 == "rendered"
-
-    def test_cache_miss_different_version(self, tmp_path: Path, monkeypatch):
-        """Given: same name and kwargs but different version.
-        When: get_prompt is called.
-        Then: cache miss; new Environment and render."""
-        v1 = tmp_path / "v1"
-        v1.mkdir()
-        (v1 / "test.j2").write_text("v1: {{ msg }}")
-
-        v2 = tmp_path / "v2"
-        v2.mkdir()
-        (v2 / "test.j2").write_text("v2: {{ msg }}")
-
-        monkeypatch.setattr("ai_assistant.core.prompts._env_cache", {})
-        monkeypatch.setattr(
-            "ai_assistant.core.prompts.__file__", str(tmp_path / "prompts.py")
-        )
-        _render.cache_clear()
-
-        with mock.patch("ai_assistant.core.prompts.Environment") as MockEnv:
-            def make_env(version_dir):
-                fake_template = mock.Mock()
-                fake_template.render.return_value = f"from {version_dir.name}"
-                fake_env = mock.Mock()
-                fake_env.get_template.return_value = fake_template
-                return fake_env
-
-            MockEnv.side_effect = lambda **kw: make_env(Path(kw["loader"].searchpath[0]))
-
-            r1 = get_prompt("test", version="v1", msg="hello")
-            r2 = get_prompt("test", version="v2", msg="hello")
-
-            assert MockEnv.call_count == 2
-            assert r1 == "from v1"
-            assert r2 == "from v2"
-
-
-class TestMakeHashable:
-    """Given: various Python types as kwargs values.
-    When: _make_hashable is called.
-    Then: value is converted to a hashable form suitable for cache keys."""
-
-    def test_hashable_primitives(self):
-        """Given: primitive types.
-        When: _make_hashable is called.
-        Then: primitives pass through unchanged."""
-        assert _make_hashable("str") == "str"
-        assert _make_hashable(42) == 42
-        assert _make_hashable(3.14) == 3.14
-        assert _make_hashable(True) is True
-        assert _make_hashable(None) is None
-
-    def test_hashable_list(self):
-        """Given: list of primitives.
-        When: _make_hashable is called.
-        Then: converted to tuple recursively."""
-        result = _make_hashable([1, 2, "three"])
-        assert result == (1, 2, "three")
-        assert isinstance(result, tuple)
-
-    def test_hashable_dict(self):
-        """Given: dict with primitive values.
-        When: _make_hashable is called.
-        Then: converted to sorted tuple of key-value pairs."""
-        result = _make_hashable({"b": 2, "a": 1})
-        assert result == (("a", 1), ("b", 2))
-
-    def test_hashable_nested(self):
-        """Given: nested structures.
-        When: _make_hashable is called.
-        Then: deeply converted to hashable form."""
-        result = _make_hashable({"items": [{"id": 1}, {"id": 2}]})
-        assert isinstance(result, tuple)
-
-    def test_hashable_dataclass(self):
-        """Given: a dataclass instance.
-        When: _make_hashable is called.
-        Then: converted to tuple of (field_name, value) pairs."""
-        @dataclasses.dataclass
-        class Dummy:
-            name: str
-            value: int
-
-        obj = Dummy(name="test", value=42)
-        result = _make_hashable(obj)
-        assert result == (("name", "test"), ("value", 42))
-
-    def test_hashable_unsupported_type(self):
-        """Given: an unsupported type (e.g., a set).
-        When: _make_hashable is called.
-        Then: falls back to str() representation."""
-        result = _make_hashable({1, 2, 3})
-        assert isinstance(result, str)
-
-
-class TestHashableChunksInCacheKey:
-    """Given: kwargs containing lists and dicts.
-    When: _kwargs_to_tuple is used for cache key.
-    Then: complex structures become hashable cache keys."""
-
-    def test_list_of_strings_in_kwargs(self):
-        """Given: list of strings as kwarg value.
-        When: cache key is built.
-        Then: list is converted to tuple; same list produces same key."""
-        from ai_assistant.core.prompts import _kwargs_to_tuple
-
-        kwargs1 = {"items": ["a", "b", "c"]}
-        kwargs2 = {"items": ["a", "b", "c"]}
-        assert _kwargs_to_tuple(kwargs1) == _kwargs_to_tuple(kwargs2)
-
-    def test_dict_in_kwargs(self):
-        """Given: dict as kwarg value.
-        When: cache key is built.
-        Then: dict is converted to sorted tuple; same dict produces same key."""
-        from ai_assistant.core.prompts import _kwargs_to_tuple
-
-        kwargs1 = {"meta": {"z": 1, "a": 2}}
-        kwargs2 = {"meta": {"a": 2, "z": 1}}
-        assert _kwargs_to_tuple(kwargs1) == _kwargs_to_tuple(kwargs2)
-
-    def test_different_kwargs_produce_different_keys(self):
-        """Given: different kwarg values.
-        When: cache key is built.
-        Then: different values produce different keys."""
-        from ai_assistant.core.prompts import _kwargs_to_tuple
-
-        assert _kwargs_to_tuple({"a": 1}) != _kwargs_to_tuple({"a": 2})
 
 
 class TestJinja2EnvironmentConfig:
@@ -257,7 +89,6 @@ class TestJinja2EnvironmentConfig:
         monkeypatch.setattr(
             "ai_assistant.core.prompts.__file__", str(tmp_path / "prompts.py")
         )
-        _render.cache_clear()
 
         with mock.patch("ai_assistant.core.prompts.Environment") as MockEnv:
             fake_template = mock.Mock()
@@ -290,42 +121,8 @@ class TestJinja2EnvironmentConfig:
         monkeypatch.setattr(
             "ai_assistant.core.prompts.__file__", str(tmp_path / "prompts.py")
         )
-        _render.cache_clear()
 
         result = get_prompt("blocks", version="v1", items=["a", "b"])
         # With trim_blocks=True and lstrip_blocks=True, output should be compact
         assert "a" in result
         assert "b" in result
-
-
-@dataclasses.dataclass
-class _Node:
-    value: int
-    next: "_Node | None" = None
-
-
-def test_make_hashable_self_referencing_dataclass():
-    """_make_hashable must not crash on circular references."""
-    node = _Node(value=1)
-    node.next = node
-
-    result = _make_hashable(node)
-
-    assert isinstance(result, tuple)
-    fields = dict(result)
-    assert fields["next"] == "<circular>"
-
-
-def test_make_hashable_mutual_reference():
-    """Mutual circular references must be handled gracefully."""
-    a = {"name": "a"}
-    b = {"name": "b"}
-    a["ref"] = b
-    b["ref"] = a
-
-    result = _make_hashable(a)
-
-    a_dict = dict(result)
-    b_dict = dict(a_dict["ref"])
-    assert b_dict["name"] == "b"
-    assert b_dict["ref"] == "<circular>"
