@@ -232,8 +232,9 @@ class TestRetrieve:
             vector_store=store,
         )
         result = await retrieve(data)
-        # retrieve now fetches top_k * _RERANK_CANDIDATE_EXPANSION
-        assert len(result.chunks) == 2
+        # retrieve fetches top_k * reranker.retrieval_multiplier
+        # NullReranker has multiplier=1, so with top_k=1 we get 1 chunk
+        assert len(result.chunks) == 1
 
     @pytest.mark.asyncio
     async def test_no_vector_store(self) -> None:

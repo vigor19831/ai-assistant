@@ -33,6 +33,13 @@ class IReranker(IClosable, ABC):
     def __init__(self, config: RerankerConfigData) -> None:
         self.config = config
 
+    @property
+    def retrieval_multiplier(self) -> int:
+        """Factor to multiply top_k by during retrieval for reranking candidates.
+        Null/pass-through rerankers return 1; real rerankers return >1 (e.g. 2).
+        """
+        return 1
+
     @abstractmethod
     async def rerank(
         self,

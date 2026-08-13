@@ -49,6 +49,10 @@ def _normalize_score(raw: float) -> float:
 class LocalReranker(IReranker):
     """HTTP client for local reranker server."""
 
+    @property
+    def retrieval_multiplier(self) -> int:
+        return 2
+
     def __init__(self, config: RerankerConfigData) -> None:
         self.config = config
         self._client = httpx.AsyncClient(timeout=config.timeout)

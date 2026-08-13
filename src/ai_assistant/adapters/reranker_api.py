@@ -33,6 +33,10 @@ class APIReranker(IReranker):
     - Any OpenAI-compatible rerank endpoint
     """
 
+    @property
+    def retrieval_multiplier(self) -> int:
+        return 2
+
     def __init__(self, config: RerankerConfigData) -> None:
         super().__init__(config)
         self.api_base: str = config.api_base

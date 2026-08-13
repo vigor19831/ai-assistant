@@ -72,6 +72,7 @@ def mock_reranker():
     from ai_assistant.core.ports.reranker import IReranker, RerankResult
 
     m = MagicMock(spec=IReranker)
+    m.retrieval_multiplier = 1
 
     async def _rerank(query, chunks, top_k=None):
         results = [RerankResult(chunk=c, score=1.0) for c in chunks]
@@ -184,6 +185,7 @@ def build_mock_state() -> InitializedAppState:
     chunker = AsyncMock(spec=IChunker)
     storage = AsyncMock(spec=IChatStorage)
     reranker = AsyncMock(spec=IReranker)
+    reranker.retrieval_multiplier = 1
 
     # ── RAG pipeline port defaults ──
     embedder.embed = AsyncMock(return_value=[[0.1] * 384])

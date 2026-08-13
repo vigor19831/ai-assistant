@@ -62,11 +62,6 @@ _logger = get_logger("pipeline.steps")
 
 STEP_REGISTRY: dict[str, Callable[[PipelineData], Awaitable[PipelineData]]] = {}
 
-# Retrieve extra candidates before reranking.
-# This improves recall without increasing final LLM context size.
-_RERANK_CANDIDATE_EXPANSION: int = 2
-
-
 def step(
     name: str,
     requires: set[str],
@@ -312,7 +307,8 @@ async def retrieve(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
         cfg = _get_config(data)
-        fetch_k = cfg.top_k * _RERANK_CANDIDATE_EXPANSION
+        multiplier = data.reranker.retrieval_multiplier if data.reranker is not None else 1
+        fetch_k = cfg.top_k * multiplier
         namespace = cfg.namespace
         retry_cfg = cfg.retry
         chunks = await _call_search(vector_store, embedding, fetch_k, namespace, retry_cfg)
@@ -687,10 +683,11 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
             embeddings = await _call_embed(data.embedder, q, retry_cfg)
             if not embeddings:
                 continue
+            multiplier = data.reranker.retrieval_multiplier if data.reranker is not None else 1
             chunks = await _call_search(
                 data.vector_store,
                 embeddings[0],
-                cfg.top_k * _RERANK_CANDIDATE_EXPANSION,
+                cfg.top_k * multiplier,
                 cfg.namespace,
                 retry_cfg,
             )
