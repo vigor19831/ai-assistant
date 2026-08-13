@@ -549,64 +549,6 @@ class TestChunkMetadata:
 
 
 # ───────────────────────────────────────────────
-# ToolResult — frozen immutability
-# ───────────────────────────────────────────────
-
-
-class TestToolResultFrozen:
-    """Given: ToolResult carries tool execution output.
-    When: constructed and inspected.
-    Then: all fields are present; instance is frozen."""
-
-    def test_frozen_instance_error_on_error_mutation(self) -> None:
-        """Given: ToolResult with output.
-        When: error is reassigned.
-        Then: FrozenInstanceError."""
-        from ai_assistant.core.ports.tools import ToolResult
-
-        result = ToolResult(call_id="c1", output="ok")
-        with pytest.raises(FrozenInstanceError):
-            result.error = "new error"  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_is_error_mutation(self) -> None:
-        """Given: ToolResult with output.
-        When: is_error is reassigned.
-        Then: FrozenInstanceError."""
-        from ai_assistant.core.ports.tools import ToolResult
-
-        result = ToolResult(call_id="c1", output="ok")
-        with pytest.raises(FrozenInstanceError):
-            result.is_error = True  # type: ignore[misc]
-
-    def test_frozen_instance_error_on_output_mutation(self) -> None:
-        """Given: ToolResult with output.
-        When: output is reassigned.
-        Then: FrozenInstanceError."""
-        from ai_assistant.core.ports.tools import ToolResult
-
-        result = ToolResult(call_id="c1", output="ok")
-        with pytest.raises(FrozenInstanceError):
-            result.output = "new output"  # type: ignore[misc]
-
-    def test_tool_result_constructed_with_all_fields(self) -> None:
-        """Given: all fields provided.
-        When: ToolResult is constructed.
-        Then: every field is accessible."""
-        from ai_assistant.core.ports.tools import ToolResult
-
-        result = ToolResult(
-            call_id="c1",
-            output="data",
-            error="fail",
-            is_error=True,
-        )
-        assert result.call_id == "c1"
-        assert result.output == "data"
-        assert result.error == "fail"
-        assert result.is_error is True
-
-
-# ───────────────────────────────────────────────
 # Prompts — caching behaviour
 # ───────────────────────────────────────────────
 

@@ -8,7 +8,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any
 
-from ai_assistant.core.config import RAGStep
+from ai_assistant.core.config import NamespaceConfig, RAGStep
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import AdapterError
@@ -124,7 +124,7 @@ class ChatManager:
         max_context_tokens: int | None = None,
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
-        namespaces: dict[str, Any] | None = None,
+        namespaces: dict[str, NamespaceConfig] | None = None,
         prompt_version: str = "v1",
         top_k: int = 5,
         token_margin_min: int = 256,
