@@ -60,15 +60,9 @@ ignore = ["E501", "TC003", "TC001"]
 strict = true
 ignore_missing_imports = true
 exclude = ["scripts/", "tests/", "vendor/"]
-warn_return_any = false
-disallow_untyped_calls = false
-disallow_untyped_defs = false
-warn_no_return = false
-warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
 module = [
-    "ai_assistant.api.security",
     "ai_assistant.core.pipeline_steps",
     "ai_assistant.features.chat.manager",
     "ai_assistant.adapters.*",
@@ -76,12 +70,6 @@ module = [
 warn_return_any = false
 disallow_untyped_defs = false
 disallow_untyped_calls = false
-
-[[tool.mypy.overrides]]
-module = ["ai_assistant.core.utils"]
-warn_return_any = true
-disallow_untyped_defs = true
-disallow_untyped_calls = true
 
 [tool.pytest.ini_options]
 minversion = "8.2"

@@ -35,7 +35,7 @@ from ai_assistant.core.ports.vector_store import IVectorStore
 try:
     import faiss
 except ImportError:
-    faiss = None  # type: ignore[assignment, no-redef]
+    faiss = None  # type: ignore[assignment]
 
 __all__ = ["FaissVectorStore"]
 
@@ -194,7 +194,7 @@ class FaissVectorStore(IVectorStore):
             if ns.index is None:
                 ns.index = self._make_index(dim)
 
-            ns.index.add(vectors)  # type: ignore[union-attr]
+            ns.index.add(vectors)
 
             for chunk in valid_chunks:
                 ns.chunks[ns.next_id] = chunk
@@ -229,7 +229,7 @@ class FaissVectorStore(IVectorStore):
                 norm = np.linalg.norm(q)
                 if norm > 0:
                     q = q / norm
-            distances, indices = ns.index.search(q, top_k)  # type: ignore[union-attr]
+            distances, indices = ns.index.search(q, top_k)
             results: list[Chunk] = []
             for idx in indices[0]:
                 if idx == -1:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from starlette.requests import Request  # noqa: TC002  # FastAPI DI requires runtime
 
@@ -346,7 +346,6 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
 
     state.task_registry = TaskRegistry()
     state.rag_state = RAGState()
-
     return InitializedAppState(
         config=cfg,
         task_registry=state.task_registry,
@@ -366,7 +365,7 @@ def get_state(request: Request) -> InitializedAppState:
     app_state = getattr(request.app.state, "app_state", None)
     if app_state is None:
         raise RuntimeError("State not initialized")
-    return app_state
+    return cast("InitializedAppState", app_state)
 
 
 def get_chunker_for_config(state: InitializedAppState, chunk_size: int | None = None) -> IChunker:
@@ -378,11 +377,14 @@ def get_chunker_for_config(state: InitializedAppState, chunk_size: int | None = 
     if chunk_size is None or chunk_size == state.config.chunker.chunk_size:
         return state.chunker
     cfg = state.config.chunker.model_copy(update={"chunk_size": chunk_size})
-    return create_adapter(
-        "chunker",
-        cfg.provider,
-        ChunkerConfigData(
-            chunk_size=cfg.chunk_size,
-            chunk_overlap=cfg.chunk_overlap,
+    return cast(
+        "IChunker",
+        create_adapter(
+            "chunker",
+            cfg.provider,
+            ChunkerConfigData(
+                chunk_size=cfg.chunk_size,
+                chunk_overlap=cfg.chunk_overlap,
+            ),
         ),
     )
