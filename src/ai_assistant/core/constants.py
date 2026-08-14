@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__all__ = ["CHAT_NS_PREFIX", "DEFAULT_NAMESPACE"]
+__all__ = ["CHAT_NS_PREFIX", "DEFAULT_NAMESPACE", "DEFAULT_RAG_PROMPT"]
 
 DEFAULT_NAMESPACE = "default"
 DEFAULT_RAG_PROMPT = "rag_strict"
