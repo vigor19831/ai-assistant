@@ -61,14 +61,6 @@ strict = true
 ignore_missing_imports = true
 exclude = ["scripts/", "tests/", "vendor/"]
 
-[[tool.mypy.overrides]]
-module = [
-    "ai_assistant.adapters.*",
-]
-warn_return_any = false
-disallow_untyped_defs = false
-disallow_untyped_calls = false
-
 [tool.pytest.ini_options]
 minversion = "8.2"
 addopts = "-ra -q --strict-markers --tb=short"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -55,7 +55,7 @@ class MemoryVectorStore(IVectorStore):
         norm = np.linalg.norm(v)
         if not np.isfinite(norm) or norm == 0:
             return np.zeros_like(v)
-        return v / norm
+        return cast("np.ndarray", v / norm)
 
     async def shutdown(self) -> None:
         """Release in-memory chunk data and embeddings."""
