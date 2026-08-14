@@ -13,7 +13,7 @@ from typing import Any
 
 from ai_assistant.api.deps import InitializedAppState
 from ai_assistant.core.config import RAGStep, SourceConfig
-from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
+from ai_assistant.core.constants import DEFAULT_RAG_PROMPT, SOURCE_INDEX_TIMEOUT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import ConfigurationError
@@ -32,6 +32,11 @@ from ai_assistant.core.ports import (
 )
 
 _logger = get_logger("rag.manager")
+
+# --- SourceWatcher timeouts (seconds) ---
+_WATCHER_POLL_INTERVAL = 60.0
+_WATCHER_STOP_TIMEOUT = 10.0
+_WATCHER_TASK_STOP_TIMEOUT = 60.0
 
 
 class IndexingManager:
@@ -295,7 +300,7 @@ class SourceWatcher:
         sources: list[SourceConfig],
         state: InitializedAppState,
         index_fn: Callable[[SourceConfig], Awaitable[None]],
-        interval: float = 60.0,
+        interval: float = _WATCHER_POLL_INTERVAL,
     ) -> None:
         self._sources = sources
         self._state = state
@@ -349,7 +354,7 @@ class SourceWatcher:
         snapshot: dict[str, tuple[float, int]],
     ) -> None:
         try:
-            await asyncio.wait_for(self._index_fn(src), timeout=300.0)
+            await asyncio.wait_for(self._index_fn(src), timeout=SOURCE_INDEX_TIMEOUT)
         except TimeoutError:
             _logger.error("Reindex timed out", extra={"source": src.path})
             return
@@ -378,7 +383,7 @@ class SourceWatcher:
         self._stop.set()
         if self._task is not None:
             try:
-                await asyncio.wait_for(self._task, timeout=10.0)
+                await asyncio.wait_for(self._task, timeout=_WATCHER_STOP_TIMEOUT)
             except TimeoutError:
                 _logger.warning("Watchdog loop shutdown timed out")
                 self._task.cancel()
@@ -388,7 +393,7 @@ class SourceWatcher:
         for key, task in list(self._index_tasks.items()):
             if not task.done():
                 try:
-                    await asyncio.wait_for(task, timeout=60.0)
+                    await asyncio.wait_for(task, timeout=_WATCHER_TASK_STOP_TIMEOUT)
                 except TimeoutError:
                     _logger.warning(
                         "Index task shutdown timed out",

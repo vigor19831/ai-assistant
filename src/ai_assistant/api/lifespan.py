@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING
 from ai_assistant.api.deps import init_adapters
 from ai_assistant.api.security import get_expected_api_key, set_api_key
 from ai_assistant.core.config import AppConfig, SourceConfig, load_config
+from ai_assistant.core.constants import (
+    ADAPTER_SHUTDOWN_TIMEOUT,
+    BACKGROUND_TASKS_SHUTDOWN_TIMEOUT,
+    INDEX_IO_TIMEOUT,
+)
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.logger import get_logger, setup_logging
 from ai_assistant.core.retry import with_retry
@@ -186,7 +191,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 
     # 2. Wait for background tasks before adapter shutdown
     try:
-        await state.task_registry.shutdown(wait_for=30.0)
+        await state.task_registry.shutdown(wait_for=BACKGROUND_TASKS_SHUTDOWN_TIMEOUT)
         logger.info("Background tasks shutdown complete")
     except Exception:
         logger.exception("Background tasks shutdown failed")
@@ -204,7 +209,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 
     for adapter, name in adapters:
         try:
-            await asyncio.wait_for(adapter.shutdown(), timeout=5.0)
+            await asyncio.wait_for(adapter.shutdown(), timeout=ADAPTER_SHUTDOWN_TIMEOUT)
             logger.info("Adapter shutdown complete", extra={"adapter": name})
         except TimeoutError:
             logger.warning("Adapter shutdown timed out", extra={"adapter": name})
@@ -227,7 +232,7 @@ async def _save_index_with_retry(
     try:
         await asyncio.wait_for(
             vector_store.save(index_path, namespace=namespace),
-            timeout=10.0,
+            timeout=INDEX_IO_TIMEOUT,
         )
     except TimeoutError:
         raise AdapterError("Index save timed out, will retry") from None

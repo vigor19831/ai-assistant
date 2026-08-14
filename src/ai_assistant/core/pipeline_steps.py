@@ -11,6 +11,7 @@ import re
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT
 from ai_assistant.core.domain.configs import RetryConfig, SamplingConfig
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -201,7 +202,7 @@ async def condense_question(data: PipelineData) -> PipelineData:
     cfg = _get_config(data)
     original_question = data.query.text
     history_lines = []
-    for role, text in data.chat_history[-8:]:
+    for role, text in data.chat_history[-CONDENSE_HISTORY_LIMIT:]:
         history_lines.append(f"{role}: {text}")
     history_text = "\n".join(history_lines)
 

@@ -17,6 +17,7 @@ from ai_assistant.api.deps import (
     get_state,
 )
 from ai_assistant.core.config import get_chat_namespace
+from ai_assistant.core.constants import INDEX_IO_TIMEOUT, REINDEX_TASK_TIMEOUT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.io_utils import atomic_write
@@ -153,7 +154,7 @@ async def index_documents(
             try:
                 await asyncio.wait_for(
                     state.vector_store.save(index_path, namespace=namespace),
-                    timeout=10.0,
+                    timeout=INDEX_IO_TIMEOUT,
                 )
             except TimeoutError:
                 _logger.warning(
@@ -582,7 +583,7 @@ async def reindex_documents(
                                 },
                             )
 
-                async with asyncio.timeout(14400.0):  # 4 hours
+                async with asyncio.timeout(REINDEX_TASK_TIMEOUT):
                     result = await index_folder(
                         target_namespace=target_namespace,
                         clear=clear,

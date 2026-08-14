@@ -9,7 +9,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.config import NamespaceConfig, RAGStep
-from ai_assistant.core.constants import DEFAULT_RAG_PROMPT
+from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT, DEFAULT_RAG_PROMPT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
@@ -276,7 +276,7 @@ class ChatManager:
         if history:
             chat_history = tuple(
                 (h.get("role", "user"), h.get("content", ""))
-                for h in history[-8:]
+                for h in history[-CONDENSE_HISTORY_LIMIT:]
             )
 
         original_query_text = query_text  # preserve before pipeline mutation

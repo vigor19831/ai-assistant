@@ -12,11 +12,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ai_assistant.core.constants import BACKGROUND_TASKS_SHUTDOWN_TIMEOUT
 from ai_assistant.core.logger import get_logger
 
 __all__ = ["TaskRecord", "TaskRegistry"]
 
 _logger = get_logger("task_registry")
+
+# Grace period for cancelled tasks to run their finally blocks.
+_CANCELLED_TASKS_GRACE_TIMEOUT = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +90,9 @@ class TaskRegistry:
         """Return snapshot of active tasks."""
         return set(self._tasks)
 
-    async def shutdown(self, wait_for: float = 30.0) -> None:
+    async def shutdown(
+        self, wait_for: float = BACKGROUND_TASKS_SHUTDOWN_TIMEOUT
+    ) -> None:
         """Gracefully wait for all tasks."""
         if not self._tasks:
             return
@@ -110,10 +116,10 @@ class TaskRegistry:
             pending = [t for t in tasks if not t.done()]
             if pending:
                 try:
-                    async with asyncio.timeout(5.0):
+                    async with asyncio.timeout(_CANCELLED_TASKS_GRACE_TIMEOUT):
                         await asyncio.gather(*pending, return_exceptions=True)
                 except TimeoutError:
                     _logger.warning(
-                        "Cancelled tasks did not finish within 5s",
+                        "Cancelled tasks did not finish within grace period",
                         extra={"pending": len(pending)},
                     )

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ai_assistant.api.deps import AppState, get_state
 from ai_assistant.api.security import require_api_key, set_api_key
+from ai_assistant.core.constants import INDEX_IO_TIMEOUT
 from ai_assistant.core.logger import get_logger
 
 admin_logger = get_logger("admin")
@@ -74,7 +75,7 @@ async def reload_indices(
         try:
             await asyncio.wait_for(
                 vector_store.load(index_path, namespace=ns),
-                timeout=10.0,
+                timeout=INDEX_IO_TIMEOUT,
             )
             reloaded += 1
             admin_logger.info("Reloaded index", extra={"namespace": ns})
