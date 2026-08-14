@@ -17,10 +17,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from ai_assistant.core.logger import get_logger
 
 __all__ = [
+    "SECURITY_MAX_BODY",
     "check_request_size",
     "get_expected_api_key",
     "require_api_key",
-    "SECURITY_MAX_BODY",
     "set_api_key",
 ]
 

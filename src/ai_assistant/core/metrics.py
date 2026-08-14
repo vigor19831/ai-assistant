@@ -149,7 +149,7 @@ def get_metrics() -> str:
                 lines.append(f"# TYPE {name} histogram")
                 _seen_hist.add(name)
             for b in _DEFAULT_BUCKETS:
-                bucket_labels = labels + (("le", str(b)),)
+                bucket_labels = (*labels, ("le", str(b)))
                 lines.append(
                     _metric_line(
                         f"{name}_bucket",
@@ -157,7 +157,7 @@ def get_metrics() -> str:
                         hist["buckets"].get(b, 0),
                     )
                 )
-            inf_labels = labels + (("le", "+Inf"),)
+            inf_labels = (*labels, ("le", "+Inf"))
             lines.append(_metric_line(f"{name}_bucket", inf_labels, hist["count"]))
             lines.append(_metric_line(f"{name}_count", labels, hist["count"]))
             lines.append(_metric_line(f"{name}_sum", labels, f"{hist['sum']:.6f}"))

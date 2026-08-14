@@ -229,7 +229,7 @@ class FaissVectorStore(IVectorStore):
                 norm = np.linalg.norm(q)
                 if norm > 0:
                     q = q / norm
-            distances, indices = ns.index.search(q, top_k)
+            _, indices = ns.index.search(q, top_k)
             results: list[Chunk] = []
             for idx in indices[0]:
                 if idx == -1:
@@ -648,8 +648,7 @@ class FaissVectorStore(IVectorStore):
                 except OSError:
                     continue
                 name = f.name
-                # Detect valid namespace pairs: {namespace}.store.json +
-                # {namespace}.faiss
+                # Detect valid namespace pairs: store.json paired with faiss
                 if name.endswith(".store.json"):
                     ns_name = name[:-11]  # strip ".store.json"
                     faiss_file = base / f"{ns_name}.faiss"

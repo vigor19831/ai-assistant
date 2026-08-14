@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from typing import Final
 
-__all__ = ["get_logger", "setup_logging", "get_metrics_logger"]
+__all__ = ["get_logger", "get_metrics_logger", "setup_logging"]
 
 _LOCK: Final = threading.Lock()
 _VALID_LEVELS: Final[frozenset[str]] = frozenset(

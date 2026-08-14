@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__: list[str] = [
+    "STEP_REGISTRY",
     "build_context",
     "embed_query",
     "generate",
@@ -56,7 +57,6 @@ __all__: list[str] = [
     "multi_query_retrieve",
     "rerank",
     "retrieve",
-    "STEP_REGISTRY",
     "step",
 ]
 
@@ -695,7 +695,7 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
                 if cleaned:
                     variations.append(cleaned)
 
-    queries = [data.query.text] + variations[:2]
+    queries = [data.query.text, *variations[:2]]
     _logger.debug(
         "multi_query variations",
         extra={"trace_id": data.trace_id, "count": len(queries), "queries": queries},

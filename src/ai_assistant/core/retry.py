@@ -10,7 +10,7 @@ from typing import Any, TypeVar, cast
 
 from ai_assistant.core.domain.configs import RetryConfig
 
-__all__ = ["with_retry", "retry_with_config"]
+__all__ = ["retry_with_config", "with_retry"]
 
 T = TypeVar("T")
 

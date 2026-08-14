@@ -89,7 +89,7 @@ async def _stream_with_heartbeat(
     interval: float = SSE_HEARTBEAT_INTERVAL,
 ) -> AsyncIterator[str]:
     """Wrap async iterator with SSE heartbeat comments to prevent proxy timeout."""
-    queue: asyncio.Queue[str | None | Exception | asyncio.CancelledError] = (
+    queue: asyncio.Queue[str | Exception | asyncio.CancelledError | None] = (
         asyncio.Queue()
     )
 

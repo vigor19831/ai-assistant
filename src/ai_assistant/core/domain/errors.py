@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 __all__ = [
-    "AdapterError",
-    "ConfigurationError",
     "EMBEDDER_NOT_PROVIDED",
     "INTERNAL_SERVER_ERROR",
     "LLM_NOT_PROVIDED",
@@ -13,8 +11,10 @@ __all__ = [
     "QUERY_EMBEDDING_MISSING",
     "QUERY_MISSING",
     "QUERY_TEXT_MISSING",
-    "VersionMismatchError",
     "VECTOR_STORE_NOT_PROVIDED",
+    "AdapterError",
+    "ConfigurationError",
+    "VersionMismatchError",
 ]
 
 

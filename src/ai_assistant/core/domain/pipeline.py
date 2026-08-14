@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
 
-__all__ = ["PipelineData", "PipelineConfig", "ReindexStatusEntry"]
+__all__ = ["PipelineConfig", "PipelineData", "ReindexStatusEntry"]
 
 
 @dataclass(frozen=True, slots=True)

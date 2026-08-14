@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-__all__ = ["register", "get_registry"]
+__all__ = ["get_registry", "register"]
 
 _REGISTRY: dict[str, dict[str, type]] = {}
 

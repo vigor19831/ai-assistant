@@ -53,7 +53,7 @@ target-version = "py311"
 extend-exclude = ["scripts/", "tests/", "vendor/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH"]
+select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH", "A", "ERA", "RUF", "RET"]
 ignore = ["TC003", "TC001"]
 
 [tool.mypy]

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.pipeline import PipelineData
 
 
-__all__ = ["RAGPipeline", "ConfigurationError"]
+__all__ = ["ConfigurationError", "RAGPipeline"]
 
 
 class RAGPipeline:

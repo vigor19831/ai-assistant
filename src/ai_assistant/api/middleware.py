@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import Response  # noqa: TC002  # BaseHTTPMiddleware dispatch uses runtime
+from fastapi import Response  # BaseHTTPMiddleware dispatch uses runtime
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import (

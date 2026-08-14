@@ -39,9 +39,9 @@ def get_chat_namespace(base_namespace: str) -> str:
 
 __all__ = [
     "AppConfig",
+    "CORSConfig",
     "ChatConfig",
     "ChunkerConfig",
-    "CORSConfig",
     "EmbedderConfig",
     "LLMConfig",
     "LoggingConfig",
@@ -367,7 +367,7 @@ class AppConfig(BaseSettings):
     @field_validator("rag", mode="before")
     @classmethod
     def _load_rag_steps(cls, v: Any) -> Any:
-        if type(v) is dict and "steps" in v and type(v["steps"]) is str:  # noqa: UP037
+        if type(v) is dict and "steps" in v and type(v["steps"]) is str:
             return {**v, "steps": [s.strip() for s in v["steps"].split(",")]}
         return v
 

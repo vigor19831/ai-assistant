@@ -87,10 +87,10 @@ class OAIModelList(BaseModel):
 __all__ = [
     "ChatRequest",
     "ChatResponse",
-    "OAIChatMessage",
-    "OAIChatCompletionRequest",
-    "OAIChoice",
     "OAIChatCompletion",
+    "OAIChatCompletionRequest",
+    "OAIChatMessage",
+    "OAIChoice",
     "OAIDeltaChunk",
     "OAIModel",
     "OAIModelList",
