@@ -117,8 +117,6 @@ class ChatManager:
         src_lines = [f"[{i + 1}] {line}" for i, line in enumerate(unique_lines)]
         return answer + "\n\nSources:\n" + "\n".join(src_lines)
 
-    tokenizer: ITokenizer | None = None
-
     def __init__(
         self,
         llm: ILLM,
