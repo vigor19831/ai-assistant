@@ -48,6 +48,8 @@ SAFE_PATTERNS: list[str] = [
     "pip-wheel-metadata",
     ".test_tmp",
     ".pytest_tmp",
+    ".mutmut-cache",
+    "mutmut.xml",
 ]
 
 NEVER_TOUCH: set[str] = {

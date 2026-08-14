@@ -30,6 +30,10 @@ pip-wheel-metadata/
 .coverage.*
 htmlcov/
 .pytest_cache/
+
+# Mutation testing
+.mutmut-cache
+mutmut.xml
 tests/.pytest_cache/
 .test_tmp/
 .pytest_tmp/
