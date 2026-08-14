@@ -63,7 +63,6 @@ exclude = ["scripts/", "tests/", "vendor/"]
 
 [[tool.mypy.overrides]]
 module = [
-    "ai_assistant.features.chat.manager",
     "ai_assistant.adapters.*",
 ]
 warn_return_any = false
