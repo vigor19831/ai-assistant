@@ -12,6 +12,9 @@ _env_cache: dict[str, Environment] = {}
 
 def _render(name: str, version: str, **kwargs: Any) -> str:
     """Render a Jinja2 template."""
+    version_path = Path(version)
+    if version_path.is_absolute() or ".." in version_path.parts:
+        raise ValueError(f"Invalid prompt version: {version}")
     base = Path(__file__).parent / version
     if not base.exists():
         raise ValueError(f"Prompt version directory not found: {base}")
