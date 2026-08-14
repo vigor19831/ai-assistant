@@ -42,6 +42,10 @@ __all__ = ["ChatManager"]
 
 logger = get_logger("chat")
 
+# Token overhead for message framing (role markers, separators, formatting)
+# that the tokenizer does not count but the actual prompt includes.
+_HISTORY_TOKEN_OVERHEAD = 50
+
 
 # ---------------------------------------------------------------------------
 # Pipeline step functions — moved from deps.py to where they are used
@@ -224,7 +228,7 @@ class ChatManager:
         system_tokens = await self._count_tokens(
             str(system_message) if system_message else ""
         )
-        overhead = 50
+        overhead = _HISTORY_TOKEN_OVERHEAD
         reserved = user_tokens + system_tokens + overhead
 
         available = budget - reserved
