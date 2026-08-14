@@ -93,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     watcher: SourceWatcher | None = None
     if config.rag.sources:
+
         async def _index_source(src: SourceConfig) -> None:
             await index_folder(
                 target_namespace=None,
@@ -170,12 +171,8 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
         saved = 0
         for ns in namespaces:
             try:
-                await _save_index_with_retry(
-                    state.vector_store, index_path, ns
-                )
-                logger.info(
-                    "Index saved", extra={"path": index_path, "namespace": ns}
-                )
+                await _save_index_with_retry(state.vector_store, index_path, ns)
+                logger.info("Index saved", extra={"path": index_path, "namespace": ns})
                 saved += 1
             except Exception:
                 logger.exception(

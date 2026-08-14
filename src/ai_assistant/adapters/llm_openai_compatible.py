@@ -51,7 +51,9 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         if config.api_key is not None:
             self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
         else:
-            self.api_key = os.getenv("AI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            self.api_key = (
+                os.getenv("AI_LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            )
         self.max_tokens: int = config.max_tokens
         self.temperature: float = config.temperature
         self._max_stream_tokens: int = config.max_tokens * 2
@@ -196,7 +198,10 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             choice = data["choices"][0]
             msg = choice.get("message", {})
         except (IndexError, KeyError, TypeError) as exc:
-            _logger.exception("Unexpected LLM response shape", extra={"response_preview": str(data)[:200]})
+            _logger.exception(
+                "Unexpected LLM response shape",
+                extra={"response_preview": str(data)[:200]},
+            )
             raise AdapterError(f"Unexpected response shape: {exc}") from exc
 
         tool_calls = self._parse_tool_calls(msg.get("tool_calls"))
@@ -284,7 +289,7 @@ class OpenAICompatibleLLM(ILLM, IClosable):
                 token_count = 0
                 async for line in resp.aiter_lines():
                     if not line or line.startswith(":"):
-                       continue
+                        continue
                     if not line.startswith("data: "):
                         _logger.debug(
                             "Unexpected SSE line",

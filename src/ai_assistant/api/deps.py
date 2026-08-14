@@ -51,6 +51,7 @@ _MAX_STATUS_ENTRIES: int = 1000
 _RUNNING_TTL_SECONDS: float = 28800.0  # 8h — reindex timeout is 4h
 _COMPLETED_TTL_SECONDS: float = 604800.0  # 7d — completed/failed retention
 
+
 @dataclass
 class RAGState:
     """Explicit per-instance RAG background task state.
@@ -81,8 +82,7 @@ class RAGState:
 
         for tid, entry in self._status.items():
             if (
-                entry.status == "running"
-                and entry.started_at < stale_running_cutoff
+                entry.status == "running" and entry.started_at < stale_running_cutoff
             ) or (
                 entry.status in ("completed", "failed")
                 and entry.finished_at is not None
@@ -296,7 +296,9 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     state = AppState(config=config)
     cfg = config
 
-    state.tokenizer = create_adapter("tokenizer", cfg.tokenizer.provider, _tokenizer_data(cfg))
+    state.tokenizer = create_adapter(
+        "tokenizer", cfg.tokenizer.provider, _tokenizer_data(cfg)
+    )
     state.chunker = create_adapter("chunker", cfg.chunker.provider, _chunker_data(cfg))
     state.embedder = create_adapter(
         "embedder", cfg.embedder.provider, _embedder_data(cfg)
@@ -368,7 +370,9 @@ def get_state(request: Request) -> InitializedAppState:
     return cast("InitializedAppState", app_state)
 
 
-def get_chunker_for_config(state: InitializedAppState, chunk_size: int | None = None) -> IChunker:
+def get_chunker_for_config(
+    state: InitializedAppState, chunk_size: int | None = None
+) -> IChunker:
     """Return chunker, creating a new one if namespace requires different chunk_size.
 
     This factory lives in api.deps (not features/) because only api/ may

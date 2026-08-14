@@ -90,9 +90,13 @@ class IndexingManager:
                                 source=document.id,
                                 index=idx,
                                 total_chunks=len(chunks),
-                                original_path=chunk.metadata.original_path if chunk.metadata else document.metadata.get("original_path"),
+                                original_path=chunk.metadata.original_path
+                                if chunk.metadata
+                                else document.metadata.get("original_path"),
                                 source_uri=chunk_source_uri,
-                                last_modified=chunk.metadata.last_modified if chunk.metadata else None,
+                                last_modified=chunk.metadata.last_modified
+                                if chunk.metadata
+                                else None,
                                 custom=chunk.metadata.custom if chunk.metadata else {},
                             ),
                         )
@@ -162,13 +166,17 @@ class RAGManager:
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
-        step_names = rag_steps if rag_steps is not None else [
-            RAGStep.EMBED_QUERY,
-            RAGStep.RETRIEVE,
-            RAGStep.RERANK,
-            RAGStep.BUILD_CONTEXT,
-            RAGStep.GENERATE,
-        ]
+        step_names = (
+            rag_steps
+            if rag_steps is not None
+            else [
+                RAGStep.EMBED_QUERY,
+                RAGStep.RETRIEVE,
+                RAGStep.RERANK,
+                RAGStep.BUILD_CONTEXT,
+                RAGStep.GENERATE,
+            ]
+        )
         step_funcs = []
         for name in step_names:
             func = STEP_REGISTRY.get(name)
@@ -333,16 +341,12 @@ class SourceWatcher:
             key = str(path)
             task = self._index_tasks.get(key)
             if task is not None and not task.done():
-                _logger.debug(
-                    "Skipping reindex, still running", extra={"source": key}
-                )
+                _logger.debug("Skipping reindex, still running", extra={"source": key})
                 continue
             current = await asyncio.to_thread(self._scan, path)
             previous = self._snapshots.get(key, {})
             if current != previous:
-                _logger.info(
-                    "Source changed, reindexing", extra={"source": src.path}
-                )
+                _logger.info("Source changed, reindexing", extra={"source": src.path})
                 self._index_tasks[key] = asyncio.create_task(
                     self._run_index(src, key, current)
                 )
@@ -359,9 +363,7 @@ class SourceWatcher:
             _logger.error("Reindex timed out", extra={"source": src.path})
             return
         except Exception:
-            _logger.exception(
-                "Auto-reindex failed", extra={"source": src.path}
-            )
+            _logger.exception("Auto-reindex failed", extra={"source": src.path})
             return
         self._snapshots[snapshot_key] = snapshot
 

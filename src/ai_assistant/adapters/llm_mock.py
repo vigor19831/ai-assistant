@@ -55,7 +55,9 @@ class MockLLM(ILLM):
                 "[MOCK] Server is running. Switch config.yaml to "
                 "'llamacpp' or 'openai_compatible' for real responses."
             )
+
         return _gen()
+
     def get_context_limit(self) -> int | None:
         """Return context limit from config, or default 4096."""
         cfg = self.config

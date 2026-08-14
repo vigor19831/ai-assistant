@@ -29,7 +29,8 @@ async def async_post_json(
     Args:
     client: httpx.AsyncClient instance owned by the calling adapter.
         Per architectural strategy §4.2, each adapter creates and closes
-        its own client; this parameter is NOT for cross-adapter sharing.        url: Full request URL.
+        its own client; this parameter is NOT for cross-adapter sharing.
+        url: Full request URL.
         headers: HTTP headers including Authorization if needed.
         payload: JSON-serializable request body.
 

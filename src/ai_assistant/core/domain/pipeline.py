@@ -58,6 +58,7 @@ class PipelineConfig:
         if self.top_k < 1:
             raise ValueError(f"top_k must be >= 1, got {self.top_k}")
 
+
 @dataclass(frozen=True, slots=True)
 class PipelineData:
     query: UserMessage | None = None

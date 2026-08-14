@@ -35,15 +35,11 @@ class RAGPipeline:
                 the configured steps, or if pipeline_config is not set.
         """
         if data.pipeline_config is None:
-            raise ConfigurationError(
-                "pipeline_config is required in PipelineData"
-            )
+            raise ConfigurationError("pipeline_config is required in PipelineData")
         required_fields = self._required_fields_for_steps()
         missing = [f for f in required_fields if getattr(data, f) is None]
         if missing:
-            raise ConfigurationError(
-                f"Missing required PipelineData fields: {missing}"
-            )
+            raise ConfigurationError(f"Missing required PipelineData fields: {missing}")
         for step in self.steps:
             data = await step(data)
         return data

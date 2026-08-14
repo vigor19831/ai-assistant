@@ -32,9 +32,7 @@ class RecursiveChunker(IChunker):
         if config.chunk_size <= 0:
             raise ValueError(f"chunk_size must be > 0, got {config.chunk_size}")
         if config.chunk_overlap < 0:
-            raise ValueError(
-                f"chunk_overlap must be >= 0, got {config.chunk_overlap}"
-            )
+            raise ValueError(f"chunk_overlap must be >= 0, got {config.chunk_overlap}")
         if config.chunk_overlap >= config.chunk_size:
             raise ValueError(
                 f"chunk_overlap ({config.chunk_overlap}) must be < "
@@ -68,9 +66,7 @@ class RecursiveChunker(IChunker):
             for idx, text in enumerate(texts)
         ]
 
-    def _split_text(
-        self, text: str, separators: tuple[str, ...]
-    ) -> list[str]:
+    def _split_text(self, text: str, separators: tuple[str, ...]) -> list[str]:
         """Recursively split *text* into chunks <= chunk_size."""
         if not text:
             return []

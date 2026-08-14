@@ -239,9 +239,7 @@ class FaissVectorStore(IVectorStore):
                     results.append(chunk)
             return results
 
-    def _rebuild_index(
-        self, chunks: list[Chunk]
-    ) -> tuple[Any, dict[int, Chunk], int]:
+    def _rebuild_index(self, chunks: list[Chunk]) -> tuple[Any, dict[int, Chunk], int]:
         """Rebuild FAISS index and chunk mapping from scratch."""
         dim = self.config.dim
         index = self._make_index(dim) if chunks else None
@@ -399,9 +397,7 @@ class FaissVectorStore(IVectorStore):
         tmp_store = tmp_dir / f"{namespace}.store.json"
 
         try:
-            await asyncio.to_thread(
-                self._atomic_write_faiss, ns.index, str(tmp_index)
-            )
+            await asyncio.to_thread(self._atomic_write_faiss, ns.index, str(tmp_index))
             await atomic_write(
                 str(tmp_store), json.dumps(store_data, ensure_ascii=False)
             )
@@ -641,9 +637,7 @@ class FaissVectorStore(IVectorStore):
                 "list_namespaces: failed to check path existence",
                 extra={"path": str(base), "error": str(exc)},
             )
-            raise AdapterError(
-                f"Failed to check index path {base}: {exc}"
-            ) from exc
+            raise AdapterError(f"Failed to check index path {base}: {exc}") from exc
 
         namespaces: list[str] = []
         try:
@@ -654,7 +648,8 @@ class FaissVectorStore(IVectorStore):
                 except OSError:
                     continue
                 name = f.name
-                # Detect valid namespace pairs: {namespace}.store.json + {namespace}.faiss
+                # Detect valid namespace pairs: {namespace}.store.json +
+                # {namespace}.faiss
                 if name.endswith(".store.json"):
                     ns_name = name[:-11]  # strip ".store.json"
                     faiss_file = base / f"{ns_name}.faiss"
@@ -677,7 +672,8 @@ class FaissVectorStore(IVectorStore):
                     try:
                         if not await store_file.exists():
                             _logger.warning(
-                                "Orphaned FAISS index file detected (no matching store.json)",
+                                "Orphaned FAISS index file detected "
+                                "(no matching store.json)",
                                 extra={"namespace": ns_name, "path": str(f)},
                             )
                     except OSError as exc:
@@ -690,9 +686,7 @@ class FaissVectorStore(IVectorStore):
                 "list_namespaces: failed to iterate directory",
                 extra={"path": str(base), "error": str(exc)},
             )
-            raise AdapterError(
-                f"Failed to list namespaces in {base}: {exc}"
-            ) from exc
+            raise AdapterError(f"Failed to list namespaces in {base}: {exc}") from exc
         return sorted(set(namespaces))
 
     async def shutdown(self) -> None:

@@ -119,9 +119,7 @@ def read_sources(
             existing = result.get(source.namespace, [])
             result[source.namespace] = existing + docs
             n_docs = len(docs)
-            _logger.info(
-                f"Source {source.namespace}: {n_docs} docs from {source.path}"
-            )
+            _logger.info(f"Source {source.namespace}: {n_docs} docs from {source.path}")
     return result
 
 
@@ -253,7 +251,9 @@ async def index_folder(
             all_results[namespace] = {"indexed": 0, "chunks": 0}
 
     if target_namespace and not processed_any:
-        all_errors.append(f"Namespace '{target_namespace}' not found in configured sources")
+        all_errors.append(
+            f"Namespace '{target_namespace}' not found in configured sources"
+        )
         return {
             "success": False,
             "results": all_results,

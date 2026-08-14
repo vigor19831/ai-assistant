@@ -77,10 +77,16 @@ class ChatManager:
             return f"file:///{path}"
 
         def _source_key(chunk: Chunk) -> str:
-            """Return unique key for deduplication: source_uri > original_path > source."""
+            """Return unique key for deduplication: source_uri >
+            original_path > source."""
             if chunk.metadata is None:
                 return "unknown"
-            return chunk.metadata.source_uri or chunk.metadata.original_path or chunk.metadata.source or "unknown"
+            return (
+                chunk.metadata.source_uri
+                or chunk.metadata.original_path
+                or chunk.metadata.source
+                or "unknown"
+            )
 
         def _source_link(chunk: Chunk) -> str:
             if chunk.metadata is None:
@@ -160,13 +166,16 @@ class ChatManager:
         # HyDE, etc.) without touching core.
         self._pipeline = self._build_pipeline(rag_steps)
 
-    def _build_pipeline(self, rag_steps: list[RAGStep] | None = None) -> RAGPipeline | None:
+    def _build_pipeline(
+        self, rag_steps: list[RAGStep] | None = None
+    ) -> RAGPipeline | None:
         """Build the RAG pipeline for retrieval. Returns None if no steps configured."""
         if self.embedder is None or self.vector_store is None:
             return None
 
         if rag_steps is None:
-            # Default retrieval pipeline: condense_question -> embed_query -> retrieve -> rerank -> build_context
+            # Default retrieval pipeline: condense_question -> embed_query ->
+            # retrieve -> rerank -> build_context
             default_steps = [
                 RAGStep.CONDENSE_QUESTION,
                 RAGStep.EMBED_QUERY,
@@ -215,11 +224,7 @@ class ChatManager:
         budget = self.max_context_tokens or self.llm.get_context_limit()
         if not budget:
             limit = max(1, self.history_limit - 1)
-            return (
-                history[-limit:]
-                if len(history) > limit
-                else history
-            )
+            return history[-limit:] if len(history) > limit else history
 
         user_tokens = await self._count_tokens(user_msg.text or "")
         system_message = self.system_message
@@ -617,7 +622,7 @@ class ChatManager:
         # Yield sources block so the client sees them in the stream
         sources_text = self._append_rag_sources(full_response, rag_chunks)
         if sources_text != full_response:
-            yield sources_text[len(full_response):]
+            yield sources_text[len(full_response) :]
 
         # Save to history after streaming completes
         if self.storage and history is None:

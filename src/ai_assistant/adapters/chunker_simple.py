@@ -58,7 +58,9 @@ class SimpleChunker(IChunker):
                     index=idx,
                     total_chunks=total,
                     custom=custom_meta,
-                    original_path=document.metadata.get("original_path"),  # preserve if present
+                    original_path=document.metadata.get(
+                        "original_path"
+                    ),  # preserve if present
                     source_uri=document.metadata.get("source_uri"),
                 ),
             )

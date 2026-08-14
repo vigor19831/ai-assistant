@@ -80,7 +80,9 @@ class OpenAICompatibleEmbedder(IEmbedder):
         if config.api_key is not None:
             self.api_key: str = resolve_api_key(config.api_key, "OPENAI_API_KEY")
         else:
-            self.api_key = os.getenv("AI_EMBEDDER_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            self.api_key = (
+                os.getenv("AI_EMBEDDER_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            )
         self._dim: int = config.dim
         self._timeout: float = config.timeout
         self._connect_timeout: float | None = config.connect_timeout
@@ -125,7 +127,7 @@ class OpenAICompatibleEmbedder(IEmbedder):
             return []
         result: list[list[float]] = []
         for i in range(0, len(texts), _DEFAULT_BATCH_SIZE):
-            batch = texts[i:i + _DEFAULT_BATCH_SIZE]
+            batch = texts[i : i + _DEFAULT_BATCH_SIZE]
             payload = {
                 "model": self.model,
                 "input": batch,

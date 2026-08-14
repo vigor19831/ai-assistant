@@ -138,9 +138,7 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
     ) -> None:
         await conn.execute(f"PRAGMA user_version = {version}")
 
-    async def save_message(
-        self, conversation_id: str, message: dict[str, Any]
-    ) -> None:
+    async def save_message(self, conversation_id: str, message: dict[str, Any]) -> None:
         try:
             async with aiosqlite.connect(self.db_path) as conn:
                 await conn.execute(
@@ -158,9 +156,7 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                 )
                 await conn.commit()
         except (sqlite3.Error, aiosqlite.Error) as exc:
-            _logger.exception(
-                "save_message failed", extra={"db_path": self.db_path}
-            )
+            _logger.exception("save_message failed", extra={"db_path": self.db_path})
             raise AdapterError(f"save_message failed: {exc}") from exc
 
     async def get_history(
@@ -195,9 +191,7 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
                     )
                 return messages
         except (sqlite3.Error, aiosqlite.Error) as exc:
-            _logger.exception(
-                "get_history failed", extra={"db_path": self.db_path}
-            )
+            _logger.exception("get_history failed", extra={"db_path": self.db_path})
             raise AdapterError(f"get_history failed: {exc}") from exc
 
     async def get(self, key: str, default: Any = None) -> Any:
@@ -260,9 +254,7 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
             conn = await aiosqlite.connect(self.db_path)
             await conn.execute("PRAGMA busy_timeout=5000")
             await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            _logger.info(
-                "WAL checkpoint completed", extra={"db_path": self.db_path}
-            )
+            _logger.info("WAL checkpoint completed", extra={"db_path": self.db_path})
         except sqlite3.OperationalError as exc:
             _logger.warning(
                 "WAL checkpoint failed (database may be locked)",

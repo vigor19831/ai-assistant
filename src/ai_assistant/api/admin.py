@@ -69,7 +69,9 @@ async def reload_indices(
         namespaces = await vector_store.list_namespaces(index_path)
     except Exception as exc:
         admin_logger.exception("Failed to list namespaces for reload")
-        raise HTTPException(status_code=500, detail=f"Failed to list namespaces: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to list namespaces: {exc}"
+        ) from exc
 
     for ns in namespaces:
         try:

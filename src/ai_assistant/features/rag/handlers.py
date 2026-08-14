@@ -1,4 +1,3 @@
-
 """RAG feature HTTP handlers with namespace and reranker support."""
 
 from __future__ import annotations
@@ -110,15 +109,11 @@ async def index_documents(
         content = doc.get("content")
         if content is None:
             doc_id = doc.get("id", "unknown")
-            pre_errors.append(
-                f"Document {doc_id} has no content field"
-            )
+            pre_errors.append(f"Document {doc_id} has no content field")
             continue
         if not isinstance(content, str):
             doc_id = doc.get("id", "unknown")
-            pre_errors.append(
-                f"Document {doc_id} content is not a string"
-            )
+            pre_errors.append(f"Document {doc_id} content is not a string")
             continue
         size = len(content.encode("utf-8"))
         if size > max_doc_size:
@@ -191,7 +186,9 @@ async def index_documents(
             try:
                 await chunker.shutdown()
             except Exception:
-                _logger.exception("Chunker shutdown failed", extra={"trace_id": trace_id})
+                _logger.exception(
+                    "Chunker shutdown failed", extra={"trace_id": trace_id}
+                )
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -336,9 +333,7 @@ async def delete_chunks(
             "Delete chunks failed",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
-        raise HTTPException(
-            status_code=500, detail="Internal server error"
-        ) from None
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
     return DeleteResponse(deleted_chunks=deleted, errors=[])
 
@@ -510,7 +505,9 @@ async def save_chat(
             try:
                 await chunker.shutdown()
             except Exception:
-                _logger.exception("Chunker shutdown failed", extra={"trace_id": trace_id})
+                _logger.exception(
+                    "Chunker shutdown failed", extra={"trace_id": trace_id}
+                )
 
 
 @router.post("/reindex", response_model=None)
@@ -563,7 +560,8 @@ async def reindex_documents(
                             )
                             if all_chat_chunks:
                                 await state.vector_store.delete(
-                                    [cid for cid, _ in all_chat_chunks], namespace=chat_ns
+                                    [cid for cid, _ in all_chat_chunks],
+                                    namespace=chat_ns,
                                 )
                                 _logger.info(
                                     "Cleared chat namespace during reindex",
@@ -641,7 +639,11 @@ async def reindex_status(
     info = await rag_state.get_status(task_id)
     _logger.info(
         "Reindex status checked",
-        extra={"trace_id": trace_id, "task_id": task_id, "status": info.get("status") if info else "unknown"},
+        extra={
+            "trace_id": trace_id,
+            "task_id": task_id,
+            "status": info.get("status") if info else "unknown",
+        },
     )
     if info is not None:
         return {"task_id": task_id, **info}

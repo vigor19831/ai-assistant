@@ -27,7 +27,9 @@ _PERMANENT_ERRORS: tuple[type[Exception], ...] = (
 )
 
 
-def _calculate_sleep(current_delay: float, jitter: bool, max_delay: float | None) -> float:
+def _calculate_sleep(
+    current_delay: float, jitter: bool, max_delay: float | None
+) -> float:
     """Compute sleep duration with jitter and max_delay cap."""
     sleep_for = current_delay
     if jitter:
@@ -96,9 +98,7 @@ def with_retry(
     return decorator
 
 
-async def retry_with_config(
-    coro: Callable[[], Awaitable[T]], config: RetryConfig
-) -> T:
+async def retry_with_config(coro: Callable[[], Awaitable[T]], config: RetryConfig) -> T:
     """Execute coroutine with retry policy from config.
 
     Delegates to the shared _async_retry_loop to avoid duplicating

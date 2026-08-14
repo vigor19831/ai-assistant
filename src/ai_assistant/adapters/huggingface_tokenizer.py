@@ -22,13 +22,15 @@ class HuggingFaceTokenizer(ITokenizer):
     """Tokenizer backed by a HuggingFace tokenizers.json file.
 
     Set ``model_name`` in config to the absolute or relative path of the
-    downloaded ``tokenizer.json`` (e.g. ``./data/tokenizers/qwen3.5-4b/tokenizer.json``).
+    downloaded ``tokenizer.json`` (e.g. ``./data/tokenizers/qwen3.5-4b/
+    tokenizer.json``).
     """
 
     def __init__(self, config: TokenizerConfigData) -> None:
         if Tokenizer is None:
             raise AdapterError(
-                "tokenizers package is not installed but tokenizer.provider='huggingface'"
+                "tokenizers package is not installed but "
+                "tokenizer.provider='huggingface'"
             )
 
         self._model_name = config.model_name or "huggingface"

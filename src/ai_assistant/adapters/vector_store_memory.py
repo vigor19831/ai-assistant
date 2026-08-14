@@ -197,12 +197,12 @@ class MemoryVectorStore(IVectorStore):
                             "source": c.metadata.source,
                             "index": c.metadata.index,
                             "total_chunks": c.metadata.total_chunks,
-                        "custom": c.metadata.custom,
-                        "original_path": c.metadata.original_path,
-                        "source_uri": c.metadata.source_uri,
-                        "last_modified": c.metadata.last_modified,
-                }
-                if c.metadata
+                            "custom": c.metadata.custom,
+                            "original_path": c.metadata.original_path,
+                            "source_uri": c.metadata.source_uri,
+                            "last_modified": c.metadata.last_modified,
+                        }
+                        if c.metadata
                         else None
                     ),
                 }
@@ -243,11 +243,13 @@ class MemoryVectorStore(IVectorStore):
                         source=meta.get("source", ""),
                         index=meta.get("index", 0),
                         total_chunks=meta.get("total_chunks", 0),
-                    custom=dict(meta.get("custom", {})) if meta.get("custom") is not None else {},
-                    original_path=meta.get("original_path"),
-                    source_uri=meta.get("source_uri"),
-                    last_modified=meta.get("last_modified"),
-                )
+                        custom=dict(meta.get("custom", {}))
+                        if meta.get("custom") is not None
+                        else {},
+                        original_path=meta.get("original_path"),
+                        source_uri=meta.get("source_uri"),
+                        last_modified=meta.get("last_modified"),
+                    )
                     if (meta := c.get("metadata"))
                     else None
                 ),
@@ -259,8 +261,7 @@ class MemoryVectorStore(IVectorStore):
             arr = np.array(emb, dtype=np.float32)
             if arr.shape[0] != self.dim:
                 _logger.error(
-                    "Memory index load failed: "
-                    "embedding dimension mismatch",
+                    "Memory index load failed: embedding dimension mismatch",
                     extra={
                         "namespace": namespace,
                         "chunk_id": cid,
@@ -355,7 +356,9 @@ class MemoryVectorStore(IVectorStore):
                 for d in entries:
                     try:
                         is_dir = await asyncio.to_thread(d.is_dir)
-                        has_store = await asyncio.to_thread((d / "memory_store.json").exists)
+                        has_store = await asyncio.to_thread(
+                            (d / "memory_store.json").exists
+                        )
                         if is_dir and has_store:
                             result.add(d.name)
                     except OSError:

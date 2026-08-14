@@ -111,7 +111,9 @@ async def _estimate_tokens(text: str, tokenizer: ITokenizer) -> int:
 # --- retry helpers for network calls ----------------------------------------
 
 
-async def _call_embed(embedder: IEmbedder, text: str, config: RetryConfig) -> list[list[float]]:
+async def _call_embed(
+    embedder: IEmbedder, text: str, config: RetryConfig
+) -> list[list[float]]:
     """Embed a single text with retry."""
     return await retry_with_config(lambda: embedder.embed([text]), config)
 
@@ -176,9 +178,7 @@ async def condense_question(data: PipelineData) -> PipelineData:
         OUT: query.text — rewritten standalone question.
              original_query — preserved original for final answer.
     """
-    _logger.debug(
-        "condense_question start", extra={"trace_id": data.trace_id}
-    )
+    _logger.debug("condense_question start", extra={"trace_id": data.trace_id})
     if data.query is None:
         _logger.warning(
             "condense_question: no query", extra={"trace_id": data.trace_id}
@@ -194,9 +194,7 @@ async def condense_question(data: PipelineData) -> PipelineData:
 
     llm = data.llm
     if llm is None:
-        _logger.warning(
-            "condense_question: no llm", extra={"trace_id": data.trace_id}
-        )
+        _logger.warning("condense_question: no llm", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_NOT_PROVIDED)
 
     cfg = _get_config(data)
@@ -228,12 +226,8 @@ async def condense_question(data: PipelineData) -> PipelineData:
             )
             condensed = original_question
     except Exception as exc:
-        _logger.exception(
-            "condense_question failed", extra={"trace_id": data.trace_id}
-        )
-        return data.add_error(
-            "condense_question failed", detail=str(exc)
-        )
+        _logger.exception("condense_question failed", extra={"trace_id": data.trace_id})
+        return data.add_error("condense_question failed", detail=str(exc))
 
     _logger.debug(
         "condense_question done",
@@ -311,11 +305,15 @@ async def retrieve(data: PipelineData) -> PipelineData:
         return data.add_error(QUERY_EMBEDDING_MISSING)
     try:
         cfg = _get_config(data)
-        multiplier = data.reranker.retrieval_multiplier if data.reranker is not None else 1
+        multiplier = (
+            data.reranker.retrieval_multiplier if data.reranker is not None else 1
+        )
         fetch_k = cfg.top_k * multiplier
         namespace = cfg.namespace
         retry_cfg = cfg.retry
-        chunks = await _call_search(vector_store, embedding, fetch_k, namespace, retry_cfg)
+        chunks = await _call_search(
+            vector_store, embedding, fetch_k, namespace, retry_cfg
+        )
         increment_counter(
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
@@ -325,7 +323,8 @@ async def retrieve(data: PipelineData) -> PipelineData:
         )
         _logger.info(
             f"rag.retrieve trace={data.trace_id} ns={namespace} "
-            f"fetch_k={fetch_k} returned={len(chunks)} exhausted={len(chunks) < fetch_k}"
+            f"fetch_k={fetch_k} returned={len(chunks)} "
+            f"exhausted={len(chunks) < fetch_k}"
         )
         return data.with_chunks(chunks)
     except Exception as exc:
@@ -372,7 +371,8 @@ async def rerank(data: PipelineData) -> PipelineData:
 
         _logger.info(
             f"rag.rerank trace={data.trace_id} candidates={len(data.chunks)} "
-            f"returned={len(results)} top_score={round(results[0].score, 4) if results else None}"
+            f"returned={len(results)} "
+            f"top_score={round(results[0].score, 4) if results else None}"
         )
 
         if results:
@@ -383,7 +383,9 @@ async def rerank(data: PipelineData) -> PipelineData:
                     "trace_id": data.trace_id,
                     "top_score": round(scores[0], 4),
                     "bottom_score": round(scores[-1], 4),
-                    "spread": round(scores[0] - scores[-1], 4) if len(scores) > 1 else 0.0,
+                    "spread": round(scores[0] - scores[-1], 4)
+                    if len(scores) > 1
+                    else 0.0,
                     "count": len(scores),
                 },
             )
@@ -392,9 +394,8 @@ async def rerank(data: PipelineData) -> PipelineData:
             "rerank done",
             extra={"trace_id": data.trace_id, "chunks": len(results)},
         )
-        return (
-            data.with_chunks(tuple(r.chunk for r in results))
-            .with_rerank_scores([r.score for r in results])
+        return data.with_chunks(tuple(r.chunk for r in results)).with_rerank_scores(
+            [r.score for r in results]
         )
 
     except Exception as exc:
@@ -473,9 +474,7 @@ async def _truncate_to_fit(
         new_chunks = current_data.chunks[:-1]
         if not new_chunks:
             current_data = (
-                current_data.with_chunks(())
-                .with_context("")
-                .with_rerank_scores(None)
+                current_data.with_chunks(()).with_context("").with_rerank_scores(None)
             )
             break
         current_data = current_data.with_chunks(new_chunks)
@@ -585,14 +584,17 @@ async def generate(data: PipelineData) -> PipelineData:
         return data.add_error(
             "generate: system message exceeds context limit"
         ).with_response(
-            AssistantMessage(
-                text="Sorry, the system message is too long to process."
-            )
+            AssistantMessage(text="Sorry, the system message is too long to process.")
         )
 
     if prompt_tokens > limit:
         data, prompt = await _truncate_to_fit(
-            data, prompt, prompt_name, prompt_version, query_text, limit,
+            data,
+            prompt,
+            prompt_name,
+            prompt_version,
+            query_text,
+            limit,
             tokenizer=tokenizer,
         )
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
@@ -639,7 +641,10 @@ async def generate(data: PipelineData) -> PipelineData:
     return data.with_response(response)
 
 
-@step("multi_query_retrieve", requires={"embedder", "vector_store", "llm", "pipeline_config"})
+@step(
+    "multi_query_retrieve",
+    requires={"embedder", "vector_store", "llm", "pipeline_config"},
+)
 async def multi_query_retrieve(data: PipelineData) -> PipelineData:
     """Generate query variations, retrieve for each, deduplicate by chunk id.
 
@@ -701,14 +706,18 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
     combined: list[Chunk] = []
     if data.embedder is None or data.vector_store is None:
         return data.add_error(
-            EMBEDDER_NOT_PROVIDED if data.embedder is None else VECTOR_STORE_NOT_PROVIDED
+            EMBEDDER_NOT_PROVIDED
+            if data.embedder is None
+            else VECTOR_STORE_NOT_PROVIDED
         )
     for q in queries:
         try:
             embeddings = await _call_embed(data.embedder, q, retry_cfg)
             if not embeddings:
                 continue
-            multiplier = data.reranker.retrieval_multiplier if data.reranker is not None else 1
+            multiplier = (
+                data.reranker.retrieval_multiplier if data.reranker is not None else 1
+            )
             chunks = await _call_search(
                 data.vector_store,
                 embeddings[0],
@@ -768,7 +777,9 @@ async def hyde_query(data: PipelineData) -> PipelineData:
     )
     hyde_messages: list[Message] = [UserMessage(text=hyde_prompt)]
     try:
-        hyde_resp: AssistantMessage = await _call_llm(llm, hyde_messages, retry_cfg, sampling=cfg.sampling)
+        hyde_resp: AssistantMessage = await _call_llm(
+            llm, hyde_messages, retry_cfg, sampling=cfg.sampling
+        )
     except Exception as exc:
         _logger.exception(
             "hyde_query: LLM call failed", extra={"trace_id": data.trace_id}

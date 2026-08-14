@@ -28,7 +28,11 @@ def get_chat_namespace(base_namespace: str) -> str:
     """
     if base_namespace.startswith(CHAT_NS_PREFIX):
         raise ValueError(
-            "Namespace '" + base_namespace + "' uses reserved prefix '" + CHAT_NS_PREFIX + "'"
+            "Namespace '"
+            + base_namespace
+            + "' uses reserved prefix '"
+            + CHAT_NS_PREFIX
+            + "'"
         )
     return CHAT_NS_PREFIX + base_namespace
 
@@ -234,7 +238,16 @@ class RAGConfig(BaseSettings):
             migrated_source = {
                 "namespace": "default",
                 "path": v["documents_root"],
-                "include": ["*.md", "*.txt", "*.py", "*.json", "*.yaml", "*.yml", "*.csv", "*.log"],
+                "include": [
+                    "*.md",
+                    "*.txt",
+                    "*.py",
+                    "*.json",
+                    "*.yaml",
+                    "*.yml",
+                    "*.csv",
+                    "*.log",
+                ],
                 "recursive": True,
             }
             existing_sources = v.get("sources")
@@ -257,11 +270,17 @@ class RAGConfig(BaseSettings):
     @field_validator("chat_exports_root")
     @classmethod
     def _strip_trailing_slash(cls, v: str) -> str:
-        """Normalize path: strip trailing slashes, reject absolute paths and traversal."""
+        """Normalize path: strip trailing slashes, reject absolute paths
+        and traversal."""
         v = v.strip()
         if not v:
             raise ValueError("path must be non-empty")
-        if v.startswith("/") or v.startswith("\\") or v.startswith("~") or (len(v) >= 2 and v[1] == ":"):
+        if (
+            v.startswith("/")
+            or v.startswith("\\")
+            or v.startswith("~")
+            or (len(v) >= 2 and v[1] == ":")
+        ):
             raise ValueError(f"path must be relative, got: {v}")
         # Reject path traversal attempts before they reach filesystem
         normalized = Path(v).as_posix()
@@ -290,7 +309,10 @@ class NamespaceConfig(BaseModel):
     prefix: str | None = Field(
         default=None,
         min_length=1,
-        description="Single-character prefix for RAG query routing. Empty string is not allowed.",
+        description=(
+            "Single-character prefix for RAG query routing. "
+            "Empty string is not allowed."
+        ),
     )
 
 
@@ -327,6 +349,7 @@ class AppConfig(BaseSettings):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     namespaces: dict[str, NamespaceConfig] = Field(default_factory=dict)
+
     @model_validator(mode="before")
     @classmethod
     def _migrate_config_version(cls, v: Any) -> Any:
@@ -348,7 +371,6 @@ class AppConfig(BaseSettings):
             return {**v, "steps": [s.strip() for s in v["steps"].split(",")]}
         return v
 
-
     @model_validator(mode="before")
     @classmethod
     def _migrate_security_rate_limit(cls, v: Any) -> Any:
@@ -357,11 +379,11 @@ class AppConfig(BaseSettings):
             return v
         sec = v.get("security")
         if type(sec) is dict and "rate_limit" in sec:
-            # rate_limit was removed — strip it so SecurityConfig(extra="forbid") doesn't choke
+            # rate_limit was removed — strip it so SecurityConfig(extra="forbid")
+            # doesn't choke
             sec = {k: val for k, val in sec.items() if k != "rate_limit"}
             v = {**v, "security": sec}
         return v
-
 
     @model_validator(mode="before")
     @classmethod

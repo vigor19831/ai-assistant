@@ -79,6 +79,7 @@ async def _health_endpoint(
 async def _metrics_endpoint() -> Response:
     return Response(content=get_metrics(), media_type="text/plain; version=0.0.4")
 
+
 @_metrics_router.get("/metrics/json")
 async def _metrics_json_endpoint() -> dict[str, Any]:
     return get_metrics_json()
@@ -113,7 +114,9 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
     always_unprotected: frozenset[str] = frozenset({"metrics"})
 
     # Body size limit from config; fallback to module default if no security config
-    _max_body: int = security.max_body_size if security is not None else SECURITY_MAX_BODY
+    _max_body: int = (
+        security.max_body_size if security is not None else SECURITY_MAX_BODY
+    )
 
     async def _size_check(request: Request) -> None:
         """Inject configured max body size into check_request_size."""
@@ -122,12 +125,8 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
     wrapped: list[APIRouter] = []
     for router in routers:
         is_root = any(tag in ROOT_TAGS for tag in router.tags)
-        is_always_unprotected = any(
-            tag in always_unprotected for tag in router.tags
-        )
-        is_protected_root = any(
-            tag in protected_root_tags for tag in router.tags
-        )
+        is_always_unprotected = any(tag in always_unprotected for tag in router.tags)
+        is_protected_root = any(tag in protected_root_tags for tag in router.tags)
 
         if is_always_unprotected:
             # Metrics always stays unprotected

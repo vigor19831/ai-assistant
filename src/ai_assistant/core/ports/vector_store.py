@@ -60,9 +60,7 @@ class IVectorStore(IClosable, ABC):
 
         old_ids: list[str] = []
         for source in sources:
-            old = await self.list_by_filter(
-                {"source": source}, namespace=namespace
-            )
+            old = await self.list_by_filter({"source": source}, namespace=namespace)
             old_ids.extend(cid for cid, _ in old if cid not in new_ids)
 
         await self.add(chunks, namespace=namespace)

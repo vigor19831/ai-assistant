@@ -1,4 +1,3 @@
-
 """Chat feature HTTP handlers."""
 
 from __future__ import annotations
@@ -90,7 +89,9 @@ async def _stream_with_heartbeat(
     interval: float = SSE_HEARTBEAT_INTERVAL,
 ) -> AsyncIterator[str]:
     """Wrap async iterator with SSE heartbeat comments to prevent proxy timeout."""
-    queue: asyncio.Queue[str | None | Exception | asyncio.CancelledError] = asyncio.Queue()
+    queue: asyncio.Queue[str | None | Exception | asyncio.CancelledError] = (
+        asyncio.Queue()
+    )
 
     async def _producer() -> None:
         try:
@@ -209,11 +210,7 @@ async def chat_stream(
             async for item in _stream_with_heartbeat(_llm_stream()):
                 yield item
         except AdapterError:
-            payload = json.dumps(
-                {
-                    "error": LLM_UNAVAILABLE_MSG
-                }
-            )
+            payload = json.dumps({"error": LLM_UNAVAILABLE_MSG})
             yield f"data: {payload}\n\n"
             yield "data: [DONE]\n\n"
         except Exception:
@@ -313,11 +310,7 @@ async def openai_chat_completions(
                 async for item in _stream_with_heartbeat(_llm_stream()):
                     yield item
             except AdapterError:
-                payload = json.dumps(
-                    {
-                        "error": LLM_UNAVAILABLE_MSG
-                    }
-                )
+                payload = json.dumps({"error": LLM_UNAVAILABLE_MSG})
                 yield f"data: {payload}\n\n"
                 yield "data: [DONE]\n\n"
             except Exception:
