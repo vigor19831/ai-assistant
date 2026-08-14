@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
+from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
@@ -687,7 +686,7 @@ class TestRAGIndexing:
 # ── Reranker Regression ──
 
 class TestChatNamespaceHelper:
-    """Unit tests for get_chat_namespacehelper."""
+    """Unit tests for get_chat_namespace."""
 
     def test_get_chat_namespace_basic(self):
         """Given: base namespace 'test'.
@@ -2092,3 +2091,59 @@ def test_index_documents_closes_temporary_chunker(client, mock_state):
 
     assert resp.status_code == 200
     temp_chunker.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_index_folder_removes_orphans(tmp_path):
+    """Orphan cleanup removes chunks from deleted/renamed files."""
+    from ai_assistant.adapters.embedder_mock import MockEmbedder
+    from ai_assistant.adapters.chunker_simple import SimpleChunker
+    from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+    from ai_assistant.core.config import SourceConfig
+    from ai_assistant.core.domain.configs import (
+        ChunkerConfigData,
+        EmbedderConfigData,
+        VectorStoreConfigData,
+    )
+    from ai_assistant.features.rag.indexing import index_folder
+
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "old.txt").write_text("old content")
+
+    vs = MemoryVectorStore(
+        VectorStoreConfigData(dim=384, index_path=str(tmp_path / "vs"))
+    )
+    chunker = SimpleChunker(ChunkerConfigData(chunk_size=100, chunk_overlap=0))
+    embedder = MockEmbedder(EmbedderConfigData(dim=384))
+
+    # First index — old.txt becomes a chunk
+    await index_folder(
+        target_namespace="ns",
+        clear=False,
+        chunker=chunker,
+        embedder=embedder,
+        vector_store=vs,
+        sources=[SourceConfig(namespace="ns", path=str(docs_dir), include=["*.txt"])],
+    )
+
+    chunks_before = await vs.list_by_filter({}, namespace="ns")
+    assert len(chunks_before) == 1
+    assert chunks_before[0][1].get("source_uri") == "old.txt"
+
+    # Rename file on disk
+    (docs_dir / "old.txt").rename(docs_dir / "new.txt")
+
+    # Reindex without clear — orphan should be removed
+    await index_folder(
+        target_namespace="ns",
+        clear=False,
+        chunker=chunker,
+        embedder=embedder,
+        vector_store=vs,
+        sources=[SourceConfig(namespace="ns", path=str(docs_dir), include=["*.txt"])],
+    )
+
+    chunks_after = await vs.list_by_filter({}, namespace="ns")
+    assert len(chunks_after) == 1
+    assert chunks_after[0][1].get("source_uri") == "new.txt"

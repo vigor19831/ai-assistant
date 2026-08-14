@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.metrics import increment_counter
 
 if TYPE_CHECKING:
     from ai_assistant.core.config import SourceConfig
@@ -172,9 +173,14 @@ async def index_folder(
     all_errors: list[str] = []
     processed_any = False
 
-    for namespace, docs in docs_by_ns.items():
-        if target_namespace and namespace != target_namespace:
-            continue
+    expected_namespaces = {src.namespace for src in sources}
+    if target_namespace:
+        expected_namespaces = {
+            ns for ns in expected_namespaces if ns == target_namespace
+        }
+
+    for namespace in expected_namespaces:
+        docs = docs_by_ns.get(namespace, [])
         processed_any = True
 
         if clear:
@@ -189,11 +195,37 @@ async def index_folder(
                 _logger.warning(f"Failed to clear namespace {namespace}: {exc}")
                 all_errors.append(f"Clear failed for {namespace}: {exc}")
 
-        # Deduplicate: skip documents whose source_uri already exists in index.
-        # This makes re-indexing idempotent without changing disk format.
-        existing_uris: set[str] = set()
+        # Orphan cleanup: remove chunks whose source_uri no longer exists on disk.
+        # Safe because original documents are the source of truth; indices are derived.
+        all_meta: list[tuple[str, dict[str, Any]]] = []
         try:
             all_meta = await vector_store.list_by_filter({}, namespace=namespace)
+            current_uris = {
+                d.get("metadata", {}).get("source_uri")
+                for d in docs
+                if d.get("metadata", {}).get("source_uri")
+            }
+            orphan_ids = [
+                cid
+                for cid, meta in all_meta
+                if meta.get("source_uri") and meta.get("source_uri") not in current_uris
+            ]
+            if orphan_ids:
+                await vector_store.delete(orphan_ids, namespace=namespace)
+                increment_counter(
+                    "ai_assistant_rag_orphans_removed_total",
+                    labels={"namespace": namespace},
+                    value=len(orphan_ids),
+                )
+                _logger.info(
+                    f"Removed {len(orphan_ids)} orphan chunks from {namespace}"
+                )
+        except Exception as exc:
+            _logger.warning(f"Orphan cleanup failed for {namespace}: {exc}")
+
+        # Deduplicate: skip documents whose source_uri already exists in index.
+        existing_uris: set[str] = set()
+        try:
             for _cid, meta in all_meta:
                 uri = meta.get("source_uri")
                 if uri:
