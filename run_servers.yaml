@@ -9,6 +9,8 @@ llm:
   extra_args:
     - "--parallel"
     - "1"
+    - "--flash-attn"
+    - "on"
     - "-lv"
     - "1"
 
