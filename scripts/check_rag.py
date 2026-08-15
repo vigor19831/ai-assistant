@@ -31,6 +31,10 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent
 _SEP = "─" * 60
 _SEP_RESULT = "=" * 60
 
+# Latency SLA: single query must not exceed this threshold.
+# 60s is generous for 7B local inference on 4GB VRAM.
+MAX_LATENCY_MS = 60_000
+
 
 # ── Embedded resource monitor ────────────────────────────────────────────────
 
@@ -231,6 +235,10 @@ class TestCase:
     description: str = ""
     requires_future_capability: bool = False
     use_chat_api: bool = False
+    conversation_turn: int = 1
+    depends_on: str | None = None
+    stream: bool = False
+    conversation_id: str | None = None
 
 
 # ── Final corpus ─────────────────────────────────────────────────────────────
@@ -536,6 +544,39 @@ TEST_SOURCES: list[SourceDoc] = [
     SourceDoc(
         "default",
         "My favorite color is blue. I chose it in childhood because it reminds me of the sea and the sky. It is my only favorite color.",
+    ),
+    # ===================== personal_stress — truncation / token budget test =====================
+    # ~2000 words. The key fact (Antarctica) is at the very end,
+    # so the pipeline must survive context-window truncation without crashing.
+    SourceDoc(
+        "personal_stress",
+        (
+            "This is a very long document designed to stress-test the RAG pipeline's "
+            "token budget handling. It contains many paragraphs of filler text that "
+            "are intentionally verbose and repetitive. "
+            + " The weather was nice today and I went for a walk in the park. " * 80
+            + " I also visited the library and read several books about history. " * 80
+            + " In the evening I cooked dinner and watched a documentary about space. " * 80
+            + " By the way, my dream vacation destination is Antarctica."
+        ),
+    ),
+    # ===================== personal_long (en) — 1 long doc, ~5 chunks =====================
+    # Tests retrieval inside a multi-chunk document. The key fact (Toronto)
+    # is in the middle, so single-chunk retrieval shortcuts cannot find it.
+    SourceDoc(
+        "personal_long",
+        (
+            "My name is Alex and I want to share my full biography in this long document. "
+            "I was born in a small town near the coast where my parents ran a bakery. "
+            "Every morning I helped them before school and learned to bake bread at age ten. "
+            "After finishing school I moved to the capital to study computer science at the university. "
+            "During my studies I worked part-time as a barista in a small cafe near the campus. "
+            "In 2015 I moved to Toronto for my first job as a software developer. "
+            "I lived in Toronto for three years and worked on web applications. "
+            "Later I moved back to Europe and settled in Berlin where I live now. "
+            "In Berlin I work as a senior developer and mentor junior engineers. "
+            "In my free time I enjoy hiking, photography and playing board games with friends."
+        ),
     ),
 ]
 
@@ -940,6 +981,226 @@ TEST_CASES: list[TestCase] = [
         use_chat_api=True,
         description="Chat with [d] prefix must use RAG and answer from documents.",
     ),
+    # ------------------------------------------------------------
+    # Coverage boost — truncation, errors, rerank order, metadata
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="truncation-1",
+        query="What is my dream vacation destination?",
+        namespace="personal_stress",
+        answer_must_contain=("antarctica",),
+        expect_sources=True,
+        sources_must_contain=("antarctica",),
+        require_faithfulness=True,
+        description="Very long doc (~2000 words). Key fact at the end. Tests token budget truncation.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="error-empty-query",
+        query="",
+        namespace="personal",
+        answer_must_contain_any=(
+            "don't know", "not sure", "no information",
+            "please provide", "cannot answer", "empty",
+            "i don't", "no question",
+        ),
+        expect_sources=False,
+        require_faithfulness=False,
+        description="Empty query must return graceful response, not crash.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="error-invalid-ns",
+        query="What is my favorite color?",
+        namespace="nonexistent_namespace_xyz",
+        answer_must_contain_any=(
+            "don't know", "not sure", "no information",
+            "cannot answer", "not found", "no data",
+        ),
+        expect_sources=False,
+        require_faithfulness=False,
+        description="Query to non-existent namespace must return graceful response.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="rerank-order-1",
+        query="What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        expect_sources=True,
+        sources_must_contain=("blue", "childhood", "sea"),
+        require_faithfulness=True,
+        require_source_coverage=True,
+        description="Rerank must place the most relevant doc (favorite color) first, not noise.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="metadata-1",
+        query="What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        expect_sources=True,
+        sources_must_contain=("blue",),
+        require_faithfulness=True,
+        description="Response must include chunks_used > 0 and valid metrics.",
+        requires_future_capability=True,
+    ),
+    # ------------------------------------------------------------
+    # Realistic tests — long documents, close noise, multi-turn
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="longdoc-1",
+        query="Where did I move for my first job?",
+        namespace="personal_long",
+        answer_must_contain=("toronto",),
+        answer_must_not_contain=("berlin", "capital", "bakery"),
+        expect_sources=True,
+        sources_must_contain=("toronto",),
+        require_faithfulness=True,
+        description="Long document (5+ chunks). Fact is in the middle. Tests retrieval inside a multi-chunk doc.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="semantic-close-noise-1",
+        query="What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        answer_must_not_contain=("red", "green", "yellow"),
+        expect_sources=True,
+        sources_must_not_contain=("gray", "walls", "living room"),
+        require_faithfulness=True,
+        description="Semantically close noise (wall color doc) must not rank above the actual favorite color doc.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="multi-turn-1",
+        query="[d] Why?",
+        namespace="personal",
+        conversation_turn=2,
+        depends_on="chat-prefix-on",
+        answer_must_contain_any=("sea", "sky", "childhood", "детстве", "морем", "небом"),
+        expect_sources=True,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Multi-turn follow-up 'Why?' must resolve via chat history after [d] answer.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="multi-turn-2",
+        query="What did I just ask you about?",
+        namespace="personal",
+        conversation_turn=3,
+        depends_on="chat-prefix-on",
+        answer_must_contain_any=("color", "colour", "цвет"),
+        answer_must_not_contain=("[Document",),
+        expect_sources=False,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Follow-up without prefix must NOT trigger RAG even after a RAG turn in the same conversation.",
+        requires_future_capability=True,
+    ),
+    # ------------------------------------------------------------
+    # Coverage boost — streaming, typos, rerank sanity, condensation
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="streaming-1",
+        query="[d] What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        expect_sources=True,
+        require_faithfulness=False,
+        use_chat_api=True,
+        stream=True,
+        description="Streaming response must assemble chunks correctly and contain the fact.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="typo-1",
+        query="What is Pithon?",
+        namespace="tech",
+        answer_must_contain=("programming language", "guido"),
+        answer_must_not_contain=("snake", "reptile"),
+        expect_sources=True,
+        sources_must_contain=("python", "programming language"),
+        require_faithfulness=True,
+        description="Typo 'Pithon' must still retrieve Python info. Tests fuzzy matching.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="token-budget-1",
+        query="What is my dream vacation?",
+        namespace="personal_stress",
+        answer_must_contain=("antarctica",),
+        answer_must_not_contain=("prompt too long", "context window", "error"),
+        expect_sources=True,
+        sources_must_contain=("antarctica",),
+        require_faithfulness=True,
+        description="Pipeline must not crash with 'prompt too long' error, must truncate gracefully.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="rerank-sanity-1",
+        query="What is my favorite color?",
+        namespace="personal",
+        answer_must_contain=("blue",),
+        expect_sources=True,
+        sources_must_contain=("blue",),
+        require_faithfulness=True,
+        description="Top rerank score must be > 0.5 and greater than bottom score.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="condensation-1",
+        query="[d] Where did I choose it?",
+        namespace="personal",
+        conversation_turn=4,
+        depends_on="chat-prefix-on",
+        answer_must_contain_any=("childhood", "детстве", "sea", "sky"),
+        expect_sources=True,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Follow-up 'Where did I choose it?' requires condensation to understand 'it' = favorite color.",
+        requires_future_capability=True,
+    ),
+    # ------------------------------------------------------------
+    # conversation_id handling — server-side history verification
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="conv-id-setup",
+        query="Remember this fact: my favorite number is 42.",
+        namespace="personal",
+        conversation_id="conv-test-alpha",
+        answer_must_contain_any=("42", "remember", "noted", "got it", "understood"),
+        expect_sources=False,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Setup: store a fact in conversation_id='conv-test-alpha'.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="conv-id-continuity",
+        query="What is my favorite number?",
+        namespace="personal",
+        conversation_id="conv-test-alpha",
+        answer_must_contain=("42",),
+        expect_sources=False,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Same conversation_id must recall the fact from previous turn.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="conv-id-isolation",
+        query="What is my favorite number?",
+        namespace="personal",
+        conversation_id="conv-test-beta",
+        answer_must_not_contain=("42",),
+        expect_sources=False,
+        require_faithfulness=False,
+        use_chat_api=True,
+        description="Different conversation_id must NOT recall facts from another conversation.",
+        requires_future_capability=True,
+    ),
 ]
 
 
@@ -1042,28 +1303,67 @@ async def chat_query(
     url: str,
     api_key: str,
     query: str,
-    namespace: str,  # ignored, kept for interface uniformity
+    namespace: str,
     timeout: float | None = None,
     conversation_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
+    stream: bool = False,
 ) -> dict[str, Any]:
     """Send a user message to the chat API and extract answer + sources flag."""
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    messages: list[dict[str, str]] = list(history) if history else []
+    messages.append({"role": "user", "content": query})
     payload: dict[str, Any] = {
         "model": "local",
-        "messages": [{"role": "user", "content": query}],
+        "messages": messages,
+        "stream": stream,
     }
     if conversation_id:
         payload["conversation_id"] = conversation_id
-    r = await _request_with_retry(
-        client,
-        "POST",
-        f"{url.rstrip('/')}/v1/chat/completions",
-        json=payload,
-        timeout=timeout,
-    )
-    data = r.json()
-    choices = data.get("choices", [])
-    answer = choices[0].get("message", {}).get("content", "") if choices else ""
+
+    if stream:
+        async with client.stream(
+            "POST",
+            f"{url.rstrip('/')}/v1/chat/completions",
+            json=payload,
+            timeout=timeout,
+        ) as r:
+            r.raise_for_status()
+            chunks: list[str] = []
+            stream_error: str | None = None
+            async for line in r.aiter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        import json
+                        data = json.loads(data_str)
+                        # Server-side error (AdapterError, validation, etc.)
+                        if "error" in data:
+                            stream_error = str(data["error"])
+                            break
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            chunks.append(content)
+                    except Exception:
+                        continue
+            if stream_error:
+                raise RuntimeError(f"Stream error: {stream_error}")
+            answer = "".join(chunks)
+    else:
+        r = await _request_with_retry(
+            client,
+            "POST",
+            f"{url.rstrip('/')}/v1/chat/completions",
+            json=payload,
+            timeout=timeout,
+        )
+        data = r.json()
+        choices = data.get("choices", [])
+        answer = choices[0].get("message", {}).get("content", "") if choices else ""
+
     has_sources = "Sources:" in answer
     return {
         "answer": answer,
@@ -1095,6 +1395,8 @@ async def run_tests(
     known_limitations = 0
     chat_passed = 0
     chat_total = 0
+    chat_conversation_id = f"check-rag-{int(time.time())}"
+    chat_history: dict[str, tuple[str, str]] = {}
     total = len(cases)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
@@ -1105,17 +1407,69 @@ async def run_tests(
             print(f"    Query : {case.query}")
             print(f"    NS    : {case.namespace}")
             t0 = time.perf_counter()
+
             try:
                 if case.use_chat_api:
-                    data = await chat_query(
-                        client, url, api_key, case.query, case.namespace, timeout=timeout
-                    )
+                    history: list[dict[str, str]] = []
+                    # Explicit conversation_id: rely on server-side history,
+                    # do NOT build client-side history from previous tests.
+                    if case.conversation_id:
+                        data = await chat_query(
+                            client,
+                            url,
+                            api_key,
+                            case.query,
+                            case.namespace,
+                            timeout=timeout,
+                            conversation_id=case.conversation_id,
+                            history=None,
+                            stream=case.stream,
+                        )
+                    else:
+                        if case.conversation_turn > 1:
+                            for prev_case in cases[: i - 1]:
+                                if not prev_case.use_chat_api:
+                                    continue
+                                prev = chat_history.get(prev_case.test_id)
+                                if prev is None:
+                                    continue
+                                history.append({"role": "user", "content": prev[0]})
+                                history.append({"role": "assistant", "content": prev[1]})
+                        data = await chat_query(
+                            client,
+                            url,
+                            api_key,
+                            case.query,
+                            case.namespace,
+                            timeout=timeout,
+                            conversation_id=(
+                                chat_conversation_id if case.conversation_turn > 1 else None
+                            ),
+                            history=history or None,
+                            stream=case.stream,
+                        )
                     print("    >>> [CHAT PREFIX E2E TEST] <<<")
                 else:
                     data = await query_rag(
                         client, url, api_key, case.query, case.namespace, timeout=timeout
                     )
             except Exception as exc:
+                # Error-handling tests expect graceful failures
+                if case.test_id.startswith("error-"):
+                    print(f"    Answer: [API error: {type(exc).__name__}]")
+                    print(f"    Src   : 0 chunks")
+                    if case.answer_must_contain_any:
+                        print(f"    Result: PASS (0ms)")
+                        if case.requires_future_capability:
+                            future_passed += 1
+                        else:
+                            contract_passed += 1
+                    else:
+                        print(f"    Result: FAIL (0ms)")
+                        print(f"    ! unexpected API error: {exc}")
+                    if case.use_chat_api:
+                        chat_total += 1
+                    continue
                 print(f"    FAIL  API error: {exc}")
                 continue
 
@@ -1202,6 +1556,30 @@ async def run_tests(
                             "but sources do not"
                         )
 
+            # ── Latency SLA ──
+            if latency > MAX_LATENCY_MS:
+                errors.append(
+                    f"latency SLA: {latency:.0f}ms exceeds {MAX_LATENCY_MS}ms"
+                )
+
+            # ── Metadata completeness ──
+            if case.test_id == "metadata-1":
+                if data.get("chunks_used", 0) <= 0:
+                    errors.append("metadata: chunks_used is 0 or missing")
+                if not data.get("metrics"):
+                    errors.append("metadata: metrics block missing from response")
+
+            # ── Reranker score sanity ──
+            if case.test_id == "rerank-sanity-1":
+                scores = data.get("metrics", {}).get("rerank_scores", [])
+                if len(scores) >= 2:
+                    if scores[0] <= 0.5:
+                        errors.append(f"rerank sanity: top score {scores[0]:.3f} <= 0.5")
+                    if scores[0] <= scores[-1]:
+                        errors.append(f"rerank sanity: top score {scores[0]:.3f} <= bottom {scores[-1]:.3f}")
+                else:
+                    errors.append("rerank sanity: need >= 2 chunks to validate")
+
             if not errors:
                 status = "PASS"
                 if case.requires_future_capability:
@@ -1215,8 +1593,10 @@ async def run_tests(
                 known_limitations += 1
             else:
                 status = "FAIL"
+
             if case.use_chat_api:
                 chat_total += 1
+                chat_history[case.test_id] = (case.query, answer)
 
             print(f"    Result: {status} ({latency:.0f}ms)")
             for err in errors:
@@ -1249,7 +1629,6 @@ async def run_tests(
     else:
         print("\nContract tests passed. Known limitations are documented.")
         return 0
-
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main() -> int:

@@ -13,13 +13,21 @@ llm:
     - "on"
     - "-lv"
     - "1"
+    - "-ctk"
+    - "q8_0"
+    - "-ctv"
+    - "q8_0"
 
 embedder:
   extra_args:
     - "-lv"
     - "1"
+    - "-ngl"
+    - "0"
 
 reranker:
   extra_args:
     - "-lv"
     - "1"
+    - "-ngl"
+    - "0"
