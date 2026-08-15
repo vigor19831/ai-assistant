@@ -308,7 +308,7 @@ class TestChatRAG:
     ):
         """Given: RAG prefix but no matching chunks.
         When: chat() is called.
-        Then: original query text is passed to LLM unchanged.
+        Then: LLM receives RAG prompt with empty context and original query.
         """
         chat_manager_with_rag.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
@@ -317,7 +317,10 @@ class TestChatRAG:
             "[t] something impossible to find", "conv-1"
         )
         messages = chat_manager_with_rag.llm.complete.call_args[0][0]
-        assert messages[-1].text == "something impossible to find"
+        # Empty-context RAG prompt contains the original query text
+        assert "something impossible to find" in messages[-1].text
+        # Prompt is a RAG template, not just the raw query
+        assert messages[-1].text != "something impossible to find"
 
     @pytest.mark.asyncio
     async def test_retrieve_prefix_stripped_from_query(self, chat_manager_with_rag):

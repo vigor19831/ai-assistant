@@ -326,11 +326,13 @@ class ChatManager:
             )
 
         if not data.chunks:
-            # For general knowledge fallback, use the original (non-condensed) question
-            prompt_text = (
-                data.original_query.text
-                if data.original_query is not None
-                else (data.query.text if data.query else original_query_text)
+            # No evidence found. Feed the LLM an empty-context RAG prompt
+            # so it can decide to say "I don't know" instead of hallucinating.
+            prompt_text = get_prompt(
+                pipeline_config.prompt_name,
+                version=self.prompt_version,
+                query=original_query_text,
+                context="",
             )
             return prompt_text, original_query_text, namespace, ()
 

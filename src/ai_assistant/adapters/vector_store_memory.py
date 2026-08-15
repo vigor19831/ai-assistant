@@ -91,6 +91,7 @@ class MemoryVectorStore(IVectorStore):
                     meta["total_chunks"] = chunk.metadata.total_chunks
                     meta["original_path"] = chunk.metadata.original_path
                     meta["source_uri"] = chunk.metadata.source_uri
+                    meta["last_modified"] = chunk.metadata.last_modified
                 ns.metadata[chunk.id] = meta
                 ns._track(chunk.id)
                 ns._evict()

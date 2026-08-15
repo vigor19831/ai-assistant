@@ -80,7 +80,7 @@ def _collect_files_sync(
             continue
 
         source_uri = file_path.relative_to(root).as_posix()
-        last_modified = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
+        last_modified = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))
 
         docs.append(
             {
@@ -223,19 +223,19 @@ async def index_folder(
         except Exception as exc:
             _logger.warning(f"Orphan cleanup failed for {namespace}: {exc}")
 
-        # Deduplicate: skip documents whose source_uri already exists in index.
-        existing_uris: set[str] = set()
+        # Build map of existing source_uri -> last_modified for freshness checks.
+        existing_uri_mtime: dict[str, str | None] = {}
         try:
             for _cid, meta in all_meta:
                 uri = meta.get("source_uri")
                 if uri:
-                    existing_uris.add(uri)
+                    existing_uri_mtime[uri] = meta.get("last_modified")
         except Exception as exc:
             _logger.warning(f"Could not list existing chunks for dedup: {exc}")
 
         # Deduplicate: skip documents whose source_uri already exists in index
-        # OR was already seen earlier in this batch (prevents duplicates from
-        # multiple SourceConfig entries pointing to the same file).
+        # AND last_modified matches (unchanged). If the file changed, allow
+        # re-index via upsert. Also skip duplicates within the current batch.
         seen_uris: set[str] = set()
         new_docs: list[dict[str, Any]] = []
         for d in docs:
@@ -243,8 +243,15 @@ async def index_folder(
             if uri is None:
                 new_docs.append(d)
                 continue
-            if uri in existing_uris or uri in seen_uris:
+            if uri in seen_uris:
                 continue
+            if uri in existing_uri_mtime:
+                old_mtime = existing_uri_mtime[uri]
+                new_mtime = d.get("metadata", {}).get("last_modified")
+                if old_mtime == new_mtime:
+                    # Unchanged on disk, skip
+                    continue
+                # File changed -> allow re-index, upsert will replace old chunks
             seen_uris.add(uri)
             new_docs.append(d)
         skipped = len(docs) - len(new_docs)

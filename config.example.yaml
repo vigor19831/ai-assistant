@@ -160,18 +160,46 @@ rag:
   # Available steps: embed_query, retrieve, multi_query_retrieve,
   #   hyde_query, condense_question, rerank, build_context, generate.
   #
-  # TIP: condense_question rewrites follow-up questions using chat history.
-  #      Add it before embed_query to handle multi-turn conversations.
-  #      hyde_query replaces embed_query (generates a hypothetical document
-  #      for better retrieval) – typically used without retrieve step.
-  #      multi_query_retrieve replaces embed_query + retrieve by generating
-  #      multiple search queries and combining results.
+  # STEP DESCRIPTIONS:
+  #   embed_query       — embeds the user query into a vector.
+  #   retrieve          — searches vector store for top_k * retrieval_multiplier
+  #                       candidates, then rerank picks the best top_k.
+  #   multi_query_retrieve — generates 2 query variations via LLM, retrieves
+  #                       for each, deduplicates. Better recall for synonyms
+  #                       and rephrasings. Adds 1 LLM call + 2 extra embed/search.
+  #   hyde_query        — generates a hypothetical answer, embeds it, retrieves
+  #                       by that embedding. Experimental, slower, not always
+  #                       better than multi_query.
+  #   condense_question — rewrites follow-up questions using chat history.
+  #                       Only useful for multi-turn chat. No effect on
+  #                       single-turn API queries.
+  #   rerank            — orders retrieved candidates. Never filters by
+  #                       absolute score. Requires retrieval_multiplier > 1
+  #                       in the reranker adapter to have candidates.
+  #   build_context     — formats chunks into [Document N] context string.
+  #   generate          — sends context + query to LLM.
   #
-  # Examples:
-  #   Standard: [embed_query, retrieve, rerank, build_context, generate]
-  #   Multi-query: [multi_query_retrieve, rerank, build_context, generate]
-  #   Full: [condense_question, embed_query, retrieve, rerank, build_context, generate]
-  #   HyDE: [hyde_query, retrieve, rerank, build_context, generate]
+  # PIPELINE EXAMPLES (fastest → best recall):
+  #   Standard (fastest, good baseline):
+  #     [embed_query, retrieve, rerank, build_context, generate]
+  #
+  #   Multi-query (best recall, +1 LLM call):
+  #     [multi_query_retrieve, rerank, build_context, generate]
+  #
+  #   Multi-query + condense (best for multi-turn chat):
+  #     [condense_question, multi_query_retrieve, rerank, build_context, generate]
+  #
+  #   HyDE (experimental, slowest):
+  #     [hyde_query, retrieve, rerank, build_context, generate]
+  #
+  # TUNING TIPS:
+  #   - top_k=2 + prompt_name=rag_strict → less noise, best for factual queries.
+  #   - top_k=3 + prompt_name=rag_simple → more recall, use with multi_query.
+  #   - Always verify changes with: python scripts/check_rag.py
+  #   - retrieval_multiplier lives in the reranker adapter code, not here.
+  #     LocalReranker/APIReranker return 2 (optimal). NullReranker returns 1.
+  #   - condense_question adds latency but no quality gain for single-turn.
+  #     Skip it if you only use /rag/query API endpoint.
   # -------------------------------------------------------------------
   steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1

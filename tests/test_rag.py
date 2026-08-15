@@ -1708,6 +1708,89 @@ class TestReadSources:
         assert r2["results"]["test"]["chunks"] == 0
 
 
+    @pytest.mark.asyncio
+    async def test_index_folder_freshness_reindexes_changed_files(
+        self, tmp_path, mock_chunker, mock_embedder
+    ):
+        """Given: document indexed once.
+        When: document content changes and index_folder called again.
+        Then: document is re-indexed (indexed > 0).
+        """
+        import time
+
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import index_folder
+        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+        from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        doc_path = docs_dir / "note.md"
+        doc_path.write_text("original content")
+
+        vector_store = MemoryVectorStore(
+            VectorStoreConfigData(dim=384, index_path=str(tmp_path / "indices"))
+        )
+
+        sources = [
+            SourceConfig(namespace="test", path=str(docs_dir), include=["*.md"])
+        ]
+
+        # First index
+        r1 = await index_folder(
+            target_namespace="test", clear=False,
+            chunker=mock_chunker, embedder=mock_embedder,
+            vector_store=vector_store, sources=sources,
+        )
+        assert r1["results"]["test"]["indexed"] == 1
+
+        # Modify document — change mtime by rewriting
+        doc_path.write_text("modified content")
+        # Touch file to ensure mtime changes (some FS have 1s granularity)
+        import os
+        os.utime(doc_path, (time.time() + 2, time.time() + 2))
+
+        # Second index — should re-index changed file
+        r2 = await index_folder(
+            target_namespace="test", clear=False,
+            chunker=mock_chunker, embedder=mock_embedder,
+            vector_store=vector_store, sources=sources,
+        )
+        assert r2["results"]["test"]["indexed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_index_documents_copies_last_modified_from_document_metadata(
+        self, mock_chunker, mock_embedder, memory_vector_store
+    ):
+        """Given: document with last_modified in metadata.
+        When: IndexingManager.index_documents is called.
+        Then: chunks have last_modified copied from document metadata.
+        """
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        docs = [{
+            "id": "doc-1",
+            "content": "test content",
+            "metadata": {
+                "source_uri": "note.md",
+                "last_modified": "2026-08-15 10:00",
+            },
+        }]
+
+        await manager.index_documents(docs, namespace="test")
+
+        meta = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert len(meta) > 0
+        for _cid, chunk_meta in meta:
+            assert chunk_meta.get("last_modified") == "2026-08-15 10:00"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # P1: delete_chunks — clear=True, document_ids, else branch
 # ═══════════════════════════════════════════════════════════════════════════

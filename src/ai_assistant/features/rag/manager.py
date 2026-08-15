@@ -95,8 +95,8 @@ class IndexingManager:
                                 else document.metadata.get("original_path"),
                                 source_uri=chunk_source_uri,
                                 last_modified=chunk.metadata.last_modified
-                                if chunk.metadata
-                                else None,
+                                if chunk.metadata and chunk.metadata.last_modified
+                                else document.metadata.get("last_modified"),
                                 custom=chunk.metadata.custom if chunk.metadata else {},
                             ),
                         )

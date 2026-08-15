@@ -620,6 +620,9 @@ class FaissVectorStore(IVectorStore):
                     "source": meta.source if meta else "",
                     "index": meta.index if meta else 0,
                     "total_chunks": meta.total_chunks if meta else 0,
+                    "original_path": meta.original_path if meta else None,
+                    "source_uri": meta.source_uri if meta else None,
+                    "last_modified": meta.last_modified if meta else None,
                     **(meta.custom if meta else {}),
                 }
                 if all(meta_dict.get(k) == v for k, v in filters.items()):
