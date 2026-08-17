@@ -1,5 +1,4 @@
 """RAG feature HTTP handlers with namespace and reranker support."""
-
 from __future__ import annotations
 
 import asyncio
@@ -105,6 +104,7 @@ async def index_documents(
     max_doc_size = state.config.vector_store.max_document_size
     filtered_docs: list[dict[str, Any]] = []
     pre_errors: list[str] = []
+
     for doc in req.documents:
         content = doc.get("content")
         if content is None:
@@ -202,6 +202,7 @@ async def query_rag(
     cfg = state.config.rag
     ns = req.namespace or cfg.default_namespace
     query_text = req.query
+
     if not query_text or not query_text.strip():
         # NOTE: English response required by check_rag.py edge-3.
         # When i18n is added, migrate to localized message and update test.
@@ -224,6 +225,7 @@ async def query_rag(
         query_text = parsed_text
     if parsed_ns is not None and req.namespace is None:
         ns = parsed_ns
+
     ns_cfg = state.config.namespaces.get(ns)
 
     # Per-namespace overrides with global fallback
@@ -245,6 +247,7 @@ async def query_rag(
         prompt_version=req.prompt_version or cfg.prompt_version,
         namespace=ns,
     )
+
     duration_ms = int((time.perf_counter() - start) * 1000)
     _logger.info(
         "RAG query completed",
@@ -257,6 +260,7 @@ async def query_rag(
             "errors": len(result.get("errors", [])),
         },
     )
+
     for err in result.get("errors", []):
         if err.startswith(LLM_UNAVAILABLE):
             _logger.warning(
@@ -267,6 +271,7 @@ async def query_rag(
                 status_code=503,
                 detail="LLM service temporarily unavailable. Please try again later.",
             )
+
     return QueryResponse(**result)
 
 
@@ -278,7 +283,6 @@ async def delete_chunks(
     trace_id = uuid.uuid4().hex
     namespace = req.namespace or state.config.rag.default_namespace
     deleted = 0
-
     try:
         if req.clear:
             all_chunks = await state.vector_store.list_by_filter(
@@ -288,37 +292,30 @@ async def delete_chunks(
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
-
         elif req.chunk_ids:
             await state.vector_store.delete(req.chunk_ids, namespace=namespace)
             deleted += len(req.chunk_ids)
-
         elif req.document_ids:
             all_chunks = await state.vector_store.list_by_filter(
                 {}, namespace=namespace
             )
             to_delete = []
             doc_ids = set(req.document_ids)
-
             for chunk_id, meta in all_chunks:
                 if meta.get("source") in doc_ids or meta.get("source_uri") in doc_ids:
                     to_delete.append(chunk_id)
                     continue
-
                 custom = meta.get("custom")
                 if isinstance(custom, dict) and custom.get("source") in doc_ids:
                     to_delete.append(chunk_id)
-
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
-
         else:
             return DeleteResponse(
                 deleted_chunks=0,
                 errors=["No chunk_ids, document_ids, or clear flag provided"],
             )
-
         _logger.info(
             "Delete chunks completed",
             extra={
@@ -327,14 +324,12 @@ async def delete_chunks(
                 "deleted": deleted,
             },
         )
-
     except Exception:
         _logger.exception(
             "Delete chunks failed",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
         raise HTTPException(status_code=500, detail="Internal server error") from None
-
     return DeleteResponse(deleted_chunks=deleted, errors=[])
 
 
@@ -381,6 +376,76 @@ async def list_namespaces(
     return NamespaceListResponse(namespaces=namespaces)
 
 
+async def _index_chat_export(
+    state: InitializedAppState,
+    namespace: str,
+    filename: str,
+    content: str,
+    file_path: Path,
+    trace_id: str,
+) -> dict[str, Any]:
+    """Index a saved chat export into its isolated chat namespace.
+
+    Raises on indexing failure; caller decides how to report it.
+    """
+    chat_namespace = get_chat_namespace(namespace)
+    ns_cfg = state.config.namespaces.get(namespace)
+    chunker = get_chunker_for_config(state, ns_cfg.chunk_size if ns_cfg else None)
+    try:
+        # Synthetic document ID guarantees upsert never touches user documents
+        # that happen to share a filename stem in the same namespace.
+        chat_doc_id = f"__chat__{namespace}__{file_path.stem}"
+        manager = IndexingManager(
+            chunker=chunker,
+            embedder=state.embedder,
+            vector_store=state.vector_store,
+        )
+        result = await manager.index_documents(
+            [
+                {
+                    "id": chat_doc_id,
+                    "content": content,
+                    "metadata": {
+                        "source": chat_doc_id,
+                        "source_uri": str(Path(namespace) / filename),
+                        "folder": namespace,
+                        "type": "chat_export",
+                    },
+                }
+            ],
+            namespace=chat_namespace,
+        )
+        index_path = state.config.vector_store.index_path
+        if index_path:
+            await state.vector_store.save(index_path, namespace=chat_namespace)
+        _logger.info(
+            "Chat saved and indexed",
+            extra={
+                "trace_id": trace_id,
+                "path": str(file_path),
+                "chat_namespace": chat_namespace,
+                "indexed_count": result.get("indexed_count", 0),
+                "chunk_count": result.get("chunk_count", 0),
+            },
+        )
+        return {
+            "saved": True,
+            "path": str(file_path),
+            "namespace": namespace,
+            "chat_namespace": chat_namespace,
+            "indexed_count": result.get("indexed_count", 0),
+            "chunk_count": result.get("chunk_count", 0),
+        }
+    finally:
+        if chunker is not state.chunker:
+            try:
+                await chunker.shutdown()
+            except Exception:
+                _logger.exception(
+                    "Chunker shutdown failed", extra={"trace_id": trace_id}
+                )
+
+
 @router.post("/save-chat", response_model=None)
 async def save_chat(
     req: SaveChatRequest,
@@ -394,9 +459,9 @@ async def save_chat(
     # Save to chat exports folder
     exports_root = Path(state.config.rag.chat_exports_root)
     folder = exports_root / namespace
+
     folder_resolved = await asyncio.to_thread(folder.resolve)
     exports_root_resolved = await asyncio.to_thread(exports_root.resolve)
-
     if not folder_resolved.is_relative_to(exports_root_resolved):
         _logger.warning(
             "Invalid namespace path in save-chat",
@@ -405,6 +470,7 @@ async def save_chat(
         raise HTTPException(status_code=400, detail="Invalid namespace")
 
     await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
+
     file_path = await asyncio.to_thread((folder / filename).resolve)
     if not file_path.is_relative_to(folder_resolved):
         _logger.warning(
@@ -436,57 +502,10 @@ async def save_chat(
             "reason": "index_chat_exports is disabled",
         }
 
-    chat_namespace = get_chat_namespace(namespace)
-    ns_cfg = state.config.namespaces.get(namespace)
-    chunker = get_chunker_for_config(state, ns_cfg.chunk_size if ns_cfg else None)
     try:
-        # Synthetic document ID guarantees upsert never touches user documents
-        # that happen to share a filename stem in the same namespace.
-        chat_doc_id = f"__chat__{namespace}__{file_path.stem}"
-        manager = IndexingManager(
-            chunker=chunker,
-            embedder=state.embedder,
-            vector_store=state.vector_store,
+        return await _index_chat_export(
+            state, namespace, filename, content, file_path, trace_id
         )
-        result = await manager.index_documents(
-            [
-                {
-                    "id": chat_doc_id,
-                    "content": content,
-                    "metadata": {
-                        "source": chat_doc_id,
-                        "source_uri": str(Path(namespace) / filename),
-                        "folder": namespace,
-                        "type": "chat_export",
-                    },
-                }
-            ],
-            namespace=chat_namespace,
-        )
-
-        # Auto-save index
-        index_path = state.config.vector_store.index_path
-        if index_path:
-            await state.vector_store.save(index_path, namespace=chat_namespace)
-
-        _logger.info(
-            "Chat saved and indexed",
-            extra={
-                "trace_id": trace_id,
-                "path": str(file_path),
-                "chat_namespace": chat_namespace,
-                "indexed_count": result.get("indexed_count", 0),
-                "chunk_count": result.get("chunk_count", 0),
-            },
-        )
-        return {
-            "saved": True,
-            "path": str(file_path),
-            "namespace": namespace,
-            "chat_namespace": chat_namespace,
-            "indexed_count": result.get("indexed_count", 0),
-            "chunk_count": result.get("chunk_count", 0),
-        }
     except Exception as e:
         _logger.exception(
             "Chat saved but indexing failed",
@@ -500,14 +519,6 @@ async def save_chat(
             "indexed": False,
             "error": str(e),
         }
-    finally:
-        if chunker is not state.chunker:
-            try:
-                await chunker.shutdown()
-            except Exception:
-                _logger.exception(
-                    "Chunker shutdown failed", extra={"trace_id": trace_id}
-                )
 
 
 @router.post("/reindex", response_model=None)
@@ -521,7 +532,6 @@ async def reindex_documents(
     clear = req.clear
     task_id = str(uuid.uuid4())
     rag_state = state.rag_state
-
     _logger.info(
         "Reindex started",
         extra={
@@ -580,7 +590,6 @@ async def reindex_documents(
                                     "chat_namespace": chat_ns,
                                 },
                             )
-
                 async with asyncio.timeout(REINDEX_TASK_TIMEOUT):
                     result = await index_folder(
                         target_namespace=target_namespace,
@@ -625,6 +634,7 @@ async def reindex_documents(
         trace_id=trace_id,
         name=f"reindex:{task_id}",
     )
+
     return {"status": "started", "task_id": task_id}
 
 

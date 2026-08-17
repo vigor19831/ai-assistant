@@ -1,5 +1,4 @@
 """Shared indexing logic — direct adapter calls, no subprocess."""
-
 from __future__ import annotations
 
 import asyncio
@@ -49,39 +48,32 @@ def _collect_files_sync(
     """
     docs: list[dict[str, Any]] = []
     root = Path(source.path).expanduser().resolve()
-
     if not root.exists():
         _logger.warning(f"Source path does not exist, skipping: {root}")
         return docs
 
     iterator = root.rglob("*") if source.recursive else root.iterdir()
-
     for file_path in iterator:
         if not file_path.is_file():
             continue
         if not _match_patterns(file_path, source.include):
             continue
-
         # Guard: skip files exceeding max size before reading into memory
         try:
             st = file_path.stat()
         except OSError:
             continue
-
         if max_file_size is not None and st.st_size > max_file_size:
             _logger.warning(
                 f"Skipping oversized file {file_path} "
                 f"({st.st_size} > {max_file_size} bytes)"
             )
             continue
-
         content = _read_file_sync(file_path)
         if not content.strip():
             continue
-
         source_uri = file_path.relative_to(root).as_posix()
         last_modified = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))
-
         docs.append(
             {
                 "id": file_path.stem,
@@ -96,7 +88,6 @@ def _collect_files_sync(
                 },
             }
         )
-
     return docs
 
 
@@ -122,6 +113,93 @@ def read_sources(
             n_docs = len(docs)
             _logger.info(f"Source {source.namespace}: {n_docs} docs from {source.path}")
     return result
+
+
+async def _clear_namespace_chunks(
+    vector_store: IVectorStore, namespace: str
+) -> str | None:
+    """Delete all chunks in namespace. Returns error message or None."""
+    try:
+        existing = await vector_store.list_by_filter({}, namespace=namespace)
+        to_delete = [cid for cid, _meta in existing]
+        if to_delete:
+            await vector_store.delete(to_delete, namespace=namespace)
+            _logger.info(f"Cleared {len(to_delete)} chunks from {namespace}")
+        return None
+    except Exception as exc:
+        _logger.warning(f"Failed to clear namespace {namespace}: {exc}")
+        return f"Clear failed for {namespace}: {exc}"
+
+
+async def _cleanup_orphan_chunks(
+    vector_store: IVectorStore,
+    namespace: str,
+    docs: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Remove chunks whose source_uri no longer exists on disk.
+
+    Safe because original documents are the source of truth; indices
+    are derived. Returns existing chunk metadata for freshness checks.
+    """
+    all_meta: list[tuple[str, dict[str, Any]]] = []
+    try:
+        all_meta = await vector_store.list_by_filter({}, namespace=namespace)
+        current_uris = {
+            d.get("metadata", {}).get("source_uri")
+            for d in docs
+            if d.get("metadata", {}).get("source_uri")
+        }
+        orphan_ids = [
+            cid
+            for cid, meta in all_meta
+            if meta.get("source_uri") and meta.get("source_uri") not in current_uris
+        ]
+        if orphan_ids:
+            await vector_store.delete(orphan_ids, namespace=namespace)
+            increment_counter(
+                "ai_assistant_rag_orphans_removed_total",
+                labels={"namespace": namespace},
+                value=len(orphan_ids),
+            )
+            _logger.info(f"Removed {len(orphan_ids)} orphan chunks from {namespace}")
+    except Exception as exc:
+        _logger.warning(f"Orphan cleanup failed for {namespace}: {exc}")
+    return all_meta
+
+
+def _filter_unchanged_docs(
+    docs: list[dict[str, Any]],
+    all_meta: list[tuple[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Skip docs whose source_uri is already indexed with the same mtime.
+
+    Changed files pass through (upsert replaces old chunks). Duplicates
+    within the current batch are also skipped.
+    """
+    existing_uri_mtime: dict[str, str | None] = {}
+    for _cid, meta in all_meta:
+        uri = meta.get("source_uri")
+        if uri:
+            existing_uri_mtime[uri] = meta.get("last_modified")
+
+    seen_uris: set[str] = set()
+    new_docs: list[dict[str, Any]] = []
+    for d in docs:
+        uri = d.get("metadata", {}).get("source_uri")
+        if uri is None:
+            new_docs.append(d)
+            continue
+        if uri in seen_uris:
+            continue
+        if uri in existing_uri_mtime:
+            old_mtime = existing_uri_mtime[uri]
+            new_mtime = d.get("metadata", {}).get("last_modified")
+            if old_mtime == new_mtime:
+                # Unchanged on disk, skip
+                continue
+        seen_uris.add(uri)
+        new_docs.append(d)
+    return new_docs
 
 
 async def index_folder(
@@ -184,76 +262,13 @@ async def index_folder(
         processed_any = True
 
         if clear:
-            try:
-                existing = await vector_store.list_by_filter({}, namespace=namespace)
-                to_delete = [cid for cid, _meta in existing]
-                if to_delete:
-                    await vector_store.delete(to_delete, namespace=namespace)
-                    n_cleared = len(to_delete)
-                    _logger.info(f"Cleared {n_cleared} chunks from {namespace}")
-            except Exception as exc:
-                _logger.warning(f"Failed to clear namespace {namespace}: {exc}")
-                all_errors.append(f"Clear failed for {namespace}: {exc}")
+            clear_error = await _clear_namespace_chunks(vector_store, namespace)
+            if clear_error:
+                all_errors.append(clear_error)
 
-        # Orphan cleanup: remove chunks whose source_uri no longer exists on disk.
-        # Safe because original documents are the source of truth; indices are derived.
-        all_meta: list[tuple[str, dict[str, Any]]] = []
-        try:
-            all_meta = await vector_store.list_by_filter({}, namespace=namespace)
-            current_uris = {
-                d.get("metadata", {}).get("source_uri")
-                for d in docs
-                if d.get("metadata", {}).get("source_uri")
-            }
-            orphan_ids = [
-                cid
-                for cid, meta in all_meta
-                if meta.get("source_uri") and meta.get("source_uri") not in current_uris
-            ]
-            if orphan_ids:
-                await vector_store.delete(orphan_ids, namespace=namespace)
-                increment_counter(
-                    "ai_assistant_rag_orphans_removed_total",
-                    labels={"namespace": namespace},
-                    value=len(orphan_ids),
-                )
-                _logger.info(
-                    f"Removed {len(orphan_ids)} orphan chunks from {namespace}"
-                )
-        except Exception as exc:
-            _logger.warning(f"Orphan cleanup failed for {namespace}: {exc}")
+        all_meta = await _cleanup_orphan_chunks(vector_store, namespace, docs)
+        new_docs = _filter_unchanged_docs(docs, all_meta)
 
-        # Build map of existing source_uri -> last_modified for freshness checks.
-        existing_uri_mtime: dict[str, str | None] = {}
-        try:
-            for _cid, meta in all_meta:
-                uri = meta.get("source_uri")
-                if uri:
-                    existing_uri_mtime[uri] = meta.get("last_modified")
-        except Exception as exc:
-            _logger.warning(f"Could not list existing chunks for dedup: {exc}")
-
-        # Deduplicate: skip documents whose source_uri already exists in index
-        # AND last_modified matches (unchanged). If the file changed, allow
-        # re-index via upsert. Also skip duplicates within the current batch.
-        seen_uris: set[str] = set()
-        new_docs: list[dict[str, Any]] = []
-        for d in docs:
-            uri = d.get("metadata", {}).get("source_uri")
-            if uri is None:
-                new_docs.append(d)
-                continue
-            if uri in seen_uris:
-                continue
-            if uri in existing_uri_mtime:
-                old_mtime = existing_uri_mtime[uri]
-                new_mtime = d.get("metadata", {}).get("last_modified")
-                if old_mtime == new_mtime:
-                    # Unchanged on disk, skip
-                    continue
-                # File changed -> allow re-index, upsert will replace old chunks
-            seen_uris.add(uri)
-            new_docs.append(d)
         skipped = len(docs) - len(new_docs)
         if skipped:
             _logger.info(
@@ -276,14 +291,12 @@ async def index_folder(
                 all_indexed_uris[namespace] = ns_uris
             if result.get("errors"):
                 all_errors.extend(result["errors"])
-
             if index_path:
                 try:
                     await vector_store.save(index_path, namespace=namespace)
                 except Exception as exc:
                     _logger.warning(f"Auto-save failed for {namespace}: {exc}")
                     all_errors.append(f"Auto-save failed for {namespace}: {exc}")
-
         except Exception as exc:
             _logger.exception(f"Indexing failed for namespace {namespace}")
             all_errors.append(f"Indexing failed for {namespace}: {exc}")
