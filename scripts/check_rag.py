@@ -1395,6 +1395,10 @@ async def run_tests(
     known_limitations = 0
     chat_passed = 0
     chat_total = 0
+    chat_contract_passed = 0
+    chat_contract_total = 0
+    chat_future_passed = 0
+    chat_future_total = 0
     chat_conversation_id = f"check-rag-{int(time.time())}"
     chat_history: dict[str, tuple[str, str]] = {}
     total = len(cases)
@@ -1588,6 +1592,10 @@ async def run_tests(
                     contract_passed += 1
                 if case.use_chat_api:
                     chat_passed += 1
+                    if case.requires_future_capability:
+                        chat_future_passed += 1
+                    else:
+                        chat_contract_passed += 1
             elif case.requires_future_capability:
                 status = "KNOWN LIMITATION"
                 known_limitations += 1
@@ -1596,8 +1604,11 @@ async def run_tests(
 
             if case.use_chat_api:
                 chat_total += 1
+                if case.requires_future_capability:
+                    chat_future_total += 1
+                else:
+                    chat_contract_total += 1
                 chat_history[case.test_id] = (case.query, answer)
-
             print(f"    Result: {status} ({latency:.0f}ms)")
             for err in errors:
                 print(f"    ! {err}")
@@ -1610,6 +1621,10 @@ async def run_tests(
     print(f"CONTRACT: {contract_passed}/{contract_total} passed")
     if chat_total:
         print(f"CHAT PREFIX E2E: {chat_passed}/{chat_total} passed")
+        if chat_contract_total:
+            print(f"  CHAT CONTRACT: {chat_contract_passed}/{chat_contract_total} passed")
+        if chat_future_total:
+            print(f"  CHAT FUTURE: {chat_future_passed}/{chat_future_total} passed")
     if known_limitations:
         print(f"KNOWN LIMITATIONS TRIGGERED: {known_limitations}")
     if future_capability_count:
