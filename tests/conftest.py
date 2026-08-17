@@ -1,5 +1,4 @@
 """tests/conftest.py — Global test configuration."""
-
 from __future__ import annotations
 
 import os
@@ -15,6 +14,8 @@ os.environ.setdefault("AI_CONFIG_PATH", TEST_CONFIG_PATH)
 
 
 # ── Pytest markers ──
+
+
 def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers."""
     config.addinivalue_line("markers", "online: requires running server")
@@ -22,6 +23,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 # ── Core fixtures ──
+
 
 @pytest.fixture
 def mock_llm():
@@ -149,7 +151,6 @@ def mock_chunker():
     return m
 
 
-
 # ---------------------------------------------------------------------------
 # Mock state helpers — centralized to avoid duplication and shadowing
 # ---------------------------------------------------------------------------
@@ -157,7 +158,6 @@ def mock_chunker():
 
 def build_mock_state() -> InitializedAppState:
     """Build a fresh InitializedAppState with isolated defaults.
-
     Returns a real dataclass instance so that adding a new required field
     to InitializedAppState raises TypeError here immediately, rather than
     silently creating a MagicMock attribute that hides contract drift.
@@ -184,19 +184,21 @@ def build_mock_state() -> InitializedAppState:
     vector_store = AsyncMock(spec=IVectorStore)
     chunker = AsyncMock(spec=IChunker)
     storage = AsyncMock(spec=IChatStorage)
+    storage.get_history = AsyncMock(return_value=[])
+    storage.save_message = AsyncMock(return_value=None)
     reranker = AsyncMock(spec=IReranker)
     reranker.retrieval_multiplier = 1
 
     # ── RAG pipeline port defaults ──
     embedder.embed = AsyncMock(return_value=[[0.1] * 384])
     embedder.dimension = 384
-
     llm.complete = AsyncMock(return_value=AssistantMessage(text="", metadata={}))
     llm.get_context_limit = MagicMock(return_value=8192)
 
     def _stream(*args, **kwargs):
         async def _agen():
             yield ""
+
         return _agen()
 
     llm.stream = MagicMock(side_effect=_stream)
@@ -232,7 +234,6 @@ def build_mock_state() -> InitializedAppState:
 @pytest.fixture
 def mock_state():
     """Return a fresh mock InitializedAppState for each test.
-
     Delegates to build_mock_state() for centralized construction.
     """
     return build_mock_state()
@@ -241,11 +242,11 @@ def mock_state():
 @pytest.fixture
 def make_mock_state():
     """Factory fixture — returns a function that creates fresh mock states.
-
     Use when a test needs multiple isolated states or when a fixture
     (e.g. client) mutates the state and downstream tests must not see
     the mutation.
     """
+
     def _factory():
         return build_mock_state()
 
@@ -255,13 +256,13 @@ def make_mock_state():
 @pytest.fixture
 def isolated_app_state(tmp_path):
     """Return a mock InitializedAppState with isolated temp paths.
-
     Overrides config paths to use tmp_path so that tests do not pollute
     the project data/ directory or collide with each other.
     """
     state = build_mock_state()
     # Isolate paths to tmp_path for filesystem safety
     from ai_assistant.core.config import SourceConfig
+
     state.config.vector_store.index_path = str(tmp_path / "indices")
     state.config.rag.sources = [
         SourceConfig(namespace="default", path=str(tmp_path / "documents"))
@@ -282,7 +283,6 @@ def isolated_app_state(tmp_path):
 
 def _build_chat_manager_mock() -> MagicMock:
     """Build a mock ChatManager for TestClient fixtures.
-
     ChatManager is no longer in AppState; it is created per-request via
     Depends. We patch the dependency function to return this mock.
     """
@@ -321,7 +321,6 @@ def _build_test_client(state, raise_server_exceptions: bool = True) -> TestClien
 @pytest.fixture
 def client(mock_state):
     """Return a TestClient with mock state and auth header.
-
     Uses the function-scoped mock_state fixture so that each test gets a
     fresh state and mutations inside the test body affect the same object
     that the app uses.
@@ -332,7 +331,6 @@ def client(mock_state):
 @pytest.fixture
 def client_no_raise(mock_state):
     """Return a TestClient that returns HTTP errors instead of throwing exceptions.
-
     Use this fixture for tests that expect 500 status codes.
     """
     return _build_test_client(mock_state, raise_server_exceptions=False)
@@ -341,6 +339,8 @@ def client_no_raise(mock_state):
 # ---------------------------------------------------------------------------
 # Contract test fixtures: parametrized adapter factories
 # ---------------------------------------------------------------------------
+
+
 # Adding a new adapter? Just append to params — no new test code needed.
 
 

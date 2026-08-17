@@ -1,5 +1,4 @@
 """Chat manager — routes Text/Voice/Image to LLM."""
-
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +31,6 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.ports import (
         ILLM,
-        IChatStorage,
         IEmbedder,
         IReranker,
         IVectorStore,
@@ -50,7 +48,6 @@ _HISTORY_TOKEN_OVERHEAD = 50
 # ---------------------------------------------------------------------------
 # Pipeline step functions — moved from deps.py to where they are used
 # ---------------------------------------------------------------------------
-
 _STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
     RAGStep(k): v for k, v in STEP_REGISTRY.items() if k in {m.value for m in RAGStep}
 }
@@ -91,21 +88,17 @@ class ChatManager:
         def _source_link(chunk: Chunk) -> str:
             if chunk.metadata is None:
                 return "unknown"
-
             md = chunk.metadata
             display = md.source or "unknown"
             link = None
-
             if md.source_uri:
                 display = md.source_uri.rsplit("/", 1)[-1] or md.source
                 if "://" in md.source_uri:
                     link = md.source_uri
-
             if md.original_path:
                 link = _path_to_file_uri(md.original_path)
                 if not md.source_uri:
                     display = os.path.basename(md.original_path) or md.source
-
             date_str = f" (modified {md.last_modified})" if md.last_modified else ""
             if link and link != display:
                 return f"{display}{date_str} — {link}"
@@ -119,7 +112,6 @@ class ChatManager:
             if key not in seen:
                 seen.add(key)
                 unique_lines.append(_source_link(chunk))
-
         src_lines = [f"[{i + 1}] {line}" for i, line in enumerate(unique_lines)]
         return answer + "\n\nSources:\n" + "\n".join(src_lines)
 
@@ -127,8 +119,6 @@ class ChatManager:
         self,
         llm: ILLM,
         reranker: IReranker,
-        storage: IChatStorage | None = None,
-        history_limit: int = 10,
         max_context_tokens: int | None = None,
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
@@ -144,8 +134,6 @@ class ChatManager:
     ) -> None:
         self.llm = llm
         self.reranker = reranker
-        self.storage = storage
-        self.history_limit = history_limit
         self.system_message = system_message
         self.max_context_tokens = max_context_tokens
         self.embedder = embedder
@@ -158,7 +146,6 @@ class ChatManager:
         self.tokenizer = tokenizer
         self.sampling = sampling
         self._prefix_map = build_prefix_map(self.namespaces)
-
         # Build pipeline internally — ChatManager owns its pipeline.
         # Factory in handlers.py passes cfg.rag.steps; GENERATE is
         # stripped here because ChatManager calls llm.complete() itself.
@@ -218,13 +205,12 @@ class ChatManager:
         user_msg: UserMessage,
     ) -> list[dict[str, Any]]:
         """Trim oldest messages so system + history + user_msg fit token budget.
-
         Keeps the most recent messages that fit within the token budget.
         """
         budget = self.max_context_tokens or self.llm.get_context_limit()
         if not budget:
-            limit = max(1, self.history_limit - 1)
-            return history[-limit:] if len(history) > limit else history
+            # No token budget known — the caller controls history length.
+            return history
 
         user_tokens = await self._count_tokens(user_msg.text or "")
         system_message = self.system_message
@@ -233,8 +219,8 @@ class ChatManager:
         )
         overhead = _HISTORY_TOKEN_OVERHEAD
         reserved = user_tokens + system_tokens + overhead
-
         available = budget - reserved
+
         if available <= 0:
             return []
 
@@ -247,7 +233,6 @@ class ChatManager:
                 break
             total += tokens
             keep.append(h)
-
         keep.reverse()
         return keep
 
@@ -258,12 +243,10 @@ class ChatManager:
         trace_id: str | None = None,
     ) -> tuple[str, str, str | None, tuple[Chunk, ...]]:
         """Run RAG pipeline to build context for the given message.
-
         Args:
             message: Raw user message (may contain RAG prefix).
             history: Chat history as list of {role, content} dicts.
             trace_id: Structured logging trace identifier.
-
         Returns:
             (prompt_for_llm, original_query, namespace, rag_chunks)
         """
@@ -287,7 +270,6 @@ class ChatManager:
             )
 
         original_query_text = query_text  # preserve before pipeline mutation
-
         ns_cfg = self.namespaces.get(namespace)
         pipeline_config = PipelineConfig(
             top_k=self.top_k,
@@ -299,7 +281,6 @@ class ChatManager:
             system_message=self.system_message,
             sampling=self.sampling or SamplingConfig(),
         )
-
         data = PipelineData(
             query=UserMessage(text=query_text),
             original_query=UserMessage(text=original_query_text),
@@ -312,7 +293,6 @@ class ChatManager:
             pipeline_config=pipeline_config,
             tokenizer=self.tokenizer,
         )
-
         data = await self._pipeline.run(data)
 
         # Recover original query if condense_question rewrote it
@@ -347,43 +327,26 @@ class ChatManager:
     async def _build_messages(
         self,
         prompt_for_llm: str,
-        conversation_id: str,
         history: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> list[Message]:
         """Build message list with history, system prompt, and token trimming.
 
         Prepend historical messages before the current user message.
-        History is loaded once by the caller and passed through to avoid
-        duplicate storage queries.
+        History is prompt data provided by the caller; this method never
+        touches persistent storage.
         """
         user_msg = UserMessage(text=prompt_for_llm, metadata=metadata or {})
         messages: list[Message] = [user_msg]
-
-        if history is None and self.storage:
-            try:
-                history = await self.storage.get_history(
-                    conversation_id,
-                    limit=self.history_limit,
-                    offset=0,
-                )
-            except Exception as exc:
-                logger.warning("History load failed", extra={"error": str(exc)})
-                history = []
-
         if history:
             try:
                 trimmed = await self._trim_history(history, user_msg)
             except Exception as exc:
                 logger.warning(
-                    "Token-based trim failed, falling back to count-based",
+                    "Token-based trim failed, using history as provided",
                     extra={"error": str(exc)},
                 )
-                trimmed = (
-                    history[-self.history_limit :]
-                    if len(history) > self.history_limit
-                    else list(history)
-                )
+                trimmed = list(history)
             for h in trimmed:
                 role = h.get("role", "")
                 content = h.get("content", "")
@@ -391,11 +354,9 @@ class ChatManager:
                     messages.insert(-1, UserMessage(text=content))
                 elif role == "assistant":
                     messages.insert(-1, AssistantMessage(text=content))
-
         # Prepend system message if configured
         if self.system_message:
             messages.insert(0, SystemMessage(text=self.system_message))
-
         return messages
 
     async def chat(
@@ -411,10 +372,11 @@ class ChatManager:
         presence_penalty: float | None = None,
         history: list[dict[str, Any]] | None = None,
     ) -> AssistantMessage:
-        """Process a chat message."""
+        """Generate a response. History is prompt data; caller owns persistence."""
         meta = metadata or {}
         trace_id = meta.get("trace_id")
         start = time.perf_counter()
+
         logger.info(
             "Chat request",
             extra={
@@ -423,35 +385,18 @@ class ChatManager:
                 "msg_len": len(message),
             },
         )
-
-        # Load history once for both condensation and message building
-        if history is not None:
-            history_local: list[dict[str, Any]] = list(history)
-        elif self.storage:
-            try:
-                history_local = await self.storage.get_history(
-                    conversation_id,
-                    limit=self.history_limit,
-                    offset=0,
-                )
-            except Exception as exc:
-                logger.warning("History load failed", extra={"error": str(exc)})
-                history_local = []
-        else:
-            history_local = []
-
+        # History is prompt data only — persistence lives in the handler layer.
+        history_local: list[dict[str, Any]] = list(history or [])
         (
             prompt_for_llm,
-            original_query,
+            _original_query,
             namespace,
             rag_chunks,
         ) = await self._retrieve_context(
             message, history=history_local, trace_id=trace_id
         )
-
         messages = await self._build_messages(
             prompt_for_llm,
-            conversation_id,
             history=history_local,
             metadata=meta,
         )
@@ -493,34 +438,10 @@ class ChatManager:
                 "chunks_used": len(rag_chunks),
             },
         )
-
-        response = AssistantMessage(
+        return AssistantMessage(
             text=self._append_rag_sources(response.text or "", rag_chunks),
             metadata=response.metadata,
         )
-
-        if self.storage and history is None:
-            try:
-                await self.storage.save_message(
-                    conversation_id,
-                    {
-                        "role": "user",
-                        "content": original_query,
-                        "metadata": meta,
-                    },
-                )
-                await self.storage.save_message(
-                    conversation_id,
-                    {
-                        "role": "assistant",
-                        "content": response.text or "",
-                        "metadata": {},
-                    },
-                )
-            except Exception as exc:
-                logger.warning("History save failed", extra={"error": str(exc)})
-
-        return response
 
     async def stream_chat(
         self,
@@ -535,10 +456,11 @@ class ChatManager:
         presence_penalty: float | None = None,
         history: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[str]:
-        """Stream chat response token by token."""
+        """Stream response tokens. History is prompt data; caller owns persistence."""
         meta = metadata or {}
         trace_id = meta.get("trace_id")
         start = time.perf_counter()
+
         logger.info(
             "Stream request",
             extra={
@@ -547,35 +469,18 @@ class ChatManager:
                 "msg_len": len(message),
             },
         )
-
-        # Load history once for both condensation and message building
-        if history is not None:
-            history_local: list[dict[str, Any]] = list(history)
-        elif self.storage:
-            try:
-                history_local = await self.storage.get_history(
-                    conversation_id,
-                    limit=self.history_limit,
-                    offset=0,
-                )
-            except Exception as exc:
-                logger.warning("History load failed", extra={"error": str(exc)})
-                history_local = []
-        else:
-            history_local = []
-
+        # History is prompt data only — persistence lives in the handler layer.
+        history_local: list[dict[str, Any]] = list(history or [])
         (
             prompt_for_llm,
-            original_query,
+            _original_query,
             namespace,
             rag_chunks,
         ) = await self._retrieve_context(
             message, history=history_local, trace_id=trace_id
         )
-
         messages = await self._build_messages(
             prompt_for_llm,
-            conversation_id,
             history=history_local,
             metadata=meta,
         )
@@ -620,30 +525,7 @@ class ChatManager:
                 "chunks_used": len(rag_chunks),
             },
         )
-
         # Yield sources block so the client sees them in the stream
         sources_text = self._append_rag_sources(full_response, rag_chunks)
         if sources_text != full_response:
             yield sources_text[len(full_response) :]
-
-        # Save to history after streaming completes
-        if self.storage and history is None:
-            try:
-                await self.storage.save_message(
-                    conversation_id,
-                    {
-                        "role": "user",
-                        "content": original_query,
-                        "metadata": meta,
-                    },
-                )
-                await self.storage.save_message(
-                    conversation_id,
-                    {
-                        "role": "assistant",
-                        "content": self._append_rag_sources(full_response, rag_chunks),
-                        "metadata": {},
-                    },
-                )
-            except Exception as exc:
-                logger.warning("History save failed", extra={"error": str(exc)})

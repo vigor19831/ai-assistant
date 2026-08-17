@@ -1,5 +1,4 @@
 """Chat feature HTTP handlers."""
-
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +6,7 @@ import json
 import time
 import uuid
 from contextlib import suppress
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -16,6 +15,7 @@ from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG, AdapterError
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
 from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.chat.schemas import (
     ChatRequest,
@@ -31,6 +31,8 @@ from ai_assistant.features.chat.schemas import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from ai_assistant.core.ports.storage import IChatStorage
 
 __all__ = ["router", "router_oai"]
 
@@ -52,8 +54,6 @@ def get_chat_manager(
     return ChatManager(
         llm=state.llm,
         reranker=state.reranker,
-        storage=state.storage,
-        history_limit=state.config.chat.history_limit,
         max_context_tokens=state.config.chat.max_context_tokens,
         embedder=state.embedder,
         vector_store=state.vector_store,
@@ -76,8 +76,34 @@ def get_chat_manager(
 
 _logger = get_logger("chat.handlers")
 
+
+async def _save_exchange(
+    storage: IChatStorage,
+    conversation_id: str,
+    user_content: str,
+    assistant_content: str,
+    user_metadata: dict[str, Any],
+) -> None:
+    """Persist a user/assistant message pair. Never raises."""
+    try:
+        await storage.save_message(
+            conversation_id,
+            {"role": "user", "content": user_content, "metadata": user_metadata},
+        )
+        await storage.save_message(
+            conversation_id,
+            {"role": "assistant", "content": assistant_content, "metadata": {}},
+        )
+    except Exception:
+        _logger.warning(
+            "History save failed",
+            extra={"conversation_id": conversation_id},
+        )
+
+
 router = APIRouter(tags=["chat"])
 router_oai = APIRouter(tags=["chat-oai"])
+
 
 # --- Heartbeat helper -------------------------------------------------------
 
@@ -104,29 +130,23 @@ async def _stream_with_heartbeat(
     task = asyncio.create_task(_producer())
     loop = asyncio.get_running_loop()
     last_activity = loop.time()
-
     try:
         while True:
             elapsed = loop.time() - last_activity
             timeout = max(0.1, interval - elapsed)
-
             try:
                 item = await asyncio.wait_for(queue.get(), timeout=timeout)
             except TimeoutError:
                 yield ": ping\n\n"
                 last_activity = loop.time()
                 continue
-
             if item is None:
                 yield "data: [DONE]\n\n"
                 return
-
             if isinstance(item, (Exception, asyncio.CancelledError)):
                 raise item
-
             yield f"data: {item}\n\n"
             last_activity = loop.time()
-
     finally:
         task.cancel()
         with suppress(asyncio.CancelledError):
@@ -140,6 +160,7 @@ async def _stream_with_heartbeat(
 async def chat(
     req: ChatRequest,
     manager: Annotated[ChatManager, Depends(get_chat_manager)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> ChatResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -147,11 +168,25 @@ async def chat(
         "Chat handler start",
         extra={"trace_id": trace_id, "conversation_id": conv_id},
     )
+    # Persistence lives in the handler: load history, generate, save exchange.
+    prefix_map = build_prefix_map(state.config.namespaces)
+    user_content, _ns = parse_rag_query(req.message, prefix_map)
+    try:
+        history = await state.storage.get_history(
+            conv_id, limit=state.config.chat.history_limit, offset=0
+        )
+    except Exception:
+        _logger.warning(
+            "History load failed",
+            extra={"trace_id": trace_id, "conversation_id": conv_id},
+        )
+        history = []
     try:
         response = await manager.chat(
             message=req.message,
             conversation_id=conv_id,
             metadata={**req.metadata, "trace_id": trace_id},
+            history=history,
         )
     except AdapterError as exc:
         _logger.warning(
@@ -164,6 +199,13 @@ async def chat(
     except Exception:
         _logger.exception("Chat failed", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Internal server error") from None
+    await _save_exchange(
+        state.storage,
+        conv_id,
+        user_content,
+        response.text or "",
+        {**req.metadata, "trace_id": trace_id},
+    )
     _logger.info(
         "Chat handler done",
         extra={"trace_id": trace_id, "conversation_id": conv_id},
@@ -179,6 +221,7 @@ async def chat(
 async def chat_stream(
     req: ChatRequest,
     manager: Annotated[ChatManager, Depends(get_chat_manager)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> StreamingResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
@@ -186,14 +229,29 @@ async def chat_stream(
         "Chat stream handler start",
         extra={"trace_id": trace_id, "conversation_id": conv_id},
     )
+    prefix_map = build_prefix_map(state.config.namespaces)
+    user_content, _ns = parse_rag_query(req.message, prefix_map)
+    try:
+        history = await state.storage.get_history(
+            conv_id, limit=state.config.chat.history_limit, offset=0
+        )
+    except Exception:
+        _logger.warning(
+            "History load failed",
+            extra={"trace_id": trace_id, "conversation_id": conv_id},
+        )
+        history = []
 
     async def _llm_stream() -> AsyncIterator[str]:
+        full_text = ""
         try:
             async for chunk in manager.stream_chat(
                 message=req.message,
                 conversation_id=conv_id,
                 metadata={**req.metadata, "trace_id": trace_id},
+                history=history,
             ):
+                full_text += chunk
                 yield chunk
         except AdapterError as exc:
             _logger.warning(
@@ -204,6 +262,13 @@ async def chat_stream(
         except Exception:
             _logger.exception("Stream failed", extra={"trace_id": trace_id})
             raise
+        await _save_exchange(
+            state.storage,
+            conv_id,
+            user_content,
+            full_text,
+            {**req.metadata, "trace_id": trace_id},
+        )
 
     async def event_generator() -> AsyncIterator[str]:
         try:
@@ -259,8 +324,7 @@ async def openai_chat_completions(
         for i, m in enumerate(req.messages)
         if m.content is not None and i != last_user_idx
     ]
-
-    conv_id = str(uuid.uuid4())
+    conv_id = req.conversation_id or str(uuid.uuid4())
     trace_id = uuid.uuid4().hex
     _logger.info(
         "OpenAI handler start",
@@ -269,8 +333,8 @@ async def openai_chat_completions(
     model_id = req.model if req.model is not None else state.config.llm.model
 
     if req.stream:
-
         async def _llm_stream() -> AsyncIterator[str]:
+            full_text = ""
             try:
                 async for chunk in manager.stream_chat(
                     message=last_user_msg,
@@ -284,6 +348,7 @@ async def openai_chat_completions(
                     presence_penalty=req.presence_penalty,
                     history=oai_history,
                 ):
+                    full_text += chunk
                     delta = OAIDeltaChunk(
                         model=model_id,
                         choices=[
@@ -304,6 +369,14 @@ async def openai_chat_completions(
             except Exception:
                 _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 raise
+            if req.conversation_id:
+                await _save_exchange(
+                    state.storage,
+                    conv_id,
+                    last_user_msg,
+                    full_text,
+                    {"trace_id": trace_id},
+                )
 
         async def event_generator() -> AsyncIterator[str]:
             try:
@@ -344,7 +417,14 @@ async def openai_chat_completions(
     except Exception:
         _logger.exception("OpenAI chat failed", extra={"trace_id": trace_id})
         raise HTTPException(status_code=500, detail="Internal server error") from None
-
+    if req.conversation_id:
+        await _save_exchange(
+            state.storage,
+            conv_id,
+            last_user_msg,
+            response.text or "",
+            {"trace_id": trace_id},
+        )
     _logger.info(
         "OpenAI handler done",
         extra={"trace_id": trace_id, "conversation_id": conv_id},

@@ -2056,3 +2056,63 @@ class TestAPIImports:
         assert _lifespan is not None
         assert _router is not None
         assert _security is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TestChatPersistence
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestChatPersistence:
+    """Contract tests for chat handler persistence (storage moved from ChatManager)."""
+
+    def test_legacy_chat_loads_history_from_storage(self, client, isolated_app_state):
+        """Given: legacy /api/v1/chat endpoint.
+        When: POST request is made.
+        Then: storage.get_history is called to load conversation history.
+        """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
+        resp = client.post(
+            "/api/v1/chat",
+            json={"message": "hello"},
+            headers={"Authorization": "Bearer test-key"},
+        )
+        assert resp.status_code == 200
+        isolated_app_state.storage.get_history.assert_awaited_once()
+        assert isolated_app_state.storage.save_message.await_count == 2
+
+    def test_openai_chat_persists_when_conversation_id_set(self, client, isolated_app_state):
+        """Given: OpenAI /v1/chat/completions endpoint with conversation_id.
+        When: POST request is made.
+        Then: storage.save_message is called twice (user + assistant).
+        """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "hello"}],
+                "conversation_id": "conv-123",
+            },
+            headers={"Authorization": "Bearer test-key"},
+        )
+        assert resp.status_code == 200
+        assert isolated_app_state.storage.save_message.await_count == 2
+        isolated_app_state.storage.get_history.assert_not_awaited()
+
+    def test_openai_chat_stateless_without_conversation_id(self, client, isolated_app_state):
+        """Given: OpenAI /v1/chat/completions endpoint without conversation_id.
+        When: POST request is made.
+        Then: storage.save_message is NOT called (stateless mode).
+        """
+        from ai_assistant.api.security import set_api_key
+        set_api_key("test-key")
+        resp = client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hello"}]},
+            headers={"Authorization": "Bearer test-key"},
+        )
+        assert resp.status_code == 200
+        isolated_app_state.storage.save_message.assert_not_awaited()
+        isolated_app_state.storage.get_history.assert_not_awaited()

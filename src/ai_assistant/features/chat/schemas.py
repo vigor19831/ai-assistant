@@ -1,5 +1,4 @@
 """Chat feature Pydantic schemas."""
-
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,6 +29,7 @@ class ChatResponse(BaseModel):
 
 class OAIChatMessage(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
     role: str
     content: str | None = None
     name: str | None = None
@@ -37,6 +37,7 @@ class OAIChatMessage(BaseModel):
 
 class OAIChatCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
     model: str | None = None
     messages: list[OAIChatMessage] = Field(min_length=1)
     stream: bool = False
@@ -47,6 +48,10 @@ class OAIChatCompletionRequest(BaseModel):
     frequency_penalty: float | None = None
     presence_penalty: float | None = None
     user: str | None = None
+    conversation_id: str | None = Field(
+        default=None,
+        description="Optional thread ID; when set, the exchange is persisted",
+    )
 
 
 class OAIChoice(BaseModel):

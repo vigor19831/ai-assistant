@@ -5,7 +5,6 @@ prefix routing, source formatting, graceful degradation.
 Design: Given/When/Then docstrings, one function per test case.
 Public API only — no private method assertions.
 """
-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,13 +26,13 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.llm import ILLM
-from ai_assistant.core.ports.storage import IChatStorage
 from ai_assistant.features.chat.manager import ChatManager
 
 logger = get_logger(__name__)
 
 
 # ── Helpers ──
+
 
 class _AsyncIter:
     """Helper to create an async iterator from a list for mocking."""
@@ -60,6 +59,7 @@ def async_iter(items: list[str]):
 
 # ── Fixtures ──
 
+
 @pytest.fixture
 def chat_manager_with_rag():
     """Given: ChatManager with full RAG pipeline configured."""
@@ -84,7 +84,6 @@ def chat_manager_with_rag():
         embedder=embedder,
         vector_store=store,
         reranker=NullReranker(RerankerConfigData()),
-        storage=None,
         namespaces=namespaces,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
@@ -104,29 +103,19 @@ def manager_no_rag():
         embedder=None,
         vector_store=None,
         reranker=NullReranker(RerankerConfigData()),
-        storage=None,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
 @pytest.fixture
 def manager_with_storage():
-    """Given: ChatManager with mocked storage."""
-    mock_storage = MagicMock(spec=IChatStorage)
-    mock_storage.get_history = AsyncMock(
-        return_value=[
-            {"role": "user", "content": "Previous question"},
-            {"role": "assistant", "content": "Previous answer"},
-        ]
-    )
+    """Given: ChatManager configured for history tests."""
     mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 4096
     mock_llm.system_message = None
     return ChatManager(
         llm=mock_llm,
         reranker=NullReranker(RerankerConfigData()),
-        storage=mock_storage,
-        history_limit=10,
         max_context_tokens=None,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
@@ -134,9 +123,7 @@ def manager_with_storage():
 
 @pytest.fixture
 def manager_with_tokenizer_and_storage():
-    """Given: ChatManager with tokenizer, storage and small token budget."""
-    mock_storage = MagicMock(spec=IChatStorage)
-    mock_storage.get_history = AsyncMock(return_value=[])
+    """Given: ChatManager with tokenizer and small token budget."""
     mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 100
     mock_llm.system_message = "System prompt"
@@ -144,17 +131,13 @@ def manager_with_tokenizer_and_storage():
         llm=mock_llm,
         reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=100,
-        history_limit=10,
-        storage=mock_storage,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
 
 @pytest.fixture
 def manager_with_fallback_tokenizer_and_storage():
-    """Given: ChatManager with fallback tokenizer and count-based limit."""
-    mock_storage = MagicMock(spec=IChatStorage)
-    mock_storage.get_history = AsyncMock(return_value=[])
+    """Given: ChatManager with fallback tokenizer and no context limit."""
     mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = None
     mock_llm.system_message = None
@@ -162,8 +145,6 @@ def manager_with_fallback_tokenizer_and_storage():
         llm=mock_llm,
         reranker=NullReranker(RerankerConfigData()),
         max_context_tokens=None,
-        history_limit=3,
-        storage=mock_storage,
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
 
@@ -179,7 +160,6 @@ def prefix_manager():
         embedder=None,
         vector_store=None,
         reranker=NullReranker(RerankerConfigData()),
-        storage=None,
         namespaces={
             "test": NamespaceConfig(prefix="t"),
             "test-alt": NamespaceConfig(prefix="a"),
@@ -391,7 +371,6 @@ class TestChatRAG:
             embedder=None,
             vector_store=MagicMock(),
             reranker=NullReranker(RerankerConfigData()),
-            storage=None,
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
@@ -416,7 +395,6 @@ class TestChatRAG:
             embedder=MagicMock(),
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
-            storage=None,
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
@@ -479,7 +457,6 @@ class TestChatRAG:
             embedder=embedder,
             vector_store=store,
             reranker=NullReranker(RerankerConfigData()),
-            storage=None,
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
@@ -509,9 +486,9 @@ class TestChatRAG:
 
 
 class TestChatHistory:
-    """Given: ChatManager with storage-backed history.
+    """Given: ChatManager with history passed explicitly.
     When: chat() is called.
-    Then: history is loaded, ordered, and trimmed correctly.
+    Then: history is ordered and trimmed correctly.
     """
 
     @pytest.mark.asyncio
@@ -531,14 +508,18 @@ class TestChatHistory:
 
     @pytest.mark.asyncio
     async def test_build_messages_with_history(self, manager_with_storage):
-        """Given: ChatManager with storage containing history.
+        """Given: ChatManager with history passed explicitly.
         When: chat() is called.
         Then: history is prepended in chronological order.
         """
         manager_with_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_storage.chat("Hello", "conv-1")
+        history = [
+            {"role": "user", "content": "Previous question"},
+            {"role": "assistant", "content": "Previous answer"},
+        ]
+        await manager_with_storage.chat("Hello", "conv-1", history=history)
         messages = manager_with_storage.llm.complete.call_args[0][0]
         assert len(messages) == 3
         assert isinstance(messages[0], UserMessage)
@@ -572,24 +553,11 @@ class TestChatHistory:
         manager_with_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_storage.chat("Hello", "conv-1")
-        messages = manager_with_storage.llm.complete.call_args[0][0]
-        assert len(messages) == 1
-        assert messages[0].text == "Hello"
-
-    @pytest.mark.asyncio
-    async def test_build_messages_history_load_failure(self, manager_with_storage):
-        """Given: storage that raises on get_history.
-        When: chat() is called.
-        Then: graceful fallback returns just user message to LLM.
-        """
-        manager_with_storage.storage.get_history = AsyncMock(
-            side_effect=Exception("DB error")
-        )
-        manager_with_storage.llm.complete = AsyncMock(
-            return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
-        )
-        await manager_with_storage.chat("Hello", "conv-1")
+        history = [
+            {"role": "user", "content": "Previous question"},
+            {"role": "assistant", "content": "Previous answer"},
+        ]
+        await manager_with_storage.chat("Hello", "conv-1", history=history)
         messages = manager_with_storage.llm.complete.call_args[0][0]
         assert len(messages) == 1
         assert messages[0].text == "Hello"
@@ -682,7 +650,6 @@ class TestChatGracefulDegradation:
             embedder=None,
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
-            storage=None,
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
@@ -736,7 +703,6 @@ class TestChatGracefulDegradation:
             embedder=None,
             vector_store=None,
             reranker=NullReranker(RerankerConfigData()),
-            storage=None,
             namespaces={"personal": NamespaceConfig(prefix="p")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
@@ -1384,13 +1350,10 @@ class TestChatHistoryTrimming:
             {"role": "user", "content": "C" * 100},
             {"role": "assistant", "content": "D" * 100},
         ]
-        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=history
-        )
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat("Current question", "conv-1")
+        await manager_with_tokenizer_and_storage.chat("Current question", "conv-1", history=history)
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         texts = [m.text for m in messages]
         assert "A" * 100 not in texts
@@ -1408,13 +1371,11 @@ class TestChatHistoryTrimming:
         Then: only current message is sent to LLM.
         """
         long_msg = "x" * 500
-        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=[{"role": "user", "content": "old"}]
-        )
+        history = [{"role": "user", "content": "old"}]
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat(long_msg, "conv-1")
+        await manager_with_tokenizer_and_storage.chat(long_msg, "conv-1", history=history)
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         assert len(messages) == 1
         assert messages[0].text == long_msg
@@ -1425,7 +1386,7 @@ class TestChatHistoryTrimming:
     ):
         """Given: no tokenizer available (no context limit).
         When: chat() is called.
-        Then: simple count-based fallback is used.
+        Then: history is returned unchanged as caller controls length.
         """
         history = [
             {"role": "user", "content": "1"},
@@ -1434,16 +1395,14 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "4"},
             {"role": "user", "content": "5"},
         ]
-        manager_with_fallback_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=history
-        )
         manager_with_fallback_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_fallback_tokenizer_and_storage.chat("q", "conv-1")
+        await manager_with_fallback_tokenizer_and_storage.chat("q", "conv-1", history=history)
         call_args = manager_with_fallback_tokenizer_and_storage.llm.complete.call_args
         messages = call_args[0][0]
-        assert len(messages) <= 3
+        # 5 history + 1 current = 6 messages
+        assert len(messages) == 6
 
     @pytest.mark.asyncio
     async def test_preserves_chronological_order(
@@ -1458,13 +1417,10 @@ class TestChatHistoryTrimming:
             {"role": "assistant", "content": "Second"},
             {"role": "user", "content": "Third"},
         ]
-        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=history
-        )
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat("q", "conv-1")
+        await manager_with_tokenizer_and_storage.chat("q", "conv-1", history=history)
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         history_texts = [h["content"] for h in history]
         msg_texts = [m.text for m in messages[:-1]]
@@ -1479,13 +1435,10 @@ class TestChatHistoryTrimming:
         When: chat() is called.
         Then: only current message is sent to LLM.
         """
-        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=[]
-        )
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat("hi", "conv-1")
+        await manager_with_tokenizer_and_storage.chat("hi", "conv-1", history=[])
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         assert len(messages) == 1
         assert messages[0].text == "hi"
@@ -1496,13 +1449,11 @@ class TestChatHistoryTrimming:
         When: chat() is called.
         Then: message is preserved in LLM call.
         """
-        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=[{"role": "user", "content": "hello"}]
-        )
+        history = [{"role": "user", "content": "hello"}]
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat("hi", "conv-1")
+        await manager_with_tokenizer_and_storage.chat("hi", "conv-1", history=history)
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         assert len(messages) == 2
         assert messages[0].text == "hello"
@@ -1515,81 +1466,70 @@ class TestChatHistoryTrimming:
         When: chat() is called.
         Then: system message tokens are reserved from budget.
         """
-        manager_with_tokenizer_and_storage.storage.get_history = AsyncMock(
-            return_value=[{"role": "user", "content": "x" * 200}]
-        )
+        history = [{"role": "user", "content": "x" * 200}]
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat("q", "conv-1")
+        await manager_with_tokenizer_and_storage.chat("q", "conv-1", history=history)
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         assert len(messages) <= 2
 
     @pytest.mark.asyncio
     async def test_no_llm_config_fallback(self):
-        """Given: LLM with no context limit.
-        When: chat() is called with max_context_tokens set.
-        Then: falls back to history_limit.
+        """Given: LLM with no context limit but max_context_tokens set.
+        When: chat() is called with history.
+        Then: falls back to max_context_tokens for trimming.
         """
         mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = None
         mock_llm.system_message = None
-        mock_storage = MagicMock(spec=IChatStorage)
-        mock_storage.get_history = AsyncMock(
-            return_value=[
-                {"role": "user", "content": "1"},
-                {"role": "assistant", "content": "2"},
-                {"role": "user", "content": "3"},
-            ]
-        )
+        history = [
+            {"role": "user", "content": "1"},
+            {"role": "assistant", "content": "2"},
+            {"role": "user", "content": "3"},
+        ]
         manager = ChatManager(
             llm=mock_llm,
             reranker=NullReranker(RerankerConfigData()),
             max_context_tokens=50,
-            history_limit=2,
-            storage=mock_storage,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         manager.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager.chat("q", "conv-1")
+        await manager.chat("q", "conv-1", history=history)
         messages = manager.llm.complete.call_args[0][0]
-        assert len(messages) <= 2
+        assert len(messages) <= 3
 
     @pytest.mark.asyncio
-    async def test_trim_history_uses_count_fallback_when_budget_is_none(self):
-        """When get_context_limit() returns None, use history_limit.
+    async def test_no_budget_returns_history_unchanged(self):
+        """When get_context_limit() returns None and no max_context_tokens,
+        history is returned unchanged (caller controls length).
         """
         mock_llm = MagicMock(spec=ILLM)
         mock_llm.get_context_limit.return_value = None
         mock_llm.system_message = None
-        mock_storage = MagicMock(spec=IChatStorage)
-        mock_storage.get_history = AsyncMock(
-            return_value=[
-                {"role": "user", "content": "msg1"},
-                {"role": "user", "content": "msg2"},
-                {"role": "user", "content": "msg3"},
-                {"role": "user", "content": "msg4"},
-                {"role": "user", "content": "msg5"},
-            ]
-        )
+        history = [
+            {"role": "user", "content": "msg1"},
+            {"role": "user", "content": "msg2"},
+            {"role": "user", "content": "msg3"},
+            {"role": "user", "content": "msg4"},
+            {"role": "user", "content": "msg5"},
+        ]
         manager = ChatManager(
             llm=mock_llm,
             reranker=NullReranker(RerankerConfigData()),
-            storage=mock_storage,
-            history_limit=3,
             max_context_tokens=None,
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
         manager.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager.chat("current", "conv-1")
+        await manager.chat("current", "conv-1", history=history)
         messages = manager.llm.complete.call_args[0][0]
-        assert len(messages) == 3
-        assert messages[0].text == "msg4"
-        assert messages[1].text == "msg5"
+        assert len(messages) == 6
+        assert messages[0].text == "msg1"
+        assert messages[1].text == "msg2"
         assert messages[-1].text == "current"
 
 
@@ -1604,7 +1544,6 @@ async def test_get_chat_manager_passes_rag_steps():
     state = MagicMock()
     state.config.rag.steps = [RAGStep.CONDENSE_QUESTION, RAGStep.GENERATE]
     state.config.llm.system_message = None
-    state.config.chat.history_limit = 5
     state.config.chat.max_context_tokens = 1000
     state.config.rag.top_k = 3
     state.config.rag.token_margin_min = 100
@@ -1613,7 +1552,6 @@ async def test_get_chat_manager_passes_rag_steps():
     state.config.namespaces = {}
     state.llm = MagicMock()
     state.reranker = MagicMock()
-    state.storage = MagicMock()
     state.embedder = MagicMock()
     state.vector_store = MagicMock()
     state.tokenizer = MagicMock()
