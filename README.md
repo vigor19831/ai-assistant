@@ -8,6 +8,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
 **Solo-maintained. Published as-is.**
+**Created with AI assistance by a non-professional programmer.**
 
 ---
 
@@ -203,19 +204,58 @@ python scripts/check_rag.py
 ## Project Structure
 
 ```
-.
-├── src/ai_assistant/     # Application code
-│   ├── core/             # Domain, ports, config
-│   ├── adapters/         # LLM, embedder, reranker, vector store
-│   ├── features/         # Chat, RAG
-│   └── api/              # FastAPI routes, middleware
-├── tests/                # 870+ tests
-├── scripts/              # check_all.py, check_rag.py, etc.
-├── vendor/               # External binaries and models
-├── config.yaml           # Your personal config (git-ignored)
-├── config.example.yaml   # Template in repo
-└── pyproject.toml        # Dependencies and tool settings
+ai-assistant/
+├── config.yaml ← Your personal configuration (git-ignored)
+├── config.example.yaml ← Configuration template
+├── pyproject.toml ← Dependencies and tooling
+├── run_servers.py ← Starts LLM, embedder, reranker, API servers
+├── run_servers.yaml ← Server launch configuration
+├── src/ ← Application source code
+├── tests/ ← 850+ tests
+├── scripts/ ← Utility scripts
+├── docs/ ← Architecture and rules documentation
+├── data/ ← Runtime data (git-ignored, auto-created)
+├── vendor/ ← External binaries and models (git-ignored)
+└── ui/ ← Static web interface
 ```
+
+### Directory Descriptions
+
+| Directory | Purpose | Auto-created? |
+|-----------|---------|---------------|
+| `src/ai_assistant/` | Application code: `core/` (domain, ports), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes) | No |
+| `tests/` | 870+ tests covering contracts, edge cases, integration, e2e | No |
+| `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `index_documents.py` (manual indexing) | No |
+| `docs/` | `ai_rules.md` (AI constraints), `architecture.md` (strategy + RAG philosophy), `drift.md` (known compromises) | No |
+| `data/` | Runtime data: `indices/` (FAISS vector indices per namespace), `storage.db` (SQLite chat history), `documents/` (your docs for RAG), `tokenizers/` (downloaded tokenizer files), `app.log` (application log) | Yes (on first run) |
+| `data/documents/` | Your `.md` / `.txt` files for RAG. Auto-indexed every 60s when server is running | You create it |
+| `data/indices/` | FAISS vector indices. One subdirectory per namespace | Yes (on first index) |
+| `data/tokenizers/` | Downloaded tokenizer files. Run `scripts/download_tokenizers.py` to populate | Yes (via script) |
+| `vendor/llama/` | `llama-server` binary. Download from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) | You provide it |
+| `vendor/models/` | GGUF model files: LLM (~4.5GB), embedder (~1.2GB), reranker (~0.5GB) | You provide it |
+| `ui/` | Static web interface served at `/ui` | No |
+| `config.yaml` | Your personal settings: models, API endpoints, GPU layers. Copy from `config.example.yaml` and edit | You create it |
+
+### What You Must Provide
+
+After cloning the repo:
+
+1. **`config.yaml`** — `cp config.example.yaml config.yaml`, then edit:
+   - `llm.model`, `embedder.model`, `reranker.model` — your GGUF filenames
+   - `llm.api_base`, `embedder.api_base`, `reranker.api_base` — server URLs
+   - `llm.n_gpu_layers` — adjust for your VRAM (0 = CPU, 20-30 = partial GPU, 999 = full GPU)
+   - `rag.sources` — path to your documents folder
+
+2. **`vendor/llama/llama-server`** — download from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) or build from source.
+
+3. **`vendor/models/*.gguf`** — download GGUF models:
+   - LLM: Qwen2.5-7B-Instruct IQ4_XS (~4.5GB) or larger
+   - Embedder: bge-m3 (~1.2GB)
+   - Reranker: bge-reranker-v2-m3 (~0.5GB)
+
+4. **`data/documents/`** — create this folder and put your `.md` / `.txt` files here. They auto-index when the server starts.
+
+Everything else (`data/indices/`, `data/storage.db`, `data/tokenizers/`) is created automatically on first run.
 
 ---
 
