@@ -1,144 +1,202 @@
 # AI Assistant
 
-Local AI assistant framework. FastAPI + RAG with namespaces.
-Offline-first, OpenAI-compatible LLM/embedder adapters.
+Production-grade offline RAG framework for solo maintainers.
+
+- **Offline-first**: works without cloud, your data never leaves your machine
+- **Namespace isolation**: separate knowledge bases that never cross-contaminate
+- **Measured quality**: 17/17 contract tests pass on 4GB VRAM hardware
+- **10-year maintainability**: boring code, explicit architecture, no magic
 
 **Solo-maintained. Published as-is.**
 
 ---
 
-## Requirements
+## RAG Capabilities
 
-- Python 3.11+
-- llama.cpp server or any OpenAI-compatible API
-- GGUF models (LLM required; embedder and reranker optional)
+### Retrieval
+
+- **Multi-query retrieval**: generates 2 query variations via LLM, retrieves for each, deduplicates — better recall for synonyms and rephrasings.
+- **HyDE (Hypothetical Document Embedding)**: generates hypothetical answer, embeds it, retrieves by that embedding.
+- **Recursive chunking**: splits by paragraphs → sentences → words, preserves context boundaries.
+- **Namespace isolation**: each namespace is a separate knowledge base, no cross-contamination.
+
+### Ranking
+
+- **Cross-encoder reranking**: `bge-reranker-v2-m3` reorders candidates by relevance (rank-only, no threshold filtering).
+- **Top-k selection**: configurable number of chunks to include in context.
+
+### Generation
+
+- **Condense question**: rewrites follow-up questions using chat history for multi-turn conversations.
+- **Token budget management**: adaptive margin based on context window size.
+- **Source citation**: every answer includes `[Document N]` references.
+- **Conflict detection**: reports contradictions instead of silently choosing one.
+
+### Quality Assurance
+
+- **43 automated tests** via `check_rag.py` — single source of truth for RAG quality.
+- **17 contract tests** (must pass on any hardware).
+- **26 future capability tests** (quality depends on LLM size).
+- **Hardware Ceiling Log**: honest documentation of what works on your GPU.
+
+---
+
+## Quality Assurance
+
+Every release is validated against `check_rag.py` — a 43-test benchmark covering retrieval, ranking, generation, and edge cases.
+
+### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 4GB VRAM)
+
+```
+CONTRACT: 17/17 passed
+CHAT PREFIX E2E: 7/9 passed
+  CHAT CONTRACT: 2/2 passed
+  CHAT FUTURE: 5/7 passed
+KNOWN LIMITATIONS TRIGGERED: 9
+FUTURE CAPABILITIES: 17/26 passed
+```
+
+### What Contract Tests Verify
+
+- Direct retrieval with source citation.
+- Cross-namespace isolation (no data leakage).
+- Semantic synonym retrieval ("hue" → "color").
+- Multi-hop reasoning (favorite color → programming language).
+- Conflict detection (contradictory documents).
+- Cross-lingual retrieval (English query → Russian document).
+- Prompt injection resistance.
+- Token budget truncation.
+- Empty query and invalid namespace handling.
+
+### Known Limitations (Hardware-Dependent)
+
+9 tests fail on 4GB VRAM due to LLM size, not code quality:
+
+- Noise rejection (weak models include irrelevant chunks).
+- Multi-turn follow-up resolution (requires better context understanding).
+- Open synthesis from multiple chunks (requires larger context window).
+
+**Expected fix**: LLM upgrade to Qwen2.5-14B or DeepSeek-R1-Distill-Qwen-7B. No pipeline changes required.
+
+---
+
+## Hardware Requirements
+
+### Minimum (4GB VRAM)
+
+| Component | Value |
+|-----------|-------|
+| GPU | GTX 1650 or equivalent (4GB VRAM) |
+| RAM | 16GB |
+| LLM | Qwen2.5-7B-Instruct IQ4_XS (~4.5GB, partial GPU offload) |
+| Embedder | bge-m3 (CPU or GPU) |
+| Reranker | bge-reranker-v2-m3 (CPU) |
+| Performance | 5–10 tok/s, 3–6 seconds per query |
+
+### Recommended (8GB+ VRAM)
+
+| Component | Value |
+|-----------|-------|
+| GPU | RTX 3060 or better (8GB+ VRAM) |
+| LLM | Qwen2.5-14B-Instruct Q4_K_M (~9GB, full GPU offload) |
+| Performance | 20–30 tok/s, 1–2 seconds per query |
+
+### Hardware Ceiling Log
+
+| Date | Hardware | LLM | Result | Limitation |
+|------|----------|-----|--------|------------|
+| 2026-08-14 | GTX 1650 4GB | Qwen2.5-7B IQ4_XS | 17/17 PASS + 9 known limitations | multihop, noise rejection require ≥8B params |
+| 2026-08-12 | GTX 1650 4GB | Qwen3-4B Q5_K_M | 13/17 PASS + 12 known limitations | 4B weaker than 7B on RAG tasks |
+| 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require ≥8B params |
+
+**Key insight**: RAG quality is bottlenecked by LLM instruction discipline, not retrieval quality. A 7–8B model scores 16/17 where a 4B model scores 13/17 on the same retrieval.
 
 ---
 
 ## Quick Start
 
-### 1. Clone and enter project
+**Prerequisites**: Python 3.11+, `llama-server` (see [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases)), GGUF models.
 
 ```bash
-git clone <repo-url> ai-assistant
-cd ai-assistant
-```
-
-### 2. Create virtual environment
-
-**Linux/macOS:**
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
-
-**Windows:**
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-```
-
-### 3. Install dependencies
-
-```bash
+git clone <repo-url> ai-assistant && cd ai-assistant
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
 pip install -e ".[dev,faiss]"
-```
-
-### 4. Install llama.cpp
-
-**Option A: Pre-built binaries (recommended)**
-
-Download the latest release for your OS from [llama.cpp GitHub Releases](https://github.com/ggerganov/llama.cpp/releases) and extract `llama-server` (and `llama-cli` if needed) into the project:
-
-```bash
-mkdir -p vendor/llama
-# Linux/macOS: copy extracted binaries
-cp /path/to/downloaded/llama-server vendor/llama/
-cp /path/to/downloaded/llama-cli vendor/llama/ 2>/dev/null
-# Windows: extract zip to vendor\llama\
-```
-
-**Option B: Build from source (GPU support, latest features)**
-
-*Linux/macOS:*
-```bash
-mkdir -p vendor && cd vendor
-git clone --depth 1 https://github.com/ggerganov/llama.cpp.git llama_source
-cd llama_source && mkdir build && cd build
-cmake .. -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
-cmake --build . -j8 --config Release
-mkdir -p ../../llama
-cp bin/llama-server bin/llama-cli ../../llama/
-cd ../.. && rm -rf llama_source
-```
-
-*Windows (PowerShell):*
-```powershell
-mkdir -p vendor; cd vendor
-git clone --depth 1 https://github.com/ggerganov/llama.cpp.git llama_source
-cd llama_source; mkdir build; cd build
-cmake .. -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
-cmake --build . -j8 --config Release
-mkdir -p ../../llama
-cp bin/Release/llama-server.exe bin/Release/llama-cli.exe ../../llama/
-cd ../..; rm -rf llama_source
-```
-
-> **GPU support:** change `-DGGML_CUDA=OFF` to `ON`. Requires CUDA Toolkit (`sudo pacman -S cuda` on Arch, `sudo apt install nvidia-cuda-toolkit` on Ubuntu).
-
-### 5. Configure
-
-```bash
 cp config.example.yaml config.yaml
-```
-
-Edit `config.yaml`:
-- Set `llm.model` to your GGUF filename (e.g., `Qwen3-4B-Instruct-IQ4_XS`)
-- Set `embedder.model` to your embedding GGUF filename
-- Adjust `n_gpu_layers` for your hardware (0 = CPU only, 20-30 = partial GPU offload, 999 = all layers on GPU)
-
-### 6. Download models
-
-Place `.gguf` files in `vendor/models/`.
-
-Recommended starter: **Qwen3-4B-Instruct** (Q5_K_M, ~3 GB, passes 13/17 RAG tests on 4 GB VRAM).
-
-### 7. Download tokenizers
-
-```bash
+# Edit config.yaml: set llm.model, embedder.model, reranker.model, n_gpu_layers
 python scripts/download_tokenizers.py
-```
-
-### 8. Start servers
-
-```bash
 python run_servers.py
 ```
 
 Open http://localhost:8000/ui.
 
-### 9. Verify
+For GPU support and build-from-source instructions, see the [llama.cpp documentation](https://github.com/ggerganov/llama.cpp#build).
+
+---
+
+## API Examples
+
+### OpenAI-compatible chat
 
 ```bash
-python scripts/check_all.py
+curl -X POST http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+### RAG query (native)
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer local" \
+  -d '{"query":"[d] what is the architecture?"}'
 ```
 
 ---
 
-## Updating llama.cpp
+## Configuration
 
-**Pre-built:** download the latest release again and copy binaries to `vendor/llama/`.
+| Section | Purpose |
+|---------|---------|
+| `llm` | Model, API endpoint, sampling, GPU layers, context size |
+| `embedder` | Embedding model, dimension, GPU layers |
+| `reranker` | Reranker model and provider (`local` or `api`) |
+| `vector_store` | FAISS or memory, index path, dimension |
+| `rag` | Pipeline steps, top_k, sources, token margin |
+| `namespaces` | Per-namespace prefix, chunk size, prompt template |
+| `security` | API key, admin endpoints, body size limits |
+| `tokenizer` | Provider (`huggingface`, `tiktoken`) and model path |
 
-**From source:**
+Full reference in `config.example.yaml`.
+
+---
+
+## Running Tests
+
 ```bash
-cd vendor
-git clone --depth 1 https://github.com/ggerganov/llama.cpp.git llama_source
-cd llama_source && mkdir build && cd build
-cmake .. -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
-cmake --build . -j8 --config Release
-cp bin/llama-server bin/llama-cli ../../llama/
-cd ../.. && rm -rf llama_source
+# Full check (ruff + mypy + tests + coverage)
+python scripts/check_all.py
+
+# Tests only
+python -m pytest tests/ -x -q
+
+# RAG quality benchmark
+python scripts/check_rag.py
 ```
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `libllama-server-impl.so: not found` | Use pre-built binary or rebuild with `-DBUILD_SHARED_LIBS=OFF` |
+| mypy fails on Python 3.14+ | Use Python 3.11–3.13, or wait for mypy update |
+| `faiss-cpu not installed` | `pip install faiss-cpu` |
+| Servers not responding | Check `data/llama.log`; ensure `llama-server` is installed |
+| RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
+| `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
+| `check_rag.py` results fluctuate ±1 test | Normal GPU non-determinism. Run 3 times and take majority. |
 
 ---
 
@@ -154,95 +212,10 @@ cd ../.. && rm -rf llama_source
 ├── tests/                # 870+ tests
 ├── scripts/              # check_all.py, check_rag.py, etc.
 ├── vendor/               # External binaries and models
-│   ├── llama/            # llama.cpp binaries
-│   └── models/           # GGUF model files
 ├── config.yaml           # Your personal config (git-ignored)
 ├── config.example.yaml   # Template in repo
 └── pyproject.toml        # Dependencies and tool settings
 ```
-
----
-
-## Running Tests
-
-```bash
-# Full check (ruff + mypy + tests + coverage)
-python scripts/check_all.py
-
-# Tests only
-python -m pytest tests/ -x -q
-
-# RAG quality
-python scripts/check_rag.py
-```
-
----
-
-## Configuration Reference
-
-| Section | Purpose |
-|---------|---------|
-| `llm` | Model, API endpoint, sampling, GPU layers, context size |
-| `embedder` | Embedding model, dimension, GPU layers |
-| `reranker` | Reranker model and provider (`local` or `api`) |
-| `vector_store` | FAISS or memory, index path, dimension |
-| `rag` | Pipeline steps, top_k, sources, token margin |
-| `namespaces` | Per-namespace prefix, chunk size, prompt template |
-| `security` | API key, admin endpoints, body size limits |
-| `tokenizer` | Provider (`huggingface`, `tiktoken`) and model path |
-
----
-
-## API Examples
-
-**OpenAI-compatible chat:**
-```bash
-curl -X POST http://127.0.0.1:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}]}'
-```
-
-**RAG query (native):**
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer local" \
-  -d '{"query":"[d] what is the architecture?"}'
-```
-
----
-
-## RAG LLM Model Requirements
-
-RAG quality is bottlenecked by the **LLM**, not the retriever. Small models (3–5B) handle simple Q&A but struggle with multi-hop reasoning, conflict resolution, and noise rejection.
-
-**Key insight:** larger models follow instructions better and reject noise more reliably. For the same retrieval quality, a 7-8B model scores 16/17 where a 4B model scores 13/17. The difference is not in "knowledge" — it's in **instruction discipline**.
-
-| Use Case | 4B (Qwen3) | 7-8B (Qwen3) | 14-32B |
-|----------|-----------|-------------|--------|
-| Simple Q&A | ✓ Good | ✓ Excellent | ✓ Excellent |
-| Multi-hop reasoning | ✗ Unreliable | ✓ Good | ✓ Excellent |
-| Noise rejection | ✗ Weak | ✓ Good | ✓ Excellent |
-| Conflict resolution | ✗ Unreliable | ✓ Good | ✓ Excellent |
-| Cross-lingual retrieval | △ Mixed | ✓ Good | ✓ Excellent |
-| RAG test score (typical) | 13/17 | 16/17 | 16/17 |
-
-VRAM (Q4_K_M): 4B ~3–4 GB, 7–8B ~5–6 GB, 14B ~9–10 GB, 32B ~20 GB.
-
-**For 4 GB VRAM GPUs:** a 7-8B model with partial GPU offload (n_gpu_layers=15-20) will be slower (5-10 tok/s) but dramatically better at RAG than any 4B model running fully on GPU.
-
----
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| `libllama-server-impl.so: not found` | Use pre-built binary or rebuild with `-DBUILD_SHARED_LIBS=OFF` |
-| mypy fails on Python 3.14+ | Use Python 3.11–3.13, or wait for mypy update |
-| `faiss-cpu not installed` | `pip install faiss-cpu` |
-| Servers not responding | Check `data/llama.log`; ensure `llama-server` is installed |
-| RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
-| `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
 
 ---
 
@@ -251,6 +224,8 @@ VRAM (Q4_K_M): 4B ~3–4 GB, 7–8B ~5–6 GB, 14B ~9–10 GB, 32B ~20 GB.
 - `docs/ai_rules.md` — AI development constraints
 - `docs/architecture.md` — architectural strategy and RAG philosophy
 - `docs/drift.md` — known architectural drift log
+
+---
 
 ## License
 
