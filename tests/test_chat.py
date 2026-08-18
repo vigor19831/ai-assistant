@@ -1191,11 +1191,12 @@ class TestChatManagerSources:
         assert "[1] legacy_doc" in text
         assert "Sources:" in text
 
+
     @pytest.mark.asyncio
     async def test_append_sources_with_original_path(self, chat_manager_with_rag):
         """Given: chunk with original_path but no source_uri.
         When: stream_chat() is called.
-        Then: file:// URI is built and shown with filename.
+        Then: absolute server path is NOT exposed; only basename is shown.
         """
         chunks = (
             Chunk(
@@ -1225,7 +1226,9 @@ class TestChatManagerSources:
             result.append(chunk)
 
         text = "".join(result)
-        assert "[1] settings.yaml — file:///home/user/docs/settings.yaml" in text
+        assert "[1] settings.yaml" in text
+        assert "file://" not in text
+        assert "/home/user" not in text
         assert "Sources:" in text
 
     @pytest.mark.asyncio

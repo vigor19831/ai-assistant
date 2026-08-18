@@ -290,43 +290,49 @@ def _reranker_data(cfg: AppConfig) -> RerankerConfigData | None:
 # Adapter initialization
 # ---------------------------------------------------------------------------
 
-
 async def init_adapters(config: AppConfig) -> InitializedAppState:
     """Initialize all adapters via factory and return populated InitializedAppState."""
     state = AppState(config=config)
     cfg = config
-
-    state.tokenizer = create_adapter(
-        "tokenizer", cfg.tokenizer.provider, _tokenizer_data(cfg)
-    )
-    state.chunker = create_adapter("chunker", cfg.chunker.provider, _chunker_data(cfg))
-    state.embedder = create_adapter(
-        "embedder", cfg.embedder.provider, _embedder_data(cfg)
-    )
-    state.llm = create_adapter("llm", cfg.llm.provider, _llm_data(cfg))
-    state.vector_store = create_adapter(
-        "vector_store",
-        cfg.vector_store.provider,
-        _vector_store_data(cfg),
-    )
-
-    reranker_cfg = _reranker_data(cfg)
-    if reranker_cfg is not None and cfg.reranker.provider is not None:
-        state.reranker = create_adapter("reranker", cfg.reranker.provider, reranker_cfg)
-    else:
-        state.reranker = create_adapter("reranker", "null", RerankerConfigData())
-
     try:
-        state.storage = create_adapter(
-            "storage", cfg.storage.provider, _storage_data(cfg)
+        state.tokenizer = create_adapter(
+            "tokenizer", cfg.tokenizer.provider, _tokenizer_data(cfg)
         )
-    except (ValueError, ImportError):
-        _logger.exception(
-            "Storage adapter not available",
-            extra={"provider": cfg.storage.provider},
+        state.chunker = create_adapter(
+            "chunker", cfg.chunker.provider, _chunker_data(cfg)
         )
+        state.embedder = create_adapter(
+            "embedder", cfg.embedder.provider, _embedder_data(cfg)
+        )
+        state.llm = create_adapter("llm", cfg.llm.provider, _llm_data(cfg))
+        state.vector_store = create_adapter(
+            "vector_store",
+            cfg.vector_store.provider,
+            _vector_store_data(cfg),
+        )
+        reranker_cfg = _reranker_data(cfg)
+        if reranker_cfg is not None and cfg.reranker.provider is not None:
+            state.reranker = create_adapter(
+                "reranker", cfg.reranker.provider, reranker_cfg
+            )
+        else:
+            state.reranker = create_adapter("reranker", "null", RerankerConfigData())
+        try:
+            state.storage = create_adapter(
+                "storage", cfg.storage.provider, _storage_data(cfg)
+            )
+        except (ValueError, ImportError):
+            _logger.exception(
+                "Storage adapter not available",
+                extra={"provider": cfg.storage.provider},
+            )
+            raise RuntimeError("Storage adapter failed to initialize") from None
+        await state.storage.init_db()
+    except Exception:
+        _logger.exception("Adapter initialization failed")
         # Cleanup adapters already created — who creates, who closes
         for adapter, name in (
+            (state.storage, "storage"),
             (state.llm, "llm"),
             (state.embedder, "embedder"),
             (state.vector_store, "vector_store"),
@@ -342,10 +348,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
                         "Adapter shutdown failed during cleanup",
                         extra={"adapter": name},
                     )
-        raise RuntimeError("Storage adapter failed to initialize") from None
-
-    await state.storage.init_db()
-
+        raise
     state.task_registry = TaskRegistry()
     state.rag_state = RAGState()
     return InitializedAppState(

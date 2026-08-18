@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -60,19 +59,6 @@ class ChatManager:
     def _append_rag_sources(answer: str, chunks: tuple[Chunk, ...]) -> str:
         if not chunks:
             return answer
-
-        def _path_to_file_uri(path: str) -> str:
-            """Convert a filesystem path to a proper file URI (RFC 8089)."""
-            # Windows absolute path: C:\dir\file or C:/dir/file
-            if re.match(r"^[A-Za-z]:[/\\]", path):
-                path = path.replace("\\", "/")
-                return f"file:///{path}"
-            # Unix absolute path
-            if path.startswith("/"):
-                return f"file://{path}"
-            # Relative path — not ideal, but handle gracefully
-            return f"file:///{path}"
-
         def _source_key(chunk: Chunk) -> str:
             """Return unique key for deduplication: source_uri >
             original_path > source."""
@@ -95,10 +81,10 @@ class ChatManager:
                 display = md.source_uri.rsplit("/", 1)[-1] or md.source
                 if "://" in md.source_uri:
                     link = md.source_uri
-            if md.original_path:
-                link = _path_to_file_uri(md.original_path)
-                if not md.source_uri:
-                    display = os.path.basename(md.original_path) or md.source
+            # Do not expose absolute server paths (original_path) to clients.
+            # source_uri is relative and safe; source is the document id.
+            if not md.source_uri and md.original_path:
+                display = os.path.basename(md.original_path) or md.source
             date_str = f" (modified {md.last_modified})" if md.last_modified else ""
             if link and link != display:
                 return f"{display}{date_str} — {link}"
