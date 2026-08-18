@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -126,7 +127,14 @@ async def update_api_key(
     if req.api_key is not None and not req.api_key:
         raise HTTPException(status_code=400, detail="api_key must be non-empty or None")
     set_api_key(req.api_key)
-    source = "runtime_override" if req.api_key is not None else "env_var_or_none"
+    env_key = os.getenv("AI_SECURITY_API_KEY")
+    if env_key:
+        # Env var takes precedence; runtime override is stored but ineffective.
+        source = "env_var_precedence"
+        updated = False
+    else:
+        source = "runtime_override" if req.api_key is not None else "env_var_or_none"
+        updated = True
     admin_logger.warning(
         f"SECURITY_AUDIT: api_key_changed actor=admin_endpoint source={source}",
         extra={
@@ -136,4 +144,4 @@ async def update_api_key(
             "key_present": req.api_key is not None,
         },
     )
-    return UpdateApiKeyResponse(updated=True, source=source)
+    return UpdateApiKeyResponse(updated=updated, source=source)

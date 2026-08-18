@@ -154,7 +154,12 @@ def assemble_routers(security: SecurityConfig | None = None) -> list[APIRouter]:
             wrapper.include_router(router)
             wrapped.append(wrapper)
         else:
-            # Root routers keep their original paths, no prefix, no extra wrapper
-            wrapped.append(router)
-
+            # Root routers keep their original paths, no prefix, no auth.
+            # Body size check still applies to prevent unbounded payloads.
+            wrapper = APIRouter(
+                tags=list(router.tags),
+                dependencies=[Depends(_size_check)],
+            )
+            wrapper.include_router(router)
+            wrapped.append(wrapper)
     return wrapped

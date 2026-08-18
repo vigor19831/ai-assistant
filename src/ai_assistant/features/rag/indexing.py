@@ -194,7 +194,9 @@ def _filter_unchanged_docs(
         if uri in existing_uri_mtime:
             old_mtime = existing_uri_mtime[uri]
             new_mtime = d.get("metadata", {}).get("last_modified")
-            if old_mtime == new_mtime:
+            # Only skip when both mtimes are known and equal.
+            # None == None would otherwise permanently skip the document.
+            if old_mtime is not None and old_mtime == new_mtime:
                 # Unchanged on disk, skip
                 continue
         seen_uris.add(uri)

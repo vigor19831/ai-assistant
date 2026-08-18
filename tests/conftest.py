@@ -402,10 +402,8 @@ def vector_store_adapter(request, tmp_path):
 
     if request.param == "memory":
         from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-
         return MemoryVectorStore(
             VectorStoreConfigData(
-                provider="memory",
                 dim=384,
                 index_path=str(tmp_path / "vs"),
             )
@@ -413,10 +411,8 @@ def vector_store_adapter(request, tmp_path):
     if request.param == "faiss":
         pytest.importorskip("faiss")
         from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
-
         return FaissVectorStore(
             VectorStoreConfigData(
-                provider="faiss",
                 dim=384,
                 index_path=str(tmp_path / "vs_faiss"),
             )
@@ -466,7 +462,7 @@ def chat_storage_adapter(request):
 
     if request.param == "sqlite":
         storage = SQLiteStorage(
-            StorageConfigData(provider="sqlite", db_path=":memory:")
+            StorageConfigData(db_path=":memory:")
         )
         return storage
     raise ValueError(f"Unknown storage: {request.param}")

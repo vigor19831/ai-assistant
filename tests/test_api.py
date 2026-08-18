@@ -1027,8 +1027,10 @@ class TestAPIRouter:
         for router in oai_routers:
             if "metrics" in router.tags or "admin" in router.tags:
                 continue
-            assert not router.dependencies, (
-                f"OAI router {router.tags} should not require auth by default"
+            # Size check is applied; auth must NOT be required by default.
+            dep_funcs = [getattr(d, "dependency", None) for d in router.dependencies]
+            assert require_api_key not in dep_funcs, (
+                "OAI router ['chat-oai'] should not require auth by default"
             )
 
     def test_metrics_never_requires_auth(self):
