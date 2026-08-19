@@ -1,20 +1,12 @@
 """tests/conftest.py — Global test configuration."""
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.testclient import TestClient
 
-# ── Test config path ──
-TEST_CONFIG_PATH = str(Path(__file__).parent / "config.test.yaml")
-os.environ.setdefault("AI_CONFIG_PATH", TEST_CONFIG_PATH)
-
-
 # ── Pytest markers ──
-
 
 def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers."""

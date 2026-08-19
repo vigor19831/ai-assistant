@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT

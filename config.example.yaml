@@ -62,7 +62,7 @@ embedder:
   dim: 1024
   timeout: 120.0
   connect_timeout: 10.0
-  # [CHANGE] 0 = CPU only. 999 = all layers on GPU (needs 8GB+ VRAM).
+  # [CHANGE] 0 = CPU only. 99 = all layers on GPU (needs 8GB+ VRAM).
   n_gpu_layers: 0
   n_batch: 128
   n_ubatch: 32
@@ -118,7 +118,7 @@ llm:
   #   8192 @ n_gpu_layers=30 on 6GB VRAM
   server_context_size: 2048
 
-  # [CHANGE] 0 = CPU only. 999 = all layers on GPU (needs 8GB+ VRAM).
+  # [CHANGE] 0 = CPU only. 99 = all layers on GPU (needs 8GB+ VRAM).
   # For 4GB VRAM + 7B model: start with 20, increase until OOM.
   # For 6GB VRAM + 7B model: try 30-35.
   n_gpu_layers: 0

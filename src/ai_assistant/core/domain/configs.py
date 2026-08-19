@@ -36,7 +36,7 @@ class EmbedderConfigData:
         dim: Embedding vector dimension (must match vector_store.dim).
         timeout: Total request timeout in seconds.
         connect_timeout: TCP connection timeout in seconds.
-        n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU).
+        n_gpu_layers: Number of layers to offload to GPU (0 = CPU, 99 = all).
         n_batch: Batch size for embedding processing.
         n_ubatch: Micro-batch size.
         mmap: Use memory-mapped files to reduce RAM usage.
@@ -78,7 +78,7 @@ class LLMConfigData:
         stop_sequences: Sequences that stop generation.
         system_message: Optional system prompt override.
         available_models: List of models available on this server.
-        n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU).
+        n_gpu_layers: Number of layers to offload to GPU (0 = CPU, 99 = all).
         n_batch: Batch size for inference.
         n_ubatch: Micro-batch size.
         mmap: Use memory-mapped files to reduce RAM usage.
