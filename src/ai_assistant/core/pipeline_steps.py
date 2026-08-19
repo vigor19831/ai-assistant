@@ -17,6 +17,7 @@ from ai_assistant.core.domain.errors import (
     INTERNAL_SERVER_ERROR,
     LLM_NOT_PROVIDED,
     LLM_UNAVAILABLE,
+    LLM_UNAVAILABLE_MSG,
     QUERY_EMBEDDING_MISSING,
     QUERY_MISSING,
     QUERY_TEXT_MISSING,
@@ -476,6 +477,15 @@ async def _truncate_to_fit(
             current_data = (
                 current_data.with_chunks(()).with_context("").with_rerank_scores(None)
             )
+            try:
+                prompt = get_prompt(
+                    prompt_name,
+                    version=prompt_version,
+                    query=query_text,
+                    context="",
+                )
+            except Exception:
+                prompt = _build_fallback_prompt((), query_text)
             break
         current_data = current_data.with_chunks(new_chunks)
         if current_data.rerank_scores is not None:
@@ -623,9 +633,7 @@ async def generate(data: PipelineData) -> PipelineData:
     except AdapterError as exc:
         _logger.exception("LLM unavailable", extra={"trace_id": data.trace_id})
         return data.add_error(LLM_UNAVAILABLE, detail=str(exc)).with_response(
-            AssistantMessage(
-                text="LLM service temporarily unavailable. Please try again later."
-            )
+            AssistantMessage(text=LLM_UNAVAILABLE_MSG)
         )
     except Exception as exc:
         _logger.exception(
