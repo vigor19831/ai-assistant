@@ -1,4 +1,5 @@
 """RAG feature HTTP handlers with namespace and reranker support."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api.deps import (
     InitializedAppState,
@@ -194,10 +196,11 @@ async def index_documents(
 @router.post("/query", response_model=QueryResponse)
 async def query_rag(
     req: QueryRequest,
+    request: Request,
     manager: Annotated[RAGManager, Depends(_get_rag_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> QueryResponse:
-    trace_id = uuid.uuid4().hex
+    trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
     start = time.perf_counter()
     cfg = state.config.rag
     ns = req.namespace or cfg.default_namespace
@@ -246,6 +249,7 @@ async def query_rag(
         prompt_name=prompt_name,
         prompt_version=req.prompt_version or cfg.prompt_version,
         namespace=ns,
+        trace_id=trace_id,
     )
 
     duration_ms = int((time.perf_counter() - start) * 1000)

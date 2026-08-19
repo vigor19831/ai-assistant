@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import os
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
@@ -204,6 +205,7 @@ class RAGManager:
         prompt_name: str = DEFAULT_RAG_PROMPT,
         prompt_version: str = "v1",
         namespace: str = "default",
+        trace_id: str = "",
     ) -> dict[str, Any]:
         """Run RAG pipeline for query."""
         start = time.perf_counter()
@@ -223,6 +225,7 @@ class RAGManager:
             query=UserMessage(text=query_text),
             original_query=UserMessage(text=query_text),
             chat_history=(),
+            trace_id=trace_id or uuid.uuid4().hex,
             llm=self.llm,
             embedder=self.embedder,
             vector_store=self.vector_store,

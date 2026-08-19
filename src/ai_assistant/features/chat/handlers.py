@@ -1,4 +1,5 @@
 """Chat feature HTTP handlers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.domain.configs import SamplingConfig
@@ -159,11 +161,12 @@ async def _stream_with_heartbeat(
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
+    request: Request,
     manager: Annotated[ChatManager, Depends(get_chat_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> ChatResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
-    trace_id = uuid.uuid4().hex
+    trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
     _logger.info(
         "Chat handler start",
         extra={"trace_id": trace_id, "conversation_id": conv_id},
@@ -220,11 +223,12 @@ async def chat(
 @router.post("/chat/stream", response_model=None)
 async def chat_stream(
     req: ChatRequest,
+    request: Request,
     manager: Annotated[ChatManager, Depends(get_chat_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> StreamingResponse:
     conv_id = req.conversation_id or str(uuid.uuid4())
-    trace_id = uuid.uuid4().hex
+    trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
     _logger.info(
         "Chat stream handler start",
         extra={"trace_id": trace_id, "conversation_id": conv_id},
@@ -303,6 +307,7 @@ async def list_models(
 @router_oai.post("/v1/chat/completions", response_model=None)
 async def openai_chat_completions(
     req: OAIChatCompletionRequest,
+    request: Request,
     manager: Annotated[ChatManager, Depends(get_chat_manager)],
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> OAIChatCompletion | StreamingResponse:
@@ -325,7 +330,7 @@ async def openai_chat_completions(
         if m.content is not None and i != last_user_idx
     ]
     conv_id = req.conversation_id or str(uuid.uuid4())
-    trace_id = uuid.uuid4().hex
+    trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
     _logger.info(
         "OpenAI handler start",
         extra={"trace_id": trace_id, "conversation_id": conv_id},

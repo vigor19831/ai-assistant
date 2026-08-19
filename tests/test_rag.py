@@ -1046,7 +1046,9 @@ class TestQueryPrefixParsing:
         )
 
         req = QueryRequest(query="[t] test query")
-        await query_rag(req, mock_manager, mock_state)
+        mock_request = MagicMock()
+        mock_request.state.trace_id = "a" * 32
+        await query_rag(req, mock_request, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
         assert call_kwargs.get("namespace") == "test"
@@ -1072,7 +1074,9 @@ class TestQueryPrefixParsing:
         )
 
         req = QueryRequest(query="[t] test query", namespace="test-alt")
-        await query_rag(req, mock_manager, mock_state)
+        mock_request = MagicMock()
+        mock_request.state.trace_id = "a" * 32
+        await query_rag(req, mock_request, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
         assert call_kwargs.get("namespace") == "test-alt"
@@ -1099,7 +1103,9 @@ class TestQueryPrefixParsing:
         )
 
         req = QueryRequest(query="[t] test query", namespace="default")
-        await query_rag(req, mock_manager, mock_state)
+        mock_request = MagicMock()
+        mock_request.state.trace_id = "a" * 32
+        await query_rag(req, mock_request, mock_manager, mock_state)
 
         call_kwargs = mock_manager.query.call_args.kwargs
         # Explicit namespace is preserved; only text is stripped
@@ -1223,7 +1229,9 @@ class TestRAGHandlersTraceId:
         )
 
         req = QueryRequest(query="test", namespace="default")
-        resp = await query_rag(req, mock_manager, mock_state)
+        mock_request = MagicMock()
+        mock_request.state.trace_id = "a" * 32
+        resp = await query_rag(req, mock_request, mock_manager, mock_state)
 
         assert resp.answer == "answer"
         _assert_all_logs_have_trace_id(caplog)
@@ -1243,8 +1251,10 @@ class TestRAGHandlersTraceId:
         )
 
         req = QueryRequest(query="test", namespace="default")
+        mock_request = MagicMock()
+        mock_request.state.trace_id = "a" * 32
         with pytest.raises(HTTPException) as exc_info:
-            await query_rag(req, mock_manager, mock_state)
+            await query_rag(req, mock_request, mock_manager, mock_state)
 
         assert exc_info.value.status_code == 503
         _assert_all_logs_have_trace_id(caplog)
@@ -1260,7 +1270,9 @@ class TestRAGHandlersTraceId:
         mock_manager.query = AsyncMock()
 
         req = QueryRequest(query="", namespace="default")
-        resp = await query_rag(req, mock_manager, mock_state)
+        mock_request = MagicMock()
+        mock_request.state.trace_id = "a" * 32
+        resp = await query_rag(req, mock_request, mock_manager, mock_state)
 
         assert "please provide" in resp.answer.lower()
         assert resp.sources == []
