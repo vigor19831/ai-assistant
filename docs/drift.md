@@ -5,7 +5,7 @@
 > ACTIVE entries are constraints — do not "fix" them without explicit user request.
 > Git history is unreliable (commits often say "fix"). This file is the source of truth.
 
-## ACTIVE (7)
+## ACTIVE (8)
 
 | ID | Since | Location | Constraint | Exit Criteria |
 |----|-------|----------|------------|---------------|
@@ -16,6 +16,7 @@
 | 29 | 2026-07-05 | `core/ports/tokenizer.py` | `ITokenizer` simplified; no multi-encoding support | Multi-encoding support needed |
 | 34 | 2026-07-08 | `tests/test_stateful_ports.py` | `asyncio.run()` in `ThreadPoolExecutor` for Hypothesis (issue #4107 — no native async) | Hypothesis adds async state machine OR tests removed |
 | 38 | 2026-08-12 | `tests/conftest.py` | `AsyncMock` cannot mock async generators → `MagicMock(side_effect=factory)` bypasses `spec=ILLM` | stdlib native async generator mock support OR `ILLM.stream` contract change |
+| 39 | 2026-08-18 | `core/pipeline_steps.py` | `_build_fallback_prompt` uses f-string in pipeline logic, violates §13.3. Edge case: only fires when Jinja2 template lookup fails. | Fallback prompt moved to `prompts/v1/fallback.j2` OR removed with explicit error propagation |
 
 ## FIXED → Rule Extracted (see docs, no details needed)
 
