@@ -1295,6 +1295,51 @@ class TestChatManagerSources:
         assert "Sources:" in text
 
     @pytest.mark.asyncio
+    async def test_append_sources_skipped_when_answer_empty(self, chat_manager_with_rag):
+        """Given: chunks exist but LLM returns an empty answer.
+        When: chat() and stream_chat() are called.
+        Then: 'Sources:' block is NOT appended to the empty answer.
+        """
+        chunks = (
+            Chunk(
+                id="c1",
+                text="Paris info",
+                embedding=[1.0, 0.0, 0.0],
+                metadata=ChunkMetadata(
+                    source="doc1",
+                    index=0,
+                    total_chunks=1,
+                    source_uri="file:///docs/france.md",
+                ),
+            ),
+        )
+        await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
+        chat_manager_with_rag.embedder.embed = AsyncMock(
+            return_value=[[1.0, 0.0, 0.0]]
+        )
+
+        # Test chat()
+        chat_manager_with_rag.llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="", metadata={}, tool_calls=[])
+        )
+        chat_result = await chat_manager_with_rag.chat("[t] query?", "conv-1")
+        assert "Sources:" not in chat_result.text
+        assert chat_result.text == ""
+
+        # Test stream_chat()
+        chat_manager_with_rag.llm.stream = MagicMock(
+            return_value=async_iter([""])
+        )
+        result_stream = []
+        async for chunk in chat_manager_with_rag.stream_chat(
+            "[t] query?", "conv-1"
+        ):
+            result_stream.append(chunk)
+        stream_text = "".join(result_stream)
+        assert "Sources:" not in stream_text
+        assert stream_text == ""
+
+    @pytest.mark.asyncio
     async def test_source_link_includes_last_modified(self, chat_manager_with_rag):
         """Given: chunk with last_modified metadata.
         When: stream_chat() is called.

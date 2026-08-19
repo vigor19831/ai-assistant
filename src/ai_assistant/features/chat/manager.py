@@ -54,10 +54,9 @@ _STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
 
 class ChatManager:
     """Universal chat router."""
-
     @staticmethod
     def _append_rag_sources(answer: str, chunks: tuple[Chunk, ...]) -> str:
-        if not chunks:
+        if not chunks or not answer:
             return answer
         def _source_key(chunk: Chunk) -> str:
             """Return unique key for deduplication: source_uri >

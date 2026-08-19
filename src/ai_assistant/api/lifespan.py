@@ -126,7 +126,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             state=state,
             index_fn=_index_source,
         )
-        watcher.start()
 
     # Load persisted indices from disk via port contract
     if state.vector_store is not None:
@@ -157,6 +156,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except (OSError, RuntimeError, AdapterError, VersionMismatchError):
             logger.exception("Index load failed on startup")
             raise
+
+    if watcher is not None:
+        watcher.start()
 
     try:
         yield

@@ -2242,3 +2242,60 @@ async def test_index_folder_removes_orphans(tmp_path):
     chunks_after = await vs.list_by_filter({}, namespace="ns")
     assert len(chunks_after) == 1
     assert chunks_after[0][1].get("source_uri") == "new.txt"
+
+
+@pytest.mark.asyncio
+async def test_rag_manager_query_passes_chat_history(mock_state):
+    """Given: RAGManager with chat_history provided.
+    When: query() is called.
+    Then: PipelineData receives the chat_history tuple.
+    """
+    from unittest.mock import AsyncMock, patch
+    from ai_assistant.features.rag.manager import RAGManager
+
+    mgr = RAGManager(
+        llm=mock_state.llm,
+        vector_store=mock_state.vector_store,
+        embedder=mock_state.embedder,
+        reranker=mock_state.reranker,
+    )
+
+    history = (("user", "q1"), ("assistant", "a1"))
+
+    with patch.object(mgr, "pipeline") as mock_pipeline:
+        mock_response = MagicMock(
+            response=None, chunks=(), errors=(), rerank_scores=None, context=""
+        )
+        mock_pipeline.run = AsyncMock(return_value=mock_response)
+
+        await mgr.query("test query", chat_history=history)
+
+        mock_pipeline.run.assert_awaited_once()
+        pipeline_data = mock_pipeline.run.call_args[0][0]
+        assert pipeline_data.chat_history == history
+
+
+@pytest.mark.asyncio
+async def test_save_chat_does_not_resolve_symlinks(mock_state, tmp_path, monkeypatch):
+    """Given: save_chat request.
+    When: file is saved.
+    Then: Path.resolve is not used, so symlinks are not expanded.
+    """
+    from pathlib import Path
+
+    from ai_assistant.features.rag.handlers import save_chat
+    from ai_assistant.features.rag.schemas import SaveChatRequest
+
+    mock_state.config.rag.chat_exports_root = str(tmp_path / "exports")
+    mock_state.config.rag.index_chat_exports = False
+
+    def fail_resolve(self, *args, **kwargs):
+        raise AssertionError("Path.resolve must not be used")
+
+    monkeypatch.setattr(Path, "resolve", fail_resolve)
+
+    req = SaveChatRequest(content="hello", namespace="default", filename="chat.md")
+    result = await save_chat(req, mock_state)
+
+    assert result["saved"] is True
+    assert (tmp_path / "exports" / "default" / "chat.md").read_text() == "hello"

@@ -45,12 +45,14 @@ class IndexResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     """RAG query request."""
-
     query: str
     top_k: int | None = Field(default=None, ge=1, le=50)
     prompt_name: str | None = None
     prompt_version: str | None = None
     namespace: str | None = Field(default=None, description="Query namespace")
+    chat_history: list[tuple[str, str]] | None = Field(
+        default=None, description="Previous messages for context"
+    )
 
 
 class RagMetrics(BaseModel):

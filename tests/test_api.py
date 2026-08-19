@@ -2118,3 +2118,108 @@ class TestChatPersistence:
         assert resp.status_code == 200
         isolated_app_state.storage.save_message.assert_not_awaited()
         isolated_app_state.storage.get_history.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_update_api_key_rejects_whitespace_only(mock_state):
+    """Given: whitespace-only string as api_key.
+    When: update_api_key is called via admin endpoint.
+    Then: HTTPException(400) is raised.
+    """
+    mock_state.config.security.admin_enabled = True
+    from ai_assistant.main import create_app
+    from ai_assistant.api.security import set_api_key
+    from starlette.testclient import TestClient
+
+    set_api_key("test-e2e-key")
+    app = create_app(state=mock_state)
+    client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+
+    resp = client.post("/admin/api-key", json={"api_key": "   "})
+    assert resp.status_code == 400
+    assert "non-empty" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_stream_chat_saves_partial_on_error(client_no_raise, mock_state):
+    """Given: streaming chat that fails mid-stream.
+    When: error occurs after partial response.
+    Then: partial response is still saved to history.
+    """
+    from ai_assistant.features.chat.handlers import get_chat_manager
+
+    # Mock manager that yields chunks then raises
+    mock_mgr = MagicMock()
+    async def failing_stream(*args, **kwargs):
+        yield "Partial"
+        yield " response"
+        raise Exception("Stream error")
+    mock_mgr.stream_chat = failing_stream
+
+    client_no_raise.app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
+
+    resp = client_no_raise.post(
+        "/api/v1/chat/stream",
+        json={"message": "test", "conversation_id": "conv-1"},
+    )
+    assert resp.status_code == 200
+
+    # Verify partial response was saved
+    mock_state.storage.save_message.assert_called()
+    calls = [call[0] for call in mock_state.storage.save_message.call_args_list]
+    assistant_calls = [c for c in calls if c[1]["role"] == "assistant"]
+    assert any("Partial response" in c[1]["content"] for c in assistant_calls)
+
+
+@pytest.mark.asyncio
+async def test_source_watcher_starts_after_index_load(monkeypatch, tmp_path):
+    """Given: configured sources and persisted indices.
+    When: lifespan starts.
+    Then: vector_store.load() happens before watcher.start().
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi import FastAPI
+
+    from ai_assistant.api import lifespan as lifespan_mod
+
+    call_order: list[str] = []
+
+    config = MagicMock()
+    config.debug = False
+    config.logging = None
+    config.security.api_key = None
+    config.security.admin_enabled = False
+    config.vector_store.index_path = str(tmp_path / "indices")
+    config.storage.db_path = str(tmp_path / "storage.db")
+    config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+    config.rag.sources = [MagicMock()]
+
+    state = MagicMock()
+    state.vector_store.index_path = str(tmp_path / "indices")
+    state.vector_store.list_namespaces = AsyncMock(return_value=["default"])
+
+    async def fake_load(path: str, namespace: str | None = None) -> None:
+        call_order.append("load")
+
+    state.vector_store.load = AsyncMock(side_effect=fake_load)
+
+    watcher = MagicMock()
+
+    def fake_start() -> None:
+        call_order.append("start")
+
+    watcher.start = MagicMock(side_effect=fake_start)
+    watcher.stop = AsyncMock()
+
+    monkeypatch.setattr(lifespan_mod, "_load_config", lambda: config)
+    monkeypatch.setattr(lifespan_mod, "setup_logging", MagicMock())
+    monkeypatch.setattr(lifespan_mod, "init_adapters", AsyncMock(return_value=state))
+    monkeypatch.setattr(lifespan_mod, "SourceWatcher", MagicMock(return_value=watcher))
+    monkeypatch.setattr(lifespan_mod, "_async_cleanup", AsyncMock())
+    monkeypatch.setattr("ai_assistant.api.static.mount_static", lambda app, cfg: None)
+
+    app = FastAPI()
+    async with lifespan_mod.lifespan(app):
+        pass
+
+    assert call_order == ["load", "start"]

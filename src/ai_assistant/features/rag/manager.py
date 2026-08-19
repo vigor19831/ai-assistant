@@ -206,6 +206,7 @@ class RAGManager:
         prompt_version: str = "v1",
         namespace: str = "default",
         trace_id: str = "",
+        chat_history: tuple[tuple[str, str], ...] = (),
     ) -> dict[str, Any]:
         """Run RAG pipeline for query."""
         start = time.perf_counter()
@@ -224,7 +225,7 @@ class RAGManager:
         data = PipelineData(
             query=UserMessage(text=query_text),
             original_query=UserMessage(text=query_text),
-            chat_history=(),
+            chat_history=chat_history,
             trace_id=trace_id or uuid.uuid4().hex,
             llm=self.llm,
             embedder=self.embedder,
