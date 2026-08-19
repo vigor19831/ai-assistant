@@ -35,7 +35,7 @@ logger = get_logger("lifespan")
 
 
 def _load_config() -> AppConfig:
-    """Load config from YAML, fallback to env defaults."""
+    """Load config from YAML. Raises FileNotFoundError if file missing."""
     config_path = os.getenv("AI_CONFIG_PATH", "config.yaml")
     return load_config(config_path)
 

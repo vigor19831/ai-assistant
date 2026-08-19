@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 __all__: list[str] = [
     "STEP_REGISTRY",
     "build_context",
+    "condense_question",
     "embed_query",
     "generate",
     "hyde_query",
@@ -349,7 +350,7 @@ async def rerank(data: PipelineData) -> PipelineData:
         "rerank start", extra={"trace_id": data.trace_id, "chunks": len(data.chunks)}
     )
     if not data.chunks:
-        return replace(data)
+        return data
 
     reranker = data.reranker
     if reranker is None:

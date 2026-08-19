@@ -348,7 +348,7 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 4. **`check_rag.py` is the only source of truth for RAG quality.**
    No manual spot-checking, no "looks correct".
 
-5. **Context budget derives from `LLMCapability.context_window`.**
+5. **Context budget derives from `ILLM.get_context_limit()`.**
    No hardcoded top_k without comment linking it to chunk size.
 
 6. **"Don't know" is LLM's decision, not pipeline guardrail.**
