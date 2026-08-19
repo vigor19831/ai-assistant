@@ -1966,11 +1966,11 @@ class TestReindexDocumentsExtended:
             assert len(tasks) == 1
             await asyncio.gather(tasks[0].task, return_exceptions=True)
 
-            # index_folder is called once with target_namespace=None for all sources
-            assert mock_index.call_count == 1
-            call_kwargs = mock_index.call_args.kwargs
-            assert call_kwargs.get("target_namespace") is None
-            assert call_kwargs.get("clear") is True
+            # Per-namespace chunker fix: index_folder called once per unique namespace
+            assert mock_index.call_count == 2
+            for call in mock_index.call_args_list:
+                assert call.kwargs.get("target_namespace") is not None
+                assert call.kwargs.get("clear") is True
 
             delete_namespaces = {
                 c.kwargs.get("namespace")

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ai_assistant.api.deps import init_adapters
+from ai_assistant.api.deps import get_chunker_for_config, init_adapters
 from ai_assistant.api.security import get_expected_api_key, set_api_key
 from ai_assistant.core.config import AppConfig, SourceConfig, load_config
 from ai_assistant.core.constants import (
@@ -92,19 +92,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.app_state = state
 
     watcher: SourceWatcher | None = None
+
     if config.rag.sources:
 
         async def _index_source(src: SourceConfig) -> None:
-            await index_folder(
-                target_namespace=None,
-                clear=False,
-                chunker=state.chunker,
-                embedder=state.embedder,
-                vector_store=state.vector_store,
-                max_file_size=state.config.vector_store.max_document_size,
-                sources=[src],
-                index_path=state.vector_store.index_path,
+            ns_cfg = config.namespaces.get(src.namespace)
+            chunker = get_chunker_for_config(
+                state, ns_cfg.chunk_size if ns_cfg else None
             )
+            try:
+                await index_folder(
+                    target_namespace=None,
+                    clear=False,
+                    chunker=chunker,
+                    embedder=state.embedder,
+                    vector_store=state.vector_store,
+                    max_file_size=state.config.vector_store.max_document_size,
+                    sources=[src],
+                    index_path=state.vector_store.index_path,
+                )
+            finally:
+                if chunker is not state.chunker:
+                    try:
+                        await chunker.shutdown()
+                    except Exception:
+                        logger.exception(
+                            "Chunker shutdown failed",
+                            extra={"source": src.path},
+                        )
 
         watcher = SourceWatcher(
             sources=config.rag.sources,

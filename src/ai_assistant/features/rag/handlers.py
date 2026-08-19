@@ -590,17 +590,83 @@ async def reindex_documents(
                                     "chat_namespace": chat_ns,
                                 },
                             )
+
                 async with asyncio.timeout(REINDEX_TASK_TIMEOUT):
-                    result = await index_folder(
-                        target_namespace=target_namespace,
-                        clear=clear,
-                        chunker=state.chunker,
-                        embedder=state.embedder,
-                        vector_store=state.vector_store,
-                        max_file_size=state.config.vector_store.max_document_size,
-                        sources=state.config.rag.sources,
-                        index_path=state.config.vector_store.index_path,
-                    )
+                    if target_namespace is not None:
+                        ns_cfg = state.config.namespaces.get(target_namespace)
+                        chunker = get_chunker_for_config(
+                            state, ns_cfg.chunk_size if ns_cfg else None
+                        )
+                        try:
+                            result = await index_folder(
+                                target_namespace=target_namespace,
+                                clear=clear,
+                                chunker=chunker,
+                                embedder=state.embedder,
+                                vector_store=state.vector_store,
+                                max_file_size=state.config.vector_store.max_document_size,
+                                sources=state.config.rag.sources,
+                                index_path=state.config.vector_store.index_path,
+                            )
+                        finally:
+                            if chunker is not state.chunker:
+                                try:
+                                    await chunker.shutdown()
+                                except Exception:
+                                    _logger.exception(
+                                        "Chunker shutdown failed",
+                                        extra={"trace_id": trace_id},
+                                    )
+                    else:
+                        combined_results: dict[str, Any] = {}
+                        combined_errors: list[str] = []
+                        combined_uris: dict[str, Any] = {}
+                        combined_success = True
+                        unique_ns = sorted(
+                            {s.namespace for s in state.config.rag.sources}
+                        )
+                        for ns in unique_ns:
+                            ns_cfg = state.config.namespaces.get(ns)
+                            chunker = get_chunker_for_config(
+                                state, ns_cfg.chunk_size if ns_cfg else None
+                            )
+                            try:
+                                ns_result = await index_folder(
+                                    target_namespace=ns,
+                                    clear=clear,
+                                    chunker=chunker,
+                                    embedder=state.embedder,
+                                    vector_store=state.vector_store,
+                                    max_file_size=state.config.vector_store.max_document_size,
+                                    sources=state.config.rag.sources,
+                                    index_path=state.config.vector_store.index_path,
+                                )
+                                combined_results.update(
+                                    ns_result.get("results", {})
+                                )
+                                combined_errors.extend(
+                                    ns_result.get("errors", [])
+                                )
+                                combined_uris.update(
+                                    ns_result.get("indexed_uris", {})
+                                )
+                                if not ns_result.get("success", False):
+                                    combined_success = False
+                            finally:
+                                if chunker is not state.chunker:
+                                    try:
+                                        await chunker.shutdown()
+                                    except Exception:
+                                        _logger.exception(
+                                            "Chunker shutdown failed",
+                                            extra={"trace_id": trace_id},
+                                        )
+                        result = {
+                            "success": combined_success,
+                            "results": combined_results,
+                            "indexed_uris": combined_uris,
+                            "errors": combined_errors,
+                        }
                 await rag_state.complete_task(task_id, result)
                 _logger.info(
                     "Reindex completed",
