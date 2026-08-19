@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ai_assistant.api.deps import AppState, get_state
-from ai_assistant.api.security import require_api_key, set_api_key
+from ai_assistant.api.security import set_api_key
 from ai_assistant.core.constants import INDEX_IO_TIMEOUT
 from ai_assistant.core.logger import get_logger
 
@@ -21,7 +21,6 @@ __all__ = ["router"]
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
-    dependencies=[Depends(require_api_key)],
 )
 
 

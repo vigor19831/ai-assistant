@@ -449,7 +449,7 @@ def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
 def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
     """Build a minimal RAG prompt from chunks when template lookup fails."""
     chunks_text = _format_chunks(chunks)
-    return f"Context:\n{chunks_text}\n\nQuestion: {query_text}\nAnswer:"
+    return get_prompt("fallback", version="v1", context=chunks_text, query=query_text)
 
 
 async def _truncate_to_fit(
