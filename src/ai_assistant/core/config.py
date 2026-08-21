@@ -297,8 +297,7 @@ class SecurityConfig(BaseSettings):
     admin_enabled: bool = False
     max_body_size: int = 10_485_760
     allowed_hosts: list[str] = Field(default_factory=list)
-    openai_routes_require_auth: bool = False
-
+    openai_routes_require_auth: bool = True
 
 class NamespaceConfig(BaseModel):
     """Per-namespace RAG overrides."""

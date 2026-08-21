@@ -1092,21 +1092,21 @@ class TestAPIRouter:
 class TestSecurityConfig:
     """Contract tests for the new security config field."""
 
-    def test_openai_routes_require_auth_default_false(self):
+    def test_openai_routes_require_auth_default_true(self):
         """Given: SecurityConfig is instantiated with defaults.
         When: openai_routes_require_auth is inspected.
-        Then: it is False for backward compatibility.
+        Then: it is True for security by default.
         """
         sec = SecurityConfig()
-        assert sec.openai_routes_require_auth is False
+        assert sec.openai_routes_require_auth is True
 
     def test_openai_routes_require_auth_from_app_config(self):
         """Given: AppConfig is instantiated with defaults.
         When: security sub-config is inspected.
-        Then: openai_routes_require_auth defaults to False.
+        Then: openai_routes_require_auth defaults to True.
         """
         cfg = AppConfig()
-        assert cfg.security.openai_routes_require_auth is False
+        assert cfg.security.openai_routes_require_auth is True
 
     def test_openai_routes_require_auth_can_be_enabled(self):
         """Given: SecurityConfig is created with openai_routes_require_auth=True.

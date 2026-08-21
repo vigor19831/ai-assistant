@@ -37,7 +37,7 @@ security:
   admin_enabled: false
   max_body_size: 10485760
   allowed_hosts: ["localhost", "127.0.0.1"]
-  openai_routes_require_auth: false
+  openai_routes_require_auth: true
 
 logging:
   level: INFO
