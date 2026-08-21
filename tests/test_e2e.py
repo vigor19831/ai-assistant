@@ -741,7 +741,7 @@ class TestE2EAdmin:
         assert resp.status_code == 200
         data = resp.json()
         assert data["updated"] is True
-        assert data["source"] == "env_var_or_none"
+        assert data["source"] == "env_var_fallback"
 
     def test_update_key_disabled_by_default(self, client):
         """Given: admin_enabled is False (default).

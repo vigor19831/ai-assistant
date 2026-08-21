@@ -762,9 +762,10 @@ class TestSecurityKeyResolution:
         """Given: AI_API_KEY env var is set.
         When: get_expected_api_key is called.
         Then: returns the env var value."""
-        from ai_assistant.api.security import get_expected_api_key
+        from ai_assistant.api.security import get_expected_api_key, set_api_key
 
         monkeypatch.setenv("AI_SECURITY_API_KEY", "test-smoke-key")
+        set_api_key(None)  # Clear runtime override to test env var fallback
         key = get_expected_api_key()
         assert key == "test-smoke-key"
 

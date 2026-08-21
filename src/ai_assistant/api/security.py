@@ -38,16 +38,13 @@ _lock = threading.Lock()
 
 
 def get_expected_api_key() -> str | None:
-    """Return API key from env var, runtime override, or None.
-
-    Callers that have AppState should prefer state.config.security.api_key.
-    This function exists for code paths without AppState access.
+    """Return API key from runtime override, env var, or None.
+    Runtime override takes precedence to allow active key rotation via admin API.
     """
-    env_key = os.getenv("AI_SECURITY_API_KEY")
-    if env_key:
-        return env_key
     with _lock:
-        return _override_api_key
+        if _override_api_key is not None:
+            return _override_api_key
+    return os.getenv("AI_SECURITY_API_KEY")
 
 
 def set_api_key(key: str | None) -> None:

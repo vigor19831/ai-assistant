@@ -137,14 +137,14 @@ class TestAPISecurity:
 
     # ── get_expected_api_key ──
 
-    def test_env_var_priority(self, monkeypatch):
+    def test_runtime_override_priority(self, monkeypatch):
         """Given: env var and runtime override are both set.
         When: get_expected_api_key() is called.
-        Then: env var wins over runtime override.
+        Then: runtime override wins to allow active key rotation.
         """
         monkeypatch.setenv("AI_SECURITY_API_KEY", "env-secret")
         set_api_key("override-secret")
-        assert get_expected_api_key() == "env-secret"
+        assert get_expected_api_key() == "override-secret"
 
     def test_runtime_override_without_env(self):
         """Given: no env var is set and runtime override is active.
