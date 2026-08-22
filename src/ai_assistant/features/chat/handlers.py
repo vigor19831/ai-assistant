@@ -182,12 +182,13 @@ async def chat(
         )
         history = []
     try:
-        response = await manager.chat(
-            message=req.message,
-            conversation_id=conv_id,
-            metadata={**req.metadata, "trace_id": trace_id},
-            history=history,
-        )
+        async with state.rag_state.chat_semaphore:
+            response = await manager.chat(
+                message=req.message,
+                conversation_id=conv_id,
+                metadata={**req.metadata, "trace_id": trace_id},
+                history=history,
+            )
     except AdapterError as exc:
         _logger.warning(
             "LLM unavailable",
@@ -246,14 +247,15 @@ async def chat_stream(
     async def _llm_stream() -> AsyncIterator[str]:
         full_text = ""
         try:
-            async for chunk in manager.stream_chat(
-                message=req.message,
-                conversation_id=conv_id,
-                metadata={**req.metadata, "trace_id": trace_id},
-                history=history,
-            ):
-                full_text += chunk
-                yield chunk
+            async with state.rag_state.chat_semaphore:
+                async for chunk in manager.stream_chat(
+                    message=req.message,
+                    conversation_id=conv_id,
+                    metadata={**req.metadata, "trace_id": trace_id},
+                    history=history,
+                ):
+                    full_text += chunk
+                    yield chunk
         except AdapterError as exc:
             _logger.warning(
                 "LLM unavailable in stream",
@@ -340,30 +342,34 @@ async def openai_chat_completions(
         async def _llm_stream() -> AsyncIterator[str]:
             full_text = ""
             try:
-                async for chunk in manager.stream_chat(
-                    message=last_user_msg,
-                    conversation_id=conv_id,
-                    metadata={"trace_id": trace_id},
-                    max_tokens=req.max_tokens,
-                    temperature=req.temperature,
-                    top_p=req.top_p,
-                    stop=req.stop,
-                    frequency_penalty=req.frequency_penalty,
-                    presence_penalty=req.presence_penalty,
-                    history=oai_history,
-                ):
-                    full_text += chunk
-                    delta = OAIDeltaChunk(
-                        model=model_id,
-                        choices=[
-                            OAIChoice(
-                                index=0,
-                                delta=OAIChatMessage(role="assistant", content=chunk),
-                                finish_reason=None,
-                            )
-                        ],
-                    )
-                    yield delta.model_dump_json()
+                async with state.rag_state.chat_semaphore:
+                    async for chunk in manager.stream_chat(
+                        message=last_user_msg,
+                        conversation_id=conv_id,
+                        metadata={"trace_id": trace_id},
+                        max_tokens=req.max_tokens,
+                        temperature=req.temperature,
+                        top_p=req.top_p,
+                        stop=req.stop,
+                        frequency_penalty=req.frequency_penalty,
+                        presence_penalty=req.presence_penalty,
+                        history=oai_history,
+                    ):
+                        full_text += chunk
+                        delta = OAIDeltaChunk(
+                            model=model_id,
+                            choices=[
+                                OAIChoice(
+                                    index=0,
+                                    delta=OAIChatMessage(
+                                        role="assistant",
+                                        content=chunk,
+                                    ),
+                                    finish_reason=None,
+                                )
+                            ],
+                        )
+                        yield delta.model_dump_json()
             except AdapterError as exc:
                 _logger.warning(
                     "LLM unavailable in stream",
@@ -399,18 +405,19 @@ async def openai_chat_completions(
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     try:
-        response = await manager.chat(
-            message=last_user_msg,
-            conversation_id=conv_id,
-            metadata={"trace_id": trace_id},
-            max_tokens=req.max_tokens,
-            temperature=req.temperature,
-            top_p=req.top_p,
-            stop=req.stop,
-            frequency_penalty=req.frequency_penalty,
-            presence_penalty=req.presence_penalty,
-            history=oai_history,
-        )
+        async with state.rag_state.chat_semaphore:
+            response = await manager.chat(
+                message=last_user_msg,
+                conversation_id=conv_id,
+                metadata={"trace_id": trace_id},
+                max_tokens=req.max_tokens,
+                temperature=req.temperature,
+                top_p=req.top_p,
+                stop=req.stop,
+                frequency_penalty=req.frequency_penalty,
+                presence_penalty=req.presence_penalty,
+                history=oai_history,
+            )
     except AdapterError as exc:
         _logger.warning(
             "LLM unavailable",

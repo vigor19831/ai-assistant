@@ -61,6 +61,9 @@ class RAGState:
     """
 
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
+    chat_semaphore: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(5)
+    )
     _status: dict[str, ReindexStatusEntry] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -350,7 +353,9 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
                     )
         raise
     state.task_registry = TaskRegistry()
-    state.rag_state = RAGState()
+    state.rag_state = RAGState(
+        chat_semaphore=asyncio.Semaphore(cfg.chat.max_concurrent_chat)
+    )
     return InitializedAppState(
         config=cfg,
         task_registry=state.task_registry,

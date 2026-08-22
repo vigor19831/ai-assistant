@@ -27,6 +27,9 @@ chat:
   # Smaller history = more tokens left for RAG context. Keep 4-6 for 4B-class models.
   history_limit: 4
   max_context_tokens: 1280
+  # Max simultaneous chat requests per process. Tune for your hardware:
+  # 2-3 for 4GB VRAM, 5-10 for 16GB RAM.
+  max_concurrent_chat: 5
 
 storage:
   provider: sqlite

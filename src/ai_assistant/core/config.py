@@ -75,10 +75,12 @@ class UIConfig(BaseSettings):
 
 class ChatConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_CHAT_", extra="forbid")
+
     history_limit: int = 10
     max_history_messages: int = 10_000
     max_context_tokens: int | None = None
-
+    # Per-process limit. Total = this * uvicorn workers. Tune for VRAM/RAM.
+    max_concurrent_chat: int = Field(default=5, ge=1)
 
 class TokenizerConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_TOKENIZER_", extra="forbid")
