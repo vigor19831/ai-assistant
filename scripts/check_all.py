@@ -68,6 +68,31 @@ ABC_BASES: frozenset[str] = frozenset({
 FRAMEWORK_BASES: frozenset[str] = frozenset({"BaseHTTPMiddleware", "BaseMiddleware", "Middleware"})
 FRAMEWORK_CALLBACKS: frozenset[str] = frozenset({"dispatch", "lifespan"})
 
+# ── ANSI Colors ──────────────────────────────────────────────────────────────
+_USE_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+def _c(text: str, code: str) -> str:
+    """Wrap text in ANSI color code if terminal supports it."""
+    if not _USE_COLOR:
+        return text
+    return f"\033[{code}m{text}\033[0m"
+
+def _green(text: str) -> str:
+    return _c(text, "32")
+
+def _red(text: str) -> str:
+    return _c(text, "31")
+
+def _yellow(text: str) -> str:
+    return _c(text, "33")
+
+def _bold(text: str) -> str:
+    return _c(text, "1")
+
+def _dim(text: str) -> str:
+    return _c(text, "2")
+
+
 _CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 _EMOJI_RE = re.compile(
     r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
@@ -816,10 +841,10 @@ def _run_cmd(cmd: list[str], desc: str) -> bool:
     returncode = process.wait()
 
     if returncode == 0:
-        print(f"\n  [OK] {desc}")
+        print(f"\n  {_green('[OK]')} {desc}")
         return True
     else:
-        print(f"\n  [FAIL] {desc}")
+        print(f"\n  {_red('[FAIL]')} {desc}")
         return False
 
 
@@ -874,10 +899,10 @@ def _show_ast_results(
             print(f"    {cycle}")
 
     if total == 0:
-        print("\n  [OK] No AST issues found.")
+        print(f"\n  {_green('[OK]')} No AST issues found.")
         return True
     else:
-        print(f"\n  [!] {total} AST issue(s) found — review recommended.")
+        print(f"\n  {_yellow('[!]')} {total} AST issue(s) found — review recommended.")
         return False
 
 
@@ -887,14 +912,14 @@ def _show_coverage_results(issues: list[tuple[str, float, str]]) -> bool:
     print()
 
     if not issues:
-        print("\n  [OK] All files have good coverage.")
+        print(f"\n  {_green('[OK]')} All files have good coverage.")
         return True
 
     if issues[0][2].startswith("ERROR"):
         print(f"\n  [ERR] {issues[0][0]}")
         return False
 
-    print(f"\n  [!] {len(issues)} file(s) with low coverage:\n")
+    print(f"\n  {_yellow('[!]')} {len(issues)} file(s) with low coverage:\n")
     for fname, pct, reason in issues:
         print(f"    {pct:5.1f}%  {fname}")
         print(f"           {reason}")
@@ -908,10 +933,10 @@ def _show_test_audit_results(issues: list[str]) -> bool:
     print()
 
     if not issues:
-        print("\n  [OK] No test quality violations.")
+        print(f"\n  {_green('[OK]')} No test quality violations.")
         return True
 
-    print(f"\n  [!] {len(issues)} violation(s):\n")
+    print(f"\n  {_yellow('[!]')} {len(issues)} violation(s):\n")
     for issue in issues:
         print(issue)
     print("\n  Rules: §15 ISOLATION, §15 DETERMINISM, §6 Mock adapters.")
@@ -924,7 +949,7 @@ def _show_non_ascii_results(issues: list[tuple[Path, int, str, str]]) -> bool:
     print()
 
     if not issues:
-        print("\n  [OK] No non-ASCII identifiers or emoji found.")
+        print(f"\n  {_green('[OK]')} No non-ASCII identifiers or emoji found.")
         return True
 
     cyrillic = [i for i in issues if i[2] == "cyrillic-id"]
@@ -946,7 +971,7 @@ def _show_non_ascii_results(issues: list[tuple[Path, int, str, str]]) -> bool:
         for f, line, _, msg in emoji_comment:
             print(f"    {f.relative_to(ROOT)}:{line}  {msg}")
 
-    print(f"\n  [!] {len(issues)} issue(s) found — review recommended.")
+    print(f"\n  {_yellow('[!]')} {len(issues)} issue(s) found — review recommended.")
     return False
 
 
@@ -1043,9 +1068,9 @@ def main() -> int:
 
         print()
         if ok:
-            print("  [OK] ALL CHECKS PASSED")
+            print(f"  {_green('✓ ALL CHECKS PASSED')}")
         else:
-            print("  [WARN] SOME CHECKS NEED ATTENTION")
+            print(f"  {_yellow('⚠ SOME CHECKS NEED ATTENTION')}")
         print()
 
         return 0 if ok else 1
