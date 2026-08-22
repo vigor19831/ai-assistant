@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import time
 import uuid
@@ -689,7 +690,24 @@ async def reindex_documents(
                 "Reindex cancelled",
                 extra={"trace_id": trace_id, "task_id": task_id},
             )
-            await rag_state.fail_task(task_id, "Reindex cancelled")
+            # Restore affected namespaces from last saved state on disk.
+            # Disk state is always consistent (atomic writes), so loading
+            # from disk restores memory to a consistent state.
+            affected_ns = (
+                [target_namespace]
+                if target_namespace is not None
+                else sorted({s.namespace for s in state.config.rag.sources})
+            )
+            for ns in affected_ns:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await asyncio.shield(
+                        state.vector_store.load(
+                            state.config.vector_store.index_path,
+                            namespace=ns,
+                        )
+                    )
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await rag_state.fail_task(task_id, "Reindex cancelled")
             raise
         except Exception as exc:
             _logger.exception(
