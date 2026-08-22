@@ -86,14 +86,11 @@ async def _save_exchange(
     assistant_content: str,
     user_metadata: dict[str, Any],
 ) -> None:
-    """Persist a user/assistant message pair. Never raises."""
+    """Persist a user/assistant message pair atomically. Never raises."""
     try:
-        await storage.save_message(
+        await storage.save_exchange(
             conversation_id,
             {"role": "user", "content": user_content, "metadata": user_metadata},
-        )
-        await storage.save_message(
-            conversation_id,
             {"role": "assistant", "content": assistant_content, "metadata": {}},
         )
     except Exception:

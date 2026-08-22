@@ -105,6 +105,7 @@ def mock_storage():
     m = MagicMock(spec=IChatStorage)
     m.get_history = AsyncMock(return_value=[])
     m.save_message = AsyncMock(return_value=None)
+    m.save_exchange = AsyncMock(return_value=None)
     m.get = AsyncMock(return_value=None)
     m.set = AsyncMock(return_value=None)
     m.init_db = AsyncMock(return_value=None)
@@ -178,6 +179,7 @@ def build_mock_state() -> InitializedAppState:
     storage = AsyncMock(spec=IChatStorage)
     storage.get_history = AsyncMock(return_value=[])
     storage.save_message = AsyncMock(return_value=None)
+    storage.save_exchange = AsyncMock(return_value=None)
     reranker = AsyncMock(spec=IReranker)
     reranker.retrieval_multiplier = 1
 

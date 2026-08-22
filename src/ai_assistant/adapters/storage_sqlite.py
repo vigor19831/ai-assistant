@@ -138,26 +138,50 @@ class SQLiteStorage(IChatStorage, ISettingsStorage):
     ) -> None:
         await conn.execute(f"PRAGMA user_version = {version}")
 
+    async def _insert_message(
+        self,
+        conn: aiosqlite.Connection,
+        conversation_id: str,
+        message: dict[str, Any],
+    ) -> None:
+        """Insert a single message into an open connection (no commit)."""
+        await conn.execute(
+            """
+            INSERT INTO chat_messages
+            (conversation_id, role, content, metadata)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                message.get("role", ""),
+                message.get("content", ""),
+                json.dumps(message.get("metadata", {})),
+            ),
+        )
+
     async def save_message(self, conversation_id: str, message: dict[str, Any]) -> None:
         try:
             async with aiosqlite.connect(self.db_path) as conn:
-                await conn.execute(
-                    """
-                    INSERT INTO chat_messages
-                    (conversation_id, role, content, metadata)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        conversation_id,
-                        message.get("role", ""),
-                        message.get("content", ""),
-                        json.dumps(message.get("metadata", {})),
-                    ),
-                )
+                await self._insert_message(conn, conversation_id, message)
                 await conn.commit()
         except (sqlite3.Error, aiosqlite.Error) as exc:
             _logger.exception("save_message failed", extra={"db_path": self.db_path})
             raise AdapterError(f"save_message failed: {exc}") from exc
+
+    async def save_exchange(
+        self,
+        conversation_id: str,
+        user_message: dict[str, Any],
+        assistant_message: dict[str, Any],
+    ) -> None:
+        try:
+            async with aiosqlite.connect(self.db_path) as conn:
+                await self._insert_message(conn, conversation_id, user_message)
+                await self._insert_message(conn, conversation_id, assistant_message)
+                await conn.commit()
+        except (sqlite3.Error, aiosqlite.Error) as exc:
+            _logger.exception("save_exchange failed", extra={"db_path": self.db_path})
+            raise AdapterError(f"save_exchange failed: {exc}") from exc
 
     async def get_history(
         self, conversation_id: str, limit: int = 50, offset: int = 0

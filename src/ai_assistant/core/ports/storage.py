@@ -24,6 +24,22 @@ class IChatStorage(IInitializable, IClosable, ABC):
         ...
 
     @abstractmethod
+    async def save_exchange(
+        self,
+        conversation_id: str,
+        user_message: dict[str, Any],
+        assistant_message: dict[str, Any],
+    ) -> None:
+        """Persist a user/assistant message pair atomically.
+
+        Both messages are saved in a single transaction. If either insert
+        fails, neither message is persisted. This guarantees history
+        consistency — the conversation never ends up with a user message
+        but no assistant response (or vice versa).
+        """
+        ...
+
+    @abstractmethod
     async def get_history(
         self, conversation_id: str, limit: int = 50, offset: int = 0
     ) -> list[dict[str, Any]]:

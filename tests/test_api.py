@@ -2082,12 +2082,12 @@ class TestChatPersistence:
         )
         assert resp.status_code == 200
         isolated_app_state.storage.get_history.assert_awaited_once()
-        assert isolated_app_state.storage.save_message.await_count == 2
+        isolated_app_state.storage.save_exchange.assert_awaited_once()
 
     def test_openai_chat_persists_when_conversation_id_set(self, client, isolated_app_state):
         """Given: OpenAI /v1/chat/completions endpoint with conversation_id.
         When: POST request is made.
-        Then: storage.save_message is called twice (user + assistant).
+        Then: storage.save_exchange is called once (atomic user + assistant pair).
         """
         from ai_assistant.api.security import set_api_key
         set_api_key("test-key")
@@ -2100,7 +2100,7 @@ class TestChatPersistence:
             headers={"Authorization": "Bearer test-key"},
         )
         assert resp.status_code == 200
-        assert isolated_app_state.storage.save_message.await_count == 2
+        isolated_app_state.storage.save_exchange.assert_awaited_once()
         isolated_app_state.storage.get_history.assert_not_awaited()
 
     def test_openai_chat_stateless_without_conversation_id(self, client, isolated_app_state):
@@ -2163,11 +2163,12 @@ async def test_stream_chat_saves_partial_on_error(client_no_raise, mock_state):
     )
     assert resp.status_code == 200
 
-    # Verify partial response was saved
-    mock_state.storage.save_message.assert_called()
-    calls = [call[0] for call in mock_state.storage.save_message.call_args_list]
-    assistant_calls = [c for c in calls if c[1]["role"] == "assistant"]
-    assert any("Partial response" in c[1]["content"] for c in assistant_calls)
+    # Verify partial response was saved via atomic save_exchange
+    mock_state.storage.save_exchange.assert_called()
+    call_args = mock_state.storage.save_exchange.call_args
+    # save_exchange(conversation_id, user_message, assistant_message)
+    assistant_msg = call_args[0][2]  # third positional arg
+    assert "Partial response" in assistant_msg.get("content", "")
 
 
 @pytest.mark.asyncio
