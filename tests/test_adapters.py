@@ -2320,3 +2320,306 @@ class TestSQLiteStorageErrorPaths:
         assert len(history) == 1
         assert history[0]["content"] == "Hello"
         assert history[0]["metadata"] == {}
+
+
+
+# ── TiktokenTokenizer ────────────────────────────────────────────────────
+
+
+class TestResolveTokenizerDir:
+    """Coverage for _resolve_tokenizer_dir (lines 30, 37, 42-53)."""
+
+    def test_nonexistent_base_returns_none(self, tmp_path):
+        """Given: non-existent local_dir.
+        When: _resolve_tokenizer_dir is called.
+        Then: returns None.
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        result = _resolve_tokenizer_dir("qwen", str(tmp_path / "nonexistent"))
+        assert result is None
+
+    def test_exact_match_returns_dir(self, tmp_path):
+        """Given: directory with exact model name and tokenizer.json.
+        When: _resolve_tokenizer_dir is called.
+        Then: returns that directory.
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        model_dir = tmp_path / "qwen2.5-7b-instruct"
+        model_dir.mkdir()
+        (model_dir / "tokenizer.json").write_text("{}")
+
+        result = _resolve_tokenizer_dir(
+            "Qwen2.5-7B-Instruct", str(tmp_path)
+        )
+        assert result == model_dir
+
+    def test_exact_match_with_underscores(self, tmp_path):
+        """Given: directory with underscores in name.
+        When: _resolve_tokenizer_dir is called with hyphens.
+        Then: normalizes and finds the directory.
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        model_dir = tmp_path / "qwen2.5_7b_instruct"
+        model_dir.mkdir()
+        (model_dir / "tokenizer.json").write_text("{}")
+
+        result = _resolve_tokenizer_dir(
+            "qwen2.5-7b-instruct", str(tmp_path)
+        )
+        assert result == model_dir
+
+    def test_fuzzy_match_returns_dir(self, tmp_path):
+        """Given: directory with partial model name match.
+        When: _resolve_tokenizer_dir is called.
+        Then: returns the fuzzy-matched directory.
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        model_dir = tmp_path / "qwen2.5"
+        model_dir.mkdir()
+        (model_dir / "tokenizer.json").write_text("{}")
+
+        result = _resolve_tokenizer_dir(
+            "qwen2.5-7b-instruct-1m", str(tmp_path)
+        )
+        assert result == model_dir
+
+    def test_no_match_returns_none(self, tmp_path):
+        """Given: directory with unrelated model names.
+        When: _resolve_tokenizer_dir is called.
+        Then: returns None.
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        other_dir = tmp_path / "llama-3"
+        other_dir.mkdir()
+        (other_dir / "tokenizer.json").write_text("{}")
+
+        result = _resolve_tokenizer_dir("qwen2.5-7b", str(tmp_path))
+        assert result is None
+
+    def test_dir_without_tokenizer_json_skipped(self, tmp_path):
+        """Given: directory with model name but no tokenizer.json.
+        When: _resolve_tokenizer_dir is called.
+        Then: returns None (directory skipped).
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        model_dir = tmp_path / "qwen2.5-7b"
+        model_dir.mkdir()
+        # No tokenizer.json inside
+
+        result = _resolve_tokenizer_dir("qwen2.5-7b", str(tmp_path))
+        assert result is None
+
+    def test_oserror_returns_none(self, tmp_path, monkeypatch):
+        """Given: iterdir raises OSError.
+        When: _resolve_tokenizer_dir is called.
+        Then: returns None gracefully.
+        """
+        from unittest.mock import patch
+
+        from ai_assistant.adapters.tiktoken_tokenizer import _resolve_tokenizer_dir
+
+        base_dir = tmp_path / "models"
+        base_dir.mkdir()
+
+        with patch.object(
+            Path, "iterdir", side_effect=OSError("Permission denied")
+        ):
+            result = _resolve_tokenizer_dir("qwen", str(base_dir))
+
+        assert result is None
+
+
+class TestTiktokenTokenizerCount:
+    """Coverage for count() error paths and HF fallback (lines 90->104)."""
+
+    def test_empty_text_returns_zero(self):
+        """Given: empty string.
+        When: count is called.
+        Then: returns 0 without calling any backend.
+        """
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        tokenizer = TiktokenTokenizer(
+            TokenizerConfigData(provider="tiktoken", model_name="cl100k_base")
+        )
+        assert tokenizer.count("") == 0
+
+    def test_tiktoken_keyerror_falls_through_to_hf(self, tmp_path):
+        """Given: tiktoken raises KeyError (unknown encoding).
+        When: count is called and HF tokenizer exists.
+        Then: falls through to HF tokenizer backend.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        # Create a mock HF tokenizer directory
+        model_dir = tmp_path / "test-model"
+        model_dir.mkdir()
+        (model_dir / "tokenizer.json").write_text("{}")
+
+        tokenizer = TiktokenTokenizer(
+            TokenizerConfigData(
+                provider="tiktoken",
+                model_name="test-model",
+                local_dir=str(tmp_path),
+            )
+        )
+
+        mock_hf_result = MagicMock()
+        mock_hf_result.tokens = ["hello", "world"]
+
+        with patch(
+            "ai_assistant.adapters.tiktoken_tokenizer.tiktoken"
+        ) as mock_tiktoken:
+            mock_tiktoken.get_encoding.side_effect = KeyError("unknown")
+
+            with patch(
+                "ai_assistant.adapters.tiktoken_tokenizer.tokenizers"
+            ) as mock_tokenizers:
+                mock_hf_tok = MagicMock()
+                mock_hf_tok.encode.return_value = mock_hf_result
+                mock_tokenizers.Tokenizer.from_file.return_value = mock_hf_tok
+
+                result = tokenizer.count("hello world")
+
+        assert result == 2
+
+    def test_no_backend_raises_adapter_error(self):
+        """Given: both tiktoken and tokenizers are None.
+        When: count is called.
+        Then: AdapterError raised with helpful message.
+        """
+        from unittest.mock import patch
+
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+        from ai_assistant.core.domain.errors import AdapterError
+
+        tokenizer = TiktokenTokenizer(
+            TokenizerConfigData(
+                provider="tiktoken",
+                model_name="unknown-model",
+                local_dir="/nonexistent",
+            )
+        )
+
+        with patch(
+            "ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None
+        ), patch(
+            "ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None
+        ):
+            with pytest.raises(AdapterError, match="No tokenizer backend available"):
+                tokenizer.count("hello world")
+
+    def test_hf_tokenizer_attribute_error_fallback(self, tmp_path):
+        """Given: HF tokenizer result has no .tokens attribute.
+        When: count is called.
+        Then: falls back to len(result).
+        """
+        from unittest.mock import MagicMock, patch
+
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+
+        model_dir = tmp_path / "test-model"
+        model_dir.mkdir()
+        (model_dir / "tokenizer.json").write_text("{}")
+
+        tokenizer = TiktokenTokenizer(
+            TokenizerConfigData(
+                provider="tiktoken",
+                model_name="test-model",
+                local_dir=str(tmp_path),
+            )
+        )
+
+        # Result without .tokens attribute — simulates older tokenizers API
+        mock_hf_result = ["hello", "world", "!"]
+
+        with patch(
+            "ai_assistant.adapters.tiktoken_tokenizer.tiktoken"
+        ) as mock_tiktoken:
+            mock_tiktoken.get_encoding.side_effect = KeyError("unknown")
+
+            with patch(
+                "ai_assistant.adapters.tiktoken_tokenizer.tokenizers"
+            ) as mock_tokenizers:
+                mock_hf_tok = MagicMock()
+                mock_hf_tok.encode.return_value = mock_hf_result
+                mock_tokenizers.Tokenizer.from_file.return_value = mock_hf_tok
+
+                result = tokenizer.count("hello world!")
+
+        assert result == 3
+
+    def test_tiktoken_exception_raises_adapter_error(self):
+        """Given: tiktoken raises unexpected exception.
+        When: count is called.
+        Then: AdapterError raised.
+        """
+        from unittest.mock import patch
+
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+        from ai_assistant.core.domain.errors import AdapterError
+
+        tokenizer = TiktokenTokenizer(
+            TokenizerConfigData(
+                provider="tiktoken", model_name="cl100k_base"
+            )
+        )
+
+        with patch(
+            "ai_assistant.adapters.tiktoken_tokenizer.tiktoken"
+        ) as mock_tiktoken:
+            mock_tiktoken.get_encoding.side_effect = RuntimeError("boom")
+
+            with pytest.raises(AdapterError, match="tiktoken failed"):
+                tokenizer.count("hello")
+
+    def test_hf_tokenizer_exception_raises_adapter_error(self, tmp_path):
+        """Given: HF tokenizer raises exception during encode.
+        When: count is called.
+        Then: AdapterError raised.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+        from ai_assistant.core.domain.errors import AdapterError
+
+        model_dir = tmp_path / "test-model"
+        model_dir.mkdir()
+        (model_dir / "tokenizer.json").write_text("{}")
+
+        tokenizer = TiktokenTokenizer(
+            TokenizerConfigData(
+                provider="tiktoken",
+                model_name="test-model",
+                local_dir=str(tmp_path),
+            )
+        )
+
+        with patch(
+            "ai_assistant.adapters.tiktoken_tokenizer.tiktoken"
+        ) as mock_tiktoken:
+            mock_tiktoken.get_encoding.side_effect = KeyError("unknown")
+
+            with patch(
+                "ai_assistant.adapters.tiktoken_tokenizer.tokenizers"
+            ) as mock_tokenizers:
+                mock_tokenizers.Tokenizer.from_file.side_effect = RuntimeError(
+                    "corrupt tokenizer.json"
+                )
+
+                with pytest.raises(AdapterError, match="HF tokenizer failed"):
+                    tokenizer.count("hello")
