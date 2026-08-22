@@ -341,6 +341,12 @@ class FaissVectorStore(IVectorStore):
         try:
             os.close(fd)
             faiss.write_index(index, tmp)
+            # fsync file before rename to ensure durability
+            fd_sync = os.open(tmp, os.O_RDONLY)
+            try:
+                os.fsync(fd_sync)
+            finally:
+                os.close(fd_sync)
             os.replace(tmp, target)
             # Persist directory metadata (POSIX)
             try:
@@ -405,6 +411,15 @@ class FaissVectorStore(IVectorStore):
             # If crash between renames, load() detects ntotal mismatch.
             await asyncio.to_thread(os.replace, str(tmp_index), str(index_file))
             await asyncio.to_thread(os.replace, str(tmp_store), str(store_file))
+            # fsync directory to ensure both renames are durable
+            try:
+                dir_fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass  # Windows or filesystem without directory fsync support
         except Exception:
             raise
         finally:
