@@ -722,7 +722,7 @@ class TestChatExportIsolation:
         Then: Pydantic validation error is raised before handler runs."""
         from ai_assistant.features.rag.schemas import SaveChatRequest
 
-        invalid_namespaces = ["../etc", "foo/bar", "Foo", "123", "chat_"]
+        invalid_namespaces = ["../etc", "foo/bar", "Foo", "123", "chat!"]
         for ns in invalid_namespaces:
             with pytest.raises(ValueError):
                 SaveChatRequest(content="test", namespace=ns, filename="test.md")
@@ -2184,7 +2184,7 @@ def test_index_documents_closes_temporary_chunker(client, mock_state):
             },
         )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
     temp_chunker.shutdown.assert_awaited_once()
 
 

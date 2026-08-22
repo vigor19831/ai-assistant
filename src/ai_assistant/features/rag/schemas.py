@@ -23,13 +23,13 @@ __all__ = [
 
 class IndexRequest(BaseModel):
     """Request to index documents."""
-
     documents: list[dict[str, Any]] = Field(
         ...,
         description="List of {id, content, metadata} objects",
     )
     namespace: str | None = Field(
         default=None,
+        pattern=r"^[a-z][a-z0-9_-]*$",
         description="Index namespace",
     )
 
@@ -49,7 +49,11 @@ class QueryRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=50)
     prompt_name: str | None = None
     prompt_version: str | None = None
-    namespace: str | None = Field(default=None, description="Query namespace")
+    namespace: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9_-]*$",
+        description="Query namespace",
+    )
     chat_history: list[tuple[str, str]] | None = Field(
         default=None, description="Previous messages for context"
     )
@@ -80,10 +84,13 @@ class QueryResponse(BaseModel):
 
 class DeleteRequest(BaseModel):
     """Delete documents/chunks request."""
-
     document_ids: list[str] | None = None
     chunk_ids: list[str] | None = None
-    namespace: str | None = Field(default=None, description="Target namespace")
+    namespace: str | None = Field(
+        default=None,
+        pattern=r"^[a-z][a-z0-9_-]*$",
+        description="Target namespace",
+    )
     clear: bool = Field(default=False, description="Clear all chunks in namespace")
 
 
@@ -115,7 +122,7 @@ class SaveChatRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Chat content to save")
     namespace: str = Field(
         default="default",
-        pattern=r"^[a-z][a-z0-9-]*$",
+        pattern=r"^[a-z][a-z0-9_-]*$",
         description="Target namespace",
     )
     filename: str = Field(
@@ -127,9 +134,10 @@ class SaveChatRequest(BaseModel):
 
 class ReindexRequest(BaseModel):
     """Request to reindex documents from namespaces."""
-
     target_namespace: str | None = Field(
-        default=None, description="Specific namespace to reindex, or None for all."
+        default=None,
+        pattern=r"^[a-z][a-z0-9_-]*$",
+        description="Specific namespace to reindex, or None for all.",
     )
     clear: bool = Field(
         default=False, description="If True, clear existing chunks before indexing."
