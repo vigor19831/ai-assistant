@@ -1582,32 +1582,16 @@ class TestChatHistoryTrimming:
 
 
 @pytest.mark.asyncio
-async def test_get_chat_manager_passes_rag_steps():
-    """Given: AppConfig with custom rag.steps.
+async def test_get_chat_manager_returns_cached_instance():
+    """Given: InitializedAppState with pre-built chat_manager.
     When: get_chat_manager is called.
-    Then: ChatManager receives rag_steps from config."""
-    from unittest.mock import patch, MagicMock
+    Then: returns state.chat_manager without creating a new instance."""
+    from unittest.mock import MagicMock
     from ai_assistant.features.chat.handlers import get_chat_manager
 
     state = MagicMock()
-    state.config.rag.steps = [RAGStep.CONDENSE_QUESTION, RAGStep.GENERATE]
-    state.config.llm.system_message = None
-    state.config.chat.max_context_tokens = 1000
-    state.config.rag.top_k = 3
-    state.config.rag.token_margin_min = 100
-    state.config.rag.token_margin_pct = 0.1
-    state.config.rag.prompt_version = "v1"
-    state.config.namespaces = {}
-    state.llm = MagicMock()
-    state.reranker = MagicMock()
-    state.embedder = MagicMock()
-    state.vector_store = MagicMock()
-    state.tokenizer = MagicMock()
+    mock_chat_manager = MagicMock()
+    state.chat_manager = mock_chat_manager
 
-    with patch("ai_assistant.features.chat.handlers.ChatManager") as MockChatManager:
-        manager_instance = MockChatManager.return_value
-        get_chat_manager(state)
-        MockChatManager.assert_called_once()
-        _, kwargs = MockChatManager.call_args
-        assert "rag_steps" in kwargs
-        assert kwargs["rag_steps"] == [RAGStep.CONDENSE_QUESTION, RAGStep.GENERATE]
+    result = get_chat_manager(state)
+    assert result is mock_chat_manager

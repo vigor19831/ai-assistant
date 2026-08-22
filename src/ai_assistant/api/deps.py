@@ -16,6 +16,7 @@ from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     LLMConfigData,
     RerankerConfigData,
+    SamplingConfig,
     StorageConfigData,
     TokenizerConfigData,
     VectorStoreConfigData,
@@ -24,6 +25,7 @@ from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.task_registry import TaskRegistry
+from ai_assistant.features.chat.manager import ChatManager
 
 if TYPE_CHECKING:
     from ai_assistant.core.ports import (
@@ -192,6 +194,7 @@ class InitializedAppState:
     tokenizer: ITokenizer
     reranker: IReranker
     rag_state: RAGState
+    chat_manager: ChatManager | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +359,31 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
     state.rag_state = RAGState(
         chat_semaphore=asyncio.Semaphore(cfg.chat.max_concurrent_chat)
     )
+
+    llm_cfg = cfg.llm
+    rag_cfg = cfg.rag
+    chat_manager = ChatManager(
+        llm=state.llm,
+        reranker=state.reranker,
+        max_context_tokens=cfg.chat.max_context_tokens,
+        embedder=state.embedder,
+        vector_store=state.vector_store,
+        namespaces=cfg.namespaces,
+        prompt_version=rag_cfg.prompt_version,
+        top_k=rag_cfg.top_k,
+        token_margin_min=rag_cfg.token_margin_min,
+        token_margin_pct=rag_cfg.token_margin_pct,
+        tokenizer=state.tokenizer,
+        system_message=llm_cfg.system_message,
+        sampling=SamplingConfig(
+            max_tokens=llm_cfg.max_tokens,
+            temperature=llm_cfg.temperature,
+            top_p=llm_cfg.top_p,
+            stop_sequences=tuple(llm_cfg.stop_sequences),
+        ),
+        rag_steps=list(cfg.rag.steps),
+    )
+
     return InitializedAppState(
         config=cfg,
         task_registry=state.task_registry,
@@ -367,6 +395,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         tokenizer=state.tokenizer,
         reranker=state.reranker,
         rag_state=state.rag_state,
+        chat_manager=chat_manager,
     )
 
 

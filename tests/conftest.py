@@ -160,8 +160,10 @@ def build_mock_state() -> InitializedAppState:
     from ai_assistant.core.task_registry import TaskRegistry
     from ai_assistant.core.config import AppConfig
     from ai_assistant.core.domain.configs import TokenizerConfigData
+    from ai_assistant.core.domain.configs import SamplingConfig
     from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.core.ports.reranker import RerankResult
+    from ai_assistant.features.chat.manager import ChatManager
 
     config = AppConfig()
 
@@ -211,6 +213,28 @@ def build_mock_state() -> InitializedAppState:
     vector_store.save = AsyncMock(return_value=None)
     vector_store.load = AsyncMock(return_value=None)
 
+    chat_manager = ChatManager(
+        llm=llm,
+        reranker=reranker,
+        max_context_tokens=config.chat.max_context_tokens,
+        embedder=embedder,
+        vector_store=vector_store,
+        namespaces=config.namespaces,
+        prompt_version=config.rag.prompt_version,
+        top_k=config.rag.top_k,
+        token_margin_min=config.rag.token_margin_min,
+        token_margin_pct=config.rag.token_margin_pct,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        system_message=config.llm.system_message,
+        sampling=SamplingConfig(
+            max_tokens=config.llm.max_tokens,
+            temperature=config.llm.temperature,
+            top_p=config.llm.top_p,
+            stop_sequences=tuple(config.llm.stop_sequences),
+        ),
+        rag_steps=list(config.rag.steps),
+    )
+
     return InitializedAppState(
         config=config,
         task_registry=TaskRegistry(),
@@ -222,6 +246,7 @@ def build_mock_state() -> InitializedAppState:
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         reranker=reranker,
         rag_state=RAGState(),
+        chat_manager=chat_manager,
     )
 
 

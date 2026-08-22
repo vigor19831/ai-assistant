@@ -14,7 +14,6 @@ from fastapi.responses import StreamingResponse
 from starlette.requests import Request  # noqa: TC002
 
 from ai_assistant.api.deps import InitializedAppState, get_state
-from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG, AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -50,30 +49,15 @@ def _raise_llm_unavailable(exc: AdapterError) -> None:
 def get_chat_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> ChatManager:
-    """Create ChatManager from state adapters — pipeline is built internally."""
-    llm_cfg = state.config.llm
-    rag_cfg = state.config.rag
-    return ChatManager(
-        llm=state.llm,
-        reranker=state.reranker,
-        max_context_tokens=state.config.chat.max_context_tokens,
-        embedder=state.embedder,
-        vector_store=state.vector_store,
-        namespaces=state.config.namespaces,
-        prompt_version=rag_cfg.prompt_version,
-        top_k=rag_cfg.top_k,
-        token_margin_min=rag_cfg.token_margin_min,
-        token_margin_pct=rag_cfg.token_margin_pct,
-        tokenizer=state.tokenizer,
-        system_message=llm_cfg.system_message,
-        sampling=SamplingConfig(
-            max_tokens=llm_cfg.max_tokens,
-            temperature=llm_cfg.temperature,
-            top_p=llm_cfg.top_p,
-            stop_sequences=tuple(llm_cfg.stop_sequences),
-        ),
-        rag_steps=state.config.rag.steps,
-    )
+    """Return the per-process ChatManager built during app initialization.
+
+    ChatManager is stateless after construction: it holds only references
+    to ports and config. Caching it in InitializedAppState avoids
+    rebuilding the RAG pipeline on every HTTP request.
+    """
+    if state.chat_manager is None:
+        raise RuntimeError("ChatManager not initialized")
+    return state.chat_manager
 
 
 _logger = get_logger("chat.handlers")
