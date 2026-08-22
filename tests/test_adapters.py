@@ -2623,3 +2623,723 @@ class TestTiktokenTokenizerCount:
 
                 with pytest.raises(AdapterError, match="HF tokenizer failed"):
                     tokenizer.count("hello")
+
+
+
+
+
+# ── OpenAICompatibleLLM ──────────────────────────────────────────────────
+
+
+class TestOpenAICompatibleLLMBuildMessages:
+    """Coverage for _build_messages branches (lines 75-98)."""
+
+    def _make_llm(self):
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        return OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test-model",
+                api_base="http://localhost:8080/v1",
+                api_key="test-key",
+            )
+        )
+
+    def test_tool_message_conversion(self):
+        """Given: ToolMessage in messages list.
+        When: _build_messages is called.
+        Then: converted to OpenAI tool format with tool_call_id.
+        """
+        from ai_assistant.core.domain.messages import ToolMessage
+
+        llm = self._make_llm()
+        messages = [ToolMessage(text="result", call_id="call_1")]
+        result = llm._build_messages(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "tool"
+        assert result[0]["content"] == "result"
+        assert result[0]["tool_call_id"] == "call_1"
+
+    def test_system_message_conversion(self):
+        """Given: SystemMessage in messages list.
+        When: _build_messages is called.
+        Then: converted to OpenAI system format.
+        """
+        from ai_assistant.core.domain.messages import SystemMessage
+
+        llm = self._make_llm()
+        messages = [SystemMessage(text="You are helpful")]
+        result = llm._build_messages(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "system"
+        assert result[0]["content"] == "You are helpful"
+
+    def test_unknown_message_type_fallback(self):
+        """Given: unknown message type.
+        When: _build_messages is called.
+        Then: falls back to user role with str representation.
+        """
+        llm = self._make_llm()
+        messages = ["raw string message"]  # type: ignore[list-item]
+        result = llm._build_messages(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "user"
+        assert "raw string message" in result[0]["content"]
+
+    def test_assistant_message_with_tool_calls(self):
+        """Given: AssistantMessage with tool_calls.
+        When: _build_messages is called.
+        Then: tool_calls are included in output.
+        """
+        from ai_assistant.core.domain.messages import AssistantMessage
+
+        llm = self._make_llm()
+        tool_calls = [{"id": "call_1", "type": "function", "function": {"name": "get_weather"}}]
+        messages = [AssistantMessage(text="Let me check", tool_calls=tool_calls)]
+        result = llm._build_messages(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "assistant"
+        assert result[0]["content"] == "Let me check"
+        assert result[0]["tool_calls"] == tool_calls
+
+
+class TestOpenAICompatibleLLMParseToolCalls:
+    """Coverage for _parse_tool_calls branches (lines 108-141)."""
+
+    def _make_llm(self):
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        return OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test-model",
+                api_base="http://localhost:8080/v1",
+                api_key="test-key",
+            )
+        )
+
+    def test_none_returns_empty(self):
+        """Given: None input.
+        When: _parse_tool_calls is called.
+        Then: returns empty list.
+        """
+        llm = self._make_llm()
+        assert llm._parse_tool_calls(None) == []
+
+    def test_non_iterable_returns_empty(self):
+        """Given: non-iterable input (int).
+        When: _parse_tool_calls is called.
+        Then: returns empty list via TypeError catch.
+        """
+        llm = self._make_llm()
+        assert llm._parse_tool_calls(12345) == []
+
+    def test_non_dict_tool_call_skipped(self):
+        """Given: tool_call that is not a dict.
+        When: _parse_tool_calls is called.
+        Then: skipped with warning.
+        """
+        llm = self._make_llm()
+        result = llm._parse_tool_calls(["not a dict", 123])
+        assert result == []
+
+    def test_incomplete_function_tool_call_skipped(self):
+        """Given: function tool_call without id or name.
+        When: _parse_tool_calls is called.
+        Then: skipped with warning.
+        """
+        llm = self._make_llm()
+        # Missing id
+        result = llm._parse_tool_calls([
+            {"type": "function", "function": {"name": "get_weather"}}
+        ])
+        assert result == []
+
+        # Missing name
+        result = llm._parse_tool_calls([
+            {"id": "call_1", "type": "function", "function": {}}
+        ])
+        assert result == []
+
+    def test_unknown_tool_call_type_skipped(self):
+        """Given: tool_call with unknown type.
+        When: _parse_tool_calls is called.
+        Then: skipped with warning.
+        """
+        llm = self._make_llm()
+        result = llm._parse_tool_calls([
+            {"id": "call_1", "type": "unknown_type", "function": {"name": "test"}}
+        ])
+        assert result == []
+
+    def test_valid_function_tool_call_parsed(self):
+        """Given: valid function tool_call.
+        When: _parse_tool_calls is called.
+        Then: parsed correctly.
+        """
+        llm = self._make_llm()
+        result = llm._parse_tool_calls([
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'},
+            }
+        ])
+        assert len(result) == 1
+        assert result[0]["id"] == "call_1"
+        assert result[0]["function"]["name"] == "get_weather"
+        assert result[0]["function"]["arguments"] == '{"city": "Paris"}'
+
+
+class TestOpenAICompatibleLLMContextLimit:
+    """Coverage for get_context_limit branches (line 174)."""
+
+    def test_returns_server_context_size(self):
+        """Given: config with server_context_size > 0.
+        When: get_context_limit is called.
+        Then: returns server_context_size.
+        """
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        llm = OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test",
+                api_base="http://localhost:8080/v1",
+                server_context_size=8192,
+            )
+        )
+        assert llm.get_context_limit() == 8192
+
+    def test_returns_none_when_no_server_context(self):
+        """Given: config with server_context_size = 0.
+        When: get_context_limit is called.
+        Then: returns None.
+        """
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        llm = OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test",
+                api_base="http://localhost:8080/v1",
+                server_context_size=0,
+            )
+        )
+        assert llm.get_context_limit() is None
+
+    def test_returns_none_when_server_context_is_none(self):
+        """Given: config with server_context_size = None.
+        When: get_context_limit is called.
+        Then: returns None.
+        """
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        llm = OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test",
+                api_base="http://localhost:8080/v1",
+                server_context_size=None,
+            )
+        )
+        assert llm.get_context_limit() is None
+
+
+class TestOpenAICompatibleLLMComplete:
+    """Coverage for complete() closed check and payload options."""
+
+    def _make_llm(self):
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        return OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test-model",
+                api_base="http://localhost:8080/v1",
+                api_key="test-key",
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_complete_on_closed_client_raises(self):
+        """Given: LLM adapter after shutdown.
+        When: complete is called.
+        Then: AdapterError raised.
+        """
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.core.domain.messages import UserMessage
+
+        llm = self._make_llm()
+        await llm.shutdown()
+
+        with pytest.raises(AdapterError, match="shutting down"):
+            await llm.complete([UserMessage(text="Hello")])
+
+    @pytest.mark.asyncio
+    async def test_complete_with_all_optional_params(self):
+        """Given: complete call with all optional params.
+        When: request is made.
+        Then: payload includes all optional fields.
+        """
+        import respx
+
+        from ai_assistant.core.domain.messages import UserMessage
+
+        llm = self._make_llm()
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "choices": [
+                            {"message": {"content": "Hello!", "role": "assistant"}}
+                        ]
+                    },
+                )
+            )
+
+            result = await llm.complete(
+                [UserMessage(text="Hi")],
+                max_tokens=100,
+                temperature=0.5,
+                top_p=0.9,
+                stop=["END"],
+                frequency_penalty=0.1,
+                presence_penalty=0.2,
+            )
+
+        assert result.text == "Hello!"
+        await llm.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_complete_with_stop_from_config(self):
+        """Given: config with stop_sequences and no explicit stop param.
+        When: complete is called.
+        Then: config stop_sequences are used in payload.
+        """
+        import respx
+
+        from ai_assistant.core.domain.configs import LLMConfigData
+        from ai_assistant.core.domain.messages import UserMessage
+
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+
+        llm = OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test-model",
+                api_base="http://localhost:8080/v1",
+                api_key="test-key",
+                stop_sequences=["<|im_end|>", "<|im_start|>"],
+            )
+        )
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "choices": [
+                            {"message": {"content": "Response", "role": "assistant"}}
+                        ]
+                    },
+                )
+            )
+
+            result = await llm.complete([UserMessage(text="Hi")])
+
+        assert result.text == "Response"
+        await llm.shutdown()
+
+
+class TestOpenAICompatibleLLMStream:
+    """Coverage for _stream_impl error paths (lines 282-326)."""
+
+    def _make_llm(self):
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+
+        return OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test-model",
+                api_base="http://localhost:8080/v1",
+                api_key="test-key",
+                max_tokens=100,
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_with_valid_sse(self):
+        """Given: valid SSE response.
+        When: stream is called.
+        Then: content chunks are yielded.
+        """
+        import respx
+
+        from ai_assistant.core.domain.messages import UserMessage
+
+        llm = self._make_llm()
+
+        sse_content = (
+            'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
+            'data: {"choices": [{"delta": {"content": " world"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    content=sse_content,
+                    headers={"content-type": "text/event-stream"},
+                )
+            )
+
+            chunks = []
+            async for chunk in llm.stream([UserMessage(text="Hi")]):
+                chunks.append(chunk)
+
+        assert chunks == ["Hello", " world"]
+        await llm.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_stream_non_sse_content_type_raises(self):
+        """Given: response with non-SSE content type.
+        When: stream is called.
+        Then: AdapterError raised.
+        """
+        import respx
+
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.core.domain.messages import UserMessage
+
+        llm = self._make_llm()
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    content="plain text",
+                    headers={"content-type": "text/plain"},
+                )
+            )
+
+            with pytest.raises(AdapterError, match="Expected text/event-stream"):
+                async for _ in llm.stream([UserMessage(text="Hi")]):
+                    pass
+
+        await llm.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_stream_malformed_json_skipped(self):
+        """Given: SSE with malformed JSON chunk.
+        When: stream is called.
+        Then: malformed chunks are skipped, valid ones yielded.
+        """
+        import respx
+
+        from ai_assistant.core.domain.messages import UserMessage
+
+        llm = self._make_llm()
+
+        sse_content = (
+            "data: not valid json\n\n"
+            'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    content=sse_content,
+                    headers={"content-type": "text/event-stream"},
+                )
+            )
+
+            chunks = []
+            async for chunk in llm.stream([UserMessage(text="Hi")]):
+                chunks.append(chunk)
+
+        assert chunks == ["Hello"]
+        await llm.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_stream_http_error_raises_adapter_error(self):
+        """Given: HTTP error during stream.
+        When: stream is called.
+        Then: AdapterError raised.
+        """
+        import respx
+
+        from ai_assistant.core.domain.errors import AdapterError
+        from ai_assistant.core.domain.messages import UserMessage
+
+        llm = self._make_llm()
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                side_effect=httpx.ConnectError("Connection refused")
+            )
+
+            with pytest.raises(AdapterError, match="LLM stream request failed"):
+                async for _ in llm.stream([UserMessage(text="Hi")]):
+                    pass
+
+        await llm.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_stream_limit_reached(self):
+        """Given: stream produces more tokens than max_stream_tokens.
+        When: stream is called.
+        Then: stream stops at limit.
+        """
+        import respx
+
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
+        from ai_assistant.core.domain.configs import LLMConfigData
+        from ai_assistant.core.domain.messages import UserMessage
+
+        # max_tokens=2 means _max_stream_tokens=4
+        llm = OpenAICompatibleLLM(
+            LLMConfigData(
+                model="test-model",
+                api_base="http://localhost:8080/v1",
+                api_key="test-key",
+                max_tokens=2,
+            )
+        )
+
+        # Generate more than 4 chunks
+        lines = []
+        for i in range(10):
+            lines.append(f'data: {{"choices": [{{"delta": {{"content": "tok{i}"}}}}]}}\n\n')
+        lines.append("data: [DONE]\n\n")
+        sse_content = "".join(lines)
+
+        with respx.mock:
+            respx.post("http://localhost:8080/v1/chat/completions").mock(
+                return_value=httpx.Response(
+                    200,
+                    content=sse_content,
+                    headers={"content-type": "text/event-stream"},
+                )
+            )
+
+            chunks = []
+            async for chunk in llm.stream([UserMessage(text="Hi")]):
+                chunks.append(chunk)
+
+        # Should stop at _max_stream_tokens (4)
+        assert len(chunks) <= 4
+        await llm.shutdown()
+
+
+
+
+# ── APIReranker ──────────────────────────────────────────────────────────
+
+
+class TestAPIReranker:
+    """Coverage for APIReranker error paths (lines 38, 61, 81-99)."""
+
+    def _make_reranker(self):
+        from ai_assistant.adapters.reranker_api import APIReranker
+        from ai_assistant.core.domain.configs import RerankerConfigData
+
+        return APIReranker(
+            RerankerConfigData(
+                model="bge-reranker-v2-m3",
+                api_base="http://localhost:8082",
+                api_key="test-key",
+                timeout=30.0,
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_rerank_empty_chunks_returns_empty(self):
+        """Given: empty chunks list.
+        When: rerank is called.
+        Then: returns empty list without HTTP call.
+        """
+        reranker = self._make_reranker()
+        result = await reranker.rerank("query", [])
+        assert result == []
+        await reranker.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_rerank_valid_response(self):
+        """Given: valid rerank API response.
+        When: rerank is called.
+        Then: results sorted by score descending.
+        """
+        import respx
+
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        reranker = self._make_reranker()
+
+        chunks = [
+            Chunk(
+                id="c1",
+                text="Paris is the capital of France.",
+                embedding=[0.1] * 3,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ),
+            Chunk(
+                id="c2",
+                text="Unrelated text.",
+                embedding=[0.2] * 3,
+                metadata=ChunkMetadata(source="doc2", index=0, total_chunks=1),
+            ),
+        ]
+
+        with respx.mock:
+            respx.post("http://localhost:8082/v1/rerank").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {"index": 0, "relevance_score": 0.95},
+                            {"index": 1, "relevance_score": 0.12},
+                        ]
+                    },
+                )
+            )
+
+            results = await reranker.rerank("What is the capital of France?", chunks)
+
+        assert len(results) == 2
+        assert results[0].chunk.id == "c1"
+        assert results[0].score == 0.95
+        assert results[1].chunk.id == "c2"
+        assert results[1].score == 0.12
+        await reranker.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_rerank_invalid_response_shape(self):
+        """Given: response without 'results' key.
+        When: rerank is called.
+        Then: AdapterError raised.
+        """
+        import respx
+
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+        from ai_assistant.core.domain.errors import AdapterError
+
+        reranker = self._make_reranker()
+
+        chunks = [
+            Chunk(
+                id="c1",
+                text="Test",
+                embedding=[0.1] * 3,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ),
+        ]
+
+        with respx.mock:
+            respx.post("http://localhost:8082/v1/rerank").mock(
+                return_value=httpx.Response(200, json={"wrong_key": []})
+            )
+
+            with pytest.raises(AdapterError, match="Unexpected rerank response shape"):
+                await reranker.rerank("query", chunks)
+
+        await reranker.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_rerank_malformed_result_items_skipped(self):
+        """Given: results with malformed items.
+        When: rerank is called.
+        Then: malformed items skipped, valid ones returned.
+        """
+        import respx
+
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        reranker = self._make_reranker()
+
+        chunks = [
+            Chunk(
+                id="c1",
+                text="Valid chunk",
+                embedding=[0.1] * 3,
+                metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+            ),
+            Chunk(
+                id="c2",
+                text="Another chunk",
+                embedding=[0.2] * 3,
+                metadata=ChunkMetadata(source="doc2", index=0, total_chunks=1),
+            ),
+        ]
+
+        with respx.mock:
+            respx.post("http://localhost:8082/v1/rerank").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {"index": 0, "relevance_score": 0.9},
+                            {"index": "not_a_number", "relevance_score": 0.5},
+                            {"index": 1},  # missing relevance_score
+                            {"index": 99, "relevance_score": 0.8},  # out of range
+                        ]
+                    },
+                )
+            )
+
+            results = await reranker.rerank("query", chunks)
+
+        # Only the valid item should be returned
+        assert len(results) == 1
+        assert results[0].chunk.id == "c1"
+        await reranker.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_rerank_with_top_k(self):
+        """Given: top_k less than number of results.
+        When: rerank is called.
+        Then: only top_k results returned.
+        """
+        import respx
+
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        reranker = self._make_reranker()
+
+        chunks = [
+            Chunk(
+                id=f"c{i}",
+                text=f"Chunk {i}",
+                embedding=[0.1] * 3,
+                metadata=ChunkMetadata(source=f"doc{i}", index=0, total_chunks=1),
+            )
+            for i in range(5)
+        ]
+
+        with respx.mock:
+            respx.post("http://localhost:8082/v1/rerank").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {"index": i, "relevance_score": 1.0 - i * 0.1}
+                            for i in range(5)
+                        ]
+                    },
+                )
+            )
+
+            results = await reranker.rerank("query", chunks, top_k=2)
+
+        assert len(results) == 2
+        assert results[0].score > results[1].score
+        await reranker.shutdown()
