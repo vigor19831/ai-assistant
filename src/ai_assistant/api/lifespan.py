@@ -8,7 +8,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ai_assistant.api.deps import get_chunker_for_config, init_adapters
+from ai_assistant.api.deps import (
+    get_chunker_for_config,
+    init_adapters,
+    shutdown_chunker_if_temporary,
+)
 from ai_assistant.api.security import get_expected_api_key, set_api_key
 from ai_assistant.core.config import AppConfig, SourceConfig, load_config
 from ai_assistant.core.constants import (
@@ -112,14 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                     index_path=state.vector_store.index_path,
                 )
             finally:
-                if chunker is not state.chunker:
-                    try:
-                        await chunker.shutdown()
-                    except Exception:
-                        logger.exception(
-                            "Chunker shutdown failed",
-                            extra={"source": src.path},
-                        )
+                await shutdown_chunker_if_temporary(chunker, state.chunker)
 
         watcher = SourceWatcher(
             sources=config.rag.sources,

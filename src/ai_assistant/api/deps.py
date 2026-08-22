@@ -378,6 +378,26 @@ def get_state(request: Request) -> InitializedAppState:
     return cast("InitializedAppState", app_state)
 
 
+async def shutdown_chunker_if_temporary(
+    chunker: IChunker,
+    base_chunker: IChunker,
+    trace_id: str = "",
+) -> None:
+    """Shutdown a temporary chunker if it differs from the base chunker.
+
+    Called after indexing operations to clean up per-namespace chunker
+    overrides. No-op if chunker is the base chunker.
+    """
+    if chunker is not base_chunker:
+        try:
+            await chunker.shutdown()
+        except Exception:
+            _logger.exception(
+                "Chunker shutdown failed",
+                extra={"trace_id": trace_id},
+            )
+
+
 def get_chunker_for_config(
     state: InitializedAppState, chunk_size: int | None = None
 ) -> IChunker:

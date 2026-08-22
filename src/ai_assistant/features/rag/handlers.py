@@ -17,6 +17,7 @@ from ai_assistant.api.deps import (
     InitializedAppState,
     get_chunker_for_config,
     get_state,
+    shutdown_chunker_if_temporary,
 )
 from ai_assistant.core.config import get_chat_namespace
 from ai_assistant.core.constants import INDEX_IO_TIMEOUT, REINDEX_TASK_TIMEOUT
@@ -96,8 +97,7 @@ async def index_documents(
             "Index documents: no documents provided",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
-        if chunker is not state.chunker:
-            await chunker.shutdown()
+        await shutdown_chunker_if_temporary(chunker, state.chunker, trace_id)
         return IndexResponse(
             indexed_count=0,
             chunk_count=0,
@@ -133,8 +133,7 @@ async def index_documents(
             "Index documents: all filtered by size",
             extra={"trace_id": trace_id, "namespace": namespace},
         )
-        if chunker is not state.chunker:
-            await chunker.shutdown()
+        await shutdown_chunker_if_temporary(chunker, state.chunker, trace_id)
         return IndexResponse(
             indexed_count=0,
             chunk_count=0,
@@ -186,13 +185,7 @@ async def index_documents(
         )
         return IndexResponse(**result, namespace=namespace)
     finally:
-        if chunker is not state.chunker:
-            try:
-                await chunker.shutdown()
-            except Exception:
-                _logger.exception(
-                    "Chunker shutdown failed", extra={"trace_id": trace_id}
-                )
+        await shutdown_chunker_if_temporary(chunker, state.chunker, trace_id)
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -614,14 +607,9 @@ async def reindex_documents(
                                 index_path=state.config.vector_store.index_path,
                             )
                         finally:
-                            if chunker is not state.chunker:
-                                try:
-                                    await chunker.shutdown()
-                                except Exception:
-                                    _logger.exception(
-                                        "Chunker shutdown failed",
-                                        extra={"trace_id": trace_id},
-                                    )
+                            await shutdown_chunker_if_temporary(
+                                chunker, state.chunker, trace_id
+                            )
                     else:
                         combined_results: dict[str, Any] = {}
                         combined_errors: list[str] = []
@@ -658,14 +646,9 @@ async def reindex_documents(
                                 if not ns_result.get("success", False):
                                     combined_success = False
                             finally:
-                                if chunker is not state.chunker:
-                                    try:
-                                        await chunker.shutdown()
-                                    except Exception:
-                                        _logger.exception(
-                                            "Chunker shutdown failed",
-                                            extra={"trace_id": trace_id},
-                                        )
+                                await shutdown_chunker_if_temporary(
+                                    chunker, state.chunker, trace_id
+                                )
                         result = {
                             "success": combined_success,
                             "results": combined_results,
