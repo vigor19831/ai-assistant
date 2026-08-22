@@ -2086,3 +2086,237 @@ async def test_recursive_chunker_sentence_overlap():
     assert len(chunks) >= 2
     # Start of chunk[1] must come from the end of chunk[0]
     assert chunks[1].text[:10] in chunks[0].text
+
+
+# ── SQLiteStorage: _safe_json_loads ──────────────────────────────────────
+
+
+class TestSafeJsonLoads:
+    """Coverage for _safe_json_loads error paths (lines 38, 41-46)."""
+
+    def test_invalid_json_returns_default(self):
+        """Given: invalid JSON string.
+        When: _safe_json_loads is called.
+        Then: returns default value.
+        """
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads("not valid json {{{", {"fallback": True})
+        assert result == {"fallback": True}
+
+    def test_none_returns_default(self):
+        """Given: None value.
+        When: _safe_json_loads is called.
+        Then: returns default value.
+        """
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads(None, {"fallback": True})
+        assert result == {"fallback": True}
+
+    def test_empty_string_returns_default(self):
+        """Given: empty string.
+        When: _safe_json_loads is called.
+        Then: returns default value.
+        """
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads("", {"fallback": True})
+        assert result == {"fallback": True}
+
+    def test_valid_json_returns_parsed(self):
+        """Given: valid JSON string.
+        When: _safe_json_loads is called.
+        Then: returns parsed value.
+        """
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads('{"key": "value"}', {})
+        assert result == {"key": "value"}
+
+    def test_json_null_preserved(self):
+        """Given: JSON null.
+        When: _safe_json_loads is called.
+        Then: returns None, not default.
+        """
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads("null", {"fallback": True})
+        assert result is None
+
+    def test_non_string_type_returns_default(self):
+        """Given: non-string type (int).
+        When: _safe_json_loads is called.
+        Then: returns default via TypeError catch.
+        """
+        from ai_assistant.adapters.storage_sqlite import _safe_json_loads
+
+        result = _safe_json_loads(12345, {"fallback": True})  # type: ignore[arg-type]
+        assert result == {"fallback": True}
+
+
+# ── SQLiteStorage: save_exchange ─────────────────────────────────────────
+
+
+class TestSQLiteStorageSaveExchange:
+    """Coverage for save_exchange atomic operation."""
+
+    @pytest.mark.asyncio
+    async def test_save_exchange_saves_both_messages(self, tmp_path):
+        """Given: two messages.
+        When: save_exchange is called.
+        Then: both messages are persisted.
+        """
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+        from ai_assistant.core.domain.configs import StorageConfigData
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(StorageConfigData(db_path=db_path))
+        await storage.init_db()
+
+        await storage.save_exchange(
+            "conv-1",
+            {"role": "user", "content": "Hello", "metadata": {}},
+            {"role": "assistant", "content": "Hi!", "metadata": {}},
+        )
+
+        history = await storage.get_history("conv-1")
+        assert len(history) == 2
+        assert history[0]["role"] == "user"
+        assert history[0]["content"] == "Hello"
+        assert history[1]["role"] == "assistant"
+        assert history[1]["content"] == "Hi!"
+
+    @pytest.mark.asyncio
+    async def test_save_exchange_atomicity_on_error(self, tmp_path):
+        """Given: second insert fails.
+        When: save_exchange is called.
+        Then: AdapterError raised, no messages saved (rollback).
+        """
+        import sqlite3
+
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+        from ai_assistant.core.domain.configs import StorageConfigData
+        from ai_assistant.core.domain.errors import AdapterError
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(StorageConfigData(db_path=db_path))
+        await storage.init_db()
+
+        original_insert = storage._insert_message
+        call_count = 0
+
+        async def failing_insert(conn, conversation_id, message):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise sqlite3.OperationalError("Simulated DB error")
+            await original_insert(conn, conversation_id, message)
+
+        storage._insert_message = failing_insert
+
+        with pytest.raises(AdapterError, match="save_exchange failed"):
+            await storage.save_exchange(
+                "conv-1",
+                {"role": "user", "content": "Hello", "metadata": {}},
+                {"role": "assistant", "content": "Hi!", "metadata": {}},
+            )
+
+        # Transaction rolled back — no messages saved
+        history = await storage.get_history("conv-1")
+        assert len(history) == 0
+
+
+# ── SQLiteStorage: get/set error paths ───────────────────────────────────
+
+
+class TestSQLiteStorageErrorPaths:
+    """Coverage for get/set/shutdown error handling."""
+
+    @pytest.mark.asyncio
+    async def test_set_non_serializable_raises_adapter_error(self, tmp_path):
+        """Given: non-JSON-serializable value.
+        When: set is called.
+        Then: AdapterError raised.
+        """
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+        from ai_assistant.core.domain.configs import StorageConfigData
+        from ai_assistant.core.domain.errors import AdapterError
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(StorageConfigData(db_path=db_path))
+        await storage.init_db()
+
+        with pytest.raises(AdapterError, match="not JSON-serializable"):
+            await storage.set("key", object())  # object() is not serializable
+
+    @pytest.mark.asyncio
+    async def test_get_with_corrupt_json_returns_default(self, tmp_path):
+        """Given: corrupt JSON in settings table.
+        When: get is called.
+        Then: returns default via _safe_json_loads fallback.
+        """
+        import aiosqlite
+
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+        from ai_assistant.core.domain.configs import StorageConfigData
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(StorageConfigData(db_path=db_path))
+        await storage.init_db()
+
+        # Insert corrupt JSON directly
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                ("corrupt_key", "not valid json {{{"),
+            )
+            await conn.commit()
+
+        result = await storage.get("corrupt_key", {"fallback": True})
+        assert result == {"fallback": True}
+
+    @pytest.mark.asyncio
+    async def test_shutdown_skips_when_file_missing(self, tmp_path):
+        """Given: database file does not exist.
+        When: shutdown is called.
+        Then: no error raised, operation skipped.
+        """
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+        from ai_assistant.core.domain.configs import StorageConfigData
+
+        db_path = str(tmp_path / "nonexistent.db")
+        storage = SQLiteStorage(StorageConfigData(db_path=db_path))
+
+        # Should not raise
+        await storage.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_get_history_with_corrupt_metadata(self, tmp_path):
+        """Given: message with corrupt metadata JSON.
+        When: get_history is called.
+        Then: returns message with empty metadata dict.
+        """
+        import aiosqlite
+
+        from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+        from ai_assistant.core.domain.configs import StorageConfigData
+
+        db_path = str(tmp_path / "test.db")
+        storage = SQLiteStorage(StorageConfigData(db_path=db_path))
+        await storage.init_db()
+
+        # Insert message with corrupt metadata directly
+        async with aiosqlite.connect(db_path) as conn:
+            await conn.execute(
+                """INSERT INTO chat_messages
+                   (conversation_id, role, content, metadata)
+                   VALUES (?, ?, ?, ?)""",
+                ("conv-1", "user", "Hello", "not valid json {{{"),
+            )
+            await conn.commit()
+
+        history = await storage.get_history("conv-1")
+        assert len(history) == 1
+        assert history[0]["content"] == "Hello"
+        assert history[0]["metadata"] == {}

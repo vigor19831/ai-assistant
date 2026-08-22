@@ -2224,3 +2224,244 @@ async def test_source_watcher_starts_after_index_load(monkeypatch, tmp_path):
         pass
 
     assert call_order == ["load", "start"]
+
+
+# ── RAGState cleanup logic ───────────────────────────────────────────────
+
+
+class TestRAGStateCleanup:
+    """Coverage for RAGState._cleanup_old_status_unlocked (lines 89-112)."""
+
+    @pytest.mark.asyncio
+    async def test_evicts_stale_running_entries(self):
+        """Given: running entry older than TTL.
+        When: _cleanup_old_status_unlocked is called.
+        Then: stale entry is evicted.
+        """
+        import time as time_mod
+
+        from ai_assistant.api.deps import RAGState, _RUNNING_TTL_SECONDS
+        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
+
+        state = RAGState()
+        now = time_mod.monotonic()
+
+        # Add stale running entry (started 9 hours ago, TTL is 8 hours)
+        state._status["stale-task"] = ReindexStatusEntry(
+            status="running",
+            started_at=now - _RUNNING_TTL_SECONDS - 3600,
+        )
+        # Add fresh running entry
+        state._status["fresh-task"] = ReindexStatusEntry(
+            status="running",
+            started_at=now - 60,
+        )
+
+        async with state._lock:
+            await state._cleanup_old_status_unlocked()
+
+        assert "stale-task" not in state._status
+        assert "fresh-task" in state._status
+
+    @pytest.mark.asyncio
+    async def test_evicts_stale_completed_entries(self):
+        """Given: completed entry older than retention TTL.
+        When: _cleanup_old_status_unlocked is called.
+        Then: stale entry is evicted.
+        """
+        import time as time_mod
+
+        from ai_assistant.api.deps import RAGState, _COMPLETED_TTL_SECONDS
+        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
+
+        state = RAGState()
+        now = time_mod.monotonic()
+
+        # Add stale completed entry (finished 8 days ago, TTL is 7 days)
+        state._status["old-completed"] = ReindexStatusEntry(
+            status="completed",
+            started_at=now - _COMPLETED_TTL_SECONDS - 86400,
+            finished_at=now - _COMPLETED_TTL_SECONDS - 3600,
+            result={"indexed": 1},
+        )
+        # Add fresh completed entry
+        state._status["fresh-completed"] = ReindexStatusEntry(
+            status="completed",
+            started_at=now - 60,
+            finished_at=now - 30,
+            result={"indexed": 1},
+        )
+
+        async with state._lock:
+            await state._cleanup_old_status_unlocked()
+
+        assert "old-completed" not in state._status
+        assert "fresh-completed" in state._status
+
+    @pytest.mark.asyncio
+    async def test_evicts_excess_entries_oldest_first(self):
+        """Given: more entries than _MAX_STATUS_ENTRIES.
+        When: _cleanup_old_status_unlocked is called.
+        Then: oldest completed/failed entries are evicted.
+        """
+        import time as time_mod
+
+        from ai_assistant.api.deps import RAGState, _MAX_STATUS_ENTRIES
+        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
+
+        state = RAGState()
+        now = time_mod.monotonic()
+
+        # Add more entries than max
+        for i in range(_MAX_STATUS_ENTRIES + 10):
+            state._status[f"task-{i}"] = ReindexStatusEntry(
+                status="completed",
+                started_at=now - (_MAX_STATUS_ENTRIES + 10 - i),
+                finished_at=now - (_MAX_STATUS_ENTRIES + 9 - i),
+                result={"indexed": 1},
+            )
+
+        async with state._lock:
+            await state._cleanup_old_status_unlocked()
+
+        assert len(state._status) <= _MAX_STATUS_ENTRIES
+        # Newest entries should survive
+        assert f"task-{_MAX_STATUS_ENTRIES + 9}" in state._status
+
+
+# ── init_adapters failure cleanup ────────────────────────────────────────
+
+
+class TestInitAdaptersFailureCleanup:
+    """Coverage for init_adapters failure cleanup (lines 149-164)."""
+
+    @pytest.mark.asyncio
+    async def test_adapter_creation_failure_cleans_up(self):
+        """Given: create_adapter raises on llm creation.
+        When: init_adapters is called.
+        Then: already-created adapters are shut down, exception propagates.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from ai_assistant.core.config import AppConfig
+
+        config = AppConfig(
+            embedder={"dim": 384, "provider": "mock"},
+            vector_store={"dim": 384, "provider": "memory"},
+        )
+
+        shutdown_calls: list[str] = []
+
+        def mock_create_adapter(category, provider, config_data):
+            if category == "llm":
+                raise ImportError("LLM provider not available")
+            # Return a mock adapter that tracks shutdown
+            adapter = AsyncMock()
+            adapter.shutdown = AsyncMock(
+                side_effect=lambda: shutdown_calls.append(category)
+            )
+            return adapter
+
+        with patch(
+            "ai_assistant.api.deps.create_adapter",
+            side_effect=mock_create_adapter,
+        ):
+            with pytest.raises(ImportError, match="LLM provider not available"):
+                await init_adapters(config)
+
+        # Verify cleanup was attempted for already-created adapters
+        assert len(shutdown_calls) > 0
+
+    @pytest.mark.asyncio
+    async def test_storage_init_failure_cleans_up(self):
+        """Given: storage.init_db raises.
+        When: init_adapters is called.
+        Then: all adapters are shut down, RuntimeError propagates.
+        """
+        from unittest.mock import AsyncMock, patch
+
+        from ai_assistant.core.config import AppConfig
+
+        config = AppConfig(
+            embedder={"dim": 384, "provider": "mock"},
+            vector_store={"dim": 384, "provider": "memory"},
+        )
+
+        shutdown_calls: list[str] = []
+
+        def mock_create_adapter(category, provider, config_data):
+            adapter = AsyncMock()
+
+            async def track_shutdown():
+                shutdown_calls.append(category)
+
+            adapter.shutdown = track_shutdown
+            if category == "storage":
+                adapter.init_db = AsyncMock(
+                    side_effect=RuntimeError("DB init failed")
+                )
+            return adapter
+
+        with patch(
+            "ai_assistant.api.deps.create_adapter",
+            side_effect=mock_create_adapter,
+        ):
+            with pytest.raises(RuntimeError):
+                await init_adapters(config)
+
+        assert len(shutdown_calls) > 0
+
+
+# ── get_chunker_for_config ───────────────────────────────────────────────
+
+
+class TestGetChunkerForConfig:
+    """Coverage for get_chunker_for_config (lines 423-424)."""
+
+    def test_same_chunk_size_returns_base_chunker(self, mock_state):
+        """Given: chunk_size matches config.
+        When: get_chunker_for_config is called.
+        Then: returns state.chunker (no new adapter created).
+        """
+        from ai_assistant.api.deps import get_chunker_for_config
+
+        result = get_chunker_for_config(
+            mock_state,
+            chunk_size=mock_state.config.chunker.chunk_size,
+        )
+        assert result is mock_state.chunker
+
+    def test_none_chunk_size_returns_base_chunker(self, mock_state):
+        """Given: chunk_size is None.
+        When: get_chunker_for_config is called.
+        Then: returns state.chunker.
+        """
+        from ai_assistant.api.deps import get_chunker_for_config
+
+        result = get_chunker_for_config(mock_state, chunk_size=None)
+        assert result is mock_state.chunker
+
+    def test_different_chunk_size_creates_new_chunker(self, mock_state):
+        """Given: chunk_size differs from config.
+        When: get_chunker_for_config is called.
+        Then: creates a new chunker adapter with updated config.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from ai_assistant.api.deps import get_chunker_for_config
+
+        new_chunker = MagicMock()
+
+        with patch(
+            "ai_assistant.api.deps.create_adapter",
+            return_value=new_chunker,
+        ) as mock_create:
+            result = get_chunker_for_config(mock_state, chunk_size=1024)
+
+        assert result is new_chunker
+        mock_create.assert_called_once()
+        # Verify chunk_size was passed to the new adapter config
+        call_args = mock_create.call_args
+        assert call_args[0][0] == "chunker"
+        config_data = call_args[0][2]
+        assert config_data.chunk_size == 1024
