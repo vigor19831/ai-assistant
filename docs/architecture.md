@@ -361,6 +361,6 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 | 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require >=8B params |
 | 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen3-4B-Instruct-2507 (Q5_K_M) | 13/17 PASS + 1/2 e2e chat | trap-1, trap-2, multihop-1 FAIL; 9 known limitations; 4B weaker than 7B on RAG tasks |
 | 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + multi-query retrieval + optimized universal prompt | 16/17 PASS + 2/2 e2e chat | trap-2 PASS; semantic-ru-1 FAIL (bge-m3 embedding limitation on Russian synonyms). Prompt optimized for 7B-70B models |
-| 2026-08-14 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + new rag_strict prompt | 17/17 PASS + 2/2 e2e chat | 7 known limitations: missing-1, missing-ru-1, noise-1, big-1, isolation-1, adversarial-1, missing-2. trap-1/2, multihop-1, semantic-ru-1 now PASS. |
+| 2026-08-23 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + optimized rag_strict prompt (11 rules + 12 few-shot examples) | 17/17 CONTRACT + 8/9 CHAT E2E (2/2 CHAT CONTRACT + 6/7 CHAT FUTURE) | 8 known limitations: missing-1, missing-ru-1, noise-1, big-1, isolation-1, adversarial-1, missing-2, conv-id-continuity. multi-turn-1 now PASS (improved from 5/7 to 6/7 CHAT FUTURE). |
 
 Expected fix: LLM upgrade (Qwen2.5-14B-Instruct, DeepSeek-R1-Distill-Qwen-7B). No pipeline changes required.
