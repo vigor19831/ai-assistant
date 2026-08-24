@@ -2299,3 +2299,57 @@ async def test_save_chat_does_not_resolve_symlinks(mock_state, tmp_path, monkeyp
 
     assert result["saved"] is True
     assert (tmp_path / "exports" / "default" / "chat.md").read_text() == "hello"
+
+
+@pytest.mark.asyncio
+async def test_reindex_cancel_recovery_with_failed_list_namespaces(mock_state):
+    """Regression: NameError when list_namespaces fails during CancelledError recovery.
+
+    If list_namespaces raises inside the except CancelledError block,
+    all_ns must be pre-initialized so that the subsequent for-loop does
+    not raise a NameError and the task is properly marked 'cancelled'.
+    """
+    import contextlib
+    from unittest.mock import patch
+
+    from ai_assistant.core.config import SourceConfig
+    from ai_assistant.features.rag.handlers import reindex_documents
+    from ai_assistant.features.rag.schemas import ReindexRequest
+
+    # Ensure there is at least one source so index_folder is reached
+    mock_state.config.rag.sources = [
+        SourceConfig(namespace="default", path="/tmp")
+    ]
+
+    # Simulate disk failure during namespace listing in recovery path
+    mock_state.vector_store.list_namespaces = AsyncMock(
+        side_effect=RuntimeError("disk error")
+    )
+
+    entered = asyncio.Event()
+
+    async def _fake_index_folder(**kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    with patch(
+        "ai_assistant.features.rag.handlers.index_folder", new=_fake_index_folder
+    ):
+        resp = await reindex_documents(
+            req=ReindexRequest(target_namespace=None, clear=True),
+            state=mock_state,
+        )
+        task_id = resp["task_id"]
+        await asyncio.wait_for(entered.wait(), timeout=1.0)
+
+        for record in mock_state.task_registry.get_tasks():
+            if record.name == f"reindex:{task_id}":
+                record.task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await record.task
+                break
+
+    status = await mock_state.rag_state.get_status(task_id)
+    assert status is not None
+    assert status["status"] == "failed"
+    assert "cancelled" in status["error"].lower()
