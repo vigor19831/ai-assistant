@@ -57,3 +57,12 @@
 | 27 | 2026-07-02 | Unified config to `config.yaml` (git-ignored) + `config.example.yaml` |
 | 32 | 2026-07-06 | PRAGMA `user_version` migration; `AdapterError` wrapping; WAL check |
 | 33 | 2026-07-06 | Copy target mode to tmp before `os.replace` (permission preservation) |
+
+## FUTURE RISKS (not fixing now)
+| Risk | Trigger | When to fix |
+|------|---------|-------------|
+| Config migration bloat | >10 migrations in config.py | When loading old configs becomes slow |
+| Test fatigue | Skipping tests due to mock boilerplate | When test coverage drops below 80% |
+| LLM prompt coupling | Prompt instability on 14B+ models | When upgrading to 14B+ |
+| Vector store RAM limit | Hitting 100K chunks | When max_chunks reached |
+| Async lock complexity | Deadlocks in production | When deadlock rate > 1/month |
