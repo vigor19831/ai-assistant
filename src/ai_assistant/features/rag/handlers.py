@@ -685,17 +685,16 @@ async def reindex_documents(
                 if target_namespace is not None:
                     affected_ns.append(get_chat_namespace(target_namespace))
                 else:
-                    try:
+                    all_ns: list[str] = []
+                    with contextlib.suppress(Exception):
                         all_ns = await state.vector_store.list_namespaces(
                             state.config.vector_store.index_path
                         )
-                        affected_ns.extend(
-                            get_chat_namespace(ns)
-                            for ns in all_ns
-                            if not ns.startswith("chat_")
-                        )
-                    except Exception:
-                        pass
+                    affected_ns.extend(
+                        get_chat_namespace(ns)
+                        for ns in all_ns
+                        if not ns.startswith("chat_")
+                    )
             for ns in affected_ns:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await asyncio.shield(
