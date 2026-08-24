@@ -542,8 +542,8 @@ async def reindex_documents(
 
     async def _run() -> dict[str, Any]:
         try:
+            await rag_state.start_task(task_id)
             async with rag_state.semaphore:
-                await rag_state.start_task(task_id)
                 # If clearing, also clear associated chat namespaces
                 if clear:
                     if target_namespace is not None:
@@ -655,12 +655,12 @@ async def reindex_documents(
                             "indexed_uris": combined_uris,
                             "errors": combined_errors,
                         }
-                await rag_state.complete_task(task_id, result)
-                _logger.info(
-                    "Reindex completed",
-                    extra={"trace_id": trace_id, "task_id": task_id},
-                )
-                return result
+            await rag_state.complete_task(task_id, result)
+            _logger.info(
+                "Reindex completed",
+                extra={"trace_id": trace_id, "task_id": task_id},
+            )
+            return result
         except TimeoutError:
             _logger.error(
                 "Reindex timed out after 4 hours",
@@ -676,11 +676,26 @@ async def reindex_documents(
             # Restore affected namespaces from last saved state on disk.
             # Disk state is always consistent (atomic writes), so loading
             # from disk restores memory to a consistent state.
-            affected_ns = (
+            affected_ns: list[str] = (
                 [target_namespace]
                 if target_namespace is not None
                 else sorted({s.namespace for s in state.config.rag.sources})
             )
+            if clear:
+                if target_namespace is not None:
+                    affected_ns.append(get_chat_namespace(target_namespace))
+                else:
+                    try:
+                        all_ns = await state.vector_store.list_namespaces(
+                            state.config.vector_store.index_path
+                        )
+                        affected_ns.extend(
+                            get_chat_namespace(ns)
+                            for ns in all_ns
+                            if not ns.startswith("chat_")
+                        )
+                    except Exception:
+                        pass
             for ns in affected_ns:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await asyncio.shield(
