@@ -801,8 +801,9 @@ def _print_menu() -> None:
     print("  [2]  tests+coverage — pytest + branch coverage + audit")
     print("  [3]  lint           — ruff + mypy")
     print("  [4]  audit          — AST dead code audit (no tests)")
-    print("  [5]  full           — lint → tests → coverage → audit → i18n")
+    print("  [5]  full           — lint → tests → coverage → random-order → audit → i18n")
     print("  [6]  i18n           — non-ASCII identifier & emoji audit")
+    print("  [7]  random-order   — pytest --random-order (isolation check)")
     print(_SEP)
     print()
 
@@ -1024,8 +1025,7 @@ def main() -> int:
             ok &= _run_cmd([py, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
 
         elif choice == "4":
-            ast_ok = _show_ast_results(*run_ast_audit(SRC))
-            ok &= ast_ok
+            ok &= _show_ast_results(*run_ast_audit(SRC))
 
         elif choice == "5":
             ok &= _run_cmd([py, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
@@ -1053,6 +1053,16 @@ def main() -> int:
 
             ok &= _show_coverage_results(run_coverage_audit())
             print("\n" + _SEP + "\n")
+
+            ok &= _run_cmd(
+                [py, "-m", "pytest", str(TESTS), "--random-order", "-q", "--no-cov", "--tb=short"],
+                "TESTS RANDOM ORDER",
+            )
+            if not ok:
+                print("\n  Stopping — fix test isolation issues first.")
+                return 1
+
+            print("\n" + _SEP + "\n")
             ok &= _show_ast_results(*run_ast_audit(SRC))
             print("\n" + _SEP + "\n")
             ok &= _show_test_audit_results(_audit_test_quality())
@@ -1061,6 +1071,12 @@ def main() -> int:
 
         elif choice == "6":
             ok &= _show_non_ascii_results(_audit_non_ascii(SRC))
+
+        elif choice == "7":
+            ok &= _run_cmd(
+                [py, "-m", "pytest", str(TESTS), "--random-order", "-v", "--no-cov", "--tb=short"],
+                "TESTS RANDOM ORDER",
+            )
 
         else:
             print(f"\n  [ERR] Unknown choice: {choice}")
