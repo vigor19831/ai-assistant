@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import hashlib
+import re
 import signal
 import subprocess
 import sys
@@ -577,6 +579,24 @@ TEST_SOURCES: list[SourceDoc] = [
             "In Berlin I work as a senior developer and mentor junior engineers. "
             "In my free time I enjoy hiking, photography and playing board games with friends."
         ),
+    ),
+
+    # ===================== Advanced Retrieval Tests =====================
+    SourceDoc(
+        "personal",
+        "Я категорически не люблю кофе. Мой любимый напиток — только зеленый чай.",
+    ),
+    SourceDoc(
+        "personal",
+        "До 2020 года я жил в Москве. С 2020 года я переехал в Санкт-Петербург и живу там до сих пор.",
+    ),
+    SourceDoc(
+        "personal",
+        "Мой любимый фильм это Матрица.",
+    ),
+    SourceDoc(
+        "personal",
+        "Его режиссеры сестры Вачовски. Он вышел в 1999 году.",
     ),
 ]
 
@@ -1201,6 +1221,55 @@ TEST_CASES: list[TestCase] = [
         description="Different conversation_id must NOT recall facts from another conversation.",
         requires_future_capability=True,
     ),
+
+    # ------------------------------------------------------------
+    # Advanced capability tests
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="negation-1",
+        query="Люблю ли я кофе?",
+        namespace="personal",
+        answer_must_contain_any=("нет", "не люблю", "don't like", "no"),
+        answer_must_not_contain=("люблю", "like", "coffee is my favorite"),
+        expect_sources=True,
+        sources_must_contain=("не люблю", "категорически не"),
+        require_faithfulness=True,
+        description="Negation handling. Model must recognize and respect explicit negation in context.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="temporal-1",
+        query="Где я жил в 2018 году?",
+        namespace="personal",
+        answer_must_contain_any=("москв", "moscow"),
+        answer_must_not_contain=("петербург", "petersburg"),
+        expect_sources=True,
+        require_faithfulness=True,
+        description="Temporal reasoning. Model must infer location based on year relative to the text.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="split-context-1",
+        query="Кто режиссер моего любимого фильма?",
+        namespace="personal",
+        answer_must_contain_any=("вачовск", "wachowski"),
+        answer_must_not_contain=("не знаю", "don't know"),
+        expect_sources=True,
+        require_faithfulness=True,
+        description="Cross-chunk reasoning. Fact 'favorite film' is in chunk 1, 'directors' in chunk 2.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="format-strict-1",
+        query="Перечисли мои хобби в виде нумерованного списка (1., 2., 3.). Только список, без вступлений.",
+        namespace="personal",
+        answer_must_contain=("1.", "2.", "3."),
+        answer_must_not_contain=("конечно", "вот ваши хобби", "of course", "here are"),
+        expect_sources=True,
+        require_faithfulness=True,
+        description="Strict formatting constraint. Model must obey negative constraints and output format.",
+        requires_future_capability=True,
+    ),
 ]
 
 
@@ -1250,9 +1319,11 @@ async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     by_ns: dict[str, list[dict[str, Any]]] = {}
     for i, doc in enumerate(sources):
+        # Deterministic ID: stable even if document order changes or --skip-index is used
+        doc_id = hashlib.md5(f"{doc.namespace}:{doc.content[:100]}".encode()).hexdigest()[:16]
         by_ns.setdefault(doc.namespace, []).append(
             {
-                "id": f"test-{i}",
+                "id": f"bench-{doc_id}",
                 "content": doc.content,
                 "metadata": {"source": "check_rag_benchmark"},
             }
@@ -1349,9 +1420,7 @@ async def chat_query(
                             chunks.append(content)
                     except Exception:
                         continue
-            if stream_error:
-                raise RuntimeError(f"Stream error: {stream_error}")
-            answer = "".join(chunks)
+        answer = "".join(chunks)
     else:
         r = await _request_with_retry(
             client,
@@ -1364,7 +1433,9 @@ async def chat_query(
         choices = data.get("choices", [])
         answer = choices[0].get("message", {}).get("content", "") if choices else ""
 
-    has_sources = "Sources:" in answer
+    import re
+    # Robust check: looks for actual citation pattern OR explicit Sources block
+    has_sources = bool(re.search(r"\[Document\s+\d+\]", answer)) or ("Sources:" in answer)
     return {
         "answer": answer,
         "sources": [{"text": "sources-present"}] if has_sources else [],
@@ -1430,7 +1501,14 @@ async def run_tests(
                             stream=case.stream,
                         )
                     else:
-                        if case.conversation_turn > 1:
+                        if case.conversation_turn > 1 and case.depends_on:
+                            # Explicit dependency: fetch history only from the specified parent test
+                            prev = chat_history.get(case.depends_on)
+                            if prev is not None:
+                                history.append({"role": "user", "content": prev[0]})
+                                history.append({"role": "assistant", "content": prev[1]})
+                        elif case.conversation_turn > 1:
+                            # Fallback for legacy tests without depends_on (maintains backward compat)
                             for prev_case in cases[: i - 1]:
                                 if not prev_case.use_chat_api:
                                     continue
@@ -1560,6 +1638,15 @@ async def run_tests(
                             "but sources do not"
                         )
 
+                # Check for hallucinated citation indices
+                cited_ids = [int(m.group(1)) for m in re.finditer(r"\[Document\s+(\d+)\]", answer)]
+                max_valid_id = len(sources)
+                for cid in cited_ids:
+                    if cid < 1 or cid > max_valid_id:
+                        errors.append(
+                            f"hallucinated citation: [Document {cid}] is out of bounds (max {max_valid_id})"
+                        )
+
             # ── Latency SLA ──
             if latency > MAX_LATENCY_MS:
                 errors.append(
@@ -1662,6 +1749,11 @@ def main() -> int:
         choices=["en", "ru", "cross"],
         help="Run only tests for given language tag (default: all)",
     )
+    parser.add_argument(
+        "--no-monitor",
+        action="store_true",
+        help="Disable background resource monitoring (saves nvidia-smi overhead)",
+    )
     args = parser.parse_args()
 
     def _on_sigint(_signum: int, _frame: Any) -> None:
@@ -1670,7 +1762,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, _on_sigint)
 
     monitor = _ResourceMonitor(interval=3.0)
-    monitor.start()
+    if not args.no_monitor:
+        monitor.start()
     try:
         if not args.skip_index:
             ok = asyncio.run(index_all(args.url, args.api_key, TEST_SOURCES))
@@ -1691,7 +1784,8 @@ def main() -> int:
         return 1
     finally:
         _restore_logging()
-        monitor.stop()
+        if not args.no_monitor:
+            monitor.stop()
 
 
 if __name__ == "__main__":

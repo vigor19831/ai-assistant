@@ -1,22 +1,20 @@
 # =============================================================================
 # Deployment overrides for llama-server (read by run_servers.py).
-# This file is optional. If present, extra_args are appended to the server
-# command for the specified service (llm / embedder / reranker).
-# Currently NOT needed – models work with their built‑in defaults.
+# Optimized for GTX 1650 4GB + Qwen2.5-7B-Instruct (IQ4_XS).
 # =============================================================================
 
 llm:
   extra_args:
     - "--parallel"
     - "1"
-    - "--flash-attn"
-    - "on"
     - "-lv"
     - "1"
     - "-ctk"
     - "q8_0"
     - "-ctv"
     - "q8_0"
+    - "--chat-template-kwargs"
+    - '{"enable_thinking": false}'
 
 embedder:
   extra_args:
