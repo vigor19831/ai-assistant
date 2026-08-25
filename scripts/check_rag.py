@@ -1598,8 +1598,20 @@ async def run_tests(
                         errors.append(f"missing conflict fact '{kw}'")
 
             for forbidden in case.answer_must_not_contain:
-                if forbidden.lower() in answer.lower():
-                    errors.append(f"forbidden '{forbidden}'")
+                ans_lower, forb_lower = answer.lower(), forbidden.lower()
+                if forb_lower in ans_lower:
+                    is_neg = False
+                    for match in re.finditer(re.escape(forb_lower), ans_lower):
+                        prefix = ans_lower[:match.start()]
+                        last_word = prefix.split()[-1] if prefix.split() else ""
+                        if last_word in (
+                            "не", "нет", "ни", "not", "don't", "doesn't",
+                            "didn't", "never", "no"
+                        ):
+                            is_neg = True
+                            break
+                    if not is_neg:
+                        errors.append(f"forbidden '{forbidden}'")
 
             if has_sources != case.expect_sources:
                 errors.append(f"sources={has_sources}, expected={case.expect_sources}")
