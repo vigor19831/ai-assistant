@@ -502,7 +502,6 @@ class TestE2ERAG:
         When: GET /api/v1/rag/health.
         Then: returns status, index_loaded, and embedder_dim."""
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[("c1", {})])
-        mock_state.vector_store.count = AsyncMock(return_value=5)
         mock_state.embedder.dimension = 384
         resp = client.get("/api/v1/rag/health")
         assert resp.status_code == 200
@@ -564,81 +563,101 @@ class TestE2ERAG:
         assert isinstance(errors, list)
         assert any(e.get("loc") == ["body", "target_namespace"] for e in errors)
 
-    def test_query_per_namespace_override(self, client, mock_state):
+    def test_query_per_namespace_override(self, mock_state):
         """Given: namespace has custom prompt.
         When: POST /api/v1/rag/query with that namespace.
         Then: RAGManager receives overridden parameters."""
-        with patch("ai_assistant.features.rag.handlers.RAGManager") as mock_mgr_cls:
-            instance = mock_mgr_cls.return_value
-            instance.query = AsyncMock(
-                return_value={
-                    "answer": "test answer",
-                    "sources": [],
+        mock_state.config.namespaces = {
+            "test-alt": NamespaceConfig(
+                chunk_size=1024, prompt="rag_creative"
+            ),
+        }
+        mock_state.rag_manager.query = AsyncMock(
+            return_value={
+                "answer": "test answer",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+                "metrics": {
                     "chunks_used": 0,
-                    "errors": [],
-                }
-            )
-            mock_state.config.namespaces = {
-                "test-alt": NamespaceConfig(
-                    chunk_size=1024, prompt="rag_creative"
-                ),
+                    "rerank_scores": [],
+                    "context_tokens": 0,
+                    "prompt_name": "rag_creative",
+                    "pipeline_errors": [],
+                    "duration_ms": 10,
+                },
             }
+        )
 
-            resp = client.post(
-                "/api/v1/rag/query",
-                json={"query": "test", "namespace": "test-alt"},
-            )
-            assert resp.status_code == 200
-            instance.query.assert_awaited_once()
-            kwargs = instance.query.call_args.kwargs
-            assert kwargs["prompt_name"] == "rag_creative"
-            assert kwargs["namespace"] == "test-alt"
+        set_api_key("test-e2e-key")
+        app = create_app(state=mock_state)
+        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
 
-    def test_rag_query_llm_unavailable_returns_503(self, client, mock_state):
-        """Given: RAG pipeline returns LLM_UNAVAILABLE error.
+        resp = test_client.post(
+            "/api/v1/rag/query",
+            json={"query": "test", "namespace": "test-alt"},
+        )
+        assert resp.status_code == 200
+        mock_state.rag_manager.query.assert_awaited_once()
+        kwargs = mock_state.rag_manager.query.call_args.kwargs
+        assert kwargs["prompt_name"] == "rag_creative"
+        assert kwargs["namespace"] == "test-alt"
+
+    def test_rag_query_llm_unavailable_returns_503(self, mock_state):
+        """Given: RAG pipeline returns errors with empty answer.
         When: POST /api/v1/rag/query.
         Then: returns 503 Service Unavailable."""
-        with patch("ai_assistant.features.rag.handlers.RAGManager") as mock_mgr_cls:
-            instance = mock_mgr_cls.return_value
-            instance.query = AsyncMock(
-                return_value={
-                    "answer": "",
-                    "sources": [],
+        mock_state.rag_manager.query = AsyncMock(
+            return_value={
+                "answer": "",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [f"{LLM_UNAVAILABLE} (LLM down)"],
+                "metrics": {
                     "chunks_used": 0,
-                    "errors": [f"{LLM_UNAVAILABLE} (LLM down)"],
-                }
-            )
+                    "rerank_scores": [],
+                    "context_tokens": 0,
+                    "prompt_name": "rag_strict",
+                    "pipeline_errors": [f"{LLM_UNAVAILABLE} (LLM down)"],
+                    "duration_ms": 10,
+                },
+            }
+        )
+        set_api_key("test-e2e-key")
+        app = create_app(state=mock_state)
+        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
 
-            resp = client.post(
-                "/api/v1/rag/query",
-                json={"query": "test", "namespace": "default"},
-            )
-            assert resp.status_code == 503
-            assert "temporarily unavailable" in resp.json()["detail"]
-
-    def test_rag_query_retrieve_error_returns_200_with_errors(self, client, mock_state):
-        """Given: vector_store.search raises Exception during query.
-        When: POST /api/v1/rag/query.
-        Then: pipeline catches it, returns 200 with INTERNAL_SERVER_ERROR in errors."""
-        from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
-
-        mock_state.vector_store.search = AsyncMock(side_effect=Exception("Vector store down"))
-
-        resp = client.post(
+        resp = test_client.post(
             "/api/v1/rag/query",
             json={"query": "test", "namespace": "default"},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert any(INTERNAL_SERVER_ERROR in e for e in data.get("errors", []))
+        assert resp.status_code == 503
+        assert "temporarily unavailable" in resp.json()["detail"]
 
-    def test_rag_query_reranker_error_returns_200_with_errors(self, client, mock_state):
+    def test_rag_query_retrieve_error_returns_503(self, mock_state):
+        """Given: vector_store.search raises Exception during query.
+        When: POST /api/v1/rag/query.
+        Then: pipeline catches it, returns 503 (errors + empty answer)."""
+        mock_state.vector_store.search = AsyncMock(side_effect=Exception("Vector store down"))
+
+        set_api_key("test-e2e-key")
+        app = create_app(state=mock_state)
+        test_client = TestClient(
+            app,
+            raise_server_exceptions=False,
+            headers={"Authorization": "Bearer test-e2e-key"},
+        )
+
+        resp = test_client.post(
+            "/api/v1/rag/query",
+            json={"query": "test", "namespace": "default"},
+        )
+        assert resp.status_code == 503
+
+    def test_rag_query_reranker_error_returns_503(self, mock_state):
         """Given: reranker.rerank raises Exception during query.
         When: POST /api/v1/rag/query.
-        Then: pipeline catches it, returns 200 with INTERNAL_SERVER_ERROR in errors."""
-        from ai_assistant.core.domain.errors import INTERNAL_SERVER_ERROR
-
-        # retrieve must return non-empty chunks so rerank step actually calls reranker.rerank
+        Then: pipeline catches it, returns 503 (errors + empty answer)."""
         mock_state.vector_store.search = AsyncMock(return_value=[
             Chunk(
                 id="c1",
@@ -649,37 +668,53 @@ class TestE2ERAG:
         ])
         mock_state.reranker.rerank = AsyncMock(side_effect=Exception("Reranker down"))
 
-        resp = client.post(
+        set_api_key("test-e2e-key")
+        app = create_app(state=mock_state)
+        test_client = TestClient(
+            app,
+            raise_server_exceptions=False,
+            headers={"Authorization": "Bearer test-e2e-key"},
+        )
+
+        resp = test_client.post(
             "/api/v1/rag/query",
             json={"query": "test", "namespace": "default"},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert any(INTERNAL_SERVER_ERROR in e for e in data.get("errors", []))
+        assert resp.status_code == 503
 
-    def test_query_empty_result_handling(self, client, mock_state):
-        """Given: query yields no relevant chunks.
+    def test_query_empty_result_handling(self, mock_state):
+        """Given: query yields no relevant chunks but no errors.
         When: POST /api/v1/rag/query.
         Then: response contains empty answer and zero chunks_used gracefully."""
-        with patch("ai_assistant.features.rag.handlers.RAGManager") as mock_mgr_cls:
-            instance = mock_mgr_cls.return_value
-            instance.query = AsyncMock(
-                return_value={
-                    "answer": "",
-                    "sources": [],
+        mock_state.rag_manager.query = AsyncMock(
+            return_value={
+                "answer": "I don't know.",
+                "sources": [],
+                "chunks_used": 0,
+                "errors": [],
+                "metrics": {
                     "chunks_used": 0,
-                    "errors": [],
-                }
-            )
+                    "rerank_scores": [],
+                    "context_tokens": 0,
+                    "prompt_name": "rag_strict",
+                    "pipeline_errors": [],
+                    "duration_ms": 10,
+                },
+            }
+        )
 
-            resp = client.post(
-                "/api/v1/rag/query",
-                json={"query": "nonexistent topic", "namespace": "default"},
-            )
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["answer"] == ""
-            assert data["chunks_used"] == 0
+        set_api_key("test-e2e-key")
+        app = create_app(state=mock_state)
+        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+
+        resp = test_client.post(
+            "/api/v1/rag/query",
+            json={"query": "nonexistent topic", "namespace": "default"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["answer"] == "I don't know."
+        assert data["chunks_used"] == 0
 
 
 # ── Admin ──

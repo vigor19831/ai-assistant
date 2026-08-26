@@ -164,6 +164,7 @@ def build_mock_state() -> InitializedAppState:
     from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.core.ports.reranker import RerankResult
     from ai_assistant.features.chat.manager import ChatManager
+    from ai_assistant.features.rag.manager import RAGManager
 
     config = AppConfig()
 
@@ -234,6 +235,23 @@ def build_mock_state() -> InitializedAppState:
         ),
         rag_steps=list(config.rag.steps),
     )
+    rag_manager = RAGManager(
+        llm=llm,
+        vector_store=vector_store,
+        embedder=embedder,
+        reranker=reranker,
+        token_margin_min=config.rag.token_margin_min,
+        token_margin_pct=config.rag.token_margin_pct,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        system_message=config.llm.system_message,
+        sampling=SamplingConfig(
+            max_tokens=config.llm.max_tokens,
+            temperature=config.llm.temperature,
+            top_p=config.llm.top_p,
+            stop_sequences=tuple(config.llm.stop_sequences),
+        ),
+        rag_steps=list(config.rag.steps),
+    )
 
     return InitializedAppState(
         config=config,
@@ -247,6 +265,7 @@ def build_mock_state() -> InitializedAppState:
         reranker=reranker,
         rag_state=RAGState(),
         chat_manager=chat_manager,
+        rag_manager=rag_manager,
     )
 
 
