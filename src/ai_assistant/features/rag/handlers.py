@@ -22,7 +22,6 @@ from ai_assistant.api.deps import (
 from ai_assistant.core.config import get_chat_namespace
 from ai_assistant.core.constants import INDEX_IO_TIMEOUT, REINDEX_TASK_TIMEOUT
 from ai_assistant.core.domain.configs import SamplingConfig
-from ai_assistant.core.domain.errors import LLM_UNAVAILABLE
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -261,16 +260,16 @@ async def query_rag(
         },
     )
 
-    for err in result.get("errors", []):
-        if err.startswith(LLM_UNAVAILABLE):
-            _logger.warning(
-                "RAG query: LLM unavailable",
-                extra={"trace_id": trace_id, "error": err},
-            )
-            raise HTTPException(
-                status_code=503,
-                detail="LLM service temporarily unavailable. Please try again later.",
-            )
+    errors = result.get("errors", [])
+    if errors and not result.get("answer"):
+        _logger.warning(
+            "RAG query failed",
+            extra={"trace_id": trace_id, "errors": errors},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="RAG service temporarily unavailable. Please try again later.",
+        )
 
     return QueryResponse(**result)
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 __all__ = [
     "DeleteRequest",
@@ -23,13 +23,14 @@ __all__ = [
 
 class IndexRequest(BaseModel):
     """Request to index documents."""
+
     documents: list[dict[str, Any]] = Field(
         ...,
         description="List of {id, content, metadata} objects",
     )
     namespace: str | None = Field(
         default=None,
-        pattern=r"^[a-z][a-z0-9_-]*$",
+        pattern=r"^(?!chat_)[a-z][a-z0-9_-]*$",
         description="Index namespace",
     )
 
@@ -45,18 +46,33 @@ class IndexResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     """RAG query request."""
+
     query: str
     top_k: int | None = Field(default=None, ge=1, le=50)
     prompt_name: str | None = None
     prompt_version: str | None = None
     namespace: str | None = Field(
         default=None,
-        pattern=r"^[a-z][a-z0-9_-]*$",
+        pattern=r"^(?!chat_)[a-z][a-z0-9_-]*$",
         description="Query namespace",
     )
     chat_history: list[tuple[str, str]] | None = Field(
         default=None, description="Previous messages for context"
     )
+
+    @field_validator("chat_history")
+    @classmethod
+    def _validate_chat_history_roles(
+        cls, v: list[tuple[str, str]] | None
+    ) -> list[tuple[str, str]] | None:
+        if v is None:
+            return v
+        for role, _text in v:
+            if role not in ("user", "assistant"):
+                raise ValueError(
+                    f"chat_history role must be 'user' or 'assistant', got {role!r}"
+                )
+        return v
 
 
 class RagMetrics(BaseModel):
@@ -74,7 +90,6 @@ class QueryResponse(BaseModel):
     """RAG query response."""
 
     model_config = ConfigDict(extra="ignore")
-
     answer: str
     sources: list[dict[str, Any]] = Field(default_factory=list)
     chunks_used: int
@@ -84,11 +99,12 @@ class QueryResponse(BaseModel):
 
 class DeleteRequest(BaseModel):
     """Delete documents/chunks request."""
+
     document_ids: list[str] | None = None
     chunk_ids: list[str] | None = None
     namespace: str | None = Field(
         default=None,
-        pattern=r"^[a-z][a-z0-9_-]*$",
+        pattern=r"^(?!chat_)[a-z][a-z0-9_-]*$",
         description="Target namespace",
     )
     clear: bool = Field(default=False, description="Clear all chunks in namespace")
@@ -122,7 +138,7 @@ class SaveChatRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Chat content to save")
     namespace: str = Field(
         default="default",
-        pattern=r"^[a-z][a-z0-9_-]*$",
+        pattern=r"^(?!chat_)[a-z][a-z0-9_-]*$",
         description="Target namespace",
     )
     filename: str = Field(
@@ -134,9 +150,10 @@ class SaveChatRequest(BaseModel):
 
 class ReindexRequest(BaseModel):
     """Request to reindex documents from namespaces."""
+
     target_namespace: str | None = Field(
         default=None,
-        pattern=r"^[a-z][a-z0-9_-]*$",
+        pattern=r"^(?!chat_)[a-z][a-z0-9_-]*$",
         description="Specific namespace to reindex, or None for all.",
     )
     clear: bool = Field(

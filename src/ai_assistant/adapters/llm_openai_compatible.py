@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import TYPE_CHECKING, Any
@@ -341,8 +342,8 @@ class OpenAICompatibleLLM(ILLM, IClosable):
         frequency_penalty: float | None = None,
         presence_penalty: float | None = None,
     ) -> AsyncIterator[str]:
-        """Stream tokens with retry."""
-        return self._stream_impl(
+        """Stream tokens with retry on pre-stream failures."""
+        return self._stream_with_retry(
             messages,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -351,3 +352,41 @@ class OpenAICompatibleLLM(ILLM, IClosable):
             frequency_penalty=frequency_penalty,
             presence_penalty=presence_penalty,
         )
+
+    async def _stream_with_retry(
+        self,
+        messages: list[Message],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
+    ) -> AsyncIterator[str]:
+        """Retry stream on AdapterError before first token is yielded."""
+        current_delay = 1.0
+        last_exc: AdapterError | None = None
+        for attempt in range(4):
+            yielded = False
+            try:
+                async for chunk in self._stream_impl(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop,
+                    frequency_penalty=frequency_penalty,
+                    presence_penalty=presence_penalty,
+                ):
+                    yielded = True
+                    yield chunk
+                return
+            except AdapterError as exc:
+                if yielded:
+                    raise
+                last_exc = exc
+                if attempt < 3:
+                    await asyncio.sleep(current_delay)
+                    current_delay *= 2.0
+        if last_exc is not None:
+            raise last_exc
