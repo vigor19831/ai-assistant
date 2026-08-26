@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import time
 import uuid
 from pathlib import Path
@@ -21,7 +20,6 @@ from ai_assistant.api.deps import (
 )
 from ai_assistant.core.config import get_chat_namespace
 from ai_assistant.core.constants import INDEX_IO_TIMEOUT, REINDEX_TASK_TIMEOUT
-from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -50,25 +48,10 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 def _get_rag_manager(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> RAGManager:
-    llm_cfg = state.config.llm
-    rag_cfg = state.config.rag
-    return RAGManager(
-        llm=state.llm,
-        vector_store=state.vector_store,
-        embedder=state.embedder,
-        reranker=state.reranker,
-        token_margin_min=rag_cfg.token_margin_min,
-        token_margin_pct=rag_cfg.token_margin_pct,
-        tokenizer=state.tokenizer,
-        system_message=llm_cfg.system_message,
-        sampling=SamplingConfig(
-            max_tokens=llm_cfg.max_tokens,
-            temperature=llm_cfg.temperature,
-            top_p=llm_cfg.top_p,
-            stop_sequences=tuple(llm_cfg.stop_sequences),
-        ),
-        rag_steps=list(state.config.rag.steps),
-    )
+    """Return cached RAGManager from AppState."""
+    if state.rag_manager is None:
+        raise RuntimeError("RAGManager not initialized")
+    return state.rag_manager
 
 
 @router.post("/index", response_model=IndexResponse)
@@ -342,7 +325,7 @@ async def rag_health(
         health = await asyncio.wait_for(manager.health(), timeout=10.0)
     except TimeoutError:
         _logger.warning("RAG health check timed out", extra={"trace_id": trace_id})
-        raise HTTPException(status_code=503, detail="Health check timed out")
+        raise HTTPException(status_code=503, detail="Health check timed out") from None
     _logger.info(
         "RAG health check",
         extra={"trace_id": trace_id, "status": health["status"]},

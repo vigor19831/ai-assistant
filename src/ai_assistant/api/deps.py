@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         IReranker,
         IVectorStore,
     )
+    from ai_assistant.features.rag.manager import RAGManager
 
 __all__ = [
     "AppState",
@@ -195,6 +196,7 @@ class InitializedAppState:
     reranker: IReranker
     rag_state: RAGState
     chat_manager: ChatManager | None = None
+    rag_manager: RAGManager | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +386,25 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         rag_steps=list(cfg.rag.steps),
     )
 
+    from ai_assistant.features.rag.manager import RAGManager
+    rag_manager = RAGManager(
+        llm=state.llm,
+        vector_store=state.vector_store,
+        embedder=state.embedder,
+        reranker=state.reranker,
+        token_margin_min=rag_cfg.token_margin_min,
+        token_margin_pct=rag_cfg.token_margin_pct,
+        tokenizer=state.tokenizer,
+        system_message=llm_cfg.system_message,
+        sampling=SamplingConfig(
+            max_tokens=llm_cfg.max_tokens,
+            temperature=llm_cfg.temperature,
+            top_p=llm_cfg.top_p,
+            stop_sequences=tuple(llm_cfg.stop_sequences),
+        ),
+        rag_steps=list(cfg.rag.steps),
+    )
+
     return InitializedAppState(
         config=cfg,
         task_registry=state.task_registry,
@@ -396,6 +417,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         reranker=state.reranker,
         rag_state=state.rag_state,
         chat_manager=chat_manager,
+        rag_manager=rag_manager,
     )
 
 
