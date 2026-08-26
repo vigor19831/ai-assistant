@@ -212,7 +212,6 @@ async def condense_question(data: PipelineData) -> PipelineData:
         question=original_question,
     )
 
-    cfg = _get_config(data)
     retry_cfg = cfg.retry
 
     try:
