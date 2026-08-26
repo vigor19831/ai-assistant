@@ -144,6 +144,15 @@ async def _cleanup_orphan_chunks(
     all_meta: list[tuple[str, dict[str, Any]]] = []
     try:
         all_meta = await vector_store.list_by_filter({}, namespace=namespace)
+        # Guard: if no docs found but chunks exist, skip cleanup to prevent data loss
+        # when source directory is temporarily unavailable (sleep, network, unmount)
+        if not docs and all_meta:
+            _logger.warning(
+                f"Skipping orphan cleanup for {namespace}: "
+                f"0 docs from source but {len(all_meta)} chunks exist",
+                extra={"namespace": namespace, "existing_chunks": len(all_meta)},
+            )
+            return all_meta
         current_uris = {
             d.get("metadata", {}).get("source_uri")
             for d in docs

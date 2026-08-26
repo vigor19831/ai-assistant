@@ -92,7 +92,9 @@ reranker:
 # VECTOR STORE — [CHANGE] dim must match embedder.dim above
 # =============================================================================
 vector_store:
-  provider: faiss
+  # Default: 'memory' (always available, no extra install).
+  # For production with >10k docs: pip install .[faiss] and set provider: faiss
+  provider: memory
   index_path: ./data/indices
   metric: cosine
   # [CHANGE] Must match embedder.dim above

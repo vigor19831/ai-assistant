@@ -339,7 +339,11 @@ async def rag_health(
     state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> HealthResponse:
     trace_id = uuid.uuid4().hex
-    health = await manager.health()
+    try:
+        health = await asyncio.wait_for(manager.health(), timeout=10.0)
+    except TimeoutError:
+        _logger.warning("RAG health check timed out", extra={"trace_id": trace_id})
+        raise HTTPException(status_code=503, detail="Health check timed out")
     _logger.info(
         "RAG health check",
         extra={"trace_id": trace_id, "status": health["status"]},
@@ -459,8 +463,8 @@ async def save_chat(
     # Save to chat exports folder
     exports_root = Path(state.config.rag.chat_exports_root)
     folder = exports_root / namespace
-    folder_resolved = Path(await asyncio.to_thread(os.path.abspath, folder))
-    exports_root_resolved = Path(await asyncio.to_thread(os.path.abspath, exports_root))
+    folder_resolved = Path(await asyncio.to_thread(folder.resolve))
+    exports_root_resolved = Path(await asyncio.to_thread(exports_root.resolve))
     if not folder_resolved.is_relative_to(exports_root_resolved):
         _logger.warning(
             "Invalid namespace path in save-chat",
@@ -469,7 +473,7 @@ async def save_chat(
         raise HTTPException(status_code=400, detail="Invalid namespace")
 
     await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
-    file_path = Path(await asyncio.to_thread(os.path.abspath, folder / filename))
+    file_path = Path(await asyncio.to_thread((folder / filename).resolve))
     if not file_path.is_relative_to(folder_resolved):
         _logger.warning(
             "Path traversal detected in save-chat",

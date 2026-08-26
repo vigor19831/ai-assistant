@@ -293,8 +293,13 @@ class RAGManager:
             namespaces = await self.vector_store.list_namespaces(index_path)
             index_loaded = len(namespaces) > 0
             for ns in namespaces:
-                chunks = await self.vector_store.list_by_filter({}, namespace=ns)
+                chunks = await asyncio.wait_for(
+                    self.vector_store.list_by_filter({}, namespace=ns),
+                    timeout=5.0,
+                )
                 chunk_count += len(chunks)
+        except TimeoutError:
+            _logger.warning("Health check timed out", extra={"index_path": index_path})
         except Exception:
             _logger.exception("Health check failed")
         return {
@@ -365,11 +370,13 @@ class SourceWatcher:
             await asyncio.wait_for(self._index_fn(src), timeout=SOURCE_INDEX_TIMEOUT)
         except TimeoutError:
             _logger.error("Reindex timed out", extra={"source": src.path})
-            return
         except Exception:
             _logger.exception("Auto-reindex failed", extra={"source": src.path})
-            return
-        self._snapshots[snapshot_key] = snapshot
+        finally:
+            # Update snapshot even on failure to prevent infinite retry loop.
+            # Next poll (60s) will re-check; if source is still broken,
+            # we retry at poll interval, not in a tight loop.
+            self._snapshots[snapshot_key] = snapshot
 
     async def _loop(self) -> None:
         while not self._stop.is_set():
