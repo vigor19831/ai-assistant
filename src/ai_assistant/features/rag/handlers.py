@@ -717,11 +717,20 @@ async def reindex_documents(
             await rag_state.fail_task(task_id, f"Internal server error: {exc}")
             return {"error": str(exc)}
 
-    state.task_registry.spawn(
-        lambda: _run(),
-        trace_id=trace_id,
-        name=f"reindex:{task_id}",
-    )
+    try:
+        state.task_registry.spawn(
+            lambda: _run(),
+            trace_id=trace_id,
+            name=f"reindex:{task_id}",
+        )
+    except RuntimeError:
+        _logger.warning(
+            "Reindex rejected: task registry full",
+            extra={"trace_id": trace_id},
+        )
+        raise HTTPException(
+            status_code=429, detail="Too many reindex tasks in progress"
+        ) from None
 
     return {"status": "started", "task_id": task_id}
 

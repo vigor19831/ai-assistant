@@ -349,8 +349,10 @@ class MemoryVectorStore(IVectorStore):
             ]
 
     async def list_namespaces(self, path: str) -> list[str]:
+        async with self._lock:
+            in_memory = set(self._namespaces.keys())
         p = Path(path)
-        result: set[str] = set(self._namespaces.keys())
+        result: set[str] = set(in_memory)
         if await asyncio.to_thread(p.exists):
             try:
                 entries = await asyncio.to_thread(lambda: list(p.iterdir()))

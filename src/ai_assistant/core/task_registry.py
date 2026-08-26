@@ -40,8 +40,9 @@ class TaskRegistry:
     Replaces RAGState._tasks and any future ad-hoc task sets.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_pending: int = 100) -> None:
         self._tasks: set[TaskRecord] = set()
+        self._max_pending = max_pending
 
     def spawn(
         self,
@@ -60,7 +61,15 @@ class TaskRegistry:
 
         Returns:
             The created Task (for tests and status checks).
+
+        Raises:
+            RuntimeError: If max_pending tasks are already queued.
         """
+        if len(self._tasks) >= self._max_pending:
+            raise RuntimeError(
+                f"TaskRegistry is full ({self._max_pending} pending tasks). "
+                f"Cannot spawn new task: {name!r}"
+            )
         task = asyncio.create_task(coro_factory(), name=name)
 
         record = TaskRecord(task=task, trace_id=trace_id, name=name)
