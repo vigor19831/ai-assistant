@@ -57,6 +57,36 @@ def async_iter(items: list[str]):
     return _AsyncIter(items)
 
 
+# ── TestStripRagSources ──
+
+
+class TestStripRagSources:
+    """Drift #49: history stores answers without the Sources block."""
+
+    @staticmethod
+    def _chunk() -> Chunk:
+        return Chunk(
+            id="c1",
+            text="text",
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+
+    def test_round_trip(self):
+        """append -> strip restores the original answer exactly."""
+        answer = "Paris is the capital."
+        appended = ChatManager._append_rag_sources(answer, (self._chunk(),))
+        assert "Sources:" in appended
+        assert strip_rag_sources(appended) == answer
+
+    def test_no_block_is_noop(self):
+        assert strip_rag_sources("plain answer") == "plain answer"
+
+    def test_mention_of_sources_is_kept(self):
+        """Text that merely mentions 'Sources:' must survive intact."""
+        text = "See Sources:\nsome real content"
+        assert strip_rag_sources(text) == text
+
+
 # ── Fixtures ──
 
 
@@ -1425,7 +1455,7 @@ class TestStreamPersistence:
         from ai_assistant.core.ports.chunker import IChunker
         from ai_assistant.core.ports.storage import IChatStorage
         from ai_assistant.core.ports.reranker import IReranker
-        from ai_assistant.features.chat.manager import ChatManager
+        from ai_assistant.features.chat.manager import ChatManager, strip_rag_sources
 
         config = AppConfig()
 
@@ -1539,6 +1569,33 @@ class TestStreamPersistence:
             pass
 
         storage.save_exchange.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sources_block_stripped_from_history(self, storage):
+        """Drift #49: the streamed answer keeps Sources for the client,
+        but save_exchange stores the clean answer.
+        """
+        from ai_assistant.features.chat.handlers import chat_stream
+        from ai_assistant.features.chat.schemas import ChatRequest
+
+        state = self._stream_state(storage)
+        state.chat_manager.llm.stream = MagicMock(
+            return_value=async_iter(["Answer.", "\n\nSources:\n[1] doc1"])
+        )
+
+        req = ChatRequest(message="hi", conversation_id="c1")
+        response = await chat_stream(
+            req, request=MagicMock(), manager=state.chat_manager, state=state
+        )
+        body_parts: list[str] = []
+        async for chunk in response.body_iterator:
+            body_parts.append(chunk)
+
+        # Client receives the full answer including sources.
+        assert "Sources:" in "".join(body_parts)
+        # History stores the clean answer.
+        args = storage.save_exchange.await_args.args
+        assert args[2]["content"] == "Answer."
 
     @pytest.mark.asyncio
     async def test_multiline_chunk_framed_per_line(self, storage):

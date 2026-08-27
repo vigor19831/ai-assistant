@@ -43,6 +43,10 @@ logger = get_logger("chat")
 # that the tokenizer does not count but the actual prompt includes.
 _HISTORY_TOKEN_OVERHEAD = 50
 
+# Marker of the Sources block appended to RAG answers. History stores
+# the answer without this block (see strip_rag_sources).
+_SOURCES_MARKER = "\n\nSources:\n"
+
 
 # ---------------------------------------------------------------------------
 # Pipeline step functions — moved from deps.py to where they are used
@@ -50,6 +54,24 @@ _HISTORY_TOKEN_OVERHEAD = 50
 _STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
     RAGStep(k): v for k, v in STEP_REGISTRY.items() if k in {m.value for m in RAGStep}
 }
+
+
+def strip_rag_sources(text: str) -> str:
+    """Remove the Sources block appended by ChatManager to RAG answers.
+
+    History is LLM context, not display output: the block spends the
+    token budget and pollutes the condense input, so it is stripped
+    before persistence. Only a block matching the generated format
+    (every non-empty line starts with '[') is removed — an answer that
+    merely mentions "Sources:" keeps its text.
+    """
+    idx = text.rfind(_SOURCES_MARKER)
+    if idx == -1:
+        return text
+    block_lines = text[idx + len(_SOURCES_MARKER) :].split("\n")
+    if not all(line.startswith("[") for line in block_lines if line):
+        return text
+    return text[:idx]
 
 
 class ChatManager:
@@ -98,7 +120,7 @@ class ChatManager:
                 seen.add(key)
                 unique_lines.append(_source_link(chunk))
         src_lines = [f"[{i + 1}] {line}" for i, line in enumerate(unique_lines)]
-        return answer + "\n\nSources:\n" + "\n".join(src_lines)
+        return answer + _SOURCES_MARKER + "\n".join(src_lines)
 
     def __init__(
         self,

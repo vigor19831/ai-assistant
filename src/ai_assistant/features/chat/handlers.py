@@ -17,7 +17,7 @@ from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG, AdapterError
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
-from ai_assistant.features.chat.manager import ChatManager
+from ai_assistant.features.chat.manager import ChatManager, strip_rag_sources
 from ai_assistant.features.chat.schemas import (
     ChatRequest,
     ChatResponse,
@@ -71,6 +71,11 @@ async def _save_exchange(
     user_metadata: dict[str, Any],
 ) -> None:
     """Persist a user/assistant message pair atomically. Never raises."""
+    # History is LLM context for the next turn: store the answer without
+    # the Sources block, which spends the token budget and pollutes the
+    # condense input (drift #49). The API response keeps it — clients
+    # need the traceability.
+    assistant_content = strip_rag_sources(assistant_content)
     try:
         await storage.save_exchange(
             conversation_id,

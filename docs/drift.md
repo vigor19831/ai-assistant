@@ -66,6 +66,7 @@
 | 46 | 2026-08-27 | Encoding fallback tried `utf-8` before `utf-8-sig`, so BOM-prefixed files decoded "successfully" with U+FEFF leaking into chunk text and embeddings; `utf-8-sig` is now first, plain `utf-8` removed as dead |
 | 47 | 2026-08-27 | `/rag/reindex` without configured sources crashed the background task with `UnboundLocalError` (masked as 500); explicit 400 "No sources configured" is now returned before spawning the task |
 | 48 | 2026-08-27 | `MemoryVectorStore` silently FIFO-evicted oldest chunks on max_chunks overflow (eviction was banned by ai_rules §2 until RAM pressure was measured — it never was), and a later `save()` persisted the loss to disk; eviction machinery removed, `add()` now rejects like the faiss adapter, contract documented in the port |
+| 49 | 2026-08-27 | The Sources block was persisted into chat history, spending the context token budget, polluting the condense input, and (with `index_chat_exports`) feeding generated output back as indexed evidence; history now stores the clean answer, API responses keep the block |
 
 ## FUTURE RISKS (not fixing now)
 | Risk | Trigger | When to fix |
