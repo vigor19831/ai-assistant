@@ -345,7 +345,6 @@ class MemoryVectorStore(IVectorStore):
             ns.chunks.clear()
             ns.embeddings.clear()
             ns.metadata.clear()
-            ns._order.clear()
             _logger.error(
                 "Memory index integrity check "
                 "failed: counts do not match "
