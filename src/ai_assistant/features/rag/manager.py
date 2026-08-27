@@ -15,7 +15,7 @@ from typing import Any
 from ai_assistant.api.deps import InitializedAppState
 from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT, SOURCE_INDEX_TIMEOUT
-from ai_assistant.core.domain.configs import SamplingConfig
+from ai_assistant.core.domain.configs import RetryConfig, SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import ConfigurationError
 from ai_assistant.core.domain.messages import UserMessage
@@ -31,6 +31,7 @@ from ai_assistant.core.ports import (
     ITokenizer,
     IVectorStore,
 )
+from ai_assistant.core.retry import retry_with_config
 
 _logger = get_logger("rag.manager")
 
@@ -38,6 +39,10 @@ _logger = get_logger("rag.manager")
 _WATCHER_POLL_INTERVAL = 60.0
 _WATCHER_STOP_TIMEOUT = 10.0
 _WATCHER_TASK_STOP_TIMEOUT = 60.0
+# --- SourceWatcher retry policy ---
+# Consecutive failed reindex attempts before the watcher gives up and
+# waits for file changes or a manual POST /rag/reindex.
+_WATCHER_MAX_ATTEMPTS = 3
 
 
 class IndexingManager:
@@ -119,7 +124,12 @@ class IndexingManager:
             }
 
         texts = [c.text for c in all_chunks]
-        embeddings = await self.embedder.embed(texts)
+        # External call: retry per ai_rules section 7, same default policy
+        # as the query pipeline. Idempotent — chunks are stored only after
+        # embeddings return, so a failed attempt leaves no partial state.
+        embeddings = await retry_with_config(
+            lambda: self.embedder.embed(texts), RetryConfig()
+        )
 
         for i, emb in enumerate(embeddings):
             all_chunks[i] = replace(all_chunks[i], embedding=emb)
@@ -324,6 +334,7 @@ class SourceWatcher:
         self._index_fn = index_fn
         self._interval = interval
         self._snapshots: dict[str, dict[str, tuple[float, int]]] = {}
+        self._failures: dict[str, int] = {}
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._index_tasks: dict[str, asyncio.Task[None]] = {}
@@ -369,14 +380,49 @@ class SourceWatcher:
         try:
             await asyncio.wait_for(self._index_fn(src), timeout=SOURCE_INDEX_TIMEOUT)
         except TimeoutError:
-            _logger.error("Reindex timed out", extra={"source": src.path})
+            _logger.error("Auto-reindex timed out", extra={"source": src.path})
+            self._register_failure(src, snapshot_key, snapshot)
+            return
         except Exception:
             _logger.exception("Auto-reindex failed", extra={"source": src.path})
-        finally:
-            # Update snapshot even on failure to prevent infinite retry loop.
-            # Next poll (60s) will re-check; if source is still broken,
-            # we retry at poll interval, not in a tight loop.
-            self._snapshots[snapshot_key] = snapshot
+            self._register_failure(src, snapshot_key, snapshot)
+            return
+        # Success: consume the change and reset the failure counter.
+        self._failures.pop(snapshot_key, None)
+        self._snapshots[snapshot_key] = snapshot
+
+    def _register_failure(
+        self,
+        src: SourceConfig,
+        snapshot_key: str,
+        snapshot: dict[str, tuple[float, int]],
+    ) -> None:
+        """Bounded retry: N attempts per change, then give up.
+
+        The snapshot is NOT updated on failure, so the next poll
+        re-detects the change and retries. After N consecutive failures
+        the snapshot is consumed and an error is logged; new file
+        changes or a manual POST /rag/reindex start a fresh cycle.
+        """
+        attempts = self._failures.get(snapshot_key, 0) + 1
+        if attempts < _WATCHER_MAX_ATTEMPTS:
+            self._failures[snapshot_key] = attempts
+            _logger.warning(
+                "Auto-reindex failed, will retry on next poll",
+                extra={
+                    "source": src.path,
+                    "attempt": attempts,
+                    "max_attempts": _WATCHER_MAX_ATTEMPTS,
+                },
+            )
+            return
+        self._failures.pop(snapshot_key, None)
+        self._snapshots[snapshot_key] = snapshot
+        _logger.error(
+            f"Auto-reindex failed {_WATCHER_MAX_ATTEMPTS} times, giving up "
+            "until files change. Run POST /rag/reindex to retry manually.",
+            extra={"source": src.path, "attempts": _WATCHER_MAX_ATTEMPTS},
+        )
 
     async def _loop(self) -> None:
         while not self._stop.is_set():

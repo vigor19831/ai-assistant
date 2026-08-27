@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from pathlib import Path
 from typing import Any, cast
 
@@ -160,8 +161,25 @@ class MemoryVectorStore(IVectorStore):
                 if cid in ns._order:
                     ns._order.remove(cid)
 
-            # Clean up empty namespace to prevent memory leak
+            # Empty namespace: remove persisted files as well. F1: a stale
+            # memory_store.json would resurrect deleted chunks on the next
+            # load(). Pop from memory only after files are removed.
             if not ns.chunks:
+                try:
+                    await self._remove_namespace_files(namespace)
+                except Exception:
+                    _logger.exception(
+                        "delete file removal failed, rolling back",
+                        extra={"namespace": namespace},
+                    )
+                    try:
+                        await self._load_unlocked(self.index_path, namespace=namespace)
+                    except Exception:
+                        _logger.exception(
+                            "delete rollback failed",
+                            extra={"namespace": namespace},
+                        )
+                    raise
                 self._namespaces.pop(namespace, None)
                 return
 
@@ -181,11 +199,33 @@ class MemoryVectorStore(IVectorStore):
                     )
                 raise
 
+    async def _remove_namespace_files(self, namespace: str) -> None:
+        """Remove persisted namespace directory. Caller holds self._lock.
+
+        Called when a namespace becomes empty: a stale memory_store.json
+        would resurrect deleted chunks on the next load().
+        """
+        target = Path(self.index_path) / namespace
+        try:
+            await asyncio.to_thread(shutil.rmtree, target)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise AdapterError(
+                f"Failed to remove store files for namespace "
+                f"'{namespace}': {exc}"
+            ) from exc
+
     async def _save_unlocked(self, path: str, namespace: str = "default") -> None:
         """Internal save without lock — caller must hold self._lock."""
+        ns = self._namespaces.get(namespace)
+        if ns is None:
+            # F92: namespace never loaded or created — do not touch disk.
+            # Writing here would replace a skipped namespace (e.g. dim
+            # mismatch at startup) with an empty store.
+            return
         p = Path(path) / namespace
         p.parent.mkdir(parents=True, exist_ok=True)
-        ns = self._get_ns(namespace)
         data = {
             "dim": ns.dim,
             "chunks": {

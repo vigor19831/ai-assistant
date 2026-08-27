@@ -312,6 +312,24 @@ class FaissVectorStore(IVectorStore):
             ns.chunks = new_chunks
             ns.next_id = next_id
 
+            # F1: namespace emptied — remove persisted files. Save would be
+            # a no-op here and stale files would resurrect deleted chunks
+            # on the next load().
+            if not new_chunks:
+                try:
+                    await self._remove_namespace_files(namespace)
+                except Exception:
+                    _logger.exception(
+                        "delete file removal failed, rolling back",
+                        extra={"namespace": namespace},
+                    )
+                    ns.index = old_index
+                    ns.chunks = old_chunks
+                    ns.next_id = old_next_id
+                    raise
+                self._namespaces.pop(namespace, None)
+                return
+
             try:
                 await self._save_unlocked(self.index_path, namespace)
             except Exception:
@@ -324,6 +342,23 @@ class FaissVectorStore(IVectorStore):
                 ns.chunks = old_chunks
                 ns.next_id = old_next_id
                 raise
+
+    async def _remove_namespace_files(self, namespace: str) -> None:
+        """Remove persisted namespace files. Caller must hold self._lock.
+
+        Called when a namespace becomes empty: stale files on disk would
+        resurrect deleted chunks on the next load().
+        """
+        base = Path(self.index_path)
+        for suffix in (".faiss", ".store.json"):
+            target = base / f"{namespace}{suffix}"
+            try:
+                await asyncio.to_thread(target.unlink, missing_ok=True)
+            except OSError as exc:
+                raise AdapterError(
+                    f"Failed to remove index files for namespace "
+                    f"'{namespace}': {exc}"
+                ) from exc
 
     def _atomic_write_faiss(self, index: Any, target_path: str) -> None:
         """Write FAISS index atomically via temp file + os.replace.

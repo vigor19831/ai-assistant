@@ -84,7 +84,9 @@ class IVectorStore(IClosable, ABC):
 
         Implementations must save the index to disk as part of this
         operation. If persistence fails, the in-memory state must be
-        rolled back to maintain consistency with disk.
+        rolled back to maintain consistency with disk. If the namespace
+        becomes empty, implementations must remove its persisted files
+        so deleted chunks cannot reappear after restart.
         """
         ...
 
