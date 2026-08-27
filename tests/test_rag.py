@@ -1300,6 +1300,26 @@ class TestReindexTaskSafety:
     """REGRESSION: reindex background tasks must not leak or lose exceptions."""
 
     @pytest.mark.asyncio
+    async def test_reindex_without_sources_returns_400(self, mock_state):
+        """F49: full reindex with no configured sources must fail fast with
+        a clear 400 instead of crashing the background task with
+        UnboundLocalError.
+        """
+        from ai_assistant.features.rag.handlers import reindex_documents
+        from ai_assistant.features.rag.schemas import ReindexRequest
+
+        mock_state.config.rag.sources = []
+
+        req = ReindexRequest(target_namespace=None, clear=False)
+        with pytest.raises(HTTPException) as exc_info:
+            await reindex_documents(req, mock_state)
+
+        assert exc_info.value.status_code == 400
+        assert "No sources configured" in exc_info.value.detail
+        # The background task must not have been spawned at all.
+        assert list(mock_state.task_registry.get_tasks()) == []
+
+    @pytest.mark.asyncio
     async def test_reindex_does_not_leak_tasks(self, mock_state, tmp_path):
         """Given: reindex is triggered.
         When: background task completes.

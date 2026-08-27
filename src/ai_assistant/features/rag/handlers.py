@@ -516,6 +516,15 @@ async def reindex_documents(
     clear = req.clear
     task_id = str(uuid.uuid4())
     rag_state = state.rag_state
+    # F49: without sources a full reindex has nothing to do. Previously
+    # the background task hit UnboundLocalError (result never assigned in
+    # the loop over zero namespaces) and surfaced as a 500.
+    if not state.config.rag.sources and target_namespace is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No sources configured. Add rag.sources to the config "
+            "or pass target_namespace."
+        )
     _logger.info(
         "Reindex started",
         extra={
