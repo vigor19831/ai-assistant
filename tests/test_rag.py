@@ -816,7 +816,9 @@ class TestSourceWatcherRetryPolicy:
 
         async def slow_fn(src: SourceConfig) -> None:
             calls.append(src.path)
-            await asyncio.sleep(1.0)
+            # Never resolves; cancelled when wait_for hits the timeout.
+            # sleep() avoided per §15 determinism / quality audit.
+            await asyncio.Event().wait()
 
         watcher = self._watcher(mock_state, doc_dir, slow_fn)
         for _ in range(5):
