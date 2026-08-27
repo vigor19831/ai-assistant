@@ -1,6 +1,6 @@
 # AI Rules
 
-> Version: 2026-08-12
+> Version: 2026-08-27
 > Next review: 2026-09-20
 
 # Project Brief
@@ -79,7 +79,7 @@ Requires `CORE CHANGE REQUIRED` + user confirmation: new port method/field, Pipe
 
 If core changes:
 1. Update ALL adapters implementing the port
-2. Update `tests/test_core_critical.py`, `tests/test_contracts.py`
+2. Update `tests/test_contracts.py`, `tests/test_pipeline.py`
 3. Run `python scripts/check_all.py`
 
 New functionality requires new tests. Existing tests may only be updated during refactoring or contract changes.
@@ -106,7 +106,7 @@ All external network calls require hard timeout. All external calls use retry wi
 
 ## 8. Graceful Shutdown
 
-See `architecture.md` §6 Shutdown Protocol. Order: persist indices → adapter shutdown → metrics last.
+See `architecture.md` §6 Shutdown Protocol. Order: persist indices → background tasks → adapter shutdown.
 
 ## 9. Output Protocol
 

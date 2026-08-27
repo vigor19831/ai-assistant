@@ -5,7 +5,7 @@
 > ACTIVE entries are constraints — do not "fix" them without explicit user request.
 > Git history is unreliable (commits often say "fix"). This file is the source of truth.
 
-## ACTIVE (8)
+## ACTIVE (6)
 
 | ID | Since | Location | Constraint | Exit Criteria |
 |----|-------|----------|------------|---------------|
@@ -23,8 +23,8 @@
 | 23 | 2026-06-29 | HTTP client ownership → `architecture.md` §4, §5 |
 | 22 | 2026-06-28 | Port objects own config, PipelineData carries references → `architecture.md` §8, `ai_rules.md` §2.2 |
 | 7 | 2026-06-28 | Shared CODE ok, shared RESOURCE banned → `architecture.md` §4.3, §8 |
-| 14 | 2026-06-26 | Untyped `dict[str, dict]` bags banned → `ai_rules.md` §9 antipatterns |
-| 8 | 2026-06-18 | `PipelineData.metadata: dict[str, Any]` replaced with typed fields → `ai_rules.md` §9 antipatterns |
+| 14 | 2026-06-26 | Untyped `dict[str, dict]` bags banned → `architecture.md` §9 (antipatterns) |
+| 8 | 2026-06-18 | `PipelineData.metadata: dict[str, Any]` replaced with typed fields → `architecture.md` §9 (antipatterns) |
 | 31 | 2026-07-10 | Unconditional `shutdown()`, no `_closed` flag → `architecture.md` §6 |
 | 30 | 2026-07-10 | `SystemMessage` in domain, removed from `ILLM` port → `architecture.md` §8 |
 | 37 | 2026-07-28 | `min_relevance_score` stripped; strict rank-only → `architecture.md` §13 |

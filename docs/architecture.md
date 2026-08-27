@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-08-12
+> Version: 2026-08-27
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -169,7 +169,7 @@ Need HTTP POST in adapter?
 - `shutdown()` is unconditional. No `if`. No flags.
 - Lifespan calls `shutdown()` on every `IClosable`. It does NOT inspect internals.
 - No-op adapters implement `shutdown()` as `pass`.
-- Order: persist indices → adapter shutdown → metrics last.
+- Order: persist indices → background tasks → adapter shutdown.
 
 ### 6.2. Lifespan Cleanup (Current)
 
@@ -291,7 +291,9 @@ Documented exceptions (do not add more without Decision Log entry):
 
 - `RAGState.semaphore` — background reindex vs API requests race
 - `RAGState._lock` — atomic task status updates
+- `RAGState.chat_semaphore` — caps concurrent chat/LLM requests (chat.max_concurrent_chat)
 - `MemoryVectorStore._lock` — concurrent add/search/delete on shared in-memory index
+- `FaissVectorStore._lock` — same contract as MemoryVectorStore
 
 Why: Concurrency bugs are the hardest to debug solo. Locks add complexity that compounds over 10 years.
 
@@ -365,4 +367,9 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 | 2026-08-24 | GTX 1650 4GB / 16GB RAM | Qwen3.5-9B (IQ4_XS) + partial offload (10-12 layers) | 14/17 CONTRACT | trap-2, multihop-1, semantic-ru-1 FAIL. 9B IQ4_XS on 4GB VRAM suffers from PCIe bottleneck, destroying multihop reasoning and strict instruction following. |
 | 2026-08-25 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + expanded 47-test contract suite | 17/17 CONTRACT + 6/9 CHAT E2E | **FINAL VERDICT**: Qwen2.5-7B is locked as the primary model. Qwen3.5-9B is rejected for this hardware due to PCIe bottlenecks. Future upgrades to 14B+ models require 12GB+ VRAM to avoid this bottleneck. No pipeline changes required. |
 
-Expected fix: LLM upgrade (Qwen2.5-14B-Instruct). No pipeline changes required.
+No fix scheduled. Qwen2.5-7B-Instruct (IQ4_XS) is the final model for this
+hardware; 14B+ models require 12GB+ VRAM (2026-08-25 verdict). Chat E2E
+6/9 (2026-08-25) vs 8/9 (2026-08-23): the drop is not attributed in this
+log — the 08-25 run accompanied the 47-test contract expansion and the two
+e2e results are not confirmed comparable. Re-baseline the chat e2e suite
+when it is next modified.
