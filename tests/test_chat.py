@@ -26,7 +26,7 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.llm import ILLM
-from ai_assistant.features.chat.manager import ChatManager
+from ai_assistant.features.chat.manager import ChatManager, strip_rag_sources
 
 logger = get_logger(__name__)
 
