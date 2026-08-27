@@ -32,7 +32,12 @@ class IVectorStore(IClosable, ABC):
 
     @abstractmethod
     async def add(self, chunks: list[Chunk], namespace: str = "default") -> None:
-        """Add chunks with embeddings to a namespace."""
+        """Add chunks with embeddings to a namespace.
+
+        Implementations must reject the batch with AdapterError if it
+        would exceed max_chunks. Silently evicting existing data is
+        forbidden: eviction is invisible data loss.
+        """
         ...
 
     async def upsert(self, chunks: list[Chunk], namespace: str = "default") -> None:
@@ -45,8 +50,7 @@ class IVectorStore(IClosable, ABC):
         This default ordering (add before delete) ensures that if *add*
         fails the old chunks remain in the index.  There is a brief
         window where both old and new chunks coexist; adapters that need
-        true atomicity or have eviction policies should override this
-        method.
+        true atomicity should override this method.
         """
         if not chunks:
             return

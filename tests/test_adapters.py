@@ -195,18 +195,28 @@ class TestMemoryVectorStore:
         assert not any(c.id == "c1" for c in r3)
 
     @pytest.mark.asyncio
-    async def test_fifo_eviction(self):
+    async def test_rejects_max_chunks_overflow_atomically(self):
+        """F36: exceeding max_chunks rejects the batch and evicts nothing.
+
+        The old behaviour silently FIFO-evicted the oldest chunks — and a
+        later save() persisted that loss to disk.
+        """
         store = MemoryVectorStore(VectorStoreConfigData(dim=3, max_chunks=2))
-        chunks = [
-            Chunk(id="c1", text="first", embedding=[1.0, 0.0, 0.0]),
-            Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
-            Chunk(id="c3", text="third", embedding=[0.0, 0.0, 1.0]),
-        ]
-        await store.add(chunks, namespace="test")
+        await store.add(
+            [
+                Chunk(id="c1", text="first", embedding=[1.0, 0.0, 0.0]),
+                Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="test",
+        )
+        with pytest.raises(AdapterError, match="max_chunks"):
+            await store.add(
+                [Chunk(id="c3", text="third", embedding=[0.0, 0.0, 1.0])],
+                namespace="test",
+            )
         results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
-        assert not any(c.id == "c1" for c in results)
-        assert any(c.id == "c2" for c in results)
-        assert any(c.id == "c3" for c in results)
+        ids = {c.id for c in results}
+        assert ids == {"c1", "c2"}
 
     @pytest.mark.asyncio
     async def test_save_and_load(self, tmp_path):

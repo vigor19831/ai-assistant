@@ -1,4 +1,4 @@
-"""In-memory vector store with namespaces, relevance filtering, and FIFO eviction."""
+"""In-memory vector store with namespaces and relevance filtering."""
 
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ __all__ = ["MemoryVectorStore"]
 
 @register("vector_store", "memory")
 class MemoryVectorStore(IVectorStore):
-    """Simple in-memory vector store with multi-namespace support and FIFO eviction.
+    """Simple in-memory vector store with multi-namespace support.
 
     Uses cosine similarity to retrieve relevant chunks.
-    Enforces max_chunks per namespace to prevent OOM.
+    Enforces max_chunks per namespace by rejecting oversized batches.
     """
 
     def __init__(self, config: VectorStoreConfigData) -> None:
@@ -46,10 +46,7 @@ class MemoryVectorStore(IVectorStore):
 
     def _get_ns(self, name: str) -> _NamespaceData:
         if name not in self._namespaces:
-            self._namespaces[name] = _NamespaceData(
-                dim=self.dim,
-                max_chunks=self._max_chunks,
-            )
+            self._namespaces[name] = _NamespaceData(dim=self.dim)
         return self._namespaces[name]
 
     def _normalize(self, v: np.ndarray) -> np.ndarray:
@@ -81,6 +78,27 @@ class MemoryVectorStore(IVectorStore):
                     )
                 valid.append((chunk, emb))
 
+            # F36: reject rather than evict — same contract as the faiss
+            # adapter. Silent FIFO eviction removed indexed documents, and
+            # a later save() persisted that loss to disk.
+            projected = len(ns.chunks) + len(valid)
+            if projected > self._max_chunks:
+                _logger.error(
+                    "Memory add would exceed max_chunks",
+                    extra={
+                        "namespace": namespace,
+                        "current": len(ns.chunks),
+                        "adding": len(valid),
+                        "max_chunks": self._max_chunks,
+                    },
+                )
+                raise AdapterError(
+                    f"Cannot add {len(valid)} chunks to namespace "
+                    f"'{namespace}': would exceed max_chunks "
+                    f"({self._max_chunks}). Current: {len(ns.chunks)}. "
+                    f"Delete old chunks or increase max_chunks."
+                )
+
             for chunk, emb in valid:
                 ns.chunks[chunk.id] = chunk
                 ns.embeddings[chunk.id] = self._normalize(emb)
@@ -94,8 +112,6 @@ class MemoryVectorStore(IVectorStore):
                     meta["source_uri"] = chunk.metadata.source_uri
                     meta["last_modified"] = chunk.metadata.last_modified
                 ns.metadata[chunk.id] = meta
-                ns._track(chunk.id)
-                ns._evict()
 
             if not valid and namespace in self._namespaces and not ns.chunks:
                 self._namespaces.pop(namespace, None)
@@ -158,8 +174,6 @@ class MemoryVectorStore(IVectorStore):
                 ns.chunks.pop(cid, None)
                 ns.embeddings.pop(cid, None)
                 ns.metadata.pop(cid, None)
-                if cid in ns._order:
-                    ns._order.remove(cid)
 
             # Empty namespace: remove persisted files as well. F1: a stale
             # memory_store.json would resurrect deleted chunks on the next
@@ -320,8 +334,6 @@ class MemoryVectorStore(IVectorStore):
             ns.embeddings[cid] = self._normalize(arr)
 
         ns.metadata = data.get("metadata", {})
-        ns._order.clear()
-        ns._order.extend(ns.chunks.keys())
 
         # Integrity check: all three structures must be consistent
         emb_count = len(ns.embeddings)
@@ -412,25 +424,10 @@ class MemoryVectorStore(IVectorStore):
 
 
 class _NamespaceData:
-    """Per-namespace state with FIFO eviction."""
+    """Per-namespace state."""
 
-    def __init__(self, dim: int, max_chunks: int) -> None:
+    def __init__(self, dim: int) -> None:
         self.chunks: dict[str, Chunk] = {}
         self.embeddings: dict[str, np.ndarray] = {}
         self.metadata: dict[str, dict[str, Any]] = {}
         self.dim = dim
-        self.max_chunks = max_chunks
-        self._order: list[str] = []
-
-    def _track(self, chunk_id: str) -> None:
-        """Track insertion order for FIFO eviction."""
-        if chunk_id not in self._order:
-            self._order.append(chunk_id)
-
-    def _evict(self) -> None:
-        """Remove oldest chunks if over limit (FIFO)."""
-        while len(self.chunks) > self.max_chunks and self._order:
-            oldest = self._order.pop(0)
-            self.chunks.pop(oldest, None)
-            self.embeddings.pop(oldest, None)
-            self.metadata.pop(oldest, None)
