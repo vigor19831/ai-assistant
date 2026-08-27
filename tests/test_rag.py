@@ -682,34 +682,6 @@ class TestRAGIndexing:
         assert result["chunk_count"] == 0
         assert any("No chunks" in e for e in result["errors"])
 
-    @pytest.mark.asyncio
-    async def test_transient_embed_failure_is_retried(
-        self,
-        mock_embedder: Any,
-        mock_chunker: Any,
-        memory_vector_store: Any,
-    ) -> None:
-        """ai_rules section 7: a transient embedder failure during indexing
-        must be retried instead of failing the whole run (drift #43).
-        """
-        mock_embedder.embed = AsyncMock(
-            side_effect=[AdapterError("transient"), [[0.1] * 384]]
-        )
-        manager = IndexingManager(
-            chunker=mock_chunker,
-            embedder=mock_embedder,
-            vector_store=memory_vector_store,
-        )
-
-        result = await manager.index_documents(
-            [{"id": "doc-1", "content": "hello", "metadata": {}}], namespace="test"
-        )
-
-        assert result["indexed_count"] == 1
-        assert result["errors"] == []
-        chunks = await memory_vector_store.list_by_filter({}, namespace="test")
-        assert [cid for cid, _meta in chunks] == ["chunk-1"]
-
     def test_read_sources_strips_utf8_bom(self, tmp_path):
         """F19: a UTF-8 BOM must not leak U+FEFF into document content.
 

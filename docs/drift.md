@@ -60,7 +60,7 @@
 | 40 | 2026-08-27 | Delete-all left stale index files → deleted chunks resurrected on restart; empty namespace now removes its files (both vector store adapters) |
 | 41 | 2026-08-27 | Memory store `save()` overwrote skipped namespaces with an empty store on shutdown; never-loaded namespaces no longer touch disk |
 | 42 | 2026-08-27 | Watcher consumed the snapshot on failure → partial index frozen as complete; bounded retry (3 attempts), snapshot consumed on success only |
-| 43 | 2026-08-27 | Indexing embed call had no retry (ai_rules §7); wrapped in `retry_with_config`, same default policy as the query pipeline |
+| 43 | 2026-08-27 | Embedder retry audit: the adapter already retries per batch inside `_post_embeddings` (`@with_retry`); a manager-level `retry_with_config` added on top was removed as a duplicate — retry stays adapter-owned, watcher retries (drift #42) cover batch-boundary failures |
 | 44 | 2026-08-27 | Mid-stream failure persisted a truncated assistant turn into history (save in `finally`); save now runs only after the stream completes |
 | 45 | 2026-08-27 | SSE data frames carried multi-line chunks under a single `data:` prefix; strict EventSource clients dropped everything after the first newline (incl. the whole Sources block); every line now carries its own prefix |
 | 46 | 2026-08-27 | Encoding fallback tried `utf-8` before `utf-8-sig`, so BOM-prefixed files decoded "successfully" with U+FEFF leaking into chunk text and embeddings; `utf-8-sig` is now first, plain `utf-8` removed as dead |

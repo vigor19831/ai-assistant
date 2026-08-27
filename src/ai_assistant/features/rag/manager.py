@@ -15,7 +15,7 @@ from typing import Any
 from ai_assistant.api.deps import InitializedAppState
 from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT, SOURCE_INDEX_TIMEOUT
-from ai_assistant.core.domain.configs import RetryConfig, SamplingConfig
+from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import ConfigurationError
 from ai_assistant.core.domain.messages import UserMessage
@@ -31,7 +31,6 @@ from ai_assistant.core.ports import (
     ITokenizer,
     IVectorStore,
 )
-from ai_assistant.core.retry import retry_with_config
 
 _logger = get_logger("rag.manager")
 
@@ -124,12 +123,10 @@ class IndexingManager:
             }
 
         texts = [c.text for c in all_chunks]
-        # External call: retry per ai_rules section 7, same default policy
-        # as the query pipeline. Idempotent — chunks are stored only after
-        # embeddings return, so a failed attempt leaves no partial state.
-        embeddings = await retry_with_config(
-            lambda: self.embedder.embed(texts), RetryConfig()
-        )
+        # Retry lives in the adapter: OpenAICompatibleEmbedder retries each
+        # batch inside _post_embeddings (@with_retry). Failures beyond that
+        # are retried by the watcher's bounded attempts (drift #42).
+        embeddings = await self.embedder.embed(texts)
 
         for i, emb in enumerate(embeddings):
             all_chunks[i] = replace(all_chunks[i], embedding=emb)
