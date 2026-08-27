@@ -76,3 +76,6 @@
 | LLM prompt coupling | Prompt instability on 14B+ models | When upgrading to 14B+ |
 | Vector store RAM limit | Hitting 100K chunks | When max_chunks reached |
 | Async lock complexity | Deadlocks in production | When deadlock rate > 1/month |
+| Sibling-source deletion | Watcher reindexes one of 2+ sources sharing a namespace; orphan cleanup sees only that source's URIs and deletes the siblings' chunks | Before mapping a second source to a namespace |
+| Phantom empty namespaces | `list_by_filter` on a never-populated namespace creates it in memory; the memory adapter later lists it and persists an empty store file | When namespace lifecycle code is touched |
+| Silent fallback prompt | Invalid prompt_name (API request or config) renders `prompts/v1/fallback.j2` with degraded RAG instructions; only a log entry, no error to the caller | When prompt versioning/registry work begins |
