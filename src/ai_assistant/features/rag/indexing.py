@@ -23,7 +23,10 @@ _logger = get_logger("rag.indexing")
 
 def _read_file_sync(path: Path) -> str:
     """Read text file with encoding fallback.  SYNC — call via to_thread."""
-    encodings = ["utf-8", "utf-8-sig", "cp1251", "cp1252", "latin-1"]
+    # utf-8-sig first: decodes plain UTF-8 identically and strips the BOM.
+    # Plain utf-8 must not precede it — it accepts BOM files "successfully",
+    # leaking U+FEFF into chunk text (drift #46).
+    encodings = ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
     for enc in encodings:
         try:
             return path.read_text(encoding=enc)

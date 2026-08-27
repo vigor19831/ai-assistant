@@ -710,6 +710,31 @@ class TestRAGIndexing:
         chunks = await memory_vector_store.list_by_filter({}, namespace="test")
         assert [cid for cid, _meta in chunks] == ["chunk-1"]
 
+    def test_read_sources_strips_utf8_bom(self, tmp_path):
+        """F19: a UTF-8 BOM must not leak U+FEFF into document content.
+
+        The old encoding chain tried plain utf-8 before utf-8-sig; utf-8
+        decodes a BOM-prefixed file without error, so the BOM survived
+        into chunk text and embeddings.
+        """
+        from ai_assistant.features.rag.indexing import read_sources
+
+        doc = tmp_path / "bom.md"
+        doc.write_bytes("\ufeff# Header\nBody text".encode("utf-8"))
+        result = read_sources(
+            [
+                SourceConfig(
+                    namespace="test",
+                    path=str(tmp_path),
+                    include=["*.md"],
+                    recursive=False,
+                )
+            ]
+        )
+        content = result["test"][0]["content"]
+        assert not content.startswith("\ufeff")
+        assert content.startswith("# Header")
+
 
 async def _poll(watcher: SourceWatcher) -> None:
     """Run one watcher poll cycle and wait for spawned index tasks.

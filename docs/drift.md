@@ -63,6 +63,7 @@
 | 43 | 2026-08-27 | Indexing embed call had no retry (ai_rules §7); wrapped in `retry_with_config`, same default policy as the query pipeline |
 | 44 | 2026-08-27 | Mid-stream failure persisted a truncated assistant turn into history (save in `finally`); save now runs only after the stream completes |
 | 45 | 2026-08-27 | SSE data frames carried multi-line chunks under a single `data:` prefix; strict EventSource clients dropped everything after the first newline (incl. the whole Sources block); every line now carries its own prefix |
+| 46 | 2026-08-27 | Encoding fallback tried `utf-8` before `utf-8-sig`, so BOM-prefixed files decoded "successfully" with U+FEFF leaking into chunk text and embeddings; `utf-8-sig` is now first, plain `utf-8` removed as dead |
 
 ## FUTURE RISKS (not fixing now)
 | Risk | Trigger | When to fix |
