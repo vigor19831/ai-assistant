@@ -26,8 +26,9 @@ class RerankResult:
 class IReranker(IClosable, ABC):
     """Re-rank retrieved chunks by relevance to query.
 
-    Used after vector store retrieval to filter out false positives
-    and improve context quality for generation.
+    Used after vector store retrieval to order candidates by
+    relevance before context building. Rank-only: ordering, never
+    filtering by absolute score — the pipeline decides sufficiency.
     """
 
     def __init__(self, config: RerankerConfigData) -> None:
