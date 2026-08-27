@@ -249,15 +249,17 @@ async def chat_stream(
         except Exception:
             _logger.exception("Stream failed", extra={"trace_id": trace_id})
             raise
-        finally:
-            if full_text:
-                await _save_exchange(
-                    state.storage,
-                    conv_id,
-                    user_content,
-                    full_text,
-                    {**req.metadata, "trace_id": trace_id},
-                )
+        # F84: persist only fully generated turns. A mid-stream failure or
+        # client disconnect must not write a truncated assistant message
+        # into the conversation history.
+        if full_text:
+            await _save_exchange(
+                state.storage,
+                conv_id,
+                user_content,
+                full_text,
+                {**req.metadata, "trace_id": trace_id},
+            )
 
     async def event_generator() -> AsyncIterator[str]:
         try:
@@ -363,15 +365,17 @@ async def openai_chat_completions(
             except Exception:
                 _logger.exception("OpenAI stream failed", extra={"trace_id": trace_id})
                 raise
-            finally:
-                if req.conversation_id and full_text:
-                    await _save_exchange(
-                        state.storage,
-                        conv_id,
-                        last_user_msg,
-                        full_text,
-                        {"trace_id": trace_id},
-                    )
+            # F84: persist only fully generated turns. A mid-stream failure or
+            # client disconnect must not write a truncated assistant message
+            # into the conversation history.
+            if req.conversation_id and full_text:
+                await _save_exchange(
+                    state.storage,
+                    conv_id,
+                    last_user_msg,
+                    full_text,
+                    {"trace_id": trace_id},
+                )
 
         async def event_generator() -> AsyncIterator[str]:
             try:
