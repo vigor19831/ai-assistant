@@ -93,6 +93,16 @@ router_oai = APIRouter(tags=["chat-oai"])
 SSE_HEARTBEAT_INTERVAL: float = 15.0  # seconds
 
 
+def _sse_data(payload: str) -> str:
+    """Format a string as an SSE data frame.
+
+    Every line of the payload gets its own data: prefix, per the SSE
+    spec: strict EventSource clients ignore lines without a field name,
+    which silently dropped any text after the first newline.
+    """
+    return "".join(f"data: {line}\n" for line in payload.split("\n")) + "\n"
+
+
 async def _stream_with_heartbeat(
     stream: AsyncIterator[str],
     interval: float = SSE_HEARTBEAT_INTERVAL,
@@ -128,7 +138,7 @@ async def _stream_with_heartbeat(
                 return
             if isinstance(item, (Exception, asyncio.CancelledError)):
                 raise item
-            yield f"data: {item}\n\n"
+            yield _sse_data(item)
             last_activity = loop.time()
     finally:
         task.cancel()

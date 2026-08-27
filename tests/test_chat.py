@@ -1541,6 +1541,31 @@ class TestStreamPersistence:
         storage.save_exchange.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_multiline_chunk_framed_per_line(self, storage):
+        """SSE framing must prefix every payload line with data: (F83).
+
+        A multi-line chunk previously kept only its first line: strict
+        EventSource clients ignore lines without a field name, so the
+        Sources block (always multi-line) never reached them.
+        """
+        from ai_assistant.features.chat.handlers import chat_stream
+        from ai_assistant.features.chat.schemas import ChatRequest
+
+        state = self._stream_state(storage)
+        state.chat_manager.llm.stream = MagicMock(
+            return_value=async_iter(["line1\nline2\n\nline3"])
+        )
+
+        req = ChatRequest(message="hi", conversation_id="c1")
+        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        frames: list[str] = []
+        async for chunk in response.body_iterator:
+            frames.append(chunk)
+
+        body = "".join(frames)
+        assert "data: line1\ndata: line2\ndata: \ndata: line3\n\n" in body
+
+    @pytest.mark.asyncio
     async def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer_and_storage):
         """Given: history exceeding token budget.
         When: chat() is called.
