@@ -2140,10 +2140,11 @@ async def test_update_api_key_rejects_whitespace_only(mock_state):
 
 
 @pytest.mark.asyncio
-async def test_stream_chat_saves_partial_on_error(client_no_raise, mock_state):
+async def test_stream_chat_discards_partial_on_error(client_no_raise, mock_state):
     """Given: streaming chat that fails mid-stream.
     When: error occurs after partial response.
-    Then: partial response is still saved to history.
+    Then: nothing is saved to history (drift #44): a truncated
+          assistant turn must not enter the conversation.
     """
     from ai_assistant.features.chat.handlers import get_chat_manager
 
@@ -2163,12 +2164,8 @@ async def test_stream_chat_saves_partial_on_error(client_no_raise, mock_state):
     )
     assert resp.status_code == 200
 
-    # Verify partial response was saved via atomic save_exchange
-    mock_state.storage.save_exchange.assert_called()
-    call_args = mock_state.storage.save_exchange.call_args
-    # save_exchange(conversation_id, user_message, assistant_message)
-    assistant_msg = call_args[0][2]  # third positional arg
-    assert "Partial response" in assistant_msg.get("content", "")
+    # The client saw an SSE error frame; history must stay clean.
+    mock_state.storage.save_exchange.assert_not_awaited()
 
 
 @pytest.mark.asyncio

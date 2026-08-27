@@ -1386,6 +1386,160 @@ class TestChatHistoryTrimming:
     Then: oldest messages are dropped, budget is respected, order preserved.
     """
 
+
+# ── TestStreamPersistence ──
+
+
+class TestStreamPersistence:
+    """Streaming handlers persist history only for fully generated turns
+    (drift #44): a mid-stream failure must not write a truncated assistant
+    message into the conversation.
+    """
+
+    @pytest.fixture
+    def storage(self):
+        from ai_assistant.core.ports.storage import IChatStorage
+
+        m = MagicMock(spec=IChatStorage)
+        m.get_history = AsyncMock(return_value=[])
+        m.save_exchange = AsyncMock(return_value=None)
+        return m
+
+    @staticmethod
+    def _stream_state(storage, conv_id="c1"):
+        """Build an InitializedAppState with streaming-capable ChatManager.
+
+        The manager's LLM stream is replaceable per test via state.
+        """
+        from ai_assistant.api.deps import InitializedAppState, RAGState
+        from ai_assistant.core.task_registry import TaskRegistry
+        from ai_assistant.adapters.char_fallback_tokenizer import (
+            CharFallbackTokenizer,
+        )
+        from ai_assistant.core.config import AppConfig
+        from ai_assistant.core.domain.configs import TokenizerConfigData
+        from ai_assistant.core.domain.messages import AssistantMessage
+        from ai_assistant.core.ports.llm import ILLM
+        from ai_assistant.core.ports.embedder import IEmbedder
+        from ai_assistant.core.ports.vector_store import IVectorStore
+        from ai_assistant.core.ports.chunker import IChunker
+        from ai_assistant.core.ports.storage import IChatStorage
+        from ai_assistant.core.ports.reranker import IReranker
+        from ai_assistant.features.chat.manager import ChatManager
+
+        config = AppConfig()
+
+        llm = AsyncMock(spec=ILLM)
+        llm.get_context_limit = MagicMock(return_value=8192)
+        llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="ok", metadata={})
+        )
+        embedder = AsyncMock(spec=IEmbedder)
+        vector_store = AsyncMock(spec=IVectorStore)
+        chunker = AsyncMock(spec=IChunker)
+        reranker = AsyncMock(spec=IReranker)
+        reranker.retrieval_multiplier = 1
+
+        chat_manager = ChatManager(
+            llm=llm,
+            reranker=reranker,
+            max_context_tokens=config.chat.max_context_tokens,
+            embedder=None,
+            vector_store=None,
+            namespaces=config.namespaces,
+            prompt_version=config.rag.prompt_version,
+            top_k=config.rag.top_k,
+            token_margin_min=config.rag.token_margin_min,
+            token_margin_pct=config.rag.token_margin_pct,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+            system_message=config.llm.system_message,
+            rag_steps=[],
+        )
+
+        state = InitializedAppState(
+            config=config,
+            task_registry=TaskRegistry(),
+            llm=llm,
+            embedder=embedder,
+            vector_store=vector_store,
+            storage=storage,
+            chunker=chunker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+            reranker=reranker,
+            rag_state=RAGState(),
+            chat_manager=chat_manager,
+            rag_manager=None,
+        )
+        return state
+
+    @pytest.mark.asyncio
+    async def test_completed_stream_persists_full_turn(self, storage):
+        """A stream that finishes normally saves the full exchange."""
+        from ai_assistant.features.chat.handlers import chat_stream
+        from ai_assistant.features.chat.schemas import ChatRequest
+
+        state = self._stream_state(storage)
+        state.chat_manager.llm.stream = MagicMock(
+            return_value=async_iter(["Hello", " world"])
+        )
+
+        req = ChatRequest(message="hi", conversation_id="c1")
+        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        # Consume the streaming response
+        async for _ in response.body_iterator:
+            pass
+
+        storage.save_exchange.assert_awaited_once()
+        args = storage.save_exchange.await_args.args
+        assert args[0] == "c1"
+        assert args[1]["content"] == "hi"
+        # Assistant turn is the full accumulated text
+        assert args[2]["content"] == "Hello world"
+
+    @pytest.mark.asyncio
+    async def test_failed_stream_does_not_persist(self, storage):
+        """A stream that fails mid-generation must not save anything."""
+        from ai_assistant.features.chat.handlers import chat_stream
+        from ai_assistant.features.chat.schemas import ChatRequest
+
+        state = self._stream_state(storage)
+
+        def _failing_stream(*args, **kwargs):
+            async def _agen():
+                yield "partial"
+                raise AdapterError("LLM died mid-stream")
+
+            return _agen()
+
+        state.chat_manager.llm.stream = MagicMock(side_effect=_failing_stream)
+
+        req = ChatRequest(message="hi")
+        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        # Consume the streaming response
+        async for _ in response.body_iterator:
+            pass
+
+        storage.save_exchange.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_empty_stream_does_not_persist(self, storage):
+        """A stream producing no tokens must not save an empty turn."""
+        from ai_assistant.features.chat.handlers import chat_stream
+        from ai_assistant.features.chat.schemas import ChatRequest
+
+        state = self._stream_state(storage)
+        state.chat_manager.llm.stream = MagicMock(
+            return_value=async_iter([])
+        )
+
+        req = ChatRequest(message="hi")
+        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        # Consume the streaming response
+        async for _ in response.body_iterator:
+            pass
+
+        storage.save_exchange.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_trims_oldest_to_fit_budget(self, manager_with_tokenizer_and_storage):
         """Given: history exceeding token budget.
