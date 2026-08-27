@@ -158,8 +158,13 @@ class TestMemoryVectorStore:
     """
 
     @pytest.fixture
-    def store(self):
-        return MemoryVectorStore(VectorStoreConfigData(dim=3))
+    def store(self, tmp_path):
+        # tmp_path is required: delete() of an emptied namespace now
+        # removes files under index_path (drift #40). Without isolation
+        # the test would delete a real ./data namespace directory.
+        return MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path / "vs"))
+        )
 
     @pytest.mark.asyncio
     async def test_add_and_search(self, store):
@@ -438,6 +443,128 @@ class TestFaissVectorStoreUpsert:
         await store.upsert([], namespace="empty")
         ns = await store.list_namespaces(str(tmp_path))
         assert "empty" not in ns
+
+
+# ── TestVectorStoreDeleteAllPersistence ──
+
+
+class TestVectorStoreDeleteAllPersistence:
+    """F1: delete() that empties a namespace must remove its persisted
+    files. Otherwise deleted chunks resurrect after restart: lifespan
+    loads every namespace it finds on disk.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_all_removes_namespace_from_disk(
+        self, vector_store_adapter
+    ):
+        chunk = Chunk(id="c1", text="a", embedding=[0.1] * 384)
+        index_path = vector_store_adapter.index_path
+        await vector_store_adapter.add([chunk], namespace="ns")
+        await vector_store_adapter.save(index_path, namespace="ns")
+        assert "ns" in await vector_store_adapter.list_namespaces(index_path)
+
+        await vector_store_adapter.delete(["c1"], namespace="ns")
+
+        # Nothing on disk to load and nothing in memory to search.
+        assert "ns" not in await vector_store_adapter.list_namespaces(index_path)
+        results = await vector_store_adapter.search(
+            [0.1] * 384, top_k=5, namespace="ns"
+        )
+        assert results == []
+
+
+# ── TestMemoryStorePersistenceGuards ──
+
+
+class TestMemoryStorePersistenceGuards:
+    """F92 and rollback guarantees specific to MemoryVectorStore."""
+
+    @pytest.mark.asyncio
+    async def test_save_after_failed_load_preserves_stored_data(self, tmp_path):
+        """A namespace skipped at load (dim mismatch) must not be
+        overwritten with an empty store by a later save()."""
+        store_a = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store_a.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="ns"
+        )
+        await store_a.save(str(tmp_path), namespace="ns")
+
+        store_b = MemoryVectorStore(
+            VectorStoreConfigData(dim=5, index_path=str(tmp_path))
+        )
+        with pytest.raises(VersionMismatchError):
+            await store_b.load(str(tmp_path), namespace="ns")
+
+        # Shutdown path: save() on the never-loaded namespace is a no-op.
+        await store_b.save(str(tmp_path), namespace="ns")
+
+        store_c = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store_c.load(str(tmp_path), namespace="ns")
+        results = await store_c.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert len(results) == 1
+        assert results[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_delete_all_rolls_back_when_file_removal_fails(self, tmp_path):
+        """If removing persisted files fails, in-memory state must be
+        restored from disk and the error must propagate."""
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="ns"
+        )
+        await store.save(str(tmp_path), namespace="ns")
+
+        async def failing_remove(namespace: str) -> None:
+            raise AdapterError("simulated removal failure")
+
+        store._remove_namespace_files = failing_remove
+
+        with pytest.raises(AdapterError, match="simulated removal failure"):
+            await store.delete(["c1"], namespace="ns")
+
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert len(results) == 1
+        assert results[0].id == "c1"
+
+
+# ── TestFaissStorePersistenceGuards ──
+
+
+class TestFaissStorePersistenceGuards:
+    """Rollback guarantee specific to FaissVectorStore."""
+
+    @pytest.mark.asyncio
+    async def test_delete_all_rolls_back_when_file_removal_fails(self, tmp_path):
+        """If removing persisted files fails, the in-memory index must be
+        restored from the pre-delete snapshot."""
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="ns"
+        )
+
+        async def failing_remove(namespace: str) -> None:
+            raise AdapterError("simulated removal failure")
+
+        store._remove_namespace_files = failing_remove
+
+        with pytest.raises(AdapterError, match="simulated removal failure"):
+            await store.delete(["c1"], namespace="ns")
+
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert len(results) == 1
+        assert results[0].id == "c1"
 
 
 # ── TestNullReranker ──

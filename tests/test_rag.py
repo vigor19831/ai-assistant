@@ -682,6 +682,148 @@ class TestRAGIndexing:
         assert result["chunk_count"] == 0
         assert any("No chunks" in e for e in result["errors"])
 
+    @pytest.mark.asyncio
+    async def test_transient_embed_failure_is_retried(
+        self,
+        mock_embedder: Any,
+        mock_chunker: Any,
+        memory_vector_store: Any,
+    ) -> None:
+        """ai_rules section 7: a transient embedder failure during indexing
+        must be retried instead of failing the whole run (drift #43).
+        """
+        mock_embedder.embed = AsyncMock(
+            side_effect=[AdapterError("transient"), [[0.1] * 384]]
+        )
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        result = await manager.index_documents(
+            [{"id": "doc-1", "content": "hello", "metadata": {}}], namespace="test"
+        )
+
+        assert result["indexed_count"] == 1
+        assert result["errors"] == []
+        chunks = await memory_vector_store.list_by_filter({}, namespace="test")
+        assert [cid for cid, _meta in chunks] == ["chunk-1"]
+
+
+async def _poll(watcher: SourceWatcher) -> None:
+    """Run one watcher poll cycle and wait for spawned index tasks.
+
+    Private access is intentional: _check_once is exactly one poll cycle
+    and _index_tasks holds in-flight work. Driving the real 60s loop
+    would require time-based waits, forbidden by test discipline.
+    """
+    await watcher._check_once()
+    for task in list(watcher._index_tasks.values()):
+        if not task.done():
+            await task
+
+
+# ── SourceWatcher retry policy ──
+
+
+class TestSourceWatcherRetryPolicy:
+    """Bounded retry: 3 attempts per change, then give up until files
+    change again or a manual reindex runs (drift #42).
+    """
+
+    @pytest.fixture
+    def doc_dir(self, tmp_path):
+        (tmp_path / "doc.md").write_text("content")
+        return tmp_path
+
+    @staticmethod
+    def _watcher(mock_state, path, index_fn):
+        return SourceWatcher(
+            sources=[SourceConfig(namespace="default", path=str(path))],
+            state=mock_state,
+            index_fn=index_fn,
+            interval=0.01,
+        )
+
+    @pytest.mark.asyncio
+    async def test_three_failures_then_gives_up(self, doc_dir, mock_state):
+        """After 3 failed attempts the snapshot is consumed and the
+        watcher stops retrying until files change again."""
+        calls: list[str] = []
+
+        async def failing_fn(src: SourceConfig) -> None:
+            calls.append(src.path)
+            raise RuntimeError("embedder down")
+
+        watcher = self._watcher(mock_state, doc_dir, failing_fn)
+        for _ in range(5):
+            await _poll(watcher)
+
+        # Attempts 1-3 fail, then the watcher gives up: polls 4 and 5
+        # see no change (snapshot consumed on the final failure).
+        assert len(calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_success_consumes_snapshot(self, doc_dir, mock_state):
+        """Unchanged files must not trigger re-indexing after success."""
+        calls: list[str] = []
+
+        async def ok_fn(src: SourceConfig) -> None:
+            calls.append(src.path)
+
+        watcher = self._watcher(mock_state, doc_dir, ok_fn)
+        for _ in range(4):
+            await _poll(watcher)
+
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_success_resets_failure_counter(self, doc_dir, mock_state):
+        """A fresh change gets a fresh cycle of 3 attempts."""
+        calls: list[str] = []
+        remaining = {"fails": 1}
+
+        async def flaky_fn(src: SourceConfig) -> None:
+            calls.append(src.path)
+            if remaining["fails"] > 0:
+                remaining["fails"] -= 1
+                raise RuntimeError("transient")
+
+        watcher = self._watcher(mock_state, doc_dir, flaky_fn)
+        await _poll(watcher)  # failure 1 -> retry scheduled
+        await _poll(watcher)  # success -> counter reset, snapshot consumed
+        assert len(calls) == 2
+
+        # New change: different size, so mtime granularity cannot mask it.
+        remaining["fails"] = 3
+        (doc_dir / "doc.md").write_text("content v2 that is longer")
+        for _ in range(4):
+            await _poll(watcher)
+
+        # 2 (first cycle) + 3 (fresh cycle exhausted). If the failure
+        # counter were not reset on success, the second cycle would stop
+        # after 2 more failures (= 4 total).
+        assert len(calls) == 5
+
+    @pytest.mark.asyncio
+    async def test_timeout_counts_as_failure(self, doc_dir, mock_state, monkeypatch):
+        """A timed-out indexing attempt consumes one of the 3 attempts."""
+        monkeypatch.setattr(
+            "ai_assistant.features.rag.manager.SOURCE_INDEX_TIMEOUT", 0.05
+        )
+        calls: list[str] = []
+
+        async def slow_fn(src: SourceConfig) -> None:
+            calls.append(src.path)
+            await asyncio.sleep(1.0)
+
+        watcher = self._watcher(mock_state, doc_dir, slow_fn)
+        for _ in range(5):
+            await _poll(watcher)
+
+        assert len(calls) == 3
+
 
 # ── Reranker Regression ──
 
