@@ -25,7 +25,11 @@ cors:
 
 chat:
   # Smaller history = more tokens left for RAG context. Keep 4-6 for 4B-class models.
+  # History stores clean answers (Sources block stripped, drift #49);
+  # refusal answers carry no sources (drift #50).
   history_limit: 4
+  # Total token budget for system message + history + current prompt.
+  # Must stay below llm.server_context_size minus generation headroom.
   max_context_tokens: 1280
   # Max simultaneous chat requests per process. Tune for your hardware:
   # 2-3 for 4GB VRAM, 5-10 for 16GB RAM.
@@ -94,10 +98,13 @@ reranker:
 vector_store:
   # Default: 'memory' (always available, no extra install).
   # For production with >10k docs: pip install .[faiss] and set provider: faiss
+  # Both providers REJECT an add() that would exceed max_chunks (never
+  # silently evict): raise max_chunks or delete old chunks if you hit it.
   provider: memory
   index_path: ./data/indices
   metric: cosine
-  # [CHANGE] Must match embedder.dim above
+  # [CHANGE] Must match embedder.dim above. A mismatch is detected only
+  # at runtime (dim mismatch AdapterError on add/search) — not at startup.
   dim: 1024
   max_chunks: 100000
   max_document_size: 10485760
@@ -123,9 +130,10 @@ llm:
   #   8192 @ n_gpu_layers=30 on 6GB VRAM
   server_context_size: 2048
 
-  # [CHANGE] 0 = CPU only. 99 = all layers on GPU (needs 8GB+ VRAM).
-  # For 4GB VRAM + 7B model: start with 20, increase until OOM.
-  # For 6GB VRAM + 7B model: try 30-35.
+  # [CHANGE] 0 = auto (llama.cpp offloads what fits in VRAM).
+  # Warning: manual partial offload on 4GB VRAM caused PCIe bottleneck
+  # that destroyed multihop and instruction following (Hardware Ceiling
+  # Log, 2026-08-24, 9B experiment). Prefer 0 unless you measured better.
   n_gpu_layers: 0
 
   # [CHANGE] 512 = short answers. 768 = complex multihop answers.
@@ -209,8 +217,9 @@ rag:
   # -------------------------------------------------------------------
   steps: [embed_query, retrieve, rerank, build_context, generate]
   prompt_version: v1
-  # Try "rag_simple" first. If check_rag.py fails on noise rejection,
-  # switch back to "rag_strict" but keep top_k at 2.
+  # Default pair: rag_strict + top_k 2 — validated at 17/17 CONTRACT
+  # (Hardware Ceiling Log). Switch to rag_simple + top_k 3 only if you
+  # need more recall, and re-run scripts/check_rag.py after switching.
   prompt_name: rag_strict
   # 2 = less noise, best with rag_strict. 3 = more recall, use with rag_simple.
   top_k: 2
@@ -219,6 +228,10 @@ rag:
   token_margin_pct: 0.10
   sources:
     # Documents are auto-indexed every 60s when the server is running.
+    # A changed file gets 3 indexing attempts; after 3 failures the watcher
+    # stops retrying it until it changes again or POST /rag/reindex runs.
+    # NOTE: one source per namespace — multiple sources sharing a namespace
+    # is a known limitation (see drift.md FUTURE RISKS).
     - namespace: default
       # [CHANGE] Your documents folder
       path: ./data/documents
