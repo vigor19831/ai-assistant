@@ -4,7 +4,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 - **Offline-first**: works without cloud, your data never leaves your machine
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
-- **Measured quality**: 17/17 contract tests pass on 4GB VRAM hardware
+- **Measured quality**: 17/17 contract tests + 23/30 capability tests on 4GB VRAM hardware
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
 **Solo-maintained. Published as-is.**
@@ -35,26 +35,26 @@ Production-grade offline RAG framework for solo maintainers.
 
 ### Quality Assurance
 
-- **43 automated tests** via `check_rag.py` — single source of truth for RAG quality.
+- **47 automated tests** via `check_rag.py` — single source of truth for RAG quality.
 - **17 contract tests** (must pass on any hardware).
-- **26 future capability tests** (quality depends on LLM size).
+- **30 future capability tests** (quality depends on LLM size).
 - **Hardware Ceiling Log**: honest documentation of what works on your GPU.
 
 ---
 
 ## Quality Assurance
 
-Every release is validated against `check_rag.py` — a 43-test benchmark covering retrieval, ranking, generation, and edge cases.
+Every release is validated against `check_rag.py` — a 47-test benchmark covering retrieval, ranking, generation, and edge cases.
 
 ### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 4GB VRAM)
 
 ```
 CONTRACT: 17/17 passed
-CHAT PREFIX E2E: 7/9 passed
-  CHAT CONTRACT: 2/2 passed
-  CHAT FUTURE: 5/7 passed
-KNOWN LIMITATIONS TRIGGERED: 9
-FUTURE CAPABILITIES: 17/26 passed
+CHAT PREFIX E2E: 6/9 passed
+CHAT CONTRACT: 2/2 passed
+CHAT FUTURE: 4/7 passed
+KNOWN LIMITATIONS TRIGGERED: 7
+FUTURE CAPABILITIES: 23/30 passed
 ```
 
 ### What Contract Tests Verify
@@ -71,13 +71,18 @@ FUTURE CAPABILITIES: 17/26 passed
 
 ### Known Limitations (Hardware-Dependent)
 
-9 tests fail on 4GB VRAM due to LLM size, not code quality:
+7 tests remain as known limitations on 4GB VRAM:
 
-- Noise rejection (weak models include irrelevant chunks).
-- Multi-turn follow-up resolution (requires better context understanding).
-- Open synthesis from multiple chunks (requires larger context window).
+- Nearest-topic leakage: retrieval surfaces semantically close chunks
+  and the model answers them instead of refusing (retrieval ceiling,
+  documented in `docs/drift.md` FUTURE RISKS).
+- Multi-turn follow-up resolution and question condensation (requires
+  better context understanding).
+- Server-side conversation recall across turns.
 
-**Expected fix**: LLM upgrade to Qwen2.5-14B or DeepSeek-R1-Distill-Qwen-7B. No pipeline changes required.
+**Expected fix**: retrieval improvements (hybrid search — deferred with
+a concrete trigger) or 12GB+ VRAM hardware. No pipeline redesign
+required.
 
 ---
 
@@ -106,11 +111,13 @@ FUTURE CAPABILITIES: 17/26 passed
 
 | Date | Hardware | LLM | Result | Limitation |
 |------|----------|-----|--------|------------|
-| 2026-08-14 | GTX 1650 4GB | Qwen2.5-7B IQ4_XS | 17/17 PASS + 9 known limitations | multihop, noise rejection require ≥8B params |
-| 2026-08-12 | GTX 1650 4GB | Qwen3-4B Q5_K_M | 13/17 PASS + 12 known limitations | 4B weaker than 7B on RAG tasks |
+| 2026-08-28 | GTX 1650 4GB | Qwen2.5-7B IQ4_XS | 17/17 CONTRACT + 23/30 future | 7 known limitations: nearest-topic leakage (retrieval), condensation, conv recall |
+| 2026-08-25 | GTX 1650 4GB | Qwen2.5-7B IQ4_XS | 17/17 CONTRACT + 6/9 chat e2e | Final verdict: 7B locked for this hardware; 14B+ needs 12GB+ VRAM |
+| 2026-08-24 | GTX 1650 4GB | Qwen3.5-9B IQ4_XS | 14/17 CONTRACT | PCIe bottleneck on partial offload destroys multihop and instruction following |
+| 2026-08-12 | GTX 1650 4GB | Qwen3-4B Q5_K_M | 13/17 PASS | 4B weaker than 7B on RAG tasks |
 | 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require ≥8B params |
 
-**Key insight**: RAG quality is bottlenecked by LLM instruction discipline, not retrieval quality. A 7–8B model scores 16/17 where a 4B model scores 13/17 on the same retrieval.
+Full log with all runs: `docs/architecture.md` §14.
 
 ---
 
@@ -211,7 +218,7 @@ ai-assistant/
 ├── run_servers.py ← Starts LLM, embedder, reranker, API servers
 ├── run_servers.yaml ← Server launch configuration
 ├── src/ ← Application source code
-├── tests/ ← 850+ tests
+├── tests/ ← 980+ tests
 ├── scripts/ ← Utility scripts
 ├── docs/ ← Architecture and rules documentation
 ├── data/ ← Runtime data (git-ignored, auto-created)
@@ -224,7 +231,7 @@ ai-assistant/
 | Directory | Purpose | Auto-created? |
 |-----------|---------|---------------|
 | `src/ai_assistant/` | Application code: `core/` (domain, ports), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes) | No |
-| `tests/` | 870+ tests covering contracts, edge cases, integration, e2e | No |
+| `tests/` | 980+ tests covering contracts, edge cases, integration, e2e | No |
 | `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `index_documents.py` (manual indexing) | No |
 | `docs/` | `ai_rules.md` (AI constraints), `architecture.md` (strategy + RAG philosophy), `drift.md` (known compromises) | No |
 | `data/` | Runtime data: `indices/` (FAISS vector indices per namespace), `storage.db` (SQLite chat history), `documents/` (your docs for RAG), `tokenizers/` (downloaded tokenizer files), `app.log` (application log) | Yes (on first run) |
@@ -243,7 +250,8 @@ After cloning the repo:
 1. **`config.yaml`** — `cp config.example.yaml config.yaml`, then edit:
    - `llm.model`, `embedder.model`, `reranker.model` — your GGUF filenames
    - `llm.api_base`, `embedder.api_base`, `reranker.api_base` — server URLs
-   - `llm.n_gpu_layers` — adjust for your VRAM (0 = CPU, 20-30 = partial GPU, 999 = full GPU)
+   - `llm.n_gpu_layers` — 0 = auto (recommended; manual partial offload on 4GB VRAM
+     causes a PCIe bottleneck, see Hardware Ceiling Log), 999 = full GPU (8GB+ VRAM)
    - `rag.sources` — path to your documents folder
 
 2. **`vendor/llama/llama-server`** — download from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) or build from source.
