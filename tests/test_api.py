@@ -2087,7 +2087,8 @@ class TestChatPersistence:
     def test_openai_chat_persists_when_conversation_id_set(self, client, isolated_app_state):
         """Given: OpenAI /v1/chat/completions endpoint with conversation_id.
         When: POST request is made.
-        Then: storage.save_exchange is called once (atomic user + assistant pair).
+        Then: save_exchange persists the pair AND stored history is loaded
+        (server-side recall, drift #51 client-first rule).
         """
         from ai_assistant.api.security import set_api_key
         set_api_key("test-key")
@@ -2101,7 +2102,7 @@ class TestChatPersistence:
         )
         assert resp.status_code == 200
         isolated_app_state.storage.save_exchange.assert_awaited_once()
-        isolated_app_state.storage.get_history.assert_not_awaited()
+        isolated_app_state.storage.get_history.assert_awaited_once()
 
     def test_openai_chat_stateless_without_conversation_id(self, client, isolated_app_state):
         """Given: OpenAI /v1/chat/completions endpoint without conversation_id.
@@ -2137,6 +2138,74 @@ async def test_update_api_key_rejects_whitespace_only(mock_state):
     resp = client.post("/admin/api-key", json={"api_key": "   "})
     assert resp.status_code == 400
     assert "non-empty" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_oai_conversation_id_recalls_server_history(mock_state):
+    """Drift #51: same conversation_id + no client messages -> server
+    history is loaded and reaches the LLM.
+    """
+    from ai_assistant.features.chat.handlers import openai_chat_completions
+    from ai_assistant.features.chat.schemas import (
+        OAIChatCompletionRequest,
+        OAIChatMessage,
+    )
+    from ai_assistant.core.domain.messages import AssistantMessage
+    from unittest.mock import AsyncMock
+
+    mock_state.storage.get_history = AsyncMock(
+        return_value=[
+            {"role": "user", "content": "Remember: my favorite number is 42."},
+            {"role": "assistant", "content": "Got it! 42."},
+        ]
+    )
+    mock_state.chat_manager.chat = AsyncMock(
+        return_value=AssistantMessage(text="42", metadata={})
+    )
+
+    req = OAIChatCompletionRequest(
+        model="test",
+        messages=[OAIChatMessage(role="user", content="What is my favorite number?")],
+        conversation_id="conv-alpha",
+    )
+    await openai_chat_completions(req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state)
+
+    # Server history was fetched and passed to the manager.
+    mock_state.storage.get_history.assert_awaited_once()
+    history_arg = mock_state.chat_manager.chat.call_args.kwargs["history"]
+    assert any("42" in h["content"] for h in history_arg)
+
+
+@pytest.mark.asyncio
+async def test_oai_client_history_wins_over_server(mock_state):
+    """Drift #51 client-first: when the client sends prior messages,
+    server history is NOT loaded.
+    """
+    from ai_assistant.features.chat.handlers import openai_chat_completions
+    from ai_assistant.features.chat.schemas import (
+        OAIChatCompletionRequest,
+        OAIChatMessage,
+    )
+    from ai_assistant.core.domain.messages import AssistantMessage
+    from unittest.mock import AsyncMock
+
+    mock_state.storage.get_history = AsyncMock(return_value=[])
+
+    req = OAIChatCompletionRequest(
+        model="test",
+        messages=[
+            OAIChatMessage(role="user", content="earlier question"),
+            OAIChatMessage(role="assistant", content="earlier answer"),
+            OAIChatMessage(role="user", content="What is my favorite number?"),
+        ],
+        conversation_id="conv-alpha",
+    )
+    mock_state.chat_manager.chat = AsyncMock(
+        return_value=AssistantMessage(text="42", metadata={})
+    )
+    await openai_chat_completions(req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state)
+
+    mock_state.storage.get_history.assert_not_awaited()
 
 
 @pytest.mark.asyncio

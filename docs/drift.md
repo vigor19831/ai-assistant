@@ -69,6 +69,7 @@
 | 48 | 2026-08-27 | `MemoryVectorStore` silently FIFO-evicted oldest chunks on max_chunks overflow (eviction was banned by ai_rules §2 until RAM pressure was measured — it never was), and a later `save()` persisted the loss to disk; eviction machinery removed, `add()` now rejects like the faiss adapter, contract documented in the port |
 | 49 | 2026-08-27 | The Sources block was persisted into chat history, spending the context token budget, polluting the condense input, and (with `index_chat_exports`) feeding generated output back as indexed evidence; history now stores the clean answer, API responses keep the block |
 | 50 | 2026-08-28 | Refusal answers carried retrieved chunks as sources — evidence for facts the model refused to state; strict-RAG contract returns empty sources/chunks_used=0; refusal strings live in `core/constants.py`, a sync test guards prompt↔matcher (→ `architecture.md` §13.6) |
+| 51 | 2026-08-28 | OAI chat path persisted history via conversation_id but never read it back — server memory was write-only; the handler now loads stored history when the client sends a conversation_id without prior messages (client-first: client messages are authoritative) |
 
 ## FUTURE RISKS (10)
 | Risk | Trigger | When to fix |

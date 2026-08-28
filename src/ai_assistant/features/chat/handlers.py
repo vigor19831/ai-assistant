@@ -332,6 +332,22 @@ async def openai_chat_completions(
         if m.content is not None and i != last_user_idx
     ]
     conv_id = req.conversation_id or str(uuid.uuid4())
+    # Client-first history rule (drift #51): the client's messages are
+    # authoritative. Server-side memory loads ONLY when the client sent
+    # a conversation_id but no prior messages — this keeps the OpenAI
+    # contract untouched for standard clients while giving the native
+    # conversation_id flow server-side recall.
+    if req.conversation_id and not oai_history:
+        try:
+            oai_history = await state.storage.get_history(
+                conv_id, limit=state.config.chat.history_limit, offset=0
+            )
+        except Exception:
+            _logger.warning(
+                "History load failed",
+                extra={"conversation_id": conv_id},
+            )
+            oai_history = []
     trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
     _logger.info(
         "OpenAI handler start",
