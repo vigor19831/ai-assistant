@@ -1,6 +1,6 @@
 # AI Rules
 
-> Version: 2026-08-27
+> Version: 2026-08-28
 > Next review: 2026-09-20
 
 # Project Brief
@@ -11,7 +11,8 @@ Layers: core (domain/ports) → adapters → features → api.
 
 ## 0. Ground Truth & Division of Labor
 
-Only this document and `docs/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.
+Only this document, `architecture.md`, `drift.md` and `docs/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.
+`context_build_*.md` is generated and may miss imports (e.g. inside `with`/function scopes) — verify orphan-code conclusions against the source before acting.
 
 Hierarchy: code in `src/` > this file > README.
 When code and rules conflict, code wins. If code violates a rule, that is known drift (see `docs/drift.md`). Propose fixing it, do not hallucinate stricter architecture.
@@ -41,7 +42,7 @@ Never:
 - Add a dependency without immediately updating `pyproject.toml` / `requirements.txt`
 - Python syntax requiring version > 3.11. Forbidden: `type` statements (PEP 695), `typing.TypeAliasType`, `warnings.deprecated`, and any 3.12+ only forms. Project minimum is 3.11.
 
-Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, LRU eviction in `MemoryVectorStore` until RAM pressure measured, prompt registry / semver until 5+ versions in active use.
+Never add: Redis, Celery, ARQ, event bus, WebSocket, gRPC, Lambda, subdirectories in `features/` (except grandfathered `chat/`, `rag/`), advanced FAISS indices (IVF/PQ) until 100k+ docs proven, silent eviction in vector stores — reject on max_chunks overflow (drift #48), prompt registry / semver until 5+ versions in active use.
 
 ### 2.1. Simplicity Constraints
 
@@ -76,6 +77,7 @@ Cross-feature data flows through `AppState` via `api.deps`, never direct import.
 Allowed without discussion: new adapter in `adapters/`, new feature in `features/` (flat until 10+ features).
 
 Requires `CORE CHANGE REQUIRED` + user confirmation: new port method/field, PipelineData schema change, config schema change (needs `config_version` bump + backward compat loader).
+Docstring and constant changes in `core/` are not core changes, but require a drift.md entry documenting the new contract.
 
 If core changes:
 1. Update ALL adapters implementing the port
@@ -103,12 +105,15 @@ Catch library-specific exceptions and wrap into core domain exceptions (`Adapter
 ## 7. Resilience
 
 All external network calls require hard timeout. All external calls use retry with exponential backoff (`core/retry.py`). Operations must be idempotent.
+Retry lives in exactly one layer (usually the adapter) — never stack a second retry wrapper on top of a retried call (drift #43).
 
 ## 8. Graceful Shutdown
 
 See `architecture.md` §6 Shutdown Protocol. Order: persist indices → background tasks → adapter shutdown.
 
 ## 9. Output Protocol
+
+Every response with code changes starts with the CHECKLIST from `architecture.md` §3.3 (honest checkboxes; if any box cannot be checked honestly — "No changes proposed").
 
 Response format:
 1. What and Why -- 1-2 sentences
@@ -179,7 +184,7 @@ Feature conflicts with Absolute Constraint:
 
 ## 12. Rule Self-Check
 
-Before outputting code, verify: no §2/§2.1/§15 violations, all changed files listed, tests updated for new functionality, >3 files -> split or confirm, no new features without explicit request.
+Before outputting code, verify: no §2/§2.1/§15 violations, CHECKLIST header present and honest, all changed files listed, tests updated for new functionality, >3 files -> split or confirm, no new features without explicit request.
 
 ## 13. Technology Decay
 
@@ -193,13 +198,13 @@ When a technology in the stack becomes obsolete:
 
 These rules themselves change:
 - Proposed changes go to `docs/ai_rules_proposed.md`
-- User approves -> move to this file, bump `rules_version` in header
+- User approves -> move to this file, bump `Version` in the header
 - Rejected ideas stay in `proposed.md` with reason for rejection
 - Review rules quarterly or after 5+ violations in one month
 
 ## 15. Test Discipline
 
-`tests/` excluded from ruff/mypy, but not from architecture. Tests must survive `pytest -n auto`, `--reverse`, `--random-order`.
+`tests/` excluded from ruff/mypy, but not from architecture. Tests must survive `pytest -n auto --random-order` (xdist + random-order plugins).
 
 - **Isolation**: No hardcoded paths — use `tmp_path`. No mutable shared state between tests.
 - **Async**: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop.
