@@ -17,7 +17,10 @@ from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import DEFAULT_RAG_PROMPT, SOURCE_INDEX_TIMEOUT
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
-from ai_assistant.core.domain.errors import ConfigurationError
+from ai_assistant.core.domain.errors import (
+    LLM_UNAVAILABLE_MSG,
+    ConfigurationError,
+)
 from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineData
 from ai_assistant.core.logger import get_logger
@@ -276,8 +279,24 @@ class RAGManager:
             "duration_ms": duration_ms,
         }
 
+        # Strict RAG contract (drift #50): a refusal is a complete answer
+        # with no evidence. Retrieved chunks the model refused to use are
+        # not sources — returning them would contradict the answer text.
+        answer_text = result.response.text if result.response else ""
+        is_refusal = answer_text.strip() in (
+            "I don't know.",
+            LLM_UNAVAILABLE_MSG,
+        )
+        if is_refusal:
+            return {
+                "answer": answer_text,
+                "sources": [],
+                "chunks_used": 0,
+                "errors": list(result.errors),
+                "metrics": metrics,
+            }
         return {
-            "answer": result.response.text if result.response else "",
+            "answer": answer_text,
             "sources": [
                 {
                     "id": c.id,

@@ -206,6 +206,80 @@ class TestRAGManager:
         mock_llm.complete.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_refusal_returns_empty_sources(
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+    ):
+        """Drift #50: a refusal answer carries no evidence.
+
+        The model answered "I don't know." while retrieval returned
+        chunks — the response must not list them as sources.
+        """
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="Paris is the capital of France.",
+                    embedding=[0.1] * 384,
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                )
+            ]
+        )
+        mock_reranker.rerank = AsyncMock(return_value=[])
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="I don't know.")
+        )
+
+        mgr = RAGManager(
+            llm=mock_llm,
+            vector_store=mock_vector_store,
+            embedder=mock_embedder,
+            reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await mgr.query("obscure topic")
+        assert result["answer"] == "I don't know."
+        assert result["sources"] == []
+        assert result["chunks_used"] == 0
+
+    @pytest.mark.asyncio
+    async def test_substantive_answer_keeps_sources(
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+    ):
+        """Drift #50 guard: only exact refusals lose sources — a real
+        answer mentioning a refusal phrase stays fully cited.
+        """
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        chunk = Chunk(
+            id="c1",
+            text="Paris is the capital of France.",
+            embedding=[0.1] * 384,
+            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+        )
+        mock_vector_store.search = AsyncMock(return_value=[chunk])
+        mock_reranker.rerank = AsyncMock(
+            return_value=[RerankResult(chunk=chunk, score=0.95)]
+        )
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        mock_llm.complete = AsyncMock(
+            return_value=AssistantMessage(
+                text="I don't know the exact date, but Paris is the capital [Document 1]."
+            )
+        )
+
+        mgr = RAGManager(
+            llm=mock_llm,
+            vector_store=mock_vector_store,
+            embedder=mock_embedder,
+            reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await mgr.query("What is the capital of France?")
+        assert result["sources"], "substantive answer must keep sources"
+        assert result["chunks_used"] == 1
+
+    @pytest.mark.asyncio
     async def test_query_empty_results_handling(self, mock_llm, mock_embedder, mock_vector_store, mock_reranker):
         """Given: no relevant chunks found.
         When: RAGManager.query is called.
