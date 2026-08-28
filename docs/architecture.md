@@ -387,6 +387,7 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 | 2026-08-23 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + optimized rag_strict prompt | 17/17 CONTRACT + 8/9 CHAT E2E | 8 known limitations (missing-1, missing-ru-1, noise-1, big-1, isolation-1, adversarial-1, missing-2, conv-id-continuity). |
 | 2026-08-24 | GTX 1650 4GB / 16GB RAM | Qwen3.5-9B (IQ4_XS) + partial offload (10-12 layers) | 14/17 CONTRACT | trap-2, multihop-1, semantic-ru-1 FAIL. 9B IQ4_XS on 4GB VRAM suffers from PCIe bottleneck, destroying multihop reasoning and strict instruction following. |
 | 2026-08-25 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + expanded 47-test contract suite | 17/17 CONTRACT + 6/9 CHAT E2E | **FINAL VERDICT**: Qwen2.5-7B is locked as the primary model. Qwen3.5-9B is rejected for this hardware due to PCIe bottlenecks. Future upgrades to 14B+ models require 12GB+ VRAM to avoid this bottleneck. No pipeline changes required. |
+| 2026-08-28 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + audit session (drift #40-#51) + server-side OAI history (client-first) | 17/17 CONTRACT + 7/9 CHAT E2E | 7 known limitations: 4× retrieval ceiling (nearest-topic leakage), condensation ×2, format-strict (nondeterministic: 2 vs 3 list items across runs). conv-id-continuity fixed in code (drift #51). |
 
 No fix scheduled. Qwen2.5-7B-Instruct (IQ4_XS) is the final model for this
 hardware; 14B+ models require 12GB+ VRAM (2026-08-25 verdict). Chat E2E
