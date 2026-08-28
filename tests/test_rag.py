@@ -781,6 +781,70 @@ class TestRAGIndexing:
         assert not content.startswith("\ufeff")
         assert content.startswith("# Header")
 
+    def test_read_sources_decodes_cp1251(self, tmp_path):
+        """A cp1251-encoded file must be read via the encoding fallback.
+
+        Covers the fallback chain in _read_file_sync: the file is not
+        valid UTF-8, so decoding falls through to cp1251. Relevant for
+        real-world Russian corpora with legacy-encoded files.
+        """
+        from ai_assistant.features.rag.indexing import read_sources
+
+        doc = tmp_path / "legacy.md"
+        # Russian text in cp1251: invalid as UTF-8, valid as cp1251.
+        doc.write_bytes("Мой любимый город".encode("cp1251"))
+        result = read_sources(
+            [
+                SourceConfig(
+                    namespace="test",
+                    path=str(tmp_path),
+                    include=["*.md"],
+                    recursive=False,
+                )
+            ]
+        )
+        content = result["test"][0]["content"]
+        assert "любимый" in content
+
+    @pytest.mark.asyncio
+    async def test_index_folder_autosave_failure_reports_error(
+        self, tmp_path, mock_chunker, mock_embedder, mock_vector_store
+    ):
+        """A failed auto-save after indexing must land in errors and
+        mark the run unsuccessful — not pass silently.
+        """
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.core.domain.errors import AdapterError
+
+        sources = tmp_path / "sources"
+        ns = sources / "test"
+        ns.mkdir(parents=True)
+        (ns / "notes.md").write_text("Some content worth indexing.")
+
+        mock_vector_store.save = AsyncMock(
+            side_effect=AdapterError("disk full")
+        )
+
+        result = await index_folder(
+            target_namespace="test",
+            clear=False,
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=mock_vector_store,
+            sources=[
+                SourceConfig(
+                    namespace="test",
+                    path=str(ns),
+                    include=["*.md"],
+                    recursive=True,
+                )
+            ],
+            index_path=str(tmp_path / "indices"),
+        )
+
+        assert result["success"] is False
+        assert any("Auto-save failed" in e for e in result["errors"])
+
 
 async def _poll(watcher: SourceWatcher) -> None:
     """Run one watcher poll cycle and wait for spawned index tasks.
