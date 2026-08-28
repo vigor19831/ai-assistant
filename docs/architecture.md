@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-08-27
+> Version: 2026-08-28
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -224,6 +224,12 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 
 **#7** (2026-06-28): Shared CODE extracted correctly; then tried to share CLIENT too. **Rule:** Shared CODE ok, shared RESOURCE forbidden. AI cannot bundle them.
 
+**#43** (2026-08-27): Retry wrapper stacked on a retried adapter — 16 attempts, minutes-long opaque failures. **Rule:** §7 ai_rules — retry lives in exactly one layer.
+
+**#50** (2026-08-28): Refusal answers carried retrieved chunks as sources. **Rule:** refusal = complete answer without evidence; refusal strings are shared constants with a prompt-sync test.
+
+**Benchmark discipline** (2026-08-28): a spec edit was recommended from failure logs alone, before reading the evaluator code — turned out to be both wrong and benchmark-fitting. **Rule:** §13.4 edit discipline; read the instrument before judging it.
+
 ## 9. Antipatterns (AI Must Never Use)
 
 | Pattern | Why Banned | Where It Appeared |
@@ -234,6 +240,8 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 | `dict[str, Any]` metadata bags | Untyped, grows forever | DRIFT #8, #14 |
 | Lazy init (`dict[str, Callable]`) | Hidden state | ai_rules.md §2 |
 | `**kwargs` in ports | Breaks contract | ai_rules.md §2 |
+| Stacked retry layers | Multiplied attempts (up to 16), opaque failure time | DRIFT #43 |
+| Hardcoded prompt strings in code | Prompt knowledge rots in two places, matcher drifts silently | DRIFT #50 (fixed via constants + sync test) |
 | Proposing changes when asked to find bugs | Scope creep | This document §3.1 |
 
 ## 10. For the Non-Programmer Maintainer
@@ -245,6 +253,10 @@ If AI proposes a change, ask it:
 3. "Does this add a flag or condition?" — If yes, reject.
 4. "Who creates and who closes?" — If answer has "if" or "depends", reject.
 5. "Show me the rollback" — If AI can't show one-line rollback, reject.
+6. "Are we changing the code or the measuring stick?" — If the change
+   touches the benchmark or its expectations, demand the justification
+   before applying: is it a proven instrument defect, or a failure we
+   want to disappear?
 
 ## 11. The "Sacred Disk & Config" Doctrine
 
@@ -328,7 +340,7 @@ Why: "Pythonic magic" is unmaintainable solo. In 5 years, you will not remember 
 
 - `ai_rules.md` = "what is forbidden" (constraints)
 - This document = "how AI must behave" + "RAG philosophy" (behavioral lock)
-- `drift.md` = "what we fixed and why"
+- `drift.md` = "what we fixed and why" + FUTURE RISKS (deferred issues with concrete triggers) + benchmark known limitations
 - AI reads ALL THREE before any architectural output
 - This document takes precedence over ai_rules.md on architectural decisions
 - Changes to this document require explicit human approval
@@ -348,13 +360,22 @@ Rules that survive model changes, hardware changes, and adapter swaps.
    or f-strings in pipeline logic.
 
 4. **`check_rag.py` is the only source of truth for RAG quality.**
-   No manual spot-checking, no "looks correct".
+   No manual spot-checking, no "looks correct". The benchmark itself
+   is edited under discipline: instrument defects may be fixed only
+   when provable independently of current results; test expectations
+   change only when self-contradictory (e.g. requiring a format the
+   query itself demands, then failing it as unfaithful) — never to
+   accommodate an observed failure. Code moves toward the benchmark,
+   not the benchmark toward the code.
 
 5. **Context budget derives from `ILLM.get_context_limit()`.**
    No hardcoded top_k without comment linking it to chunk size.
 
 6. **"Don't know" is LLM's decision, not pipeline guardrail.**
    Prompt teaches the phrase; pipeline does not hardcode refusal.
+   Refusal answers are complete strict-RAG answers and carry no
+   evidence: sources are empty, chunks_used is 0 (drift #50).
+   Retrieval diagnostics still reach the caller via metrics and logs.
 
 ## 14. Hardware Ceiling Log
 
