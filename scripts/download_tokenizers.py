@@ -95,6 +95,9 @@ PRESETS: dict[str, str | None] = {
     "exaone": "LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct",
     "internlm": "internlm/internlm3-8b-instruct",
     "internlm3": "internlm/internlm3-8b-instruct",
+    "ornith": "ornith-ai/Ornith-1.5-9B",
+    "ornith-1.5": "ornith-ai/Ornith-1.5-9B",
+    "ornith-1.5-9b": "ornith-ai/Ornith-1.5-9B",
 }
 
 # Exact matches for non-standard names from config.yaml (before normalisation)
@@ -120,6 +123,7 @@ VENDOR_MAP: dict[str, str] = {
     "nemotron": "nvidia",
     "exaone": "LGAI-EXAONE",
     "internlm": "internlm",
+    "ornith": "ornith-ai",
     "mixtral": "mistralai",
     "codestral": "mistralai",
     "ministral": "mistralai",
