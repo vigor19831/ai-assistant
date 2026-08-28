@@ -3,6 +3,7 @@
 > Rule: Do not add new drift if old pattern can be fixed properly.
 > AI reads this file before any architectural output (Document Meta §12).
 > ACTIVE entries are constraints — do not "fix" them without explicit user request.
+> FUTURE RISKS are deferred issues with concrete triggers — they are known, not forgotten.
 > Git history is unreliable (commits often say "fix"). This file is the source of truth.
 
 ## ACTIVE (6)
@@ -60,16 +61,16 @@
 | 40 | 2026-08-27 | Delete-all left stale index files → deleted chunks resurrected on restart; empty namespace now removes its files (both vector store adapters) |
 | 41 | 2026-08-27 | Memory store `save()` overwrote skipped namespaces with an empty store on shutdown; never-loaded namespaces no longer touch disk |
 | 42 | 2026-08-27 | Watcher consumed the snapshot on failure → partial index frozen as complete; bounded retry (3 attempts), snapshot consumed on success only |
-| 43 | 2026-08-27 | Embedder retry audit: the adapter already retries per batch inside `_post_embeddings` (`@with_retry`); a manager-level `retry_with_config` added on top was removed as a duplicate — retry stays adapter-owned, watcher retries (drift #42) cover batch-boundary failures |
+| 43 | 2026-08-28 | Retry lives in exactly one layer (adapter or caller, never both) → `ai_rules.md` §7, `architecture.md` §9 (antipatterns) |
 | 44 | 2026-08-27 | Mid-stream failure persisted a truncated assistant turn into history (save in `finally`); save now runs only after the stream completes |
 | 45 | 2026-08-27 | SSE data frames carried multi-line chunks under a single `data:` prefix; strict EventSource clients dropped everything after the first newline (incl. the whole Sources block); every line now carries its own prefix |
 | 46 | 2026-08-27 | Encoding fallback tried `utf-8` before `utf-8-sig`, so BOM-prefixed files decoded "successfully" with U+FEFF leaking into chunk text and embeddings; `utf-8-sig` is now first, plain `utf-8` removed as dead |
 | 47 | 2026-08-27 | `/rag/reindex` without configured sources crashed the background task with `UnboundLocalError` (masked as 500); explicit 400 "No sources configured" is now returned before spawning the task |
 | 48 | 2026-08-27 | `MemoryVectorStore` silently FIFO-evicted oldest chunks on max_chunks overflow (eviction was banned by ai_rules §2 until RAM pressure was measured — it never was), and a later `save()` persisted the loss to disk; eviction machinery removed, `add()` now rejects like the faiss adapter, contract documented in the port |
 | 49 | 2026-08-27 | The Sources block was persisted into chat history, spending the context token budget, polluting the condense input, and (with `index_chat_exports`) feeding generated output back as indexed evidence; history now stores the clean answer, API responses keep the block |
-| 50 | 2026-08-27 | Refusal answers ("I don't know", LLM unavailable) were returned with the retrieved chunks listed as sources — evidence for facts the model refused to state; strict-RAG contract now returns empty sources and chunks_used=0 for exact refusal answers; refusal strings live in `core/constants.py` and a sync test guards the prompt↔matcher connection |
+| 50 | 2026-08-28 | Refusal answers carried retrieved chunks as sources — evidence for facts the model refused to state; strict-RAG contract returns empty sources/chunks_used=0; refusal strings live in `core/constants.py`, a sync test guards prompt↔matcher (→ `architecture.md` §13.6) |
 
-## FUTURE RISKS (not fixing now)
+## FUTURE RISKS (10)
 | Risk | Trigger | When to fix |
 |------|---------|-------------|
 | Config migration bloat | >10 migrations in config.py | When loading old configs becomes slow |
@@ -80,3 +81,5 @@
 | Sibling-source deletion | Watcher reindexes one of 2+ sources sharing a namespace; orphan cleanup sees only that source's URIs and deletes the siblings' chunks | Before mapping a second source to a namespace |
 | Phantom empty namespaces | `list_by_filter` on a never-populated namespace creates it in memory; the memory adapter later lists it and persists an empty store file | When namespace lifecycle code is touched |
 | Silent fallback prompt | Invalid prompt_name (API request or config) renders `prompts/v1/fallback.j2` with degraded RAG instructions; only a log entry, no error to the caller | When prompt versioning/registry work begins |
+| Hybrid search (BM25+vector, RRF) | Real corpus shows missed exact-term retrieval (BM25-zero vs vector hits on user queries) | CORE CHANGE: new index format + port extension + index sync design |
+| RAM headroom shrink | Peak RAM (6.5/15 GB at ~140 bench docs) grows past ~10 GB with real corpus | Before adding any RAM-heavy component; measure first |
