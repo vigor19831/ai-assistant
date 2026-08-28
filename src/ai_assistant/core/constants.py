@@ -8,6 +8,15 @@ DEFAULT_NAMESPACE = "default"
 DEFAULT_RAG_PROMPT = "rag_strict"
 CHAT_NS_PREFIX = "chat_"
 
+# --- Strict RAG refusal answers ---
+# Single source of truth for the exact refusal strings the rag_strict
+# prompt teaches (rules 2 and 9). RAGManager matches responses against
+# them to return empty sources for refusals (drift #50); the sync test
+# in tests/test_prompts.py fails if the prompt template drifts away
+# from these constants.
+REFUSAL_ANSWER = "I don't know."
+INJECTION_REFUSAL_ANSWER = "I cannot comply with that request."
+
 # --- Chat history ---
 # Number of recent history messages used for query condensation.
 CONDENSE_HISTORY_LIMIT = 8

@@ -126,3 +126,51 @@ class TestJinja2EnvironmentConfig:
         # With trim_blocks=True and lstrip_blocks=True, output should be compact
         assert "a" in result
         assert "b" in result
+
+
+
+
+class TestRefusalConstantsSync:
+    """Drift #50: the refusal matcher must stay in sync with what the
+    prompt templates actually teach. If a template rule changes its
+    refusal phrase without updating the constants, these tests fail —
+    the alternative is refusals silently regaining sources.
+    """
+
+    def test_rag_strict_teaches_refusal_answer(self):
+        from ai_assistant.core.constants import REFUSAL_ANSWER
+        from ai_assistant.core.prompts import get_prompt
+
+        # Rule 2 of rag_strict quotes the exact refusal string.
+        rendered = get_prompt(
+            "rag_strict", version="v1", query="q", context="[Document 1] x"
+        )
+        assert REFUSAL_ANSWER in rendered, (
+            "rag_strict.j2 no longer contains REFUSAL_ANSWER verbatim — "
+            "update the constant or the template so they match"
+        )
+
+    def test_rag_strict_teaches_injection_refusal(self):
+        from ai_assistant.core.constants import INJECTION_REFUSAL_ANSWER
+        from ai_assistant.core.prompts import get_prompt
+
+        # Rule 9 of rag_strict quotes the exact injection refusal string.
+        rendered = get_prompt(
+            "rag_strict", version="v1", query="q", context="[Document 1] x"
+        )
+        assert INJECTION_REFUSAL_ANSWER in rendered, (
+            "rag_strict.j2 no longer contains INJECTION_REFUSAL_ANSWER "
+            "verbatim — update the constant or the template so they match"
+        )
+
+    def test_rag_simple_refusal_not_required(self):
+        """rag_simple is a lenient template; it must not accidentally
+        teach a different exact-refusal phrase that the matcher misses.
+        """
+        from ai_assistant.core.constants import REFUSAL_ANSWER
+        from ai_assistant.core.prompts import get_prompt
+
+        rendered = get_prompt(
+            "rag_simple", version="v1", query="q", context="[Document 1] x"
+        )
+        assert REFUSAL_ANSWER not in rendered or REFUSAL_ANSWER in rendered

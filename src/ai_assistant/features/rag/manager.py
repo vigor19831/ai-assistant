@@ -14,7 +14,12 @@ from typing import Any
 
 from ai_assistant.api.deps import InitializedAppState
 from ai_assistant.core.config import RAGStep, SourceConfig
-from ai_assistant.core.constants import DEFAULT_RAG_PROMPT, SOURCE_INDEX_TIMEOUT
+from ai_assistant.core.constants import (
+    DEFAULT_RAG_PROMPT,
+    INJECTION_REFUSAL_ANSWER,
+    REFUSAL_ANSWER,
+    SOURCE_INDEX_TIMEOUT,
+)
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import (
@@ -282,9 +287,13 @@ class RAGManager:
         # Strict RAG contract (drift #50): a refusal is a complete answer
         # with no evidence. Retrieved chunks the model refused to use are
         # not sources — returning them would contradict the answer text.
+        # The strings are constants shared with the prompt templates
+        # (see REFUSAL_ANSWER / INJECTION_REFUSAL_ANSWER); the sync test
+        # in tests/test_prompts.py guards against drift.
         answer_text = result.response.text if result.response else ""
         is_refusal = answer_text.strip() in (
-            "I don't know.",
+            REFUSAL_ANSWER,
+            INJECTION_REFUSAL_ANSWER,
             LLM_UNAVAILABLE_MSG,
         )
         if is_refusal:
