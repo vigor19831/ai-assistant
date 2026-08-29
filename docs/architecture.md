@@ -389,10 +389,17 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 | 2026-08-25 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + expanded 47-test contract suite | 17/17 CONTRACT + 6/9 CHAT E2E | **FINAL VERDICT**: Qwen2.5-7B is locked as the primary model. Qwen3.5-9B is rejected for this hardware due to PCIe bottlenecks. Future upgrades to 14B+ models require 12GB+ VRAM to avoid this bottleneck. No pipeline changes required. |
 | 2026-08-28 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + audit session (drift #40-#51) + server-side OAI history (client-first) | 17/17 CONTRACT + 7/9 CHAT E2E | 7 known limitations: 4× retrieval ceiling (nearest-topic leakage), condensation ×2, format-strict (nondeterministic: 2 vs 3 list items across runs). conv-id-continuity fixed in code (drift #51). |
 | 2026-08-28 | GTX 1650 4GB / 16GB RAM | Ornith-1.5-9B (IQ4_XS, 20 GPU layers, 3542MB VRAM) | 13/17 CONTRACT + 20/30 future | REJECTED — 3rd data point for 9B class on 4GB. With the model properly on the card: semantic/trap contract failures identical to the CPU misconfiguration run (temperature 0 determinism) — synonym queries answered "I don't know" with relevant chunks in window (scores 0.6+); latency ×2-3 vs the 7B even fully GPU-placed. An earlier run of the same model with n_gpu_layers=0 (CPU inference, 508MB VRAM) produced the same 13/17 — recorded to invalidate a configuration-error verdict. |
+| 2026-08-29 | GTX 1650 4GB / 16GB RAM | Phi-4-mini-instruct (unsloth Q5_K_M, full VRAM 3658MB) | 14/17 CONTRACT + 9/9 CHAT E2E + 21/30 future | FIRST MODEL TO BEAT THE 7B ANYWHERE: perfect chat e2e (condensation, multi-turn, conv-id, RU numbered list — all pass) at 2-3x speed (0.9-4s per test vs 3-6s). CONTRACT failures share one profile: rule-adherence collapses under traps — trap-1/trap-2 quote question vocabulary verbatim (rule 4/5 violations), multihop-1 refuses to infer across chunks ("no information" with Python in window). Small-class verdict: chat discipline mature, trap inhibition and multi-hop inference still need parameters. Chat champion, not RAG champion — Qwen stays primary; Phi-4-mini is the documented fallback should real-usage chat memory become a complaint. |
 
-No fix scheduled. Qwen2.5-7B-Instruct (IQ4_XS) is the final model for this
-hardware; 14B+ models require 12GB+ VRAM (2026-08-25 verdict). Chat E2E
-6/9 (2026-08-25) vs 8/9 (2026-08-23): the drop is not attributed in this
-log — the 08-25 run accompanied the 47-test contract expansion and the two
-e2e results are not confirmed comparable. Re-baseline the chat e2e suite
-when it is next modified.
+No fix scheduled. Qwen2.5-7B-Instruct (IQ4_XS) remains the primary model for
+this hardware: the only 17/17 CONTRACT holder, undefeated in RAG discipline
+across 3 challenger experiments (Ornith-9B x2, Phi-4-mini). 14B+ models require
+12GB+ VRAM (2026-08-25 verdict). Phi-4-mini (2026-08-29) is the documented
+chat-fallback: perfect 9/9 chat e2e at 2-3x speed; swap in if real-usage chat
+memory becomes a complaint. Small-class trend: each generation closes the gap
+(6/13 -> 13/17 -> 14/17); trap inhibition and multi-hop remain the last
+parameter-bound skills — re-test the class on each new generation, first three
+probes: trap-1, trap-2, multihop-1. Chat E2E 6/9 (2026-08-25) vs 8/9
+(2026-08-23): the drop is not attributed in this log — the 08-25 run
+accompanied the 47-test contract expansion and the two e2e results are not
+confirmed comparable. Re-baseline the chat e2e suite when it is next modified.
