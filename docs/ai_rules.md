@@ -1,6 +1,6 @@
 # AI Rules
 
-> Version: 2026-08-28
+> Version: 2026-08-31
 > Next review: 2026-09-20
 
 # Project Brief
@@ -104,7 +104,7 @@ Catch library-specific exceptions and wrap into core domain exceptions (`Adapter
 
 ## 7. Resilience
 
-All external network calls require hard timeout. All external calls use retry with exponential backoff (`core/retry.py`). Operations must be idempotent.
+All external network calls require hard timeout and retry with exponential backoff via `@with_retry` in the adapter (`core/retry.py`). Operations must be idempotent.
 Retry lives in exactly one layer (usually the adapter) — never stack a second retry wrapper on top of a retried call (drift #43).
 
 ## 8. Graceful Shutdown
@@ -184,7 +184,7 @@ Feature conflicts with Absolute Constraint:
 
 ## 12. Rule Self-Check
 
-Before outputting code, verify: no §2/§2.1/§15 violations, CHECKLIST header present and honest, all changed files listed, tests updated for new functionality, >3 files -> split or confirm, no new features without explicit request.
+Before outputting code, verify: no §2/§2.1/§15 violations, CHECKLIST header present and honest, all changed files listed, tests updated for new functionality, >3 files -> split or confirm, no new features without explicit request. Changes touching `check_rag.py` or benchmark expectations fall under the benchmark edit discipline (`architecture.md` §13.4): instrument defects only, proven independently of current results.
 
 ## 13. Technology Decay
 

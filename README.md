@@ -4,7 +4,8 @@ Production-grade offline RAG framework for solo maintainers.
 
 - **Offline-first**: works without cloud, your data never leaves your machine
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
-- **Measured quality**: 17/17 contract tests + 23/30 capability tests on 4GB VRAM hardware
+- **Measured quality**: 17/17 contract tests + 24/30 capability tests + 8/9 chat e2e on 4GB VRAM hardware
+- **Deterministic**: temperature 0.0 by default — repeated benchmark runs reproduce verdicts byte-identically
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
 **Solo-maintained. Published as-is.**
@@ -46,15 +47,15 @@ Production-grade offline RAG framework for solo maintainers.
 
 Every release is validated against `check_rag.py` — a 47-test benchmark covering retrieval, ranking, generation, and edge cases.
 
-### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 4GB VRAM)
+### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 20 GPU layers, 4GB VRAM)
 
 ```
 CONTRACT: 17/17 passed
-CHAT PREFIX E2E: 6/9 passed
+CHAT PREFIX E2E: 8/9 passed
 CHAT CONTRACT: 2/2 passed
-CHAT FUTURE: 4/7 passed
-KNOWN LIMITATIONS TRIGGERED: 7
-FUTURE CAPABILITIES: 23/30 passed
+CHAT FUTURE: 6/7 passed
+KNOWN LIMITATIONS TRIGGERED: 6
+FUTURE CAPABILITIES: 24/30 passed
 ```
 
 ### What Contract Tests Verify
@@ -69,20 +70,20 @@ FUTURE CAPABILITIES: 23/30 passed
 - Token budget truncation.
 - Empty query and invalid namespace handling.
 
-### Known Limitations (Hardware-Dependent)
-
-7 tests remain as known limitations on 4GB VRAM:
+### Known Limitations (6 remaining, model/hardware-bound)
 
 - Nearest-topic leakage: retrieval surfaces semantically close chunks
   and the model answers them instead of refusing (retrieval ceiling,
   documented in `docs/drift.md` FUTURE RISKS).
-- Multi-turn follow-up resolution and question condensation (requires
-  better context understanding).
-- Server-side conversation recall across turns.
+- Multi-turn "Why?" follow-up resolution: the 7B model refuses to answer
+  when context is borderline-sufficient (proven parametric ceiling —
+  the 4B heir resolves it; see `docs/architecture.md` §14).
+- Strict formatting edge cases and weak-signal refusal discipline.
 
-**Expected fix**: retrieval improvements (hybrid search — deferred with
-a concrete trigger) or 12GB+ VRAM hardware. No pipeline redesign
-required.
+Question condensation was fixed by a prompt contract (drift #58);
+conversation recall passes. The two-tier fallback documented in
+`docs/architecture.md` §14 (7B primary / Qwen3.5-4B RAG-heir /
+Phi-4-mini chat-fallback) covers the residual gaps.
 
 ---
 
@@ -107,17 +108,16 @@ required.
 | LLM | Qwen2.5-14B-Instruct Q4_K_M (~9GB, full GPU offload) |
 | Performance | 20–30 tok/s, 1–2 seconds per query |
 
-### Hardware Ceiling Log
+### Hardware Ceiling Log (summary)
 
-| Date | Hardware | LLM | Result | Limitation |
-|------|----------|-----|--------|------------|
-| 2026-08-28 | GTX 1650 4GB | Qwen2.5-7B IQ4_XS | 17/17 CONTRACT + 23/30 future | 7 known limitations: nearest-topic leakage (retrieval), condensation, conv recall |
-| 2026-08-25 | GTX 1650 4GB | Qwen2.5-7B IQ4_XS | 17/17 CONTRACT + 6/9 chat e2e | Final verdict: 7B locked for this hardware; 14B+ needs 12GB+ VRAM |
-| 2026-08-24 | GTX 1650 4GB | Qwen3.5-9B IQ4_XS | 14/17 CONTRACT | PCIe bottleneck on partial offload destroys multihop and instruction following |
-| 2026-08-12 | GTX 1650 4GB | Qwen3-4B Q5_K_M | 13/17 PASS | 4B weaker than 7B on RAG tasks |
-| 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require ≥8B params |
+| Verdict | Detail |
+|---|---|
+| **King (RAG)** | Qwen2.5-7B IQ4_XS — 17/17 ×6 runs, 8/9 chat, 24/30 capability |
+| **Heir (RAG)** | Qwen3.5-4B IQ4_XS — 17/17 ×4, sole 9/9 chat; two-tier fallback documented |
+| **Rejected** | 9B class ×3 (PCIe bottleneck on 4GB); 14B+ requires 12GB+ VRAM |
 
-Full log with all runs: `docs/architecture.md` §14.
+Full campaign history, per-run details, and the throne decision:
+`docs/architecture.md` §14.
 
 ---
 
@@ -204,7 +204,7 @@ python scripts/check_rag.py
 | Servers not responding | Check `data/llama.log`; ensure `llama-server` is installed |
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
-| `check_rag.py` results fluctuate ±1 test | Normal GPU non-determinism. Run 3 times and take majority. |
+| `check_rag.py` results differ between runs | Environment changed, not noise: benchmark is deterministic (temp 0.0). Check config, model, or index state. |
 
 ---
 
@@ -250,8 +250,9 @@ After cloning the repo:
 1. **`config.yaml`** — `cp config.example.yaml config.yaml`, then edit:
    - `llm.model`, `embedder.model`, `reranker.model` — your GGUF filenames
    - `llm.api_base`, `embedder.api_base`, `reranker.api_base` — server URLs
-   - `llm.n_gpu_layers` — 0 = auto (recommended; manual partial offload on 4GB VRAM
-     causes a PCIe bottleneck, see Hardware Ceiling Log), 999 = full GPU (8GB+ VRAM)
+   - `llm.n_gpu_layers` — layer count placed on GPU. 0 = CPU, exact counts for
+     partial offload (e.g. 20 for Qwen2.5-7B on 4GB VRAM — see Hardware Ceiling
+     Log), 99 = all layers (8GB+ VRAM)
    - `rag.sources` — path to your documents folder
 
 2. **`vendor/llama/llama-server`** — download from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) or build from source.

@@ -7,7 +7,7 @@
 #    - Embedding dimension (must match between embedder and vector_store)
 #    - Stop sequences specific to your LLM model
 #    - Documents folder path for RAG
-#    - GPU settings (n_gpu_layers, server_context_size) for your VRAM
+#    - GPU settings (n_gpu_layers: layer count 0/20/99, server_context_size) for your VRAM
 # 3. Re-index documents after any chunk_size change
 # =============================================================================
 
@@ -127,17 +127,18 @@ llm:
   #   8192 @ n_gpu_layers=30 on 6GB VRAM
   server_context_size: 2048
 
-  # [CHANGE] 0 = auto (llama.cpp offloads what fits in VRAM).
-  # Warning: manual partial offload on 4GB VRAM caused PCIe bottleneck
-  # that destroyed multihop and instruction following (Hardware Ceiling
-  # Log, 2026-08-24, 9B experiment). Prefer 0 unless you measured better.
-  n_gpu_layers: 0
+  # [CHANGE] GPU layer count. 0 = CPU only; exact counts = partial offload;
+  # 99 = all layers (8GB+ VRAM).
+  # Measured optimum on 4GB VRAM with Qwen2.5-7B IQ4_XS: 20 (Hardware
+  # Ceiling Log). Partial offload in the 9B class caused a PCIe bottleneck
+  # — same log. Verify your setting with: python scripts/check_rag.py
+  n_gpu_layers: 20
 
   # [CHANGE] 512 = short answers. 768 = complex multihop answers.
   max_tokens: 512
-  # Lower = less hallucination, better for RAG.
-  #   0.1-0.3 = strict factual (recommended)
-  #   0.7-0.9 = creative (may invent facts not in context)
+  # 0.0 = deterministic, mandatory for RAG quality measurement (drift #54;
+  # architecture.md §14). Non-zero values make benchmark results
+  # non-reproducible. Only raise for creative chat use.
   temperature: 0.0
   top_p: 1.0
   # [CHANGE] REQUIRED for local models. Without stop sequences the model
