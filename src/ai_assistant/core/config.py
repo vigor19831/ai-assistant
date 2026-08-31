@@ -120,18 +120,13 @@ class LLMConfig(BaseSettings):
     api_key: str | None = None
     available_models: list[str] = Field(default_factory=list)
     max_tokens: int = 4096
-    temperature: float = 0.7
+    temperature: float = 0.0
     timeout: float = 300.0
     connect_timeout: float | None = None
     stop_sequences: list[str] = Field(default_factory=list)
     system_message: str | None = None
     # === Sampling ===
-    top_p: float = Field(default=0.95, ge=0.0, le=1.0)
-    top_k: int = Field(default=40, ge=-1)
-    min_p: float = Field(default=0.05, ge=0.0, le=1.0)
-    repeat_penalty: float = Field(default=1.1, ge=0.0)
-    presence_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
-    frequency_penalty: float = Field(default=0.0, ge=-2.0, le=2.0)
+    top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     server_context_size: int | None = None
     # === llama.cpp / local backend runtime ===
     n_gpu_layers: int = 99

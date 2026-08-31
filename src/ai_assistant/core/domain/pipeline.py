@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
-from .configs import RetryConfig, SamplingConfig
+from .configs import SamplingConfig
 
 if TYPE_CHECKING:
     from ..ports.embedder import IEmbedder
@@ -50,7 +50,6 @@ class PipelineConfig:
     prompt_version: str = "v1"
     token_margin_min: int = 256
     token_margin_pct: float = 0.1
-    retry: RetryConfig = field(default_factory=RetryConfig)
     system_message: str | None = None
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
 

@@ -17,6 +17,9 @@ llm:
     - '{"enable_thinking": false}'
 
 embedder:
+  env:
+    CUDA_VISIBLE_DEVICES: ""
+    GGML_CUDA_ENABLE: "0"
   extra_args:
     - "-lv"
     - "1"
@@ -24,6 +27,9 @@ embedder:
     - "0"
 
 reranker:
+  env:
+    CUDA_VISIBLE_DEVICES: ""
+    GGML_CUDA_ENABLE: "0"
   extra_args:
     - "-lv"
     - "1"

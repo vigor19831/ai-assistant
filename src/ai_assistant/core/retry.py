@@ -8,9 +8,7 @@ import random
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
-from ai_assistant.core.domain.configs import RetryConfig
-
-__all__ = ["retry_with_config", "with_retry"]
+__all__ = ["with_retry"]
 
 T = TypeVar("T")
 
@@ -47,7 +45,7 @@ async def _async_retry_loop(
     max_delay: float | None,
     jitter: bool,
 ) -> T:
-    """Shared async retry loop used by @with_retry and retry_with_config."""
+    """Shared async retry loop used by @with_retry."""
     last_exception: Exception | None = None
     current_delay = delay
     for attempt in range(max_retries + 1):
@@ -96,19 +94,3 @@ def with_retry(
         return cast("F", async_wrapper)
 
     return decorator
-
-
-async def retry_with_config(coro: Callable[[], Awaitable[T]], config: RetryConfig) -> T:
-    """Execute coroutine with retry policy from config.
-
-    Delegates to the shared _async_retry_loop to avoid duplicating
-    retry logic with @with_retry.
-    """
-    return await _async_retry_loop(
-        coro,
-        max_retries=config.max_retries,
-        delay=config.delay,
-        backoff=config.backoff,
-        max_delay=config.max_delay,
-        jitter=config.jitter,
-    )

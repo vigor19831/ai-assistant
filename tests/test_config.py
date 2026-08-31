@@ -444,13 +444,10 @@ class TestResourceLimits:
     def test_llm_config_sampling_defaults(self):
         """Given: no env overrides.
         When: LLMConfig is instantiated.
-        Then: sampling parameters have expected defaults."""
+        Then: sampling parameters have expected defaults (deterministic)."""
         cfg = LLMConfig()
-        assert cfg.top_p == 0.95
-        assert cfg.top_k == 40
-        assert cfg.min_p == 0.05
-        assert cfg.repeat_penalty == 1.1
-        assert cfg.temperature == 0.7
+        assert cfg.top_p == 1.0
+        assert cfg.temperature == 0.0
 
 
 class TestLoggingConfig:

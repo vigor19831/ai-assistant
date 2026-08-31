@@ -410,28 +410,17 @@ class TestRerank:
         assert len(result.chunks) == 1  # preserved for inspection
 
     @pytest.mark.asyncio
-    async def test_rerank_retry_recover(self) -> None:
-        """Given: reranker raises on first call, succeeds on second.
+    async def test_rerank_propagates_error(self) -> None:
+        """Given: reranker raises on first call.
         When: rerank is called.
-        Then: pipeline retries and completes successfully."""
+        Then: pipeline propagates the error immediately (no pipeline-level retry)."""
         mock_reranker = AsyncMock(spec=IReranker)
         call_count = 0
 
         async def _side_effect(*args: object, **kwargs: object) -> list[RerankResult]:
             nonlocal call_count
             call_count += 1
-            if call_count == 1:
-                raise Exception("network error")
-            return [
-                RerankResult(
-                    chunk=Chunk(
-                        id="c1",
-                        text="test chunk",
-                        metadata=ChunkMetadata(source="s", source_uri="s", index=0, total_chunks=1),
-                    ),
-                    score=0.9,
-                )
-            ]
+            raise Exception("network error")
 
         mock_reranker.rerank.side_effect = _side_effect
 
@@ -450,10 +439,10 @@ class TestRerank:
 
         result = await rerank(data)
 
-        assert call_count == 2
-        assert len(result.chunks) == 1
-        assert result.errors == ()
-        assert result.rerank_scores == [0.9]
+        assert call_count == 1
+        assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
+        assert result.chunks == data.chunks  # chunks preserved for inspection
+        assert result.rerank_scores is None
 
 
 # ———————————————————————————————————————

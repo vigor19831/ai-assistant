@@ -18,8 +18,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ai_assistant.core.domain.configs import RetryConfig
-from ai_assistant.core.retry import retry_with_config, with_retry
+from ai_assistant.core.retry import with_retry
 
 
 # ---------------------------------------------------------------------------
@@ -361,92 +360,3 @@ async def test_retry_zero_max_retries() -> None:
     with pytest.raises(RuntimeError):
         await fn()
     assert len(tracker.calls) == 1
-
-
-# ---------------------------------------------------------------------------
-# retry_with_config
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_retry_with_config_same_behavior_as_decorator(
-    instrumented_sleep: list[float],
-) -> None:
-    """retry_with_config and @with_retry must use shared _async_retry_loop."""
-    call_count = 0
-
-    async def _fail_twice() -> str:
-        nonlocal call_count
-        call_count += 1
-        if call_count < 3:
-            raise ConnectionError("fail")
-        return "ok"
-
-    config = RetryConfig(max_retries=2, delay=0.01, backoff=1.0, jitter=False)
-
-    # retry_with_config
-    result = await retry_with_config(_fail_twice, config)
-    assert result == "ok"
-    assert call_count == 3
-
-    # @with_retry with identical params
-    call_count = 0
-
-    @with_retry(max_retries=2, delay=0.01, backoff=1.0, jitter=False)
-    async def _decorated() -> str:
-        nonlocal call_count
-        call_count += 1
-        if call_count < 3:
-            raise ConnectionError("fail")
-        return "ok"
-
-    result = await _decorated()
-    assert result == "ok"
-    assert call_count == 3
-
-
-@pytest.mark.asyncio
-async def test_retry_with_config_permanent_error_not_retried() -> None:
-    """ValueError must not be retried via retry_with_config."""
-    coro = AsyncMock(side_effect=ValueError("permanent"))
-    config = RetryConfig(max_retries=2, delay=0.01, backoff=1.0, jitter=False)
-
-    with pytest.raises(ValueError):
-        await retry_with_config(coro, config)
-
-    assert coro.call_count == 1
-
-
-@pytest.mark.asyncio
-async def test_retry_with_config_timeout_error_retried() -> None:
-    """TimeoutError is retried via retry_with_config."""
-    coro = AsyncMock(side_effect=TimeoutError("timed out"))
-    config = RetryConfig(max_retries=5, delay=0.01, backoff=1.0, jitter=False)
-
-    with pytest.raises(TimeoutError):
-        await retry_with_config(coro, config)
-
-    assert coro.call_count == 6
-
-
-@pytest.mark.asyncio
-async def test_retry_with_config_uses_retry_config_type() -> None:
-    """retry_with_config must accept real RetryConfig with all fields set."""
-    call_count = 0
-
-    async def _fail_once() -> str:
-        nonlocal call_count
-        call_count += 1
-        if call_count < 2:
-            raise ConnectionError("fail")
-        return "ok"
-
-    config = RetryConfig(
-        max_retries=1,
-        delay=0.001,
-        backoff=1.0,
-        max_delay=0.5,
-        jitter=False,
-    )
-    result = await retry_with_config(_fail_once, config)
-    assert result == "ok"
-    assert call_count == 2

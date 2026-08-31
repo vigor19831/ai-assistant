@@ -70,11 +70,6 @@ class LLMConfigData:
         connect_timeout: TCP connection timeout in seconds.
         server_context_size: Context window size advertised by the server.
         top_p: Nucleus sampling probability threshold.
-        top_k: Top-k sampling limit (-1 = disabled).
-        min_p: Minimum token probability threshold.
-        repeat_penalty: Penalty for repeated tokens (1.0 = no penalty).
-        presence_penalty: Penalty for token presence (-2.0 to 2.0).
-        frequency_penalty: Penalty for token frequency (-2.0 to 2.0).
         stop_sequences: Sequences that stop generation.
         system_message: Optional system prompt override.
         available_models: List of models available on this server.
@@ -89,16 +84,11 @@ class LLMConfigData:
     api_base: str = "https://api.openai.com/v1"
     api_key: str | None = None
     max_tokens: int = 4096
-    temperature: float = 0.7
+    temperature: float = 0.0
     timeout: float = 300.0
     connect_timeout: float | None = None
     server_context_size: int | None = None
-    top_p: float = 0.95
-    top_k: int = 40
-    min_p: float = 0.05
-    repeat_penalty: float = 1.1
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
+    top_p: float = 1.0
     stop_sequences: tuple[str, ...] = ()
     system_message: str | None = None
     available_models: tuple[str, ...] = ()
@@ -172,25 +162,6 @@ class TokenizerConfigData:
 
 
 @dataclass(frozen=True, slots=True)
-class RetryConfig:
-    """Configuration for retry behavior.
-
-    Attributes:
-        max_retries: Maximum number of retry attempts.
-        delay: Initial delay between retries in seconds.
-        backoff: Multiplier for delay after each retry.
-        max_delay: Maximum delay cap in seconds, or None for no cap.
-        jitter: If True, add random jitter to delay.
-    """
-
-    max_retries: int = 3
-    delay: float = 1.0
-    backoff: float = 2.0
-    max_delay: float | None = None
-    jitter: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class SamplingConfig:
     """Configuration for LLM sampling parameters.
 
@@ -202,6 +173,6 @@ class SamplingConfig:
     """
 
     max_tokens: int = 1024
-    temperature: float = 0.3
-    top_p: float = 0.95
+    temperature: float = 0.0
+    top_p: float = 1.0
     stop_sequences: tuple[str, ...] = ()

@@ -141,13 +141,8 @@ llm:
   # Lower = less hallucination, better for RAG.
   #   0.1-0.3 = strict factual (recommended)
   #   0.7-0.9 = creative (may invent facts not in context)
-  temperature: 0.3
-  top_p: 0.9
-  top_k: 20
-  min_p: 0.0
-  repeat_penalty: 1.10
-  presence_penalty: 0.0
-  frequency_penalty: 0.0
+  temperature: 0.0
+  top_p: 1.0
   # [CHANGE] REQUIRED for local models. Without stop sequences the model
   # may generate forever or emit special tokens. Examples:
   #   Qwen2.5:  ["<|im_start|>", "用户:", "Human:"]
