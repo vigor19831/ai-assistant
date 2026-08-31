@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-08-28
+> Version: 2026-08-31
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -379,29 +379,20 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 
 ## 14. Hardware Ceiling Log
 
-| Date | Hardware | LLM | Result | Limitation |
+| Date | Hardware | LLM | Result | Verdict |
 |---|---|---|---|---|
-| 2026-07-13 | GTX 1650 4GB | gemma-4-e2b-it | 6/13 PASS | multihop, noise rejection, open synthesis require >=8B params |
-| 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen3-4B-Instruct-2507 (Q5_K_M) | 13/17 PASS + 1/2 e2e chat | trap-1, trap-2, multihop-1 FAIL; 9 known limitations; 4B weaker than 7B on RAG tasks |
-| 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + multi-query retrieval + optimized universal prompt | 16/17 PASS + 2/2 e2e chat | trap-2 PASS; semantic-ru-1 FAIL (bge-m3 embedding limitation on Russian synonyms). Prompt optimized for 7B-70B models |
-| 2026-08-23 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + optimized rag_strict prompt | 17/17 CONTRACT + 8/9 CHAT E2E | 8 known limitations (missing-1, missing-ru-1, noise-1, big-1, isolation-1, adversarial-1, missing-2, conv-id-continuity). |
-| 2026-08-24 | GTX 1650 4GB / 16GB RAM | Qwen3.5-9B (IQ4_XS) + partial offload (10-12 layers) | 14/17 CONTRACT | trap-2, multihop-1, semantic-ru-1 FAIL. 9B IQ4_XS on 4GB VRAM suffers from PCIe bottleneck, destroying multihop reasoning and strict instruction following. |
-| 2026-08-25 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + expanded 47-test contract suite | 17/17 CONTRACT + 6/9 CHAT E2E | **FINAL VERDICT**: Qwen2.5-7B is locked as the primary model. Qwen3.5-9B is rejected for this hardware due to PCIe bottlenecks. Future upgrades to 14B+ models require 12GB+ VRAM to avoid this bottleneck. No pipeline changes required. |
-| 2026-08-28 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) + audit session (drift #40-#51) + server-side OAI history (client-first) | 17/17 CONTRACT + 7/9 CHAT E2E | 7 known limitations: 4× retrieval ceiling (nearest-topic leakage), condensation ×2, format-strict (nondeterministic: 2 vs 3 list items across runs). conv-id-continuity fixed in code (drift #51). |
-| 2026-08-28 | GTX 1650 4GB / 16GB RAM | Ornith-1.5-9B (IQ4_XS, 20 GPU layers, 3542MB VRAM) | 13/17 CONTRACT + 20/30 future | REJECTED — 3rd data point for 9B class on 4GB. With the model properly on the card: semantic/trap contract failures identical to the CPU misconfiguration run (temperature 0 determinism) — synonym queries answered "I don't know" with relevant chunks in window (scores 0.6+); latency ×2-3 vs the 7B even fully GPU-placed. An earlier run of the same model with n_gpu_layers=0 (CPU inference, 508MB VRAM) produced the same 13/17 — recorded to invalidate a configuration-error verdict. |
-| 2026-08-29 | GTX 1650 4GB / 16GB RAM | Phi-4-mini-instruct (unsloth Q5_K_M, full VRAM 3658MB) | 14/17 CONTRACT + 9/9 CHAT E2E + 21/30 future | FIRST MODEL TO BEAT THE 7B ANYWHERE: perfect chat e2e (condensation, multi-turn, conv-id, RU numbered list — all pass) at 2-3x speed (0.9-4s per test vs 3-6s). CONTRACT failures share one profile: rule-adherence collapses under traps — trap-1/trap-2 quote question vocabulary verbatim (rule 4/5 violations), multihop-1 refuses to infer across chunks ("no information" with Python in window). Small-class verdict: chat discipline mature, trap inhibition and multi-hop inference still need parameters. Chat champion, not RAG champion — Qwen stays primary; Phi-4-mini is the documented fallback should real-usage chat memory become a complaint. |
-| 2026-08-29 | GTX 1650 4GB / 16GB RAM | Qwen3.5-4B (bartowski IQ4_XS, 2996MB VRAM, non-thinking via chat-template-kwargs) | 16/17 CONTRACT + 8/9 CHAT E2E + 23/30 | STRONGEST SMALL CANDIDATE OF THE CAMPAIGN: passes all three probe stones (trap-1, trap-2, multihop-1) — the small-class threshold is closed by the new generation. Sole FAIL: chat-no-prefix leaks "blue" without access (residual benchmark context); plus type-A nearest-topic leakage and RU-conflict hallucination profiles. RAG-fallback slot: if the 7B ever needs replacing, this is the heir. King retains throne: 17/17 with a cleaner failure profile. CAMPAIGN FINAL: 7 candidates, king undefeated, two-tier fallback documented. |
-| 2026-08-30 | GTX 1650 4GB / 16GB RAM | Qwen3.5-4B (bartowski IQ4_XS, 20 GPU layers, 2524MB VRAM, embedder+reranker true-CPU via CUDA_VISIBLE_DEVICES) | 17/17 CONTRACT + 9/9 CHAT E2E + 23/30 | BREAKTHROUGH RUN: first model to match the king's CONTRACT AND exceed its chat (9/9 incl. condensation + multi-turn, both king limitations). Previous 16/17 run (40 layers, full VRAM) was VRAM-starved, not model-limited — partial offload freed the card and the sole FAIL (chat-no-prefix leak) disappeared. Lightest LLM footprint of the campaign. Pending: repeat runs ×2 for throne decision. |
+| 2026-07-13 | GTX 1650 4GB / 16GB RAM | gemma-4-e2b-it | 6/13 | First baseline. Multihop/noise rejection/open synthesis need ≥8B params. |
+| 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen3-4B (Q5_K_M) + multi-query retrieval + optimized prompts | 13/17 + 1/2 e2e | Small-class entry. bge-m3 RU-synonym limit noted. |
+| 2026-08-12→28 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B-Instruct (IQ4_XS) | 17/17 ×4 + 7-8/9 CHAT | **KING (RAG).** Only 17/17 holder; 4× pass under temp-0.7 noise proves margin. 14B+ needs 12GB+ VRAM (08-25 verdict). |
+| 2026-08-24→28 | GTX 1650 4GB / 16GB RAM | 9B class: Qwen3.5-9B, Ornith-9B ×2 | 13-14/17 | **REJECTED ×3.** PCIe bottleneck on 4GB; latency ×2-3; identical failures CPU vs GPU (temp-0 determinism cross-check). |
+| 2026-08-29 | GTX 1650 4GB / 16GB RAM | Phi-4-mini (Q5_K_M) | 14/17 + 9/9 CHAT | Chat champion (2-3× speed), kept as chat-fallback. Trap inhibition + multihop still parameter-bound. |
+| 2026-08-29→30 | GTX 1650 4GB / 16GB RAM | Qwen3.5-4B (IQ4_XS) | 16/17 → 17/17 + 9/9 CHAT | Strongest small candidate; passes trap-1/2, multihop-1. "VRAM-starved" 08-30 attribution corrected 08-31 (sampling noise). |
+| 2026-08-31 | GTX 1650 4GB / 16GB RAM | **FINAL CAMPAIGN** — deterministic (temp 0.0, drift #54), fixed harness (D1/D2/D5): Qwen3.5-4B (IQ4_XS, 40 layers) ×2 vs Qwen2.5-7B (IQ4_XS, 20 layers) ×2 | 4B: 17/17 + **9/9 CHAT** + 22/30 ×2. 7B: 17/17 + 7/9 + **23/30** ×2. All runs byte-identical within model. | **THRONE DECISION: 7B stays king (RAG discipline + anti-noise at weak signals); 4B promoted to heir (conversational RAG 9/9 — resolves follow-ups where 7B deterministically fails: multi-turn-1, condensation-1 — chat-path issue upstream of generate, not the condense template).** Two-tier: 7B primary / 4B RAG-heir / Phi chat-fallback. |
 
-No fix scheduled. Qwen2.5-7B-Instruct (IQ4_XS) remains the primary model for
-this hardware: the only 17/17 CONTRACT holder, undefeated in RAG discipline
-across 3 challenger experiments (Ornith-9B x2, Phi-4-mini). 14B+ models require
-12GB+ VRAM (2026-08-25 verdict). Phi-4-mini (2026-08-29) is the documented
-chat-fallback: perfect 9/9 chat e2e at 2-3x speed; swap in if real-usage chat
-memory becomes a complaint. Small-class trend: each generation closes the gap
-(6/13 -> 13/17 -> 14/17); trap inhibition and multi-hop remain the last
-parameter-bound skills — re-test the class on each new generation, first three
-probes: trap-1, trap-2, multihop-1. Chat E2E 6/9 (2026-08-25) vs 8/9
-(2026-08-23): the drop is not attributed in this log — the 08-25 run
-accompanied the 47-test contract expansion and the two e2e results are not
-confirmed comparable. Re-baseline the chat e2e suite when it is next modified.
+**Standing conclusions** (replaces per-run prose):
+- King: Qwen2.5-7B IQ4_XS (20 layers). Heirs: Qwen3.5-4B IQ4_XS (RAG, 40 layers), Phi-4-mini (chat).
+- Small-class re-test each generation; first probes: trap-1, trap-2, multihop-1.
+- Benchmark determinism: temperature 0.0 mandatory (drift #54). Rerank scores on weak signals carry ~0.02 numeric floor (GGML batching, rare, verdict-neutral).
+- Chat e2e numbers valid only from 2026-08-31 onward (D1 conv-id fix; suite re-baselined).
+- 7B chat-path follow-up failure (multi-turn-1, condensation-1) is a stable model+path constant — candidate for a future chat-path iteration (one area per iteration, §2.8).
+- Raw run archives: `data/check_rag_*.log` (per-run details live there, not here).

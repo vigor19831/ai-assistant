@@ -1282,6 +1282,19 @@ def _source_text(src: Any) -> str:
     return str(src)
 
 
+def _strip_sources_block(answer: str) -> str:
+    """Remove the trailing Sources block before re-sending as history.
+
+    Mirrors the server-side strip (drift #49): API responses keep the
+    Sources block for traceability, but it must not re-enter the LLM
+    context as chat history — including client-side history.
+    """
+    m = re.search(r"^Sources:\s*$", answer, re.MULTILINE)
+    if m is None:
+        return answer
+    return answer[: m.start()].rstrip()
+
+
 async def _request_with_retry(
     client: httpx.AsyncClient,
     method: str,
@@ -1470,7 +1483,8 @@ async def run_tests(
     chat_contract_total = 0
     chat_future_passed = 0
     chat_future_total = 0
-    chat_conversation_id = f"check-rag-{int(time.time())}"
+    _run_id = str(int(time.time()))
+    chat_conversation_id = f"check-rag-{_run_id}"
     chat_history: dict[str, tuple[str, str]] = {}
     total = len(cases)
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -1496,7 +1510,9 @@ async def run_tests(
                             case.query,
                             case.namespace,
                             timeout=timeout,
-                            conversation_id=case.conversation_id,
+                            # Run-unique suffix: fixed ids accumulate server-side
+                            # history across runs and contaminate isolation tests.
+                            conversation_id=f"{case.conversation_id}-{_run_id}",
                             history=None,
                             stream=case.stream,
                         )
@@ -1707,10 +1723,12 @@ async def run_tests(
                     chat_future_total += 1
                 else:
                     chat_contract_total += 1
-                chat_history[case.test_id] = (case.query, answer)
+                chat_history[case.test_id] = (case.query, _strip_sources_block(answer))
             print(f"    Result: {status} ({latency:.0f}ms)")
             for err in errors:
                 print(f"    ! {err}")
+            if errors:
+                print(f"    Full answer: {answer}")
 
     future_capability_count = sum(
         1 for c in cases if c.requires_future_capability
