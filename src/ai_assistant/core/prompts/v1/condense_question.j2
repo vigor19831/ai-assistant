@@ -1,4 +1,22 @@
-Given the following conversation and a follow-up question, rewrite the follow-up question as a standalone question that includes all necessary context from the conversation.
+Given the conversation and a follow-up question, rewrite the
+follow-up as a standalone question understandable without the
+conversation.
+
+Rules:
+- Resolve pronouns and vague references ("it", "that", "why")
+  using the conversation.
+- Ask about the topic of the conversation, never about the
+  conversation itself, the documents, or the answer's citations.
+- Keep the follow-up's original language.
+- Output ONLY the rewritten question: no preamble, no quotes,
+  no explanation.
+
+Example:
+Conversation:
+user: Where do I work?
+assistant: You work at the central library.
+Follow-up question: Since when?
+Standalone question: Since when do I work at the central library?
 
 Conversation:
 {{ history }}

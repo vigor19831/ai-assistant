@@ -387,12 +387,12 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 | 2026-08-24→28 | GTX 1650 4GB / 16GB RAM | 9B class: Qwen3.5-9B, Ornith-9B ×2 | 13-14/17 | **REJECTED ×3.** PCIe bottleneck on 4GB; latency ×2-3; identical failures CPU vs GPU (temp-0 determinism cross-check). |
 | 2026-08-29 | GTX 1650 4GB / 16GB RAM | Phi-4-mini (Q5_K_M) | 14/17 + 9/9 CHAT | Chat champion (2-3× speed), kept as chat-fallback. Trap inhibition + multihop still parameter-bound. |
 | 2026-08-29→30 | GTX 1650 4GB / 16GB RAM | Qwen3.5-4B (IQ4_XS) | 16/17 → 17/17 + 9/9 CHAT | Strongest small candidate; passes trap-1/2, multihop-1. "VRAM-starved" 08-30 attribution corrected 08-31 (sampling noise). |
-| 2026-08-31 | GTX 1650 4GB / 16GB RAM | **FINAL CAMPAIGN** — deterministic (temp 0.0, drift #54), fixed harness (D1/D2/D5): Qwen3.5-4B (IQ4_XS, 40 layers) ×2 vs Qwen2.5-7B (IQ4_XS, 20 layers) ×2 | 4B: 17/17 + **9/9 CHAT** + 22/30 ×2. 7B: 17/17 + 7/9 + **23/30** ×2. All runs byte-identical within model. | **THRONE DECISION: 7B stays king (RAG discipline + anti-noise at weak signals); 4B promoted to heir (conversational RAG 9/9 — resolves follow-ups where 7B deterministically fails: multi-turn-1, condensation-1 — chat-path issue upstream of generate, not the condense template).** Two-tier: 7B primary / 4B RAG-heir / Phi chat-fallback. |
+| 2026-08-31 | GTX 1650 4GB / 16GB RAM | **FINAL CAMPAIGN** — deterministic (temp 0.0, drift #54), fixed harness (D1/D2/D5), post-#58 re-baseline (both ×2): Qwen3.5-4B (IQ4_XS, 40 layers) vs Qwen2.5-7B (IQ4_XS, 20 layers) | 4B: 17/17 + 9/9 CHAT + 22/30 ×2. 7B: 17/17 + **8/9 CHAT** + **24/30** ×2. | **THRONE DECISION: 7B stays king (RAG discipline, anti-noise at weak signals, top FUTURE); 4B = RAG-heir (sole 9/9 CHAT).** Chat-path postmortem: condensation-1 fixed by condense prompt contract (#58); multi-turn-1 is a 7B parametric ceiling (proven via ideal-question control — generation refuses at 1-chunk context). Two-tier: 7B primary / 4B RAG-heir / Phi chat-fallback. |
 
 **Standing conclusions** (replaces per-run prose):
 - King: Qwen2.5-7B IQ4_XS (20 layers). Heirs: Qwen3.5-4B IQ4_XS (RAG, 40 layers), Phi-4-mini (chat).
 - Small-class re-test each generation; first probes: trap-1, trap-2, multihop-1.
-- Benchmark determinism: temperature 0.0 mandatory (drift #54). Rerank scores on weak signals carry ~0.02 numeric floor (GGML batching, rare, verdict-neutral).
-- Chat e2e numbers valid only from 2026-08-31 onward (D1 conv-id fix; suite re-baselined).
-- 7B chat-path follow-up failure (multi-turn-1, condensation-1) is a stable model+path constant — candidate for a future chat-path iteration (one area per iteration, §2.8).
+- Benchmark determinism: temperature 0.0 mandatory (drift #54). Verdicts (Result lines) reproduce byte-identically; rerank scores jitter at the 4th decimal on strong signals and ~0.02 on weak (GGML batching), and greedy generation may vary one phrasing per run (llama.cpp GPU nondeterminism) — all verdict-neutral.
+- Chat e2e numbers valid only from 2026-08-31 onward (D1 conv-id fix; re-baselined again post-#58).
+- Chat-path follow-ups: condensation-1 fixed by the condense prompt contract (drift #58); multi-turn-1 remains a 7B parametric ceiling — the sole residual chat fail.
 - Raw run archives: `data/check_rag_*.log` (per-run details live there, not here).
