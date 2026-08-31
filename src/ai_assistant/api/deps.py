@@ -231,10 +231,6 @@ def _embedder_data(cfg: AppConfig) -> EmbedderConfigData:
         timeout=c.timeout,
         connect_timeout=c.connect_timeout,
         n_gpu_layers=c.n_gpu_layers,
-        n_batch=c.n_batch,
-        n_ubatch=c.n_ubatch,
-        mmap=c.mmap,
-        mlock=c.mlock,
     )
 
 
@@ -254,10 +250,6 @@ def _llm_data(cfg: AppConfig) -> LLMConfigData:
         system_message=c.system_message,
         available_models=tuple(c.available_models),
         n_gpu_layers=c.n_gpu_layers,
-        n_batch=c.n_batch,
-        n_ubatch=c.n_ubatch,
-        mmap=c.mmap,
-        mlock=c.mlock,
     )
 
 

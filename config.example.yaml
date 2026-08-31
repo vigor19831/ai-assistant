@@ -70,11 +70,8 @@ embedder:
   timeout: 120.0
   connect_timeout: 10.0
   # [CHANGE] 0 = CPU only. 99 = all layers on GPU (needs 8GB+ VRAM).
+  # Read by run_servers.py to build the llama-server launch command.
   n_gpu_layers: 0
-  n_batch: 128
-  n_ubatch: 32
-  mmap: true
-  mlock: false
   # For testing without a real embedding server, use:
   # provider: mock
 
@@ -152,10 +149,6 @@ llm:
   stop_sequences: []
   timeout: 300.0
   connect_timeout: 5.0
-  n_batch: 128
-  n_ubatch: 64
-  mmap: true
-  mlock: false
   # For testing without a real LLM, use:
   # provider: mock
 

@@ -37,10 +37,6 @@ class EmbedderConfigData:
         timeout: Total request timeout in seconds.
         connect_timeout: TCP connection timeout in seconds.
         n_gpu_layers: Number of layers to offload to GPU (0 = CPU, 99 = all).
-        n_batch: Batch size for embedding processing.
-        n_ubatch: Micro-batch size.
-        mmap: Use memory-mapped files to reduce RAM usage.
-        mlock: Lock pages in RAM to prevent swapping.
     """
 
     model: str = "text-embedding-3-small"
@@ -50,10 +46,6 @@ class EmbedderConfigData:
     timeout: float = 60.0
     connect_timeout: float | None = None
     n_gpu_layers: int = 0
-    n_batch: int = 512
-    n_ubatch: int = 64
-    mmap: bool = True
-    mlock: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,10 +66,6 @@ class LLMConfigData:
         system_message: Optional system prompt override.
         available_models: List of models available on this server.
         n_gpu_layers: Number of layers to offload to GPU (0 = CPU, 99 = all).
-        n_batch: Batch size for inference.
-        n_ubatch: Micro-batch size.
-        mmap: Use memory-mapped files to reduce RAM usage.
-        mlock: Lock pages in RAM to prevent swapping.
     """
 
     model: str = "gpt-4o-mini"
@@ -93,10 +81,6 @@ class LLMConfigData:
     system_message: str | None = None
     available_models: tuple[str, ...] = ()
     n_gpu_layers: int = 99
-    n_batch: int = 512
-    n_ubatch: int = 64
-    mmap: bool = True
-    mlock: bool = False
 
 
 @dataclass(frozen=True, slots=True)

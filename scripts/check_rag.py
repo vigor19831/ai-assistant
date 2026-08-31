@@ -37,6 +37,13 @@ _SEP_RESULT = "=" * 60
 # 60s is generous for 7B local inference on 4GB VRAM.
 MAX_LATENCY_MS = 60_000
 
+# Negation words for the forbidden-keyword check. A forbidden term
+# preceded by one of these within the last 3 words is a negation
+# ("does not mention 2015"), not a violation.
+_NEGATION_WORDS = (
+    "не", "нет", "ни", "not", "don't", "doesn't", "didn't", "never", "no",
+)
+
 
 # ── Embedded resource monitor ────────────────────────────────────────────────
 
@@ -1552,19 +1559,15 @@ async def run_tests(
                         client, url, api_key, case.query, case.namespace, timeout=timeout
                     )
             except Exception as exc:
-                # Error-handling tests expect graceful failures
+                # Error-handling tests demand a graceful response (HTTP 200
+                # with an answer), not a crash. Graceful responses flow
+                # through the normal path above; any exception here means
+                # the handler crashed — that is a FAIL.
                 if case.test_id.startswith("error-"):
                     print(f"    Answer: [API error: {type(exc).__name__}]")
                     print(f"    Src   : 0 chunks")
-                    if case.answer_must_contain_any:
-                        print(f"    Result: PASS (0ms)")
-                        if case.requires_future_capability:
-                            future_passed += 1
-                        else:
-                            contract_passed += 1
-                    else:
-                        print(f"    Result: FAIL (0ms)")
-                        print(f"    ! unexpected API error: {exc}")
+                    print(f"    Result: FAIL (0ms)")
+                    print(f"    ! handler crashed instead of graceful response: {exc}")
                     if case.use_chat_api:
                         chat_total += 1
                     continue
@@ -1618,11 +1621,9 @@ async def run_tests(
                 if forb_lower in ans_lower:
                     is_neg = False
                     for match in re.finditer(re.escape(forb_lower), ans_lower):
-                        prefix = ans_lower[:match.start()]
-                        last_word = prefix.split()[-1] if prefix.split() else ""
-                        if last_word in (
-                            "не", "нет", "ни", "not", "don't", "doesn't",
-                            "didn't", "never", "no"
+                        prefix_words = ans_lower[: match.start()].split()
+                        if any(
+                            w in _NEGATION_WORDS for w in prefix_words[-3:]
                         ):
                             is_neg = True
                             break

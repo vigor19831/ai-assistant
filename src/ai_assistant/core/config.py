@@ -106,10 +106,6 @@ class EmbedderConfig(BaseSettings):
     timeout: float = 60.0
     connect_timeout: float | None = None
     n_gpu_layers: int = 0
-    n_batch: int = 512
-    n_ubatch: int = 64
-    mmap: bool = True
-    mlock: bool = False
 
 
 class LLMConfig(BaseSettings):
@@ -128,12 +124,8 @@ class LLMConfig(BaseSettings):
     # === Sampling ===
     top_p: float = Field(default=1.0, ge=0.0, le=1.0)
     server_context_size: int | None = None
-    # === llama.cpp / local backend runtime ===
+    # === llama.cpp / local backend runtime (read by run_servers.py) ===
     n_gpu_layers: int = 99
-    n_batch: int = 512
-    n_ubatch: int = 64
-    mmap: bool = True
-    mlock: bool = False
 
 
 class VectorStoreConfig(BaseSettings):
