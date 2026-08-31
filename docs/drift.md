@@ -33,50 +33,36 @@
 | 39 | 2026-08-19 | Moved `_build_fallback_prompt` to `prompts/v1/fallback.j2` → `core/pipeline_steps.py` |
 | 36 | 2026-07-19 | `threshold` removed; rank-only invariant. No deprecation cycle (pre-production, solo, no legacy configs) → `architecture.md` §13 |
 | 35 | 2026-07-10 | `chat_history: tuple[tuple[str, str], ...]` eliminates runtime type introspection |
+| 19+25 | 2026-06→07 | Config schema evolves via backward-compat loaders + `config_version` → `core/config.py` pattern |
 
 ## FIXED → History (one-liners, self-contained)
 
+Recent window 2026-08-27 → now (working horizon). Pre-August archive
+(#1–#39): one-liners in git history of this file; every lesson with a
+surviving contract is extracted into the Rule Extracted table above,
+the rest were plain bugfixes.
+
 | ID | Fixed | Summary |
 |----|-------|---------|
-| 1 | 2026-06-09 | Added `get_context_limit()` to `ILLM` port; all adapters updated |
-| 2 | 2026-06-09 | `NullReranker` introduced; `reranker: IReranker` non-optional (Null Object) |
-| 3-4 | 2026-06-13 | Replaced `getattr(config, "x", default)` with direct `config.x`; Pydantic guarantees presence |
-| 5 | 2026-06-14 | `ChunkMetadata` schema drift on disk; strict `_chunk_to_dict`/`_chunk_from_dict` matching domain model |
-| 6 | 2026-06-14 | Added `get_logger` to adapters; all `AdapterError` wraps preceded by `logger.exception()` |
-| 9 | 2026-06-17 | Removed hardcoded `model="gpt-4o"`; `_estimate_tokens()` accepts `ITokenizer` |
-| 10 | 2026-06-27 | `RetryConfig` dataclass + `retry_with_config()` in `core/retry.py` |
-| 12 | 2026-07-08 | `_make_hashable()` cyclic ref guard; returns `"<circular>"` |
-| 13 | 2026-06-14 | Added `source_uri: str | None` to `ChunkMetadata` (CORE CHANGE) |
-| 15 | 2026-06-18 | `query_embedding` removed from `retrieve` required fields (produced, not input) |
-| 16 | 2026-06-14 | `admin_enabled: bool = False`; admin endpoints 404 unless enabled |
-| 17 | 2026-06-14 | `delete()` auto-persists with rollback on failure |
-| 20 | 2026-06-25 | `ITokenizer` port added; tiktoken/tokenizers adapters moved out of `core/` |
-| 21 | 2026-06-25 | `asyncio.Lock` on all `MemoryVectorStore` public async methods |
-| 24 | 2026-06-30 | `load()` failures wrapped in `AdapterError`; `isinstance(meta, dict)` guard |
-| 25 | 2026-07-02 | `SourceConfig` + `sources: list[SourceConfig]`; backward-compat loader for `documents_root` |
-| 26 | 2026-07-02 | `prefix: str | None` in `NamespaceConfig`; `build_prefix_map()` from config |
-| 27 | 2026-07-02 | Unified config to `config.yaml` (git-ignored) + `config.example.yaml` |
-| 32 | 2026-07-06 | PRAGMA `user_version` migration; `AdapterError` wrapping; WAL check |
-| 33 | 2026-07-06 | Copy target mode to tmp before `os.replace` (permission preservation) |
 | 40 | 2026-08-27 | Delete-all left stale index files → deleted chunks resurrected on restart; empty namespace now removes its files (both vector store adapters) |
 | 41 | 2026-08-27 | Memory store `save()` overwrote skipped namespaces with an empty store on shutdown; never-loaded namespaces no longer touch disk |
 | 42 | 2026-08-27 | Watcher consumed the snapshot on failure → partial index frozen as complete; bounded retry (3 attempts), snapshot consumed on success only |
-| 43 | 2026-08-28 | Retry lives in exactly one layer (adapter or caller, never both) → `ai_rules.md` §7, `architecture.md` §9 (antipatterns) |
-| 44 | 2026-08-27 | Mid-stream failure persisted a truncated assistant turn into history (save in `finally`); save now runs only after the stream completes |
-| 45 | 2026-08-27 | SSE data frames carried multi-line chunks under a single `data:` prefix; strict EventSource clients dropped everything after the first newline (incl. the whole Sources block); every line now carries its own prefix |
-| 46 | 2026-08-27 | Encoding fallback tried `utf-8` before `utf-8-sig`, so BOM-prefixed files decoded "successfully" with U+FEFF leaking into chunk text and embeddings; `utf-8-sig` is now first, plain `utf-8` removed as dead |
-| 47 | 2026-08-27 | `/rag/reindex` without configured sources crashed the background task with `UnboundLocalError` (masked as 500); explicit 400 "No sources configured" is now returned before spawning the task |
-| 48 | 2026-08-27 | `MemoryVectorStore` silently FIFO-evicted oldest chunks on max_chunks overflow (eviction was banned by ai_rules §2 until RAM pressure was measured — it never was), and a later `save()` persisted the loss to disk; eviction machinery removed, `add()` now rejects like the faiss adapter, contract documented in the port |
-| 49 | 2026-08-27 | The Sources block was persisted into chat history, spending the context token budget, polluting the condense input, and (with `index_chat_exports`) feeding generated output back as indexed evidence; history now stores the clean answer, API responses keep the block |
-| 50 | 2026-08-28 | Refusal answers carried retrieved chunks as sources — evidence for facts the model refused to state; strict-RAG contract returns empty sources/chunks_used=0; refusal strings live in `core/constants.py`, a sync test guards prompt↔matcher (→ `architecture.md` §13.6) |
-| 51 | 2026-08-28 | OAI chat path persisted history via conversation_id but never read it back — server memory was write-only; the handler now loads stored history when the client sends a conversation_id without prior messages (client-first: client messages are authoritative) |
-| 55 | 2026-08-31 | check_rag.py harness: fixed conv-id accumulation across runs (run-unique suffix), Sources block leaking into client-side history, and 120-char answer truncation hiding failure causes (full answer logged on errors) — instrument fixes proven independently of results (§13.4); chat e2e re-baselined |
-| 56 | 2026-08-31 | check_rag.py: error-* tests counted ANY API exception as PASS (crash-blindness — a 500 handler crash passed "must not crash"); negation guard checked only the word directly before a forbidden term, punishing correct rejections ("does not mention 2015"). Crash now FAILs; negation window widened to 3 words. §13.4: instrument defects, expectations untouched |
-| 57 | 2026-08-31 | Second dead-field batch purged: n_batch/n_ubatch/mmap/mlock removed from LLMConfig + EmbedderConfig (schemas, Data classes, deps mappers, example.yaml). Never read by adapters or run_servers.py — deployment knobs live in run_servers.yaml extra_args. n_gpu_layers KEPT (live: run_servers.py reads it). CORE CHANGE, no migration (pre-production, drift #36/#53 precedent) |
-| 58 | 2026-08-31 | condense_question.j2 rewritten: zero-shot template let 7B drift follow-ups into meta-questions ("In which document did I...") — retrieval then honestly answers the meta-question (proven via 4-curl control, 2026-08-31). New contract: rules (resolve pronouns; ask about the topic, never about documents/conversation; output-only-question) + one cross-domain example. Re-baseline required: both models ×2 |
-| 52 | 2026-08-31 | Query-path retry stacking removed: `pipeline_steps.py` helpers (`_call_llm`, `_call_embed`, `_call_search`, `_call_rerank`) no longer wrap port calls in `retry_with_config`; retry now lives strictly in adapters (ai_rules §7). `PipelineConfig.retry` field removed (CORE CHANGE). `RetryConfig` dataclass and `retry_with_config` function purged as orphaned. |
-| 53 | 2026-08-31 | Dead LLM sampling fields (`top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `frequency_penalty`) purged from `LLMConfig`, `LLMConfigData`, `api/deps._llm_data()`, and `config.example.yaml`. These fields were silently ignored by the OpenAI-compatible adapter — config lied to the user. No migration (pre-production, solo, no legacy configs — see drift #36 precedent). |
-| 54 | 2026-08-31 | Default `temperature` changed to `0.0` and `top_p` to `1.0` in `LLMConfig`, `LLMConfigData`, and `SamplingConfig` to guarantee RAG determinism by default. Eliminates 15/17 vs 17/17 flakiness in `check_rag.py` caused by sampling noise on small models. |
+| 43 | 2026-08-28 | Retry lives in exactly one layer → `ai_rules.md` §7, `architecture.md` §9 (antipatterns) |
+| 44 | 2026-08-27 | Mid-stream failure persisted a truncated assistant turn; save now runs only after the stream completes |
+| 45 | 2026-08-27 | SSE frames carried multi-line chunks under one `data:` prefix — strict clients dropped the Sources block; every line carries its own prefix |
+| 46 | 2026-08-27 | BOM files decoded with `utf-8` first → U+FEFF leaked into chunk text; `utf-8-sig` first, plain `utf-8` removed |
+| 47 | 2026-08-27 | `/rag/reindex` without sources → `UnboundLocalError` masked as 500; explicit 400 before spawning the task |
+| 48 | 2026-08-27 | Memory store silently FIFO-evicted on max_chunks overflow (eviction banned by ai_rules §2, RAM pressure never measured) and later persisted the loss; eviction removed, `add()` rejects like faiss, contract in port |
+| 49 | 2026-08-28 | Sources block persisted into chat history — token waste, condense pollution, evidence feedback loop; history stores the clean answer, API keeps the block |
+| 50 | 2026-08-28 | Refusal answers carried chunks as sources; strict-RAG refusal = empty sources/chunks_used=0; refusal strings in `core/constants.py` + prompt↔matcher sync test |
+| 51 | 2026-08-28 | OAI chat history was write-only; handler now loads stored history on conversation_id without client messages (client-first) |
+| 52 | 2026-08-31 | Query-path retry stacking removed (16 attempts worst case) — retry lives strictly in adapters; `PipelineConfig.retry`, `RetryConfig`, `retry_with_config` purged (CORE CHANGE) |
+| 53 | 2026-08-31 | Dead LLM sampling fields purged (`top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `frequency_penalty`): never reached the adapter — config lied; no migration (#36 precedent) |
+| 54 | 2026-08-31 | Defaults `temperature: 0.0`, `top_p: 1.0` — RAG determinism by default; killed 15/17-vs-17/17 sampling flakiness |
+| 55 | 2026-08-31 | check_rag harness: run-unique conv-id, Sources stripped from client history, full answers logged on errors; §13.4-verified instrument fixes, chat e2e re-baselined |
+| 56 | 2026-08-31 | check_rag: crash-blind error-* tests (500 passed "must not crash"); one-word negation guard; crash=FAIL, 3-word window |
+| 57 | 2026-08-31 | Second dead-field batch purged (`n_batch`/`n_ubatch`/`mmap`/`mlock` × llm/embedder): read by neither adapters nor run_servers.py; knobs live in run_servers.yaml extra_args; `n_gpu_layers` kept (live). CORE CHANGE, no migration |
+| 58 | 2026-08-31 | condense_question.j2 rewritten: zero-shot template let 7B drift into meta-questions; new contract (resolve pronouns; ask about the topic, never about documents; output-only-question) + cross-domain example; both models re-baselined ×2 |
 
 ## FUTURE RISKS (10)
 | Risk | Trigger | When to fix |
