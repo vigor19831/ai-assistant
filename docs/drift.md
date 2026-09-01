@@ -63,6 +63,7 @@ the rest were plain bugfixes.
 | 56 | 2026-08-31 | check_rag: crash-blind error-* tests (500 passed "must not crash"); one-word negation guard; crash=FAIL, 3-word window |
 | 57 | 2026-08-31 | Second dead-field batch purged (`n_batch`/`n_ubatch`/`mmap`/`mlock` × llm/embedder): read by neither adapters nor run_servers.py; knobs live in run_servers.yaml extra_args; `n_gpu_layers` kept (live). CORE CHANGE, no migration |
 | 58 | 2026-08-31 | condense_question.j2 rewritten: zero-shot template let 7B drift into meta-questions; new contract (resolve pronouns; ask about the topic, never about documents; output-only-question) + cross-domain example; both models re-baselined ×2 |
+| 59 | 2026-09-01 | index_documents.py removed: third executor over the same index (script + watcher + API) caused CPU contention, timeout cycles, and disk/memory divergence; no unique function — watcher (60 s poll, 300 s window) + POST /rag/reindex cover all cases, large files split via prepare_docs.py |
 
 ## FUTURE RISKS (10)
 | Risk | Trigger | When to fix |
