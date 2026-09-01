@@ -278,6 +278,7 @@ def _reranker_data(cfg: AppConfig) -> RerankerConfigData | None:
         api_base=c.api_base,
         api_key=c.api_key,
         timeout=c.timeout,
+        n_gpu_layers=c.n_gpu_layers,
     )
 
 

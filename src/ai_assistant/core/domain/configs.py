@@ -122,12 +122,15 @@ class RerankerConfigData:
         api_base: Base URL of the reranker API.
         api_key: Optional API key for authentication.
         timeout: Total request timeout in seconds.
+        n_gpu_layers: Layer offload for the local reranker server
+            (0 = CPU). Read by run_servers.py, not by the adapter.
     """
 
     model: str = "rerank-multilingual-v3.0"
     api_base: str = "https://api.cohere.com"
     api_key: str | None = None
     timeout: float = 30.0
+    n_gpu_layers: int = 0
 
 
 @dataclass(frozen=True, slots=True)

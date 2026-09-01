@@ -153,6 +153,9 @@ class RerankerConfig(BaseSettings):
     api_base: str = "https://api.cohere.com"
     api_key: str | None = None
     timeout: float = 30.0
+    # Read by run_servers.py (never duplicated in run_servers.yaml
+    # extra_args — drift #60). 0 = CPU.
+    n_gpu_layers: int = 0
 
 
 class RAGStep(StrEnum):

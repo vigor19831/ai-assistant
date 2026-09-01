@@ -1,7 +1,6 @@
 # =============================================================================
 # Deployment overrides for llama-server (read by run_servers.py).
-# Target: GTX 1650 4GB / Ryzen 4800H / 16GB RAM. Current profile: Qwen3.5-4B
-# (IQ4_XS, enable_thinking off).
+# Target: GTX 1650 4GB / Ryzen 4800H / 16GB RAM.
 # =============================================================================
 
 llm:
@@ -18,19 +17,11 @@ llm:
     - '{"enable_thinking": false}'
 
 embedder:
-  env:
-    CUDA_VISIBLE_DEVICES: ""
-    GGML_CUDA_ENABLE: "0"
   extra_args:
     - "-lv"
     - "1"
 
 reranker:
-  env:
-    CUDA_VISIBLE_DEVICES: ""
-    GGML_CUDA_ENABLE: "0"
   extra_args:
     - "-lv"
     - "1"
-    - "-ngl"
-    - "0"

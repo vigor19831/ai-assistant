@@ -205,6 +205,9 @@ python scripts/check_rag.py
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
 | `check_rag.py` results differ between runs | Environment changed, not noise: benchmark is deterministic (temp 0.0). Check config, model, or index state. |
+| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 300 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ≤30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
+| `HTTP request failed` at reindex start | Embedder server not up yet (startup race) or dead. Check `curl http://127.0.0.1:8081/health`; restart the stack. |
+| "GPU indexing" seems slow / crashes | Verify the embedder actually launched on GPU: `ps aux \| grep bge-m3` must show exactly ONE `-ngl` flag, its value from config.yaml (drift #60: dual -ngl flags run the server in an unpredictable mode). |
 
 ---
 
@@ -262,7 +265,7 @@ After cloning the repo:
    - Embedder: bge-m3 (~1.2GB)
    - Reranker: bge-reranker-v2-m3 (~0.5GB)
 
-4. **`data/documents/`** — create this folder and put your `.md` / `.txt` files here. They auto-index when the server starts.
+4. **`data/documents/`** — create this folder and put your `.md` / `.txt` files here. They auto-index when the server starts. Files >150 KB: place originals in `data/raw_documents/` and run `python scripts/prepare_docs.py` — large single files exceed the indexing window and never complete.
 
 Everything else (`data/indices/`, `data/storage.db`, `data/tokenizers/`) is created automatically on first run.
 
