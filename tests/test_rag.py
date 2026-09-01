@@ -35,6 +35,14 @@ from ai_assistant.features.rag.handlers import (
 )
 from ai_assistant.features.rag.indexing import index_folder
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager, SourceWatcher
+from ai_assistant.adapters.chunker_simple import SimpleChunker
+from ai_assistant.adapters.embedder_mock import MockEmbedder
+from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+from ai_assistant.core.domain.configs import (
+    ChunkerConfigData,
+    EmbedderConfigData,
+    VectorStoreConfigData,
+)
 from ai_assistant.core.config import (
     CHAT_NS_PREFIX,
     NamespaceConfig,
@@ -843,7 +851,7 @@ class TestRAGIndexing:
         )
 
         assert result["success"] is False
-        assert any("Auto-save failed" in e for e in result["errors"])
+        assert any("Checkpoint save failed" in e for e in result["errors"])
 
 
 async def _poll(watcher: SourceWatcher) -> None:
@@ -1347,8 +1355,8 @@ class TestChatExportIsolation:
 class TestChatHistoryValidation:
     """C3: chat_history roles must be validated to prevent prompt injection."""
 
-    def test_query_request_rejects_invalid_chat_history_role(self):
-        """Given: chat_history contains 'system' role.
+    def test_query_request_rejects_system_role_injection(self):
+        """Given: chat_history contains 'system' role (prompt injection).
         When: QueryRequest is constructed.
         Then: ValidationError is raised before handler runs."""
         from ai_assistant.features.rag.schemas import QueryRequest
@@ -2196,6 +2204,7 @@ class TestReadSources:
         Then: second run skips all, no duplicate chunks."""
         from ai_assistant.core.config import SourceConfig
         from ai_assistant.features.rag.indexing import index_folder
+        from ai_assistant.adapters.embedder_mock import MockEmbedder
         from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
         from ai_assistant.core.domain.configs import VectorStoreConfigData
 
@@ -2240,9 +2249,6 @@ class TestReadSources:
         import time
 
         from ai_assistant.core.config import SourceConfig
-        from ai_assistant.features.rag.indexing import index_folder
-        from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-        from ai_assistant.core.domain.configs import VectorStoreConfigData
 
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
@@ -2844,3 +2850,106 @@ async def test_reindex_cancel_recovery_with_failed_list_namespaces(mock_state):
     assert status is not None
     assert status["status"] == "failed"
     assert "cancelled" in status["error"].lower()
+
+
+# --- Incremental indexing (drift #64): document-level checkpoints ---
+
+
+class _FailingEmbedder(MockEmbedder):
+    """Fails on the N-th embed call — simulates a mid-pass death."""
+
+    def __init__(self, config: EmbedderConfigData, fail_on: int) -> None:
+        super().__init__(config)
+        self._fail_on = fail_on
+        self._calls = 0
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self._calls += 1
+        if self._calls >= self._fail_on:
+            raise RuntimeError("simulated mid-pass failure")
+        return await super().embed(texts)
+
+
+def _make_sources_incremental(tmp_path, n_docs: int) -> list[SourceConfig]:
+    docs_dir = tmp_path / "documents"
+    docs_dir.mkdir()
+    for i in range(n_docs):
+        (docs_dir / f"doc{i:02d}.md").write_text(
+            f"Document {i} about topic {i % 3}.\n" * 10, encoding="utf-8"
+        )
+    return [
+        SourceConfig(
+            namespace="default",
+            path=str(docs_dir),
+            include=["*.md"],
+            recursive=True,
+        )
+    ]
+
+
+async def _run_index_folder(sources, embedder, store, index_path):
+    chunker = SimpleChunker(ChunkerConfigData(chunk_size=128, chunk_overlap=0))
+    return await index_folder(
+        target_namespace=None,
+        clear=False,
+        chunker=chunker,
+        embedder=embedder,
+        vector_store=store,
+        sources=sources,
+        index_path=index_path,
+    )
+
+
+async def test_indexing_kill_midway_then_resume_completes(tmp_path):
+    """Kill on doc 4 of 6 → store holds 3 → resume → full index, no dupes.
+
+    The drift #64 contract: a document is a transaction; the watcher
+    window is a pause between checkpoints, never a reset.
+    """
+    sources = _make_sources_incremental(tmp_path, n_docs=6)
+    embedder = _FailingEmbedder(EmbedderConfigData(), fail_on=4)
+    store = MemoryVectorStore(VectorStoreConfigData(index_path=str(tmp_path)))
+
+    result1 = await _run_index_folder(sources, embedder, store, str(tmp_path))
+    assert "Indexing failed" in " ".join(result1["errors"])
+
+    meta_after_kill = await store.list_by_filter({}, namespace="default")
+    docs_after_kill = {m.get("source_uri") for _, m in meta_after_kill}
+    assert len(docs_after_kill) == 3, "exactly 3 docs checkpointed"
+    kill_counts: dict[str, int] = {}
+    for _, m in meta_after_kill:
+        uri = m.get("source_uri")
+        kill_counts[uri] = kill_counts.get(uri, 0) + 1
+    assert all(v == 3 for v in kill_counts.values()), f"clean checkpoints: {kill_counts}"
+
+    store2 = MemoryVectorStore(VectorStoreConfigData(index_path=str(tmp_path)))
+    await store2.load(str(tmp_path), namespace="default")
+    result2 = await _run_index_folder(
+        sources, MockEmbedder(EmbedderConfigData()), store2, str(tmp_path)
+    )
+
+    assert not [e for e in result2["errors"] if "failed" in e]
+    assert result2["results"]["default"]["indexed"] == 3, "resumed the tail only"
+
+    meta_final = await store2.list_by_filter({}, namespace="default")
+    uris_final = [m.get("source_uri") for _, m in meta_final]
+    # Chunks per doc > 1: count documents, not chunks.
+    assert set(uris_final) == {f"doc{i:02d}.md" for i in range(6)}, "full corpus"
+    chunk_counts: dict[str, int] = {}
+    for uri in uris_final:
+        chunk_counts[uri] = chunk_counts.get(uri, 0) + 1
+    assert all(c == 3 for c in chunk_counts.values()), f"no dupes: {chunk_counts}"
+
+
+async def test_indexing_clean_pass_all_docs(tmp_path):
+    """Happy path: full pass, all docs indexed, checkpoints invisible."""
+    sources = _make_sources_incremental(tmp_path, n_docs=4)
+    store = MemoryVectorStore(VectorStoreConfigData(index_path=str(tmp_path)))
+    result = await _run_index_folder(
+        sources, MockEmbedder(EmbedderConfigData()), store, str(tmp_path)
+    )
+    assert result["results"]["default"]["indexed"] == 4
+    meta = await store.list_by_filter({}, namespace="default")
+    assert {m.get("source_uri") for _, m in meta} == {
+        f"doc{i:02d}.md" for i in range(4)
+    }

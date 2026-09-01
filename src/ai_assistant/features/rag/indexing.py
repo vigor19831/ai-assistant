@@ -55,7 +55,9 @@ def _collect_files_sync(
         _logger.warning(f"Source path does not exist, skipping: {root}")
         return docs
 
-    iterator = root.rglob("*") if source.recursive else root.iterdir()
+    # Sorted for deterministic doc order: checkpoint sequence and test
+    # assertions must not depend on filesystem iteration order.
+    iterator = sorted(root.rglob("*")) if source.recursive else sorted(root.iterdir())
     for file_path in iterator:
         if not file_path.is_file():
             continue
@@ -294,27 +296,55 @@ async def index_folder(
             all_results[namespace] = {"indexed": 0, "chunks": 0}
             continue
 
+        # Incremental indexing (drift #64): each document is a
+        # transaction — embed, upsert, checkpoint to disk. A timeout,
+        # crash or restart loses at most the current document; the
+        # next pass skips already-indexed docs (filter_unchanged_docs)
+        # and continues from the last checkpoint. The watcher window
+        # becomes a pause between checkpoints, never a full reset.
+        total_docs = len(new_docs)
+        indexed_count = 0
+        chunk_count = 0
+        ns_uris: dict[str, list[str]] = {}
         try:
-            result = await manager.index_documents(new_docs, namespace=namespace)
-            all_results[namespace] = {
-                "indexed": result.get("indexed_count", 0),
-                "chunks": result.get("chunk_count", 0),
-            }
-            ns_uris = result.get("indexed_uris", {})
-            if ns_uris:
-                all_indexed_uris[namespace] = ns_uris
-            if result.get("errors"):
-                all_errors.extend(result["errors"])
-            if index_path:
-                try:
-                    await vector_store.save(index_path, namespace=namespace)
-                except Exception as exc:
-                    _logger.warning(f"Auto-save failed for {namespace}: {exc}")
-                    all_errors.append(f"Auto-save failed for {namespace}: {exc}")
+            for doc_pos, doc in enumerate(new_docs, start=1):
+                result = await manager.index_documents([doc], namespace=namespace)
+                indexed_count += result.get("indexed_count", 0)
+                chunk_count += result.get("chunk_count", 0)
+                doc_uris = result.get("indexed_uris", {})
+                for uri, chunk_ids in doc_uris.items():
+                    ns_uris[uri] = chunk_ids
+                if result.get("errors"):
+                    all_errors.extend(result["errors"])
+                if index_path:
+                    try:
+                        await vector_store.save(index_path, namespace=namespace)
+                    except Exception as exc:
+                        _logger.warning(
+                            f"Checkpoint save failed for {namespace}: {exc}"
+                        )
+                        all_errors.append(
+                            f"Checkpoint save failed for {namespace}: {exc}"
+                        )
+                _logger.info(
+                    "index.progress",
+                    extra={
+                        "namespace": namespace,
+                        "doc": doc_pos,
+                        "total_docs": total_docs,
+                        "chunks": chunk_count,
+                    },
+                )
         except Exception as exc:
             _logger.exception(f"Indexing failed for namespace {namespace}")
             all_errors.append(f"Indexing failed for {namespace}: {exc}")
-            all_results[namespace] = {"indexed": 0, "chunks": 0}
+
+        if ns_uris:
+            all_indexed_uris[namespace] = ns_uris
+        all_results[namespace] = {
+            "indexed": indexed_count,
+            "chunks": chunk_count,
+        }
 
     if target_namespace and not processed_any:
         all_errors.append(

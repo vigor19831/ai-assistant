@@ -216,7 +216,7 @@ class RAGConfig(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def _migrate_documents_root_to_sources(cls, v: Any) -> Any:
-        """Backward-compatible loader: migrate documents_root → sources list.
+        """Backward-compatible loader: migrate documents_root to a sources list.
 
         If 'sources' is absent but 'documents_root' is present,
         create a single SourceConfig from documents_root with default filters.
