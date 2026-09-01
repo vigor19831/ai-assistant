@@ -134,6 +134,9 @@ cp config.example.yaml config.yaml
 python scripts/download_tokenizers.py
 python run_servers.py
 ```
+Large corpus (>150 KB files): split first via scripts/prepare_docs.py
+(data/raw_documents/ -> data/documents/). For faster indexing see the
+GPU embedding profile in config.example.yaml (embedder section).
 
 Open http://localhost:8000/ui.
 

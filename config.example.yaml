@@ -9,6 +9,10 @@
 #    - Documents folder path for RAG
 #    - GPU settings (n_gpu_layers: layer count 0/20/99, server_context_size) for your VRAM
 # 3. Re-index documents after any chunk_size change
+# 4. Large files (>150 KB): split via scripts/prepare_docs.py before
+#    indexing (data/raw_documents/ -> data/documents/)
+# 5. After ANY config change: restart the servers — the config is read
+#    once at startup (run_servers.py stop && start)
 # =============================================================================
 
 app_name: ai-assistant
@@ -69,8 +73,14 @@ embedder:
   dim: 1024
   timeout: 120.0
   connect_timeout: 10.0
-  # [CHANGE] 0 = CPU only. 99 = all layers on GPU (needs 8GB+ VRAM).
-  # Read by run_servers.py to build the llama-server launch command.
+  # [CHANGE] Two profiles, never mixed:
+  #   SERVING: 0 = CPU embedder (with LLM at 20 GPU layers on 4GB VRAM).
+  #   INDEXING: 99 = GPU embedder — ~7x faster (2 min vs never-completes
+  #     for 3400 chunks), requires llm.n_gpu_layers lowered to ~10 to
+  #     free VRAM; switch back after indexing (drift #61).
+  # Read by run_servers.py to build the llama-server launch command;
+  # the ONLY source of this flag — never duplicate -ngl in
+  # run_servers.yaml extra_args (drift #60: dual flags crash the server).
   n_gpu_layers: 0
   # For testing without a real embedding server, use:
   # provider: mock
@@ -85,6 +95,10 @@ reranker:
   api_base: http://127.0.0.1:8082
   api_key: null
   timeout: 30.0
+  # 0 = CPU (recommended: the reranker is per-query and fast enough;
+  # VRAM belongs to LLM/embedder). Read by run_servers.py — never
+  # duplicated in run_servers.yaml extra_args (drift #60).
+  n_gpu_layers: 0
   # Alternative: cloud API reranker (Cohere / Jina compatible)
   # provider: api
   # api_key: your-api-key-here
@@ -131,7 +145,9 @@ llm:
   # 99 = all layers (8GB+ VRAM).
   # Measured optimum on 4GB VRAM with Qwen2.5-7B IQ4_XS: 20 (Hardware
   # Ceiling Log). Partial offload in the 9B class caused a PCIe bottleneck
-  # — same log. Verify your setting with: python scripts/check_rag.py
+  # — same log. During mass indexing lower to ~10 to free VRAM for the
+  # GPU embedder (see embedder.n_gpu_layers), then return to 20.
+  # Verify your setting with: python scripts/check_rag.py
   n_gpu_layers: 20
 
   # [CHANGE] 512 = short answers. 768 = complex multihop answers.
@@ -219,6 +235,10 @@ rag:
     # Documents are auto-indexed every 60s when the server is running.
     # A changed file gets 3 indexing attempts; after 3 failures the watcher
     # stops retrying it until it changes again or POST /rag/reindex runs.
+    # Files >150 KB: the CPU embedder (~4 chunks/s) cannot finish within
+    # the 300 s indexing window — split first: put originals into
+    # data/raw_documents/ and run scripts/prepare_docs.py (writes ~30 KB
+    # parts here). Or run the GPU indexing profile (see embedder section).
     # NOTE: one source per namespace — multiple sources sharing a namespace
     # is a known limitation (see drift.md FUTURE RISKS).
     - namespace: default
