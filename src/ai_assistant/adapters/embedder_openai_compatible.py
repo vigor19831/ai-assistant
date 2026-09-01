@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from typing import Any
 
 import httpx
@@ -123,6 +124,9 @@ class OpenAICompatibleEmbedder(IEmbedder):
         Raises:
             AdapterError: On dimension mismatch, count mismatch, or HTTP failure.
         """
+        _total = len(texts)
+        _done = 0
+        _started = time.monotonic()
         if not texts:
             return []
         result: list[list[float]] = []
@@ -133,8 +137,24 @@ class OpenAICompatibleEmbedder(IEmbedder):
                 "input": batch,
             }
             data = await self._post_embeddings(payload)
+            _done += len(batch)
+            _logger.info(
+                "embed.progress",
+                extra={
+                    "total": _total,
+                    "done": _done,
+                    "elapsed_s": round(time.monotonic() - _started, 1),
+                },
+            )
             embeddings = await asyncio.to_thread(
                 _extract_embeddings, data, self._dim, self.model, len(batch)
             )
             result.extend(embeddings)
+        _logger.info(
+            "embed.done",
+            extra={
+                "total": _total,
+                "elapsed_s": round(time.monotonic() - _started, 1),
+            },
+        )
         return result
