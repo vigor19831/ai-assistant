@@ -104,6 +104,25 @@ reranker:
   # api_key: your-api-key-here
 
 # =============================================================================
+# ARCHIVIST — atom-extraction LLM profile (scripts/prepare_docs.py)
+# All knobs a model change touches: edit this section, never the script.
+# =============================================================================
+archivist:
+  # [CHANGE] Endpoint of the LLM used for --atoms extraction.
+  llm_api_base: "http://127.0.0.1:8080/v1/chat/completions"
+  # null/empty = omit the model field: a single-model local server
+  # routes the request without it (verified 2026-09-02). Set a name
+  # only for multi-model servers.
+  llm_model: null
+  # 0.0 = deterministic extraction (drift #54) — do not raise for RAG.
+  temperature: 0.0
+  timeout: 300.0
+  # Part budget: must fit the LLM context window (llm.server_context_size)
+  # minus instruction (~800 tokens) and answer (~1500) headroom.
+  # 8192-token servers: 12000 bytes. Raised ctx -> raise this.
+  part_bytes: 12000
+
+# =============================================================================
 # VECTOR STORE — [CHANGE] dim must match embedder.dim above
 # =============================================================================
 vector_store:

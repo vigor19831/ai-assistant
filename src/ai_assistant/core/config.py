@@ -39,6 +39,7 @@ def get_chat_namespace(base_namespace: str) -> str:
 
 __all__ = [
     "AppConfig",
+    "ArchivistConfig",
     "CORSConfig",
     "ChatConfig",
     "ChunkerConfig",
@@ -156,6 +157,27 @@ class RerankerConfig(BaseSettings):
     # Read by run_servers.py (never duplicated in run_servers.yaml
     # extra_args — drift #60). 0 = CPU.
     n_gpu_layers: int = 0
+
+
+class ArchivistConfig(BaseSettings):
+    """Atom-extraction LLM profile (scripts/prepare_docs.py --atoms).
+
+    Read directly from config.yaml by the CLI script; the app itself
+    does not use it. All knobs a model change touches: changing the
+    LLM edits this section, never the script (single source of truth).
+    """
+
+    model_config = SettingsConfigDict(env_prefix="AI_ARCHIVIST_", extra="forbid")
+    llm_api_base: str = "http://127.0.0.1:8080/v1/chat/completions"
+    # None/empty = omit the model field: a single-model local server
+    # routes the request without it (verified 2026-09-02).
+    llm_model: str | None = None
+    temperature: float = 0.0
+    timeout: float = 300.0
+    # Part budget in bytes, derived from the LLM context window:
+    # ctx(8192) - instruction(~800) - answer(~1500) = ~5800 tokens
+    # * ~3.5 bytes/token RU/EN -> 12000.
+    part_bytes: int = 12_000
 
 
 class RAGStep(StrEnum):
@@ -337,6 +359,7 @@ class AppConfig(BaseSettings):
     storage: StorageConfig = Field(default_factory=StorageConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    archivist: ArchivistConfig = Field(default_factory=ArchivistConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     namespaces: dict[str, NamespaceConfig] = Field(default_factory=dict)

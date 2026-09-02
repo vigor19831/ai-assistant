@@ -107,3 +107,171 @@ def test_no_empty_parts(tmp_path: Path) -> None:
     parts = _run_split(tmp_path, src)
     for part in parts:
         assert part.stat().st_size > 0, f"empty part: {part.name}"
+
+
+# --- make_atoms: local-LLM extraction invariants ---
+
+def _fake_llm(monkeypatch, answers: list[str]) -> list[dict]:
+    """Patch httpx.post to return canned LLM answers. Returns calls.
+
+    The last answer repeats for any extra parts: the number of parts
+    depends on the split (line boundaries), tests must not hardcode
+    an exact part count.
+    """
+    calls: list[dict] = []
+
+    class _Resp:
+        def __init__(self, content: str):
+            self._content = content
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    def _post(url: str, json: dict, timeout: float) -> "_Resp":
+        calls.append(json)
+        idx = min(len(calls) - 1, len(answers) - 1)
+        return _Resp(answers[idx])
+
+    monkeypatch.setattr(prepare_docs.httpx, "post", _post)
+    return calls
+
+
+def test_make_atoms_creates_single_file(tmp_path: Path, monkeypatch) -> None:
+    """One atoms-*.md file per chat, every answer block joined in."""
+    src = _make_file(tmp_path, "chat.md", 8000)  # ~230 KB -> 24 parts at 12 KB
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    _fake_llm(monkeypatch, ["ATOM-CONTENT"])
+    result = prepare_docs.make_atoms(src, dest)
+    assert result.name == "atoms-chat.md"
+    assert result.parent == dest
+    content = result.read_text(encoding="utf-8")
+    # Part count is derived from part_bytes, not hardcoded: assert the
+    # separator-joined structure, with a range covering split variance.
+    count = content.count("ATOM-CONTENT")
+    assert 20 <= count <= 28, f"unexpected part count: {count}"
+    assert content.count("\n\n---\n\n") == count - 1  # separators between answers
+
+
+def test_make_atoms_last_part_marked_final(tmp_path: Path, monkeypatch) -> None:
+    """The last part must carry the FINAL marker (dedup trigger)."""
+    src = _make_file(tmp_path, "chat.md", 8000)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    calls = _fake_llm(monkeypatch, ["a1", "a2"])
+    prepare_docs.make_atoms(src, dest)
+    assert len(calls) >= 2
+    last_user = calls[-1]["messages"][0]["content"]
+    assert "FINAL" in last_user
+    assert "PART" in last_user
+    first_user = calls[0]["messages"][0]["content"]
+    assert "FINAL" not in first_user
+
+
+def test_make_atoms_temperature_zero(tmp_path: Path, monkeypatch) -> None:
+    """Extraction must be deterministic: temperature 0.0 in payload."""
+    src = _make_file(tmp_path, "chat.md", 100)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    calls = _fake_llm(monkeypatch, ["single answer"])
+    prepare_docs.make_atoms(src, dest)
+    assert calls[0]["temperature"] == 0.0
+
+
+def test_make_atoms_raw_source_untouched(tmp_path: Path, monkeypatch) -> None:
+    """The source file is read-only for the atoms path."""
+    src = _make_file(tmp_path, "chat.md", 100)
+    original = src.read_bytes()
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    _fake_llm(monkeypatch, ["answer"])
+    prepare_docs.make_atoms(src, dest)
+    assert src.read_bytes() == original
+
+
+def test_make_atoms_payload_has_no_model(tmp_path: Path, monkeypatch) -> None:
+    """No model field: a single-model local server routes without it."""
+    src = _make_file(tmp_path, "chat.md", 100)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    calls = _fake_llm(monkeypatch, ["answer"])
+    prepare_docs.make_atoms(src, dest)
+    assert "model" not in calls[0]
+
+
+def test_make_atoms_omits_model_when_name_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """No model field in the payload when the config is unreadable."""
+    fake_root = tmp_path / "root"
+    fake_root.mkdir()
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", fake_root)
+    src = _make_file(tmp_path, "chat.md", 100)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    calls = _fake_llm(monkeypatch, ["answer"])
+    prepare_docs.make_atoms(src, dest)
+    assert "model" not in calls[0]
+
+
+# --- _needs_processing: idempotency invariants ---
+
+def _touch_later(path: Path, offset: float) -> None:
+    """Set mtime into the future/past relative to now."""
+    import os
+
+    st = path.stat()
+    os.utime(path, (st.st_atime, st.st_mtime + offset))
+
+
+def test_needs_processing_new_source(tmp_path: Path) -> None:
+    """No outputs at all -> processing required."""
+    src = _make_file(tmp_path, "new.md", 10)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    assert prepare_docs._needs_processing(src, dest, atoms=True, split=True)
+
+
+def test_needs_processing_fresh_outputs_skipped(tmp_path: Path) -> None:
+    """Outputs exist and are newer than the source -> skip."""
+    src = _make_file(tmp_path, "done.md", 10)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    part = dest / "done_part01.md"
+    atoms = dest / "atoms-done.md"
+    part.write_text("p", encoding="utf-8")
+    atoms.write_text("a", encoding="utf-8")
+    # Outputs created after the source -> their mtime is newer.
+    _touch_later(part, 60.0)
+    _touch_later(atoms, 60.0)
+    assert not prepare_docs._needs_processing(src, dest, atoms=True, split=True)
+
+
+def test_needs_processing_stale_output_detected(tmp_path: Path) -> None:
+    """Source modified after the output was written -> reprocess."""
+    src = _make_file(tmp_path, "edited.md", 10)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    part = dest / "edited_part01.md"
+    atoms = dest / "atoms-edited.md"
+    part.write_text("p", encoding="utf-8")
+    atoms.write_text("a", encoding="utf-8")
+    # Source touched AFTER the outputs were written.
+    _touch_later(src, 60.0)
+    assert prepare_docs._needs_processing(src, dest, atoms=True, split=True)
+
+
+def test_needs_processing_partial_layer_detected(tmp_path: Path) -> None:
+    """Split exists but atoms missing -> only the atoms layer is stale."""
+    src = _make_file(tmp_path, "half.md", 10)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    part = dest / "half_part01.md"
+    part.write_text("p", encoding="utf-8")
+    _touch_later(part, 60.0)
+    # Split layer fresh -> split is done; atoms layer missing -> needed.
+    assert not prepare_docs._needs_processing(src, dest, atoms=False, split=True)
+    assert prepare_docs._needs_processing(src, dest, atoms=True, split=False)
