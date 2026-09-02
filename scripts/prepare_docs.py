@@ -65,17 +65,38 @@ marked "PART N/M". Process each part by the same rules; in the last
 part (marked "FINAL") merge duplicate atoms from all parts and check
 the Chronology: every topic from any part must be a Chronology line.
 A part with no significant knowledge is also a result: write
-"PART N: no significant knowledge found".
+"PART N: no significant knowledge found". A part that is mostly
+verbatim code or patch text: write "PART N: code/patch content —
+summary only" followed by the 2-sentence summary.
 
 === FILTER (what to remove) ===
 Remove only noise: "Copy", "Regenerate", "Thinking", system UI
 messages, greetings and farewells without content, glued words
 ("clien t" -> "client"), duplicates of identical blocks.
-Rare code blocks: keep as-is, inside an atom, if the code is part
-of a decision.
+Rare code blocks: summarize in one sentence what the code does; quote
+verbatim only if the code itself IS the decision (a rule, a
+constant, a config value) and is under 5 lines.
 Do NOT remove: numbers, links, terms, rejected ideas, doubts,
 intermediate conclusions, ready creative materials. Removing a
 thought loses data. When in doubt, keep it.
+
+=== FORMAT (strict) ===
+NEVER reproduce the input verbatim, reformatted, or "cleaned up".
+NEVER reconstruct, complete, or extend code blocks. If a part is
+mostly code or patch instructions, output at most a 2-sentence
+summary of what the code does and why — never the code itself,
+never full diffs. This extraction is a DISTILLATION, not a
+rewrite. If you catch yourself writing code that is not a
+verbatim quote from the input — stop: you are hallucinating;
+summarize in prose instead.
+
+=== WHAT EARNS A PLACE ===
+An atom earns its place by answering: "Will a user SEARCH for
+this a year from now?" If no — drop it, no matter how
+interesting. Include: final decisions, measured numbers, rules,
+working config values. Exclude: intermediate states, every
+diff/patch text, discussions of how to fix things that were later
+fixed.
 
 === ATOM (the main rule) ===
 Every unit of knowledge = a block of 2-6 sentences, fully
@@ -221,7 +242,8 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         if is_final:
             header += "\nFINAL"
         user_content = (
-            f"{header}\n\n{part.decode('utf-8', errors='replace')}"
+            f"{ARCHIVIST_PROMPT}\n\n{header}\n\n"
+            f"{part.decode('utf-8', errors='replace')}"
         )
         payload = {
             "messages": [{"role": "user", "content": user_content}],

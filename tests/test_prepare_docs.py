@@ -157,18 +157,32 @@ def test_make_atoms_creates_single_file(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_make_atoms_last_part_marked_final(tmp_path: Path, monkeypatch) -> None:
-    """The last part must carry the FINAL marker (dedup trigger)."""
+    """The last part must carry the FINAL header (dedup trigger).
+
+    The assert checks the PART header block, not the whole content:
+    the archivist prompt itself contains the word "FINAL" (delivery
+    instructions), which would false-positive a whole-content check.
+    """
     src = _make_file(tmp_path, "chat.md", 8000)
     dest = tmp_path / "dest"
     dest.mkdir()
     calls = _fake_llm(monkeypatch, ["a1", "a2"])
     prepare_docs.make_atoms(src, dest)
     assert len(calls) >= 2
-    last_user = calls[-1]["messages"][0]["content"]
-    assert "FINAL" in last_user
-    assert "PART" in last_user
-    first_user = calls[0]["messages"][0]["content"]
-    assert "FINAL" not in first_user
+
+    def _header(content: str) -> str:
+        # The part header comes after the archivist prompt; the prompt
+        # itself mentions "PART N/M". Anchor on the header that
+        # starts a line right after a blank-line separator.
+        import re
+        m = re.search(r"\n(PART \d+/\d+(?:\nFINAL)?)", content)
+        return m.group(1) if m else ""
+
+    last_header = _header(calls[-1]["messages"][0]["content"])
+    first_header = _header(calls[0]["messages"][0]["content"])
+    assert "FINAL" in last_header, "last part must be marked FINAL"
+    assert "PART" in last_header
+    assert "FINAL" not in first_header, "first part must not be FINAL"
 
 
 def test_make_atoms_temperature_zero(tmp_path: Path, monkeypatch) -> None:
@@ -275,3 +289,13 @@ def test_needs_processing_partial_layer_detected(tmp_path: Path) -> None:
     # Split layer fresh -> split is done; atoms layer missing -> needed.
     assert not prepare_docs._needs_processing(src, dest, atoms=False, split=True)
     assert prepare_docs._needs_processing(src, dest, atoms=True, split=False)
+
+
+def test_make_atoms_payload_contains_prompt(tmp_path, monkeypatch):
+    """The archivist prompt must reach the LLM (delivery, not definition)."""
+    src = _make_file(tmp_path, "chat.md", 100)
+    dest = tmp_path / "dest"; dest.mkdir()
+    calls = _fake_llm(monkeypatch, ["answer"])
+    prepare_docs.make_atoms(src, dest)
+    content = calls[0]["messages"][0]["content"]
+    assert "TASK: turn a chat history" in content
