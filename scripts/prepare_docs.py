@@ -328,6 +328,11 @@ def main() -> int:
         action="store_true",
         help="Only split into parts (default: atoms + split)",
     )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Atoms + split in one pass (explicit, mature chats)",
+    )
     args = parser.parse_args()
 
     src_dir = Path(args.src)
@@ -352,6 +357,9 @@ def main() -> int:
 
     if args.atoms and args.split:
         print("[ERROR] --atoms and --split are mutually exclusive", file=sys.stderr)
+        return 1
+    if args.atoms and args.full:
+        print("[ERROR] --atoms and --full are mutually exclusive", file=sys.stderr)
         return 1
 
     total_parts = 0

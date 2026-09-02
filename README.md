@@ -172,6 +172,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
 | `llm` | Model, API endpoint, sampling, GPU layers, context size |
 | `embedder` | Embedding model, dimension, GPU layers |
 | `reranker` | Reranker model and provider (`local` or `api`) |
+| `archivist` | Atom-extraction LLM profile for prepare_docs --atoms |
 | `vector_store` | FAISS or memory, index path, dimension |
 | `rag` | Pipeline steps, top_k, sources, token margin |
 | `namespaces` | Per-namespace prefix, chunk size, prompt template |

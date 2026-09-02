@@ -172,6 +172,28 @@ def run(
     return res.returncode, elapsed
 
 
+# ── prepare_docs mode picker ────────────────────────────────────────────────
+def _prepare_docs_mode() -> list[str]:
+    """Ask the user which prepare_docs mode to run.
+
+    1 = split only (default: fast, safe); 2 = atoms + split
+    (LLM extraction, minutes to hours on mature chats).
+    """
+    print()
+    print("  prepare_docs mode:")
+    print("    [1] split only   (default, instant)")
+    print("    [2] atoms + split (LLM extraction, slow)")
+    try:
+        mode = input("  Choice [1]: ").strip() or "1"
+    except (EOFError, KeyboardInterrupt):
+        raise
+    if mode == "2":
+        return ["--full"]
+    if mode == "1":
+        return []
+    print("  ? Unknown, defaulting to split only")
+    input("  Press Enter...")
+    return []
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main() -> int:
     root = Path(__file__).parent.resolve()
@@ -213,6 +235,8 @@ def main() -> int:
             found = False
             for idx_script, (_, t) in enumerate(scripts, 1):
                 if idx_script == num:
+                    if "prepare_docs" in t:
+                        extra = _prepare_docs_mode() + extra
                     last = t
                     _, last_time = run(py, t, root, extra, history)
                     found = True
