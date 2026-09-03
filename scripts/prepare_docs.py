@@ -31,6 +31,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import glob
+
 import httpx
 import yaml
 
@@ -46,19 +48,20 @@ THRESHOLD_BYTES = 150_000
 # single-file timeout.
 PART_BYTES = 30_000
 
-# LLM part budget (atoms path): the consumer is the chat-completions
-# context window (server_context_size = 8192 tokens), not the watcher.
-# Budget: 8192 - ~800 (archivist instruction) - ~1500 (answer headroom)
-# = ~5800 tokens per part; ~3-4 bytes/token for RU/EN chat text ->
-# 12 KB fits with headroom for token-dense Cyrillic. Measured fix:
-# a 40 KB part was 11963 tokens -> 400 exceed_context_size (2026-09-02).
-ATOM_PART_BYTES = 12_000
-
 # The archivist prompt: extracts self-sufficient knowledge atoms
 # (facts / decisions / recommendations / hypotheses with status
 # discipline) from a chat export. English instructions and structure;
 # content keeps the chat's language. Finalized 2026-09-02.
 ARCHIVIST_PROMPT = """TASK: turn a chat history into a knowledge base for RAG indexing.
+
+LANGUAGE RULE (critical): write every atom's content, chronology line,
+summary and quote in the SAME language as the human dialogue in the
+parts below. Code blocks, identifiers and terminal output are NOT a
+language signal -- follow the human speech, not the code. This prompt
+is in English only to carry instructions; the output must not be
+English unless the dialogue itself is English. Only the section
+headers (## Facts, ## Decisions, ...) and status labels (fact /
+decision / recommendation / hypothesis) stay English.
 
 If the chat is long, it will be delivered in parts. Each part is
 marked "PART N/M". Process each part by the same rules; in the last
@@ -168,6 +171,14 @@ Only the resulting markdown. No preamble, no process notes.
 # live in config.yaml (archivist: section); these values apply only
 # when the config is missing or unreadable. Single source of truth:
 # change the model -> edit yaml, never the code.
+#
+# part_bytes budget (moved here from the removed ATOM_PART_BYTES
+# constant, 2026-09-03): the consumer is the chat-completions context
+# window (server_context_size = 8192 tokens), not the watcher.
+# 8192 - ~800 (archivist instruction) - ~1500 (answer headroom)
+# = ~5800 tokens per part; ~3-4 bytes/token for RU/EN chat text ->
+# 12000 bytes. Measured: a 40 KB part was 11963 tokens -> 400
+# exceed_context_size (2026-09-02).
 _ARCHIVIST_DEFAULTS: dict[str, object] = {
     "llm_api_base": "http://127.0.0.1:8080/v1/chat/completions",
     "llm_model": "",  # empty = omit the field, single-model server
@@ -205,7 +216,10 @@ def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
     The atoms path feeds parts to the LLM, whose limit is the token
     context window -- not the watcher's byte/timeout budget that
     PART_BYTES serves. part_bytes comes from the archivist config.
-    Seam logic is shared with split_file.
+    Seam logic mirrors split_file, but the tolerance is tighter
+    (// 4, not // 2): the atoms part budget is a hard token-window
+    constraint, and an overshoot spends the answer headroom (a
+    17041-byte part on a 12000 budget was measured 2026-09-03).
     """
     if len(data) <= part_bytes:
         return [data]
@@ -216,7 +230,7 @@ def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
         end = min(start + part_bytes, total)
         if end < total:
             newline = data.find(b"\n", end)
-            if newline != -1 and newline - end < part_bytes // 2:
+            if newline != -1 and newline - end < part_bytes // 4:
                 end = newline + 1
         parts.append(data[start:end])
         start = end
@@ -275,6 +289,20 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     """
     data = src.read_bytes()
     stem = src.stem
+
+    # Reconcile FIRST: remove split outputs impossible for the current
+    # source size — the stale as-is copy of a file that grew past the
+    # threshold (the watcher would index BOTH versions). Runs inside
+    # split_file so every caller (CLI, menu, tests) is covered, not
+    # just the main() loop path.
+    _reconcile_outputs(src, dest_dir)
+
+    # Stale-output sweep: a previous run on a longer version of this
+    # source may have left more parts than this run creates. Remove
+    # them so a rerun after an edit never leaves old parts behind.
+    for stale in dest_dir.glob(glob.escape(stem) + "_part*" + src.suffix):
+        stale.unlink()
+
     if len(data) <= THRESHOLD_BYTES:
         target = dest_dir / f"{stem}{src.suffix}"
         target.write_bytes(data)
@@ -302,6 +330,23 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     return parts
 
 
+def _reconcile_outputs(src: Path, dest_dir: Path) -> None:
+    """Remove split outputs impossible for the current source size.
+
+    A source that grew past THRESHOLD_BYTES leaves its old as-is
+    copy next to the new parts — the watcher would index BOTH
+    versions (duplicate, contradictory retrieval). A source that
+    shrank below the threshold is swept by split_file's rewrite
+    path; this covers the copy-side drift on skip passes too.
+    """
+    asis = dest_dir / f"{src.stem}{src.suffix}"
+    if src.stat().st_size <= THRESHOLD_BYTES:
+        for stale in dest_dir.glob(glob.escape(src.stem) + "_part*" + src.suffix):
+            stale.unlink()
+    elif asis.exists():
+        asis.unlink()
+
+
 def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bool:
     """Return True if the source must be (re)processed.
 
@@ -313,8 +358,16 @@ def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bo
     """
     src_mtime = src.stat().st_mtime
     if split:
-        first_part = dest_dir / f"{src.stem}_part01{src.suffix}"
-        if not first_part.exists() or first_part.stat().st_mtime < src_mtime:
+        # Mirror split_file's naming: small files are copied as-is
+        # ({stem}{suffix}); big files become {stem}_part01... A
+        # part01 marker never exists for a small file, so every
+        # rerun re-copied it, re-ran atoms (--full) and re-triggered
+        # the watcher reindex (2026-09-03).
+        if src.stat().st_size <= THRESHOLD_BYTES:
+            marker = dest_dir / f"{src.stem}{src.suffix}"
+        else:
+            marker = dest_dir / f"{src.stem}_part01{src.suffix}"
+        if not marker.exists() or marker.stat().st_mtime < src_mtime:
             return True
     if atoms:
         atoms_file = dest_dir / f"atoms-{src.stem}{src.suffix}"
@@ -348,7 +401,7 @@ def main() -> int:
     parser.add_argument(
         "--split",
         action="store_true",
-        help="Only split into parts (default: atoms + split)",
+        help="Split only (same as the default; kept for symmetry)",
     )
     parser.add_argument(
         "--full",
@@ -389,6 +442,7 @@ def main() -> int:
         if not src.is_file():
             print(f"[ERROR] not a file: {src}", file=sys.stderr)
             return 1
+        _reconcile_outputs(src, dest_dir)
         # Default: split only (fast, safe). Atoms are an explicit,
         # just-in-time step (--atoms / --full) on mature chats:
         # extraction costs LLM time and is done once per chat.

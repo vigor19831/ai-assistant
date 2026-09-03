@@ -250,16 +250,21 @@ def test_needs_processing_new_source(tmp_path: Path) -> None:
 
 
 def test_needs_processing_fresh_outputs_skipped(tmp_path: Path) -> None:
-    """Outputs exist and are newer than the source -> skip."""
+    """Outputs exist and are newer than the source -> skip.
+
+    Small files are copied as-is (no part01 ever exists): the split
+    marker is the copy itself — regression guard for the bug where
+    part01-only markers reprocessed small files forever.
+    """
     src = _make_file(tmp_path, "done.md", 10)
     dest = tmp_path / "dest"
     dest.mkdir()
-    part = dest / "done_part01.md"
+    copy = dest / "done.md"
     atoms = dest / "atoms-done.md"
-    part.write_text("p", encoding="utf-8")
+    copy.write_text("c", encoding="utf-8")
     atoms.write_text("a", encoding="utf-8")
     # Outputs created after the source -> their mtime is newer.
-    _touch_later(part, 60.0)
+    _touch_later(copy, 60.0)
     _touch_later(atoms, 60.0)
     assert not prepare_docs._needs_processing(src, dest, atoms=True, split=True)
 
@@ -269,9 +274,9 @@ def test_needs_processing_stale_output_detected(tmp_path: Path) -> None:
     src = _make_file(tmp_path, "edited.md", 10)
     dest = tmp_path / "dest"
     dest.mkdir()
-    part = dest / "edited_part01.md"
+    copy = dest / "edited.md"
     atoms = dest / "atoms-edited.md"
-    part.write_text("p", encoding="utf-8")
+    copy.write_text("c", encoding="utf-8")
     atoms.write_text("a", encoding="utf-8")
     # Source touched AFTER the outputs were written.
     _touch_later(src, 60.0)
@@ -283,12 +288,74 @@ def test_needs_processing_partial_layer_detected(tmp_path: Path) -> None:
     src = _make_file(tmp_path, "half.md", 10)
     dest = tmp_path / "dest"
     dest.mkdir()
-    part = dest / "half_part01.md"
-    part.write_text("p", encoding="utf-8")
-    _touch_later(part, 60.0)
+    copy = dest / "half.md"
+    copy.write_text("c", encoding="utf-8")
+    _touch_later(copy, 60.0)
     # Split layer fresh -> split is done; atoms layer missing -> needed.
     assert not prepare_docs._needs_processing(src, dest, atoms=False, split=True)
     assert prepare_docs._needs_processing(src, dest, atoms=True, split=False)
+
+
+def test_idempotent_rerun_after_real_split(tmp_path: Path) -> None:
+    """A second pass over real split_file outputs skips everything.
+
+    Uses the real producer (split_file), not hand-crafted files:
+    after a run, both a small file (as-is copy) and a big file
+    (part01..NN) must be reported as up to date. The menu workflow
+    depends on this: pressing the script twice must cost nothing
+    the second time.
+    """
+    small = _make_file(tmp_path, "small.md", 100)
+    big = _make_file(tmp_path, "big.md", 8000)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    prepare_docs.split_file(small, dest)
+    prepare_docs.split_file(big, dest)
+    assert not prepare_docs._needs_processing(
+        small, dest, atoms=False, split=True
+    )
+    assert not prepare_docs._needs_processing(big, dest, atoms=False, split=True)
+
+
+def test_reconcile_grown_source_drops_stale_copy(tmp_path: Path) -> None:
+    """A file that grew past the threshold loses its old as-is copy.
+
+    Otherwise the watcher indexes the stale copy alongside the new
+    parts — two versions of one document in the index.
+    """
+    src = _make_file(tmp_path, "grew.md", 100)  # small (~3.5 KB)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    prepare_docs.split_file(src, dest)  # -> as-is copy "grew.md"
+    assert (dest / "grew.md").exists()
+    # Same source grows past THRESHOLD_BYTES: 20000 rows x 25 bytes
+    # = 500 KB (the default _make_file row is ~12 bytes; 8000 rows
+    # stay below the 150 KB threshold — this test needs the cross).
+    content = "".join(f"line-{i:06d}{'x' * 18}\n" for i in range(20_000))
+    src.write_text(content, encoding="utf-8")
+    prepare_docs.split_file(src, dest)  # -> parts, copy must be gone
+    assert not (dest / "grew.md").exists(), "stale as-is copy survived"
+    parts = sorted(dest.glob("grew_part*.md"))
+    assert parts, "no parts produced for the grown file"
+
+
+def test_atoms_seam_caps_part_overshoot() -> None:
+    """Atom parts never exceed the part_bytes budget by more than 25%.
+
+    The seam may extend a part to the next newline (sentence
+    coherence), but the extension is capped: a 17041-byte part on a
+    12000-byte budget was measured in a live run (2026-09-03) —
+    inside the context window, but spending the answer headroom.
+    """
+    # 10 lines x 400 bytes; at a 1200-byte budget the next newline is
+    # 399 bytes past the budget point — beyond the 25% cap (300), so
+    # the seam must cut at the budget instead of extending.
+    data = (("x" * 399) + "\n") * 10
+    parts = prepare_docs._split_for_atoms(data.encode("utf-8"), 1200)
+    assert len(parts) > 1
+    for part in parts:
+        assert len(part) <= 1200 + 1200 // 4, f"overshoot: {len(part)}"
+    assert b"".join(parts) == data.encode("utf-8")
 
 
 def test_make_atoms_payload_contains_prompt(tmp_path, monkeypatch):
