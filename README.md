@@ -49,6 +49,11 @@ Every release is validated against `check_rag.py` — a 47-test benchmark coveri
 
 ### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 20 GPU layers, 4GB VRAM)
 
+Config: context window 8192, `max_context_tokens` 4800,
+`history_limit` 6, token margin 0.10 (see `docs/drift.md` #68 —
+the window-math method; values rebalanced 2026-09-03, verified
+on check_rag both 7B and 4B profiles).
+
 ```
 CONTRACT: 17/17 passed
 CHAT PREFIX E2E: 8/9 passed
@@ -70,7 +75,7 @@ FUTURE CAPABILITIES: 24/30 passed
 - Token budget truncation.
 - Empty query and invalid namespace handling.
 
-### Known Limitations (6 remaining, model/hardware-bound)
+### Known Limitations (class-level; the benchmark counts 6 triggered tests — one class can cover several)
 
 - Nearest-topic leakage: retrieval surfaces semantically close chunks
   and the model answers them instead of refusing (retrieval ceiling,
@@ -78,7 +83,11 @@ FUTURE CAPABILITIES: 24/30 passed
 - Multi-turn "Why?" follow-up resolution: the 7B model refuses to answer
   when context is borderline-sufficient (proven parametric ceiling —
   the 4B heir resolves it; see `docs/architecture.md` §14).
-- Strict formatting edge cases and weak-signal refusal discipline.
+- Strict formatting on open synthesis questions: the 0.10 token
+  margin (config rebalance, drift #68) trims one chunk on
+  "list my hobbies"-class queries — documented trade for long-dialog
+  stability, not a regression.
+- Weak-signal refusal discipline (nearest-topic leakage above).
 
 Question condensation was fixed by a prompt contract (drift #58);
 conversation recall passes. The two-tier fallback documented in
@@ -137,6 +146,13 @@ python run_servers.py
 Large corpus (>150 KB files): split first via scripts/prepare_docs.py
 (data/raw_documents/ -> data/documents/). For faster indexing see the
 GPU embedding profile in config.example.yaml (embedder section).
+
+Chat exports (AI conversations, decision-heavy dialogs): extract
+knowledge atoms via `python scripts/prepare_docs.py --full FILE` —
+the archivist LLM distills status-disciplined atoms (fact / decision
+with exact user quote / recommendation / hypothesis). Atoms guard
+against advice being read as a decision a year later (measured
+cross-model, drift #67).
 
 Open http://localhost:8000/ui.
 
@@ -209,7 +225,7 @@ python scripts/check_rag.py
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
 | `check_rag.py` results differ between runs | Environment changed, not noise: benchmark is deterministic (temp 0.0). Check config, model, or index state. |
-| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 300 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ≤30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
+| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ≤30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
 | `HTTP request failed` at reindex start | Embedder server not up yet (startup race) or dead. Check `curl http://127.0.0.1:8081/health`; restart the stack. |
 | "GPU indexing" seems slow / crashes | Verify the embedder actually launched on GPU: `ps aux \| grep bge-m3` must show exactly ONE `-ngl` flag, its value from config.yaml (drift #60: dual -ngl flags run the server in an unpredictable mode). |
 
@@ -225,7 +241,7 @@ ai-assistant/
 ├── run_servers.py ← Starts LLM, embedder, reranker, API servers
 ├── run_servers.yaml ← Server launch configuration
 ├── src/ ← Application source code
-├── tests/ ← 980+ tests
+├── tests/ ← 1000+ tests
 ├── scripts/ ← Utility scripts
 ├── docs/ ← Architecture and rules documentation
 ├── data/ ← Runtime data (git-ignored, auto-created)
@@ -238,8 +254,8 @@ ai-assistant/
 | Directory | Purpose | Auto-created? |
 |-----------|---------|---------------|
 | `src/ai_assistant/` | Application code: `core/` (domain, ports), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes) | No |
-| `tests/` | 980+ tests covering contracts, edge cases, integration, e2e | No |
-| `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `prepare_docs.py` (split large files into indexable parts) | No |
+| `tests/` | 1000+ tests covering contracts, edge cases, integration, e2e | No |
+| `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `prepare_docs.py` (split large files; --atoms extracts status-disciplined knowledge atoms) | No |
 | `docs/` | `ai_rules.md` (AI constraints), `architecture.md` (strategy + RAG philosophy), `drift.md` (known compromises) | No |
 | `data/` | Runtime data: `indices/` (FAISS vector indices per namespace), `storage.db` (SQLite chat history), `documents/` (your docs for RAG), `tokenizers/` (downloaded tokenizer files), `app.log` (application log) | Yes (on first run) |
 | `data/documents/` | Your `.md` / `.txt` files for RAG. Auto-indexed every 60s when server is running | You create it |

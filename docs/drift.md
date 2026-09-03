@@ -74,7 +74,7 @@ the rest were plain bugfixes.
 | 67 | 2026-09-03 | Archivist A/B (watch corpus, same split): 7B keeps the crown — RU atoms 2.5/3; 4B rejected for RU (0.5/3 — EN atoms, EN answers on RU queries), ×3 speed + clean facts (no caliber≈watch merge) recorded as reserve. THE DECISION TEST (prompt): no user quote → not a decision; 4/4 blocks "No user decisions", Q5-class answers stopped asserting a user choice. Cross-model proof: raw corpus reproduces the false "you chose X" on BOTH models — atoms = status guard, a corpus property. Residual 7B ceilings: section duplication, year hallucination, EN on URL-heavy parts. 4B archivist viable only with per-part language header — see FUTURE RISKS |
 | 68 | 2026-09-03 | Config window math as method (values local, config.yaml never committed): window = context budget + generation + margin; max_context_tokens ~60% of window or long dialogs silently truncate. Rebalance 5000/10/0.15 → 4800/6/0.10, check_rag verified: 7B 17/17+8/9, 4B 17/17+9/9; cost: format-strict-1 → known limitation (0.10 margin trims a chunk on open synthesis). Rule: every config rebalance = check_rag pass + a named cost |
 
-## FUTURE RISKS (10)
+## FUTURE RISKS (11)
 | Risk | Trigger | When to fix |
 |------|---------|-------------|
 | Config migration bloat | >10 migrations in config.py | When loading old configs becomes slow |
