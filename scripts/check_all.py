@@ -211,13 +211,48 @@ def parse_file(p: Path) -> ast.AST | None:
 
 
 class _ImportCollector(ast.NodeVisitor):
+    """Collects imports per module.
+
+    imports: every import in any scope — real usage for the orphan
+    check (a function-scoped import still keeps the module alive).
+    load_imports: module-level imports outside TYPE_CHECKING — only
+    these execute at import time and can form load-order cycles.
+    Function-scoped imports are the standard cycle cure, not a defect.
+    """
+
     def __init__(self, current_module: str = "") -> None:
         self.imports: set[str] = set()
+        self.load_imports: set[str] = set()
         self.current = current_module
+        self._deferred = 0
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._deferred += 1
+        self.generic_visit(node)
+        self._deferred -= 1
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._deferred += 1
+        self.generic_visit(node)
+        self._deferred -= 1
+
+    def visit_If(self, node: ast.If) -> None:
+        # TYPE_CHECKING body never runs; the else branch does.
+        if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+            self._deferred += 1
+            for stmt in node.body:
+                self.visit(stmt)
+            self._deferred -= 1
+            for stmt in node.orelse:
+                self.visit(stmt)
+        else:
+            self.generic_visit(node)
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             self.imports.add(alias.name)
+            if self._deferred == 0:
+                self.load_imports.add(alias.name)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
@@ -230,6 +265,8 @@ class _ImportCollector(ast.NodeVisitor):
             resolved = module
         if resolved:
             self.imports.add(resolved)
+            if self._deferred == 0:
+                self.load_imports.add(resolved)
         for alias in node.names:
             if resolved:
                 self.imports.add(f"{resolved}.{alias.name}")
@@ -416,7 +453,9 @@ class _DefinitionCollector(ast.NodeVisitor):
 def _build_registry(all_files: list[Path]) -> dict[str, dict[str, object]]:
     registry: dict[str, dict[str, object]] = {}
     for f in all_files:
-        rel = f.relative_to(SRC.parent)
+        # Keys must match real import paths ("ai_assistant.*"):
+        # SRC.parent prefix made absolute imports never match.
+        rel = f.relative_to(SRC)
         parts = list(rel.parts)
         if parts[-1] == "__init__.py":
             parts = parts[:-1]
@@ -454,6 +493,7 @@ def _build_registry(all_files: list[Path]) -> dict[str, dict[str, object]]:
             "file": f,
             "tree": tree,
             "imports": ic.imports,
+            "load_imports": ic.load_imports,
             "refs": rc.refs | exports | regc.registered_names,
             "registered_names": regc.registered_names,
             "defs": dc.defs,
@@ -463,6 +503,24 @@ def _build_registry(all_files: list[Path]) -> dict[str, dict[str, object]]:
             "has_registration_decorator": dc.has_registration_decorator,
         }
     return registry
+
+
+def _collect_external_refs(paths: list[Path]) -> set[str]:
+    """Collect identifier references from tests and scripts.
+
+    They are legitimate callers: a symbol used only by tests is not
+    dead code (orphan rule: remove callee when the LAST caller is
+    gone).
+    """
+    refs: set[str] = set()
+    for p in paths:
+        tree = parse_file(p)
+        if tree is None:
+            continue
+        rc = _ReferenceCollector()
+        rc.visit(tree)
+        refs.update(rc.refs)
+    return refs
 
 
 def _find_orphaned_files(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str]]:
@@ -475,8 +533,11 @@ def _find_orphaned_files(registry: dict[str, dict[str, object]]) -> list[tuple[P
         f: Path = info["file"]  # type: ignore[assignment]
         if f.name in SKIP_FILES or f.name in ENTRY_POINT_FILES or info["has_registration_decorator"] or info["exports"]:  # type: ignore[operator]
             continue
+        # Stem matching removed: any "import manager" marked BOTH
+        # manager.py files as imported. Every real import form
+        # already yields the full dotted path.
         found = any(
-            imp == mod or imp.startswith(f"{mod}.") or imp == f.stem
+            imp == mod or imp.startswith(f"{mod}.")
             for imp in all_imports
         )
         if not found:
@@ -484,8 +545,10 @@ def _find_orphaned_files(registry: dict[str, dict[str, object]]) -> list[tuple[P
     return orphaned
 
 
-def _find_unused_symbols(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str, str, int]]:
-    global_refs: set[str] = set()
+def _find_unused_symbols(
+    registry: dict[str, dict[str, object]], external_refs: set[str]
+) -> list[tuple[Path, str, str, int]]:
+    global_refs: set[str] = set(external_refs)
     for info in registry.values():
         global_refs.update(info["refs"])  # type: ignore[arg-type]
 
@@ -507,7 +570,9 @@ def _is_abc_class(bases: list[str]) -> bool:
     return any(base in ABC_BASES for base in bases)
 
 
-def _find_unused_methods(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str, str, int]]:
+def _find_unused_methods(
+    registry: dict[str, dict[str, object]], external_refs: set[str]
+) -> list[tuple[Path, str, str, int]]:
     unused: list[tuple[Path, str, str, int]] = []
     for mod, info in registry.items():
         f: Path = info["file"]  # type: ignore[assignment]
@@ -520,6 +585,8 @@ def _find_unused_methods(registry: dict[str, dict[str, object]]) -> list[tuple[P
                 if is_framework and method in FRAMEWORK_CALLBACKS:
                     continue
                 found = method in info["refs"]  # type: ignore[operator]
+                if not found and method in external_refs:
+                    found = True
                 if not found:
                     for other_mod, other_info in registry.items():
                         if other_mod != mod and method in other_info["refs"]:  # type: ignore[operator]
@@ -530,13 +597,17 @@ def _find_unused_methods(registry: dict[str, dict[str, object]]) -> list[tuple[P
     return unused
 
 
-def _find_dead_constants(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str, int]]:
+def _find_dead_constants(
+    registry: dict[str, dict[str, object]], external_refs: set[str]
+) -> list[tuple[Path, str, int]]:
     dead: list[tuple[Path, str, int]] = []
     for mod, info in registry.items():
         f: Path = info["file"]  # type: ignore[assignment]
         for name, (kind, line) in info["defs"].items():  # type: ignore[union-attr]
             if kind == "variable" and name.isupper() and name not in info["refs"] and name not in info["exports"]:  # type: ignore[operator]
-                found = any(name in other["refs"] for other in registry.values())  # type: ignore[operator]
+                found = name in external_refs or any(
+                    name in other["refs"] for other in registry.values()  # type: ignore[operator]
+                )
                 if not found:
                     dead.append((f, name, line))
     return dead
@@ -593,7 +664,9 @@ def _check_cycles(registry: dict[str, dict[str, object]]) -> list[str]:
     seen_cycles: set[tuple[str, ...]] = set()
 
     def dfs(node: str, path: list[str]) -> None:
-        for imp in registry[node]["imports"]:  # type: ignore[operator]
+        # Load-time edges only: a function-scoped import cannot
+        # participate in a module-load cycle.
+        for imp in registry[node]["load_imports"]:  # type: ignore[operator]
             if imp not in registry:
                 continue
             if imp in path:
@@ -615,11 +688,14 @@ def _check_cycles(registry: dict[str, dict[str, object]]) -> list[str]:
 def run_ast_audit(src_dir: Path) -> tuple[list, list, list, list, list, list]:
     all_src = collect_py(src_dir)
     registry = _build_registry(all_src)
+    external_refs = _collect_external_refs(
+        collect_py(ROOT / "tests") + collect_py(ROOT / "scripts")
+    )
     return (
         _find_orphaned_files(registry),
-        _find_unused_symbols(registry),
-        _find_unused_methods(registry),
-        _find_dead_constants(registry),
+        _find_unused_symbols(registry, external_refs),
+        _find_unused_methods(registry, external_refs),
+        _find_dead_constants(registry, external_refs),
         _find_duplicate_blocks(registry, min_lines=5),
         _check_cycles(registry),
     )
