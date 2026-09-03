@@ -98,6 +98,7 @@ def print_menu(
     scripts: list[tuple[str, str]],
     history: dict,
     last: str | None,
+    last_args: list[str],
     last_time: float | None,
 ) -> None:
     print()
@@ -111,8 +112,7 @@ def print_menu(
         for idx, (name, path) in enumerate(scripts, 1):
             is_last = (path == last)
             hist = history.get(path, {})
-            status = hist.get("status", "")
-            mark = "o" if status == "ok" else "x" if status == "fail" else "-"
+            mark = "x" if hist.get("status", "") == "fail" else " "
             prefix = "* " if is_last else "  "
             print(f"  {prefix}[{idx:2d}] {mark} {name[:34]}")
 
@@ -121,10 +121,11 @@ def print_menu(
 
     if last:
         last_name = Path(last).name
+        args = f" {' '.join(last_args)}" if last_args else ""
         if last_time is not None:
-            print(f"\n  > Last: {last_name}  ({_fmt_duration(last_time)})")
+            print(f"\n  > Last: {last_name}{args}  ({_fmt_duration(last_time)})")
         else:
-            print(f"\n  > Last: {last_name}")
+            print(f"\n  > Last: {last_name}{args}")
     else:
         print("\n  > No script run yet")
     print(_SEP)
@@ -202,6 +203,7 @@ def main() -> int:
     scripts = [(f.name, str(f)) for f in collect_scripts(root)]
     history = _load_history(root)
     last: str | None = None
+    last_extra: list[str] = []  # args of the last run (reused by [r])
     last_time: float | None = None
 
     # Graceful Ctrl+C — raise KeyboardInterrupt instead of default traceback
@@ -211,7 +213,7 @@ def main() -> int:
 
     while True:
         try:
-            print_menu(scripts, history, last, last_time)
+            print_menu(scripts, history, last, last_extra, last_time)
             choice = input("  Enter: ").strip()
 
             if choice in ("0", "exit", "q", "quit"):
@@ -219,7 +221,7 @@ def main() -> int:
                 return 0
 
             if choice == "r" and last:
-                _, last_time = run(py, last, root, [], history)
+                _, last_time = run(py, last, root, list(last_extra), history)
                 continue
 
             try:
@@ -238,6 +240,7 @@ def main() -> int:
                     if "prepare_docs" in t:
                         extra = _prepare_docs_mode() + extra
                     last = t
+                    last_extra = list(extra)
                     _, last_time = run(py, t, root, extra, history)
                     found = True
                     break
