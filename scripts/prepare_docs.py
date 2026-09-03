@@ -132,6 +132,19 @@ Atom format:
   not a decision. A quote from the assistant is not the user's
   decision. An already-completed event (commit, launch, edit) is a
   fact, not a decision.
+
+THE DECISION TEST (apply before writing any Decision atom):
+1. Find the user's exact words accepting the choice (in this part).
+2. No such words found -> it is NOT a decision. Write it as a
+   recommendation, or drop it.
+3. The assistant's advice ("I would choose...", "take the...",
+   "berite...") is NEVER a decision, no matter how confident it
+   sounds or how often it is repeated.
+4. The user ASKING about an option ("a chto eto za model?",
+   "is X bad?") is interest, NOT a decision.
+Most chats contain ZERO real decisions. An empty Decisions section
+with the line "No user decisions with exact quotes in this part."
+is a correct and expected result.
 - recommendation: proposed but not accepted or not resolved.
 - hypothesis: a statement that sounded confident in the chat but was
   NOT verified by a run, a command, or the user's confirmation
@@ -152,8 +165,11 @@ Proposal atoms; rejection reason if stated.
 ## Hypotheses (not verified in chat)
 Assumption atoms with what exactly was not confirmed.
 ## Creative Materials
-Ready texts/headlines/offers from the chat, each with the context
-"what it was created for" and a status (used / rejected / draft).
+Ready-to-use creative texts only: headlines, ad copy, offers,
+slogans, message drafts -- texts written to be USED verbatim.
+NOT creative materials: product names, model descriptions,
+specifications, recommendations, quotes of advice. When unsure,
+the atom does not belong here. Empty section is normal.
 ## Chronology
 One line per topic: [date] - [topic] - [one-phrase outcome].
 This is the table of contents and a completeness checkpoint: topics

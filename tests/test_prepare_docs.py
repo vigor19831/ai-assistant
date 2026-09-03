@@ -359,10 +359,19 @@ def test_atoms_seam_caps_part_overshoot() -> None:
 
 
 def test_make_atoms_payload_contains_prompt(tmp_path, monkeypatch):
-    """The archivist prompt must reach the LLM (delivery, not definition)."""
+    """The archivist prompt must reach the LLM (delivery, not definition).
+
+    Also guards the status-discipline and creative-materials clauses:
+    losing them (a silent prompt edit) would reopen the measured
+    drift where assistant advice was recorded as user decisions
+    (2026-09-03, watch-chat atoms).
+    """
     src = _make_file(tmp_path, "chat.md", 100)
     dest = tmp_path / "dest"; dest.mkdir()
     calls = _fake_llm(monkeypatch, ["answer"])
     prepare_docs.make_atoms(src, dest)
     content = calls[0]["messages"][0]["content"]
     assert "TASK: turn a chat history" in content
+    assert "THE DECISION TEST" in content
+    assert "is NEVER a decision" in content
+    assert "NOT creative materials" in content

@@ -332,6 +332,7 @@ async def index_folder(
                         "namespace": namespace,
                         "doc": doc_pos,
                         "total_docs": total_docs,
+                        "progress_pct": round(100 * doc_pos / total_docs),
                         "chunks": chunk_count,
                     },
                 )
