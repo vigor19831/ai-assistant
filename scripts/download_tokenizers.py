@@ -16,8 +16,8 @@ import ssl
 import sys
 import time
 from pathlib import Path
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 # ── Project root discovery ──
 _SCRIPT_DIR = Path(__file__).resolve().parent
@@ -27,7 +27,9 @@ def _find_project_root(start: Path) -> Path:
     """Walk up to find project root (contains pyproject.toml or src/ai_assistant)."""
     current = start
     for _ in range(5):
-        if (current / "pyproject.toml").exists() or (current / "src" / "ai_assistant").exists():
+        pyproject = current / "pyproject.toml"
+        package = current / "src" / "ai_assistant"
+        if pyproject.exists() or package.exists():
             return current
         parent = current.parent
         if parent == current:
@@ -41,7 +43,8 @@ BASE_URL = "https://huggingface.co/{}/resolve/main/tokenizer.json"
 DEFAULT_DIR = PROJECT_ROOT / "data" / "tokenizers"
 
 # Preset models (name_in_config -> HF repo)
-# Keys use '-' (hyphens) for consistency. The resolver normalises '_' to '-' before lookup.
+# Keys use '-' (hyphens) for consistency. The resolver
+# normalises '_' to '-' before lookup.
 PRESETS: dict[str, str | None] = {
     "gpt-4o": None,
     "gpt-4": None,
@@ -222,7 +225,8 @@ def _resolve_preset(model_name: str) -> str | None:
             # Build repo: vendor/model_part
             # But we want vendor/restOfName? Just use vendor + '/' + original?
             # Simpler: return vendor prefix + original name without vendor prefix
-            # e.g. "qwen2.5-7b" with vendor "Qwen/" -> "Qwen/Qwen2.5-7B-Instruct"? Not necessarily.
+            # e.g. "qwen2.5-7b" with vendor "Qwen/" ->
+            # "Qwen/Qwen2.5-7B-Instruct"? Not necessarily.
             # Better to return vendor + name
             return vendor + "/" + name
 
@@ -241,9 +245,8 @@ def download(repo: str, dest: Path, token: str | None, max_retries: int = 3) -> 
         if out.stat().st_size > 100_000:
             print(f"  already exists and looks valid ({out})")
             return True
-        else:
-            print(f"  existing file too small, re-downloading")
-            out.unlink()
+        print("  existing file too small, re-downloading")
+        out.unlink()
 
     url = BASE_URL.format(repo)
     print(f"  downloading {url} ...")

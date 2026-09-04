@@ -53,16 +53,28 @@ include = ["ai_assistant*"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-extend-exclude = ["scripts/", "tests/", "vendor/"]
+# scripts/ now linted; tests/ stay excluded per §15; vendor/ is binaries.
+extend-exclude = ["tests/", "vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH", "A", "ERA", "RUF", "RET"]
 ignore = ["TC003", "TC001"]
 
+[tool.ruff.lint.per-file-ignores]
+# check_rag.py: benchmark data lives in string literals (queries,
+# Russian text, long expected fragments). E501/RUF001-3 there are
+# data properties, not code defects: the instrument is edited under
+# §13.4 discipline; code moves toward the benchmark, not vice versa.
+# ASYNC109: timeout params feed httpx; the retry layer catches httpx
+# exceptions. asyncio.timeout would cancel the task with
+# CancelledError, bypassing retry — a semantics change with no
+# proven defect (§13.4).
+"scripts/check_rag.py" = ["E501", "RUF001", "RUF002", "RUF003", "ASYNC109"]
+
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
-exclude = ["scripts/", "tests/", "vendor/"]
+exclude = ["tests/", "vendor/"]
 
 [tool.pytest.ini_options]
 minversion = "8.2"

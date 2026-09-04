@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from ai_assistant.adapters.factory import create_adapter
-from ai_assistant.core.config import load_config
+from ai_assistant.core.config import AppConfig, load_config
 from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     LLMConfigData,
@@ -55,7 +55,7 @@ def _to_tuple(value: list[str] | tuple[str, ...] | str | None) -> tuple[str, ...
 
 
 # ── LLM check ───────────────────────────────────────────────────────────────
-async def _check_llm(cfg) -> int:
+async def _check_llm(cfg: AppConfig) -> int:
     """Check LLM connectivity via real project adapter."""
     llm_cfg = cfg.llm
     provider: str = llm_cfg.provider
@@ -81,19 +81,10 @@ async def _check_llm(cfg) -> int:
         connect_timeout=llm_cfg.connect_timeout,
         server_context_size=llm_cfg.server_context_size,
         top_p=llm_cfg.top_p,
-        top_k=llm_cfg.top_k,
-        min_p=llm_cfg.min_p,
-        repeat_penalty=llm_cfg.repeat_penalty,
-        presence_penalty=llm_cfg.presence_penalty,
-        frequency_penalty=llm_cfg.frequency_penalty,
         stop_sequences=_to_tuple(llm_cfg.stop_sequences),
         system_message=llm_cfg.system_message,
         available_models=_to_tuple(llm_cfg.available_models),
         n_gpu_layers=llm_cfg.n_gpu_layers,
-        n_batch=llm_cfg.n_batch,
-        n_ubatch=llm_cfg.n_ubatch,
-        mmap=llm_cfg.mmap,
-        mlock=llm_cfg.mlock,
     )
 
     llm: ILLM | None = None
@@ -126,7 +117,7 @@ async def _check_llm(cfg) -> int:
 
 
 # ── Embedder check ──────────────────────────────────────────────────────────
-async def _check_embedder(cfg) -> int:
+async def _check_embedder(cfg: AppConfig) -> int:
     """Check embedder connectivity."""
     embedder_cfg = cfg.embedder
     provider: str = embedder_cfg.provider
@@ -152,10 +143,6 @@ async def _check_embedder(cfg) -> int:
         timeout=embedder_cfg.timeout,
         connect_timeout=embedder_cfg.connect_timeout,
         n_gpu_layers=embedder_cfg.n_gpu_layers,
-        n_batch=embedder_cfg.n_batch,
-        n_ubatch=embedder_cfg.n_ubatch,
-        mmap=embedder_cfg.mmap,
-        mlock=embedder_cfg.mlock,
     )
 
     embedder = None
@@ -190,7 +177,7 @@ async def _check_embedder(cfg) -> int:
 
 
 # ── Reranker check ──────────────────────────────────────────────────────────
-async def _check_reranker(cfg) -> int:
+async def _check_reranker(cfg: AppConfig) -> int:
     """Check reranker connectivity (skipped if provider is null)."""
     reranker_cfg = cfg.reranker
     if reranker_cfg is None or reranker_cfg.provider is None:

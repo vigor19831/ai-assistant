@@ -8,6 +8,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import os
 import shutil
@@ -75,9 +76,7 @@ def _is_safe_to_delete(target: Path, root: Path) -> bool:
         rel_parts = target.parts
     if any(part in NEVER_TOUCH for part in rel_parts):
         return False
-    if ".venv" in rel_parts:
-        return False
-    return True
+    return ".venv" not in rel_parts
 
 
 def find_targets(root: Path, patterns: list[str]) -> list[Path]:
@@ -104,10 +103,8 @@ def format_size(path: Path | int) -> str:
                 for dirpath, _dirnames, filenames in os.walk(path, topdown=True):
                     for fname in filenames:
                         fpath = Path(dirpath) / fname
-                        try:
+                        with contextlib.suppress(OSError):
                             total += fpath.lstat().st_size
-                        except OSError:
-                            pass
                 size = float(total)
             else:
                 return "?"
@@ -125,7 +122,9 @@ def format_size(path: Path | int) -> str:
     return f"{size:.1f} TB"
 
 
-def _rmtree_onerror(func: Callable[..., object], path: str, exc_info: tuple) -> None:
+def _rmtree_onerror(
+    func: Callable[..., object], path: str, exc_info: tuple[object, object, object]
+) -> None:
     """Error handler for shutil.rmtree — handles read-only files on Windows."""
     try:
         os.chmod(path, stat.S_IWUSR)
@@ -229,7 +228,11 @@ def main() -> int:
     failed = 0
     for target in targets:
         ok, reason = delete_target(target)
-        rel = str(target.relative_to(root)) if target.is_relative_to(root) else str(target)
+        rel = (
+            str(target.relative_to(root))
+            if target.is_relative_to(root)
+            else str(target)
+        )
         if ok:
             print(f"  [OK]   {rel}")
             deleted += 1

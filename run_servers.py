@@ -16,7 +16,9 @@ import subprocess
 import sys
 import time
 import traceback
+import types
 from pathlib import Path
+from typing import Any
 
 VENV = ".venv"
 PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
@@ -37,17 +39,21 @@ LLAMA_LOG_MAX_BYTES = 10_485_760
 # ── Auto-activate venv ───────────────────────────────────────────────────────
 _venv = Path(__file__).parent / VENV
 _venv_py = _venv / PY
-if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
-    if "--venv-relaunched" not in sys.argv:
-        _script = str(Path(__file__).resolve())
-        if os.name == "nt":
-            # subprocess.call keeps the console window on Windows double-click
-            sys.exit(subprocess.call([str(_venv_py), _script] + sys.argv[1:]))
-        else:
-            os.execl(
-                str(_venv_py), str(_venv_py),
-                _script, *sys.argv[1:], "--venv-relaunched",
-            )
+if (
+    _venv.exists()
+    and _venv_py.exists()
+    and Path(sys.executable).resolve() != _venv_py.resolve()
+    and "--venv-relaunched" not in sys.argv
+):
+    _script = str(Path(__file__).resolve())
+    if os.name == "nt":
+        # subprocess.call keeps the console window on Windows double-click
+        sys.exit(subprocess.call([str(_venv_py), _script, *sys.argv[1:]]))
+    else:
+        os.execl(
+            str(_venv_py), str(_venv_py),
+            _script, *sys.argv[1:], "--venv-relaunched",
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -64,21 +70,40 @@ def _ensure_venv(root: Path) -> Path | None:
     return None
 
 
-def _run(cmd: list[str], log: Path | None = None, **kwargs) -> subprocess.Popen:
-    kw: dict[str, object] = {
+def _run(
+    cmd: list[str],
+    log: Path | None = None,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> subprocess.Popen[bytes]:
+    """Start a detached child: stderr merged, log or /dev/null, own session."""
+    # Heterogeneous kwargs bag by construction: no single value type
+    # covers stdout/stdin/env/cwd/creationflags at once. Any is the
+    # honest bag type; the return value stays strictly typed.
+    kw: dict[str, Any] = {
         "stderr": subprocess.STDOUT,
         "stdin": subprocess.DEVNULL,
     }
     if log is not None:
-        kw["stdout"] = open(log, "a", encoding="utf-8")
+        # SIM115: the handle is handed to the child process and
+        # outlives this call by design (a server writes for hours).
+        kw["stdout"] = open(log, "a", encoding="utf-8")  # noqa: SIM115
     else:
         kw["stdout"] = subprocess.DEVNULL
     if os.name == "nt":
-        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        # Windows-only flags; this branch never runs elsewhere.
+        kw["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+        )
     else:
         kw["start_new_session"] = True
-    kw.update(kwargs)
-    return subprocess.Popen(cmd, **kw)
+    if env is not None:
+        kw["env"] = env
+    if cwd is not None:
+        kw["cwd"] = cwd
+    proc: subprocess.Popen[bytes] = subprocess.Popen(cmd, **kw)
+    return proc
 
 
 def port_free(port: int) -> bool:
@@ -119,7 +144,7 @@ def _find_model(name: str, root: Path) -> Path | None:
     return None
 
 
-def _load_config(root: Path) -> dict:
+def _load_config(root: Path) -> dict[str, Any]:
     """Lazy import yaml — it lives inside the venv."""
     import yaml
     p = root / "config.yaml"
@@ -129,14 +154,15 @@ def _load_config(root: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _load_launch_config(root: Path) -> dict:
+def _load_launch_config(root: Path) -> dict[str, Any]:
     """Load run_servers.yaml if present. Returns empty dict if missing."""
     launch_path = root / "run_servers.yaml"
     if not launch_path.exists():
         return {}
     import yaml
     with launch_path.open(encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        data: dict[str, Any] = yaml.safe_load(f) or {}
+        return data
 
 
 def _wait_for_stop() -> None:
@@ -146,8 +172,10 @@ def _wait_for_stop() -> None:
 
 
 # ── Server lifecycle ─────────────────────────────────────────────────────────
-def _start_llm_server(cfg: dict, launch: dict, root: Path, llama_log: Path) -> None:
-    llm_cfg: dict = cfg.get("llm", {})
+def _start_llm_server(
+    cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
+) -> None:
+    llm_cfg: dict[str, Any] = cfg.get("llm", {})
     model = _find_model(llm_cfg.get("model", ""), root)
     if not model:
         print("  ! LLM model not found\n")
@@ -176,8 +204,10 @@ def _start_llm_server(cfg: dict, launch: dict, root: Path, llama_log: Path) -> N
         print("  ! LLM did not respond\n")
 
 
-def _start_embedder(cfg: dict, launch: dict, root: Path, llama_log: Path) -> None:
-    emb_cfg: dict = cfg.get("embedder", {})
+def _start_embedder(
+    cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
+) -> None:
+    emb_cfg: dict[str, Any] = cfg.get("embedder", {})
     model = _find_model(emb_cfg.get("model", ""), root)
     if not model:
         print("  ! Embedder model not found\n")
@@ -203,8 +233,10 @@ def _start_embedder(cfg: dict, launch: dict, root: Path, llama_log: Path) -> Non
         print("  ! Embedder did not respond\n")
 
 
-def _start_reranker(cfg: dict, launch: dict, root: Path, llama_log: Path) -> None:
-    rerank_cfg: dict = cfg.get("reranker", {})
+def _start_reranker(
+    cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
+) -> None:
+    rerank_cfg: dict[str, Any] = cfg.get("reranker", {})
     if rerank_cfg.get("provider") != "local":
         return
     model = _find_model(rerank_cfg.get("model", ""), root)
@@ -232,14 +264,17 @@ def _start_reranker(cfg: dict, launch: dict, root: Path, llama_log: Path) -> Non
         print("  ! Reranker did not respond\n")
 
 
-def _start_api(cfg: dict, root: Path, py: str) -> None:
+def _start_api(cfg: dict[str, Any], root: Path, py: str) -> None:
     host = cfg.get("host", HOST)
     port = cfg.get("port", API_PORT)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(root / "src") + os.pathsep + env.get("PYTHONPATH", "")
 
     print(f"  > API server  uvicorn {host}:{port}")
-    cmd = [py, "-m", "uvicorn", "ai_assistant.main:app", "--host", host, "--port", str(port)]
+    cmd = [
+        py, "-m", "uvicorn", "ai_assistant.main:app",
+        "--host", host, "--port", str(port),
+    ]
     proc = _run(cmd, root / "data" / "server_8000.log", env=env, cwd=str(root))
     (root / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
 
@@ -304,7 +339,10 @@ def stop(root: Path) -> int:
                 if hasattr(signal, "SIGKILL"):
                     os.kill(pid, signal.SIGKILL)
                 elif os.name == "nt":
-                    subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)],
+                        capture_output=True,
+                    )
         except (ValueError, OSError, ProcessLookupError):
             pass
         finally:
@@ -329,19 +367,28 @@ def kill_main(root: Path) -> int:
     names = (LLAMA_SERVER, "uvicorn")
     for name in names:
         if shutil.which("taskkill" if os.name == "nt" else "pkill"):
-            cmd = (["taskkill", "/F", "/IM", name] if os.name == "nt" else ["pkill", "-f", name])
+            if os.name == "nt":
+                cmd = ["taskkill", "/F", "/IM", name]
+            else:
+                cmd = ["pkill", "-f", name]
             subprocess.run(cmd, capture_output=True)
 
     for port in PORTS:
         if os.name == "nt":
             result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
             for line in result.stdout.splitlines():
-                if f":{port}" in line and ("LISTENING" in line or "ESTABLISHED" in line):
+                if (
+                    f":{port}" in line
+                    and ("LISTENING" in line or "ESTABLISHED" in line)
+                ):
                     parts = line.strip().split()
                     if parts:
                         try:
                             pid = int(parts[-1])
-                            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+                            subprocess.run(
+                                ["taskkill", "/F", "/PID", str(pid)],
+                                capture_output=True,
+                            )
                         except ValueError:
                             continue
         else:
@@ -363,7 +410,10 @@ def kill_main(root: Path) -> int:
 def main() -> int:
     root = Path(__file__).parent.resolve()
 
-    def _on_sigint(_signum: int, _frame) -> None:
+    # Graceful Ctrl+C — raise KeyboardInterrupt instead of default traceback
+    def _on_sigint(
+        _signum: int, _frame: types.FrameType | None
+    ) -> None:
         raise KeyboardInterrupt
     signal.signal(signal.SIGINT, _on_sigint)
 

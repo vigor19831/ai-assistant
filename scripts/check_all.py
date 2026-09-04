@@ -2,8 +2,8 @@
 """check_all.py — Unified project validation.
 
 Universally checks any Python project with standard tools:
-- ruff (lint)
-- mypy (types)
+- ruff (lint; src/ + scripts/ + root launchers)
+- mypy (types; src/ + scripts/ + root launchers)
 - pytest + coverage (tests + branch coverage)
 - coverage audit (analyzes .coverage JSON for low coverage)
 - AST audit (dead code, duplicates, cycles via ast module)
@@ -23,14 +23,13 @@ import re
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import types
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, TypedDict
 
 # ── Constants ────────────────────────────────────────────────────────────────
 VENV = ".venv"
@@ -38,7 +37,8 @@ PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
 _SEP = "─" * 50
 
 SKIP_DIRS: frozenset[str] = frozenset({
-    ".venv", "venv", "__pycache__", ".git", "vendor", "ui", "data", "logs", "tmp", "temp", "ops"
+    ".venv", "venv", "__pycache__", ".git", "vendor", "ui",
+    "data", "logs", "tmp", "temp", "ops",
 })
 SKIP_FILES: frozenset[str] = frozenset({"__init__.py"})
 ENTRY_POINT_FILES: frozenset[str] = frozenset({"main.py"})
@@ -65,7 +65,9 @@ ABC_BASES: frozenset[str] = frozenset({
     "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
     "ITool", "IToolRegistry"
 })
-FRAMEWORK_BASES: frozenset[str] = frozenset({"BaseHTTPMiddleware", "BaseMiddleware", "Middleware"})
+FRAMEWORK_BASES: frozenset[str] = frozenset({
+    "BaseHTTPMiddleware", "BaseMiddleware", "Middleware"
+})
 FRAMEWORK_CALLBACKS: frozenset[str] = frozenset({"dispatch", "lifespan"})
 
 # ── ANSI Colors ──────────────────────────────────────────────────────────────
@@ -93,7 +95,9 @@ def _dim(text: str) -> str:
     return _c(text, "2")
 
 
-_CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
+# RUF001: the Cyrillic class IS the detector — these letters are
+# the intended content, not a typo.
+_CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")  # noqa: RUF001
 _EMOJI_RE = re.compile(
     r"[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
     r"\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF"
@@ -104,9 +108,13 @@ _EMOJI_RE = re.compile(
 # ── Auto-activate venv ───────────────────────────────────────────────────────
 _venv = Path(__file__).parent.parent / VENV
 _venv_py = _venv / PY
-if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
-    if "--venv-relaunched" not in sys.argv:
-        os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
+if (
+    _venv.exists()
+    and _venv_py.exists()
+    and Path(sys.executable).resolve() != _venv_py.resolve()
+    and "--venv-relaunched" not in sys.argv
+):
+    os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
 
 # ── Paths ────────────────────────────────────────────────────────────────────
@@ -114,6 +122,29 @@ ROOT = Path(__file__).parent.parent.resolve()
 SRC = ROOT / "src"
 TESTS = ROOT / "tests"
 COVERAGE_FILE = ROOT / ".coverage"
+
+# Lint/type targets: src tree plus the operational layer. mypy uses
+# an explicit file list (§11 explicit over implicit): a new script
+# must be added to MYPY_TARGETS.
+RUFF_TARGETS: tuple[str, ...] = (
+    "src/ai_assistant", "scripts", "run_scripts.py", "run_servers.py",
+)
+MYPY_TARGETS: tuple[str, ...] = (
+    "src/ai_assistant",
+    "scripts/check_all.py",
+    "scripts/check_llm.py",
+    "scripts/check_rag.py",
+    "scripts/clean_cache.py",
+    "scripts/context_build.py",
+    "scripts/download_tokenizers.py",
+    "scripts/kill.py",
+    "scripts/mutmut_check.py",
+    "scripts/open_shell.py",
+    "scripts/prepare_docs.py",
+    "scripts/structure.py",
+    "run_scripts.py",
+    "run_servers.py",
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -140,7 +171,9 @@ class TeeOutput:
 
     def __init__(self, log_path: Path) -> None:
         self.log_path = log_path
-        self.log_file = open(log_path, "w", encoding="utf-8")
+        # SIM115: the handle lives for the whole run (tee) and is
+        # closed in close() — no single `with` block expresses that.
+        self.log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
         self._stdout = sys.stdout
         self._stderr = sys.stderr
         self._lock = threading.Lock()
@@ -296,7 +329,9 @@ class _ReferenceCollector(ast.NodeVisitor):
                 self.refs.add(node.func.value.id)
         self.generic_visit(node)
 
-    def _collect_decorators(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+    def _collect_decorators(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+    ) -> None:
         for dec in node.decorator_list:
             if isinstance(dec, ast.Name):
                 self.refs.add(dec.id)
@@ -323,29 +358,40 @@ class _RegistrationCollector(ast.NodeVisitor):
     def _get_decorator_name(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name):
             return node.id
-        elif isinstance(node, ast.Attribute):
+        if isinstance(node, ast.Attribute):
             base = self._get_decorator_name(node.value)
             return f"{base}.{node.attr}" if base else node.attr
-        elif isinstance(node, ast.Call):
+        if isinstance(node, ast.Call):
             return self._get_decorator_name(node.func)
         return ""
 
     def _is_router_variable(self, name: str) -> bool:
-        return any(name == prefix or name.startswith(prefix + "_") for prefix in ROUTER_VARIABLE_PREFIXES)
+        return any(
+            name == prefix or name.startswith(prefix + "_")
+            for prefix in ROUTER_VARIABLE_PREFIXES
+        )
 
     def _is_registration_decorator(self, name: str) -> bool:
         parts = name.split(".")
         if len(parts) == 2:
             base, method = parts
             if base in {"router", "APIRouter", "app", "FastAPI", "step", "register"}:
-                return method in {"get", "post", "put", "delete", "patch", "head", "options", "websocket", "step", "register"}
+                return method in {
+                    "get", "post", "put", "delete", "patch",
+                    "head", "options", "websocket", "step", "register",
+                }
             if self._is_router_variable(base):
-                return method in {"get", "post", "put", "delete", "patch", "head", "options", "websocket"}
+                return method in {
+                    "get", "post", "put", "delete", "patch",
+                    "head", "options", "websocket",
+                }
         if len(parts) == 1:
             return parts[0] in {"step", "register"}
         return False
 
-    def _check(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+    def _check(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+    ) -> None:
         for dec in node.decorator_list:
             dec_name = self._get_decorator_name(dec)
             if self._is_registration_decorator(dec_name):
@@ -377,7 +423,7 @@ class _DefinitionCollector(ast.NodeVisitor):
     def _get_name(self, node: ast.expr) -> str:
         if isinstance(node, ast.Name):
             return node.id
-        elif isinstance(node, ast.Attribute):
+        if isinstance(node, ast.Attribute):
             return self._get_name(node.value) + "." + node.attr
         return ""
 
@@ -429,11 +475,9 @@ class _DefinitionCollector(ast.NodeVisitor):
         self._class_stack.pop()
 
     def _collect_assign_targets(self, node: ast.Assign | ast.AnnAssign) -> None:
-        targets: Sequence[ast.expr]
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        else:
-            targets = [node.target]
+        targets: Sequence[ast.expr] = (
+            node.targets if isinstance(node, ast.Assign) else [node.target]
+        )
 
         for target in targets:
             if isinstance(target, ast.Name):
@@ -450,8 +494,24 @@ class _DefinitionCollector(ast.NodeVisitor):
         self._collect_assign_targets(node)
 
 
-def _build_registry(all_files: list[Path]) -> dict[str, dict[str, object]]:
-    registry: dict[str, dict[str, object]] = {}
+class _ModuleInfo(TypedDict):
+    """Typed registry entry — no untyped object bags (§9 antipatterns)."""
+
+    file: Path
+    tree: ast.AST | None
+    imports: set[str]
+    load_imports: set[str]
+    refs: set[str]
+    registered_names: set[str]
+    defs: dict[str, tuple[str, int]]
+    methods: dict[str, dict[str, int]]
+    classes: dict[str, tuple[int, list[str]]]
+    exports: set[str]
+    has_registration_decorator: bool
+
+
+def _build_registry(all_files: list[Path]) -> dict[str, _ModuleInfo]:
+    registry: dict[str, _ModuleInfo] = {}
     for f in all_files:
         # Keys must match real import paths ("ai_assistant.*"):
         # SRC.parent prefix made absolute imports never match.
@@ -483,11 +543,17 @@ def _build_registry(all_files: list[Path]) -> dict[str, dict[str, object]]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "__all__":
-                        if isinstance(node.value, (ast.List, ast.Tuple)):
-                            for elt in node.value.elts:
-                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                    exports.add(elt.value)
+                    if (
+                        isinstance(target, ast.Name)
+                        and target.id == "__all__"
+                        and isinstance(node.value, (ast.List, ast.Tuple))
+                    ):
+                        for elt in node.value.elts:
+                            if (
+                                isinstance(elt, ast.Constant)
+                                and isinstance(elt.value, str)
+                            ):
+                                exports.add(elt.value)
 
         registry[mod] = {
             "file": f,
@@ -523,15 +589,20 @@ def _collect_external_refs(paths: list[Path]) -> set[str]:
     return refs
 
 
-def _find_orphaned_files(registry: dict[str, dict[str, object]]) -> list[tuple[Path, str]]:
+def _find_orphaned_files(registry: dict[str, _ModuleInfo]) -> list[tuple[Path, str]]:
     all_imports: set[str] = set()
     for info in registry.values():
-        all_imports.update(info["imports"])  # type: ignore[arg-type]
+        all_imports.update(info["imports"])
 
     orphaned: list[tuple[Path, str]] = []
     for mod, info in registry.items():
-        f: Path = info["file"]  # type: ignore[assignment]
-        if f.name in SKIP_FILES or f.name in ENTRY_POINT_FILES or info["has_registration_decorator"] or info["exports"]:  # type: ignore[operator]
+        f = info["file"]
+        if (
+            f.name in SKIP_FILES
+            or f.name in ENTRY_POINT_FILES
+            or info["has_registration_decorator"]
+            or info["exports"]
+        ):
             continue
         # Stem matching removed: any "import manager" marked BOTH
         # manager.py files as imported. Every real import form
@@ -546,17 +617,22 @@ def _find_orphaned_files(registry: dict[str, dict[str, object]]) -> list[tuple[P
 
 
 def _find_unused_symbols(
-    registry: dict[str, dict[str, object]], external_refs: set[str]
+    registry: dict[str, _ModuleInfo], external_refs: set[str]
 ) -> list[tuple[Path, str, str, int]]:
     global_refs: set[str] = set(external_refs)
     for info in registry.values():
-        global_refs.update(info["refs"])  # type: ignore[arg-type]
+        global_refs.update(info["refs"])
 
     unused: list[tuple[Path, str, str, int]] = []
-    for mod, info in registry.items():
-        f: Path = info["file"]  # type: ignore[assignment]
-        for name, (kind, line) in info["defs"].items():  # type: ignore[union-attr]
-            if name in SKIP_NAMES or name in info["registered_names"] or name in global_refs or name in info["exports"]:  # type: ignore[operator]
+    for _mod, info in registry.items():
+        f = info["file"]
+        for name, (kind, line) in info["defs"].items():
+            if (
+                name in SKIP_NAMES
+                or name in info["registered_names"]
+                or name in global_refs
+                or name in info["exports"]
+            ):
                 continue
             unused.append((f, name, kind, line))
     return unused
@@ -571,25 +647,25 @@ def _is_abc_class(bases: list[str]) -> bool:
 
 
 def _find_unused_methods(
-    registry: dict[str, dict[str, object]], external_refs: set[str]
+    registry: dict[str, _ModuleInfo], external_refs: set[str]
 ) -> list[tuple[Path, str, str, int]]:
     unused: list[tuple[Path, str, str, int]] = []
     for mod, info in registry.items():
-        f: Path = info["file"]  # type: ignore[assignment]
-        for cls_name, methods in info["methods"].items():  # type: ignore[union-attr]
-            bases = info["classes"].get(cls_name, (0, []))[1]  # type: ignore[union-attr,index]
+        f = info["file"]
+        for cls_name, methods in info["methods"].items():
+            bases = info["classes"].get(cls_name, (0, []))[1]
             if _is_abc_class(bases):
                 continue
             is_framework = _is_framework_class(bases)
             for method, line in methods.items():
                 if is_framework and method in FRAMEWORK_CALLBACKS:
                     continue
-                found = method in info["refs"]  # type: ignore[operator]
+                found = method in info["refs"]
                 if not found and method in external_refs:
                     found = True
                 if not found:
                     for other_mod, other_info in registry.items():
-                        if other_mod != mod and method in other_info["refs"]:  # type: ignore[operator]
+                        if other_mod != mod and method in other_info["refs"]:
                             found = True
                             break
                 if not found:
@@ -598,29 +674,36 @@ def _find_unused_methods(
 
 
 def _find_dead_constants(
-    registry: dict[str, dict[str, object]], external_refs: set[str]
+    registry: dict[str, _ModuleInfo], external_refs: set[str]
 ) -> list[tuple[Path, str, int]]:
     dead: list[tuple[Path, str, int]] = []
-    for mod, info in registry.items():
-        f: Path = info["file"]  # type: ignore[assignment]
-        for name, (kind, line) in info["defs"].items():  # type: ignore[union-attr]
-            if kind == "variable" and name.isupper() and name not in info["refs"] and name not in info["exports"]:  # type: ignore[operator]
+    for _mod, info in registry.items():
+        f = info["file"]
+        for name, (kind, line) in info["defs"].items():
+            if (
+                kind == "variable"
+                and name.isupper()
+                and name not in info["refs"]
+                and name not in info["exports"]
+            ):
                 found = name in external_refs or any(
-                    name in other["refs"] for other in registry.values()  # type: ignore[operator]
+                    name in other["refs"] for other in registry.values()
                 )
                 if not found:
                     dead.append((f, name, line))
     return dead
 
 
-def _find_duplicate_blocks(registry: dict[str, dict[str, object]], min_lines: int = 5) -> list[tuple[Path, Path, int, int]]:
+def _find_duplicate_blocks(
+    registry: dict[str, _ModuleInfo], min_lines: int = 5
+) -> list[tuple[Path, Path, int, int]]:
     if not hasattr(ast, "unparse"):
         return []
 
     blocks: dict[str, list[tuple[Path, int]]] = {}
-    for mod, info in registry.items():
-        f: Path = info["file"]  # type: ignore[assignment]
-        tree: ast.AST | None = info.get("tree")  # type: ignore[assignment]
+    for _mod, info in registry.items():
+        f = info["file"]
+        tree = info["tree"]
         if tree is None:
             continue
         for node in ast.walk(tree):
@@ -636,7 +719,7 @@ def _find_duplicate_blocks(registry: dict[str, dict[str, object]], min_lines: in
 
     duplicates: list[tuple[Path, Path, int, int]] = []
     seen: set[tuple[str, ...]] = set()
-    for h, locations in blocks.items():
+    for _h, locations in blocks.items():
         if len(locations) > 1:
             for i, (f1, line1) in enumerate(locations):
                 for f2, line2 in locations[i + 1:]:
@@ -651,41 +734,49 @@ def _find_duplicate_blocks(registry: dict[str, dict[str, object]], min_lines: in
 
 def _normalize_cycle(cycle_nodes: list[str]) -> tuple[str, ...]:
     if not cycle_nodes:
-        return tuple()
+        return ()
     nodes = cycle_nodes[:-1] if cycle_nodes[0] == cycle_nodes[-1] else list(cycle_nodes)
     if not nodes:
-        return tuple()
+        return ()
     n = len(nodes)
     return min(tuple(nodes[i:] + nodes[:i]) for i in range(n))
 
-
-def _check_cycles(registry: dict[str, dict[str, object]]) -> list[str]:
+def _check_cycles(registry: dict[str, _ModuleInfo]) -> list[str]:
     cycles: list[str] = []
     seen_cycles: set[tuple[str, ...]] = set()
 
     def dfs(node: str, path: list[str]) -> None:
         # Load-time edges only: a function-scoped import cannot
         # participate in a module-load cycle.
-        for imp in registry[node]["load_imports"]:  # type: ignore[operator]
+        for imp in registry[node]["load_imports"]:
             if imp not in registry:
                 continue
             if imp in path:
                 idx = path.index(imp)
-                cycle = path[idx:] + [imp]
+                cycle = [*path[idx:], imp]
                 key = _normalize_cycle(cycle)
                 if key and key not in seen_cycles:
                     seen_cycles.add(key)
                     cycles.append(" -> ".join(cycle))
                 continue
             if len(path) < 8:
-                dfs(imp, path + [imp])
+                dfs(imp, [*path, imp])
 
     for mod in registry:
         dfs(mod, [mod])
     return cycles
 
 
-def run_ast_audit(src_dir: Path) -> tuple[list, list, list, list, list, list]:
+def run_ast_audit(
+    src_dir: Path,
+) -> tuple[
+    list[tuple[Path, str]],
+    list[tuple[Path, str, str, int]],
+    list[tuple[Path, str, str, int]],
+    list[tuple[Path, str, int]],
+    list[tuple[Path, Path, int, int]],
+    list[str],
+]:
     all_src = collect_py(src_dir)
     registry = _build_registry(all_src)
     external_refs = _collect_external_refs(
@@ -711,11 +802,15 @@ def run_coverage_audit() -> list[tuple[str, float, str]]:
     json_path = ROOT / "coverage_audit_temp.json"
     try:
         result = subprocess.run(
-            [get_python(ROOT), "-m", "coverage", "json", "-o", str(json_path), "--pretty-print"],
+            [
+                get_python(ROOT), "-m", "coverage", "json",
+                "-o", str(json_path), "--pretty-print",
+            ],
             cwd=ROOT, capture_output=True, text=True,
         )
         if result.returncode != 0 or not json_path.exists():
-            return [("Failed to generate coverage JSON", 0.0, f"ERROR: {result.stderr[:200]}")]
+            err = f"ERROR: {result.stderr[:200]}"
+            return [("Failed to generate coverage JSON", 0.0, err)]
 
         with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -739,7 +834,8 @@ def run_coverage_audit() -> list[tuple[str, float, str]]:
         elif percent < 70:
             issues.append((rel, percent, "WARNING: <70% coverage"))
         elif branches > 0 and missing_branches / branches > 0.3:
-            issues.append((rel, percent, f"BRANCHES: {missing_branches}/{branches} missed"))
+            detail = f"BRANCHES: {missing_branches}/{branches} missed"
+            issues.append((rel, percent, detail))
 
     issues.sort(key=lambda x: x[1])
     return issues
@@ -756,7 +852,7 @@ def _audit_test_quality() -> list[str]:
     if not TESTS.exists():
         return []
 
-    ALLOWED_MOCKS: frozenset[str] = frozenset({
+    allowed_mocks: frozenset[str] = frozenset({
         "MockLLM", "MockEmbedder", "Mock", "AsyncMock", "MagicMock",
         "NonCallableMock", "PropertyMock",
     })
@@ -796,7 +892,7 @@ def _audit_test_quality() -> list[str]:
             self.generic_visit(node)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
-            if node.name.endswith("Mock") and node.name not in ALLOWED_MOCKS:
+            if node.name.endswith("Mock") and node.name not in allowed_mocks:
                 self.violations.append(f"inline mock class '{node.name}' (§6)")
             self.generic_visit(node)
 
@@ -852,7 +948,9 @@ def _audit_non_ascii(src_dir: Path) -> list[tuple[Path, int, str, str]]:
 
             if name:
                 if _CYRILLIC_RE.search(name):
-                    issues.append((f, lineno, "cyrillic-id", f"Cyrillic {kind}: {name}"))
+                    issues.append((
+                        f, lineno, "cyrillic-id", f"Cyrillic {kind}: {name}"
+                    ))
                 if _EMOJI_RE.search(name):
                     issues.append((f, lineno, "emoji-id", f"Emoji {kind}: {name}"))
 
@@ -861,7 +959,10 @@ def _audit_non_ascii(src_dir: Path) -> list[tuple[Path, int, str, str]]:
                 comment = line.split("#", 1)[1]
                 if _EMOJI_RE.search(comment):
                     emojis = _EMOJI_RE.findall(comment)
-                    issues.append((f, lineno, "emoji-comment", f"Emoji in comment: {''.join(emojis)}"))
+                    issues.append((
+                        f, lineno, "emoji-comment",
+                        f"Emoji in comment: {''.join(emojis)}",
+                    ))
 
     return issues
 
@@ -877,7 +978,8 @@ def _print_menu() -> None:
     print("  [2]  tests+coverage — pytest + branch coverage + audit")
     print("  [3]  lint           — ruff + mypy")
     print("  [4]  audit          — AST dead code audit (no tests)")
-    print("  [5]  full           — lint → tests → coverage → random-order → audit → i18n")
+    print("  [5]  full           — lint → tests → coverage → random-order")
+    print("                       → audit → i18n")
     print("  [6]  i18n           — non-ASCII identifier & emoji audit")
     print("  [7]  random-order   — pytest --random-order (isolation check)")
     print(_SEP)
@@ -920,9 +1022,8 @@ def _run_cmd(cmd: list[str], desc: str) -> bool:
     if returncode == 0:
         print(f"\n  {_green('[OK]')} {desc}")
         return True
-    else:
-        print(f"\n  {_red('[FAIL]')} {desc}")
-        return False
+    print(f"\n  {_red('[FAIL]')} {desc}")
+    return False
 
 
 def _show_ast_results(
@@ -978,9 +1079,8 @@ def _show_ast_results(
     if total == 0:
         print(f"\n  {_green('[OK]')} No AST issues found.")
         return True
-    else:
-        print(f"\n  {_yellow('[!]')} {total} AST issue(s) found — review recommended.")
-        return False
+    print(f"\n  {_yellow('[!]')} {total} AST issue(s) found — review recommended.")
+    return False
 
 
 def _show_coverage_results(issues: list[tuple[str, float, str]]) -> bool:
@@ -1082,7 +1182,9 @@ def main() -> int:
             return 0
 
         if choice == "1":
-            ok &= _run_cmd([py, "-m", "pytest", str(TESTS), "-v", "--tb=short"], "TESTS")
+            ok &= _run_cmd(
+                [py, "-m", "pytest", str(TESTS), "-v", "--tb=short"], "TESTS"
+            )
 
         elif choice == "2":
             ok &= _run_cmd(
@@ -1097,19 +1199,27 @@ def main() -> int:
             ok &= _show_coverage_results(run_coverage_audit())
 
         elif choice == "3":
-            ok &= _run_cmd([py, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
-            ok &= _run_cmd([py, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
+            ok &= _run_cmd(
+                [py, "-m", "ruff", "check", *RUFF_TARGETS], "RUFF LINT"
+            )
+            ok &= _run_cmd(
+                [py, "-m", "mypy", *MYPY_TARGETS], "MYPY TYPE CHECK"
+            )
 
         elif choice == "4":
             ok &= _show_ast_results(*run_ast_audit(SRC))
 
         elif choice == "5":
-            ok &= _run_cmd([py, "-m", "ruff", "check", "src/ai_assistant"], "RUFF LINT")
+            ok &= _run_cmd(
+                [py, "-m", "ruff", "check", *RUFF_TARGETS], "RUFF LINT"
+            )
             if not ok:
                 print("\n  Stopping — fix lint errors first.")
                 return 1
 
-            ok &= _run_cmd([py, "-m", "mypy", "src/ai_assistant"], "MYPY TYPE CHECK")
+            ok &= _run_cmd(
+                [py, "-m", "mypy", *MYPY_TARGETS], "MYPY TYPE CHECK"
+            )
             if not ok:
                 print("\n  Stopping — fix type errors first.")
                 return 1
@@ -1131,7 +1241,10 @@ def main() -> int:
             print("\n" + _SEP + "\n")
 
             ok &= _run_cmd(
-                [py, "-m", "pytest", str(TESTS), "--random-order", "-q", "--no-cov", "--tb=short"],
+                [
+                    py, "-m", "pytest", str(TESTS),
+                    "--random-order", "-q", "--no-cov", "--tb=short",
+                ],
                 "TESTS RANDOM ORDER",
             )
             if not ok:
@@ -1150,7 +1263,10 @@ def main() -> int:
 
         elif choice == "7":
             ok &= _run_cmd(
-                [py, "-m", "pytest", str(TESTS), "--random-order", "-v", "--no-cov", "--tb=short"],
+                [
+                    py, "-m", "pytest", str(TESTS),
+                    "--random-order", "-v", "--no-cov", "--tb=short",
+                ],
                 "TESTS RANDOM ORDER",
             )
 

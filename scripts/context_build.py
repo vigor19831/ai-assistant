@@ -10,11 +10,12 @@ Folder processing rules:
 
 import argparse
 import ast
+import contextlib
 import fnmatch
 import os
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from ai_assistant.core.logger import get_logger
@@ -123,10 +124,16 @@ def extract_imports(source: str) -> tuple[list[str], list[str]]:
 # SCAN
 # ============================================================================
 
-def scan(root: Path, mode: str):
+def scan(
+    root: Path, mode: str
+) -> tuple[
+    list[tuple[str, str | None, int, str]],
+    list[tuple[str, str | None]],
+    dict[str, int],
+]:
     """Scan files according to mode."""
-    all_files = []      # (rel_path, content, size, type)
-    py_files = []       # for dependency graph
+    all_files: list[tuple[str, str | None, int, str]] = []
+    py_files: list[tuple[str, str | None]] = []
     metrics = {"total": 0, "py": 0, "loc": 0, "classes": 0, "funcs": 0}
 
     for dirpath, dirnames, filenames in os.walk(root):
@@ -140,7 +147,6 @@ def scan(root: Path, mode: str):
         is_docs = "docs" in parts
         is_scripts = "scripts" in parts
         is_tests = "tests" in parts
-        is_special = is_docs or is_scripts or is_tests
 
         for fname in sorted(filenames):
             path = Path(dirpath) / fname
@@ -170,10 +176,12 @@ def scan(root: Path, mode: str):
 
             if is_py:
                 metrics["py"] += 1
-                metrics["loc"] += count_loc(content)
+                # content is None only for non-py files in "rules"
+                # mode; a py file is always read above.
+                metrics["loc"] += count_loc(content or "")
                 py_files.append((rel, content))
                 try:
-                    tree = ast.parse(content)
+                    tree = ast.parse(content or "")
                     for node in ast.walk(tree):
                         if isinstance(node, ast.ClassDef):
                             metrics["classes"] += 1
@@ -246,10 +254,8 @@ def extract_signature(source: str, rel_path: str) -> str:
 
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            try:
+            with contextlib.suppress(Exception):
                 lines.append(ast.unparse(node))
-            except Exception:
-                pass
 
         elif isinstance(node, ast.ClassDef):
             bases = ", ".join(ast.unparse(b) for b in node.bases) if node.bases else ""
@@ -280,33 +286,48 @@ def extract_signature(source: str, rel_path: str) -> str:
 # BUILD MARKDOWN
 # ============================================================================
 
-def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+def build_markdown(
+    root: Path,
+    mode: str,
+    all_files: list[tuple[str, str | None, int, str]],
+    py_files: list[tuple[str, str | None]],
+    metrics: dict[str, int],
+) -> str:
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    # Split by type
-    doc_files = [(r, c) for r, c, s, t in all_files if t == "doc"]
-    full_files = [(r, c) for r, c, s, t in all_files if t == "full"]
-    sig_files = [(r, c) for r, c, s, t in all_files if t == "signature"]
-    listed_files = [r for r, c, s, t in all_files if t == "listed"]
+    # Split by type; doc/full contents are always read (None is a
+    # "rules"-mode marker for listed files only).
+    doc_files: list[tuple[str, str]] = [
+        (r, c) for r, c, s, t in all_files if t == "doc" and c is not None
+    ]
+    full_files: list[tuple[str, str]] = [
+        (r, c) for r, c, s, t in all_files if t == "full" and c is not None
+    ]
+    sig_files: list[tuple[str, str]] = [
+        (r, c) for r, c, s, t in all_files if t == "signature" and c is not None
+    ]
+    listed_files: list[str] = [r for r, c, s, t in all_files if t == "listed"]
 
     lines = [
         "# AI Context",
         f"> **Generated:** {now} | **Mode:** `{mode}`",
-        f"> **Metrics:** {metrics['total']} files | {metrics['py']} Python | {metrics['loc']:,} LOC",
-        f"> **Full:** {len(full_files)} | **Signatures:** {len(sig_files)} | **Listed:** {len(listed_files)}",
+        f"> **Metrics:** {metrics['total']} files | {metrics['py']} Python"
+        f" | {metrics['loc']:,} LOC",
+        f"> **Full:** {len(full_files)} | **Signatures:** {len(sig_files)}"
+        f" | **Listed:** {len(listed_files)}",
         "",
         "---",
         "",
     ]
 
     # AI Rules (from doc_files)
-    _DOC_TITLES = {
+    _doc_titles = {
         "ai_rules.md": "AI Development Guidelines",
         "architecture.md": "Architectural Strategy",
         "drift.md": "Known Drift",
     }
     for rel, content in doc_files:
-        title = _DOC_TITLES.get(rel, "Project Documentation")
+        title = _doc_titles.get(rel, "Project Documentation")
         lines.extend([
             f"## {title}",
             f"> Auto-extracted from: `{rel}`",
@@ -325,10 +346,10 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     ])
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in HARD_EXCLUDED]
-        rel = Path(dirpath).relative_to(root)
-        depth = len(rel.parts) - 1 if rel != Path(".") else 0
-        if rel != Path("."):
-            lines.append(f"{'    ' * depth}{rel.name}/")
+        rel_dir = Path(dirpath).relative_to(root)
+        depth = len(rel_dir.parts) - 1 if rel_dir != Path(".") else 0
+        if rel_dir != Path("."):
+            lines.append(f"{'    ' * depth}{rel_dir.name}/")
         for fname in sorted(filenames):
             fpath = Path(dirpath) / fname
             rel_file = fpath.relative_to(root).as_posix()
@@ -339,13 +360,15 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
     # Dependencies
     if mode in ("rules", "compact") and py_files:
         lines.extend(["## Dependencies", ""])
-        graph = defaultdict(list)
-        for rel, content in py_files:
-            internal, _ = extract_imports(content)
+        graph: dict[str, list[str]] = defaultdict(list)
+        for rel, file_content in py_files:
+            if file_content is None:
+                continue
+            internal, _ = extract_imports(file_content)
             if internal:
                 graph[rel] = internal
-        for rel, imports in sorted(graph.items()):
-            lines.append(f"- `{rel}`")
+        for py_rel, imports in sorted(graph.items()):
+            lines.append(f"- `{py_rel}`")
             for imp in imports:
                 lines.append(f"  - → `{imp}`")
             lines.extend(["", "---", ""])
@@ -403,7 +426,7 @@ def build_markdown(root: Path, mode: str, all_files, py_files, metrics):
 # WRITE
 # ============================================================================
 
-def write_file(path: Path, content: str):
+def write_file(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     try:
@@ -418,7 +441,7 @@ def write_file(path: Path, content: str):
 # MENU
 # ============================================================================
 
-def menu():
+def menu() -> str:
     print("\n  AI Context Builder")
     print("  ==================")
 
@@ -450,9 +473,11 @@ def menu():
 # MAIN
 # ============================================================================
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["rules", "compact", "full"], default="compact")
+    parser.add_argument(
+        "--mode", choices=["rules", "compact", "full"], default="compact"
+    )
     parser.add_argument("--output", default=None)
 
     if len(sys.argv) <= 1:
@@ -471,7 +496,10 @@ def main():
     metrics["py"] = sum(1 for r, c, s, t in all_files if r.endswith(".py"))
     metrics["loc"] = sum(count_loc(c) for r, c, s, t in all_files if c is not None)
 
-    logger.info("Total: %d | Python: %d | LOC: %d", metrics["total"], metrics["py"], metrics["loc"])
+    logger.info(
+        "Total: %d | Python: %d | LOC: %d",
+        metrics["total"], metrics["py"], metrics["loc"],
+    )
 
     md = build_markdown(root, mode, all_files, py_files, metrics)
 

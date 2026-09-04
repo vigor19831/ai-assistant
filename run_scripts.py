@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run helper scripts from scripts/. Invoke from project root: python run_scripts.py"""
 
+import contextlib
 import json
 import os
 import shlex
@@ -9,7 +10,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 from pathlib import Path
+from typing import NoReturn
 
 VENV = ".venv"
 PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
@@ -18,9 +21,13 @@ _SEP = "─" * 50
 # ── Auto-activate venv ───────────────────────────────────────────────────────
 _venv = Path(__file__).parent / VENV
 _venv_py = _venv / PY
-if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
-    if "--venv-relaunched" not in sys.argv:
-        os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
+if (
+    _venv.exists()
+    and _venv_py.exists()
+    and Path(sys.executable).resolve() != _venv_py.resolve()
+    and "--venv-relaunched" not in sys.argv
+):
+    os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -58,18 +65,22 @@ def _history_path(root: Path) -> Path:
     return root / "data" / ".run_history.json"
 
 
-def _load_history(root: Path) -> dict[str, dict]:
+def _load_history(root: Path) -> dict[str, dict[str, object]]:
+    """Run history: target path -> {status, time} (JSON on disk)."""
     hist_file = _history_path(root)
     if not hist_file.exists():
         return {}
     try:
         with open(hist_file, encoding="utf-8") as f:
-            return json.load(f)
+            data: dict[str, dict[str, object]] = json.load(f)
+            return data
     except (json.JSONDecodeError, OSError):
         return {}
 
 
-def _save_history(root: Path, history: dict) -> None:
+def _save_history(
+    root: Path, history: dict[str, dict[str, object]]
+) -> None:
     """Atomic write: temp file + rename to avoid corruption on crash."""
     hist_file = _history_path(root)
     tmp_path: Path | None = None
@@ -87,16 +98,14 @@ def _save_history(root: Path, history: dict) -> None:
         pass
     finally:
         if tmp_path is not None and tmp_path.exists():
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
 def print_menu(
     scripts: list[tuple[str, str]],
-    history: dict,
+    history: dict[str, dict[str, object]],
     last: str | None,
     last_args: list[str],
     last_time: float | None,
@@ -137,9 +146,9 @@ def run(
     target: str,
     root: Path,
     extra: list[str],
-    history: dict,
+    history: dict[str, dict[str, object]],
 ) -> tuple[int, float]:
-    cmd = [py, target] + extra
+    cmd = [py, target, *extra]
     name = Path(target).name
     now = time.strftime("%H:%M:%S")
 
@@ -207,7 +216,9 @@ def main() -> int:
     last_time: float | None = None
 
     # Graceful Ctrl+C — raise KeyboardInterrupt instead of default traceback
-    def _on_sigint(_signum, _frame):
+    def _on_sigint(
+        _signum: int, _frame: types.FrameType | None
+    ) -> NoReturn:
         raise KeyboardInterrupt
     signal.signal(signal.SIGINT, _on_sigint)
 

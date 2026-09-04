@@ -28,10 +28,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import glob
 import sys
 from pathlib import Path
-
-import glob
+from typing import Any
 
 import httpx
 import yaml
@@ -204,7 +204,7 @@ _ARCHIVIST_DEFAULTS: dict[str, object] = {
 }
 
 
-def _load_archivist_cfg() -> dict[str, object]:
+def _load_archivist_cfg() -> dict[str, Any]:
     """Read the archivist: section from config.yaml, with defaults.
 
     Returns a dict merged over _ARCHIVIST_DEFAULTS: any key present

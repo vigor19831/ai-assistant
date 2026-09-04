@@ -39,12 +39,13 @@ def main() -> int:
     import ctypes
 
     # If already admin — just open PowerShell directly
-    if ctypes.windll.shell32.IsUserAnAdmin():
+    # windll is Windows-only; the script never runs elsewhere.
+    if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
         os.system(f'start powershell -NoExit -Command "{ps_script}"')
         return 0
 
     # Not admin — request elevation via UAC
-    ret = ctypes.windll.shell32.ShellExecuteW(
+    ret = ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
         None,           # hwnd
         "runas",        # operation — triggers UAC dialog
         "powershell.exe",  # file to run

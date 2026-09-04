@@ -2,11 +2,13 @@
 """structure.py — compact project tree with .gitignore support and metrics."""
 
 import argparse
+import contextlib
 import fnmatch
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Never shown, never traversed
 HARD_EXCLUDE = frozenset({
@@ -73,12 +75,10 @@ def hard_excluded(path: Path, root: Path) -> bool:
             return True
         if part.endswith(".egg-info"):
             return True
-    if path.is_file() and path.suffix.lower() in {
+    return path.is_file() and path.suffix.lower() in {
         ".pyc", ".pyo", ".so", ".dll", ".exe", ".dylib",
         ".gguf", ".bin", ".pt", ".safetensors", ".cache", ".log",
-    }:
-        return True
-    return False
+    }
 
 
 def fmt_size(n: int) -> str:
@@ -103,7 +103,10 @@ def count_lines(path: Path) -> int:
 
 def build(root: Path, use_color: bool = False) -> str:
     """Generate compact markdown tree with metrics."""
-    patterns = load_patterns(root, ".gitignore") + load_patterns(root, ".structureignore")
+    patterns = (
+        load_patterns(root, ".gitignore")
+        + load_patterns(root, ".structureignore")
+    )
 
     entries: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
@@ -145,15 +148,15 @@ def build(root: Path, use_color: bool = False) -> str:
     files = [e for e in entries if e.is_file()]
     py_files = [e for e in files if e.suffix == ".py"]
     total_size = 0
-    for f in files:
-        try:
-            total_size += f.stat().st_size
-        except OSError:
-            pass
+    for entry in files:
+        with contextlib.suppress(OSError):
+            total_size += entry.stat().st_size
     py_loc = sum(count_lines(f) for f in py_files)
 
     # Build tree
-    tree: dict = {}
+    # Heterogeneous recursive tree: dict = dir, str = hidden
+    # description, None = file marker (see render()).
+    tree: dict[str, Any] = {}
     for e in entries:
         node = tree
         parts = e.relative_to(root).parts
@@ -168,8 +171,8 @@ def build(root: Path, use_color: bool = False) -> str:
         if key in tree and isinstance(tree[key], dict) and not tree[key]:
             tree[key] = desc
 
-    def render(node, prefix=""):
-        out = []
+    def render(node: dict[str, Any], prefix: str = "") -> str:
+        out: list[str] = []
         # Sort: dirs (dict values) first, then hidden (str), then files (None)
         items = sorted(
             node.items(),
@@ -214,7 +217,7 @@ def build(root: Path, use_color: bool = False) -> str:
     ])
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description="Generate compact project structure")
     parser.add_argument("--root", "-r", type=Path, default=None)
     parser.add_argument("--output", "-o", type=Path, default=None,

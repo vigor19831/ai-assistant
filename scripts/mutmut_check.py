@@ -43,9 +43,13 @@ TARGETS: dict[str, tuple[str, str]] = {
 # ── Auto-activate venv ───────────────────────────────────────────────────────
 _venv = Path(__file__).parent.parent / VENV
 _venv_py = _venv / PY
-if _venv.exists() and _venv_py.exists() and Path(sys.executable).resolve() != _venv_py.resolve():
-    if "--venv-relaunched" not in sys.argv:
-        os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
+if (
+    _venv.exists()
+    and _venv_py.exists()
+    and Path(sys.executable).resolve() != _venv_py.resolve()
+    and "--venv-relaunched" not in sys.argv
+):
+    os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
 
 ROOT = Path(__file__).parent.parent.resolve()
@@ -55,7 +59,8 @@ ROOT = Path(__file__).parent.parent.resolve()
 def _find_mutmut() -> str | None:
     """Find mutmut executable in PATH or venv."""
     # Check venv first
-    venv_mutmut = ROOT / VENV / ("Scripts/mutmut.exe" if os.name == "nt" else "bin/mutmut")
+    mutmut_name = "Scripts/mutmut.exe" if os.name == "nt" else "bin/mutmut"
+    venv_mutmut = ROOT / VENV / mutmut_name
     if venv_mutmut.exists():
         return str(venv_mutmut)
     # Check PATH
@@ -173,8 +178,8 @@ def main() -> int:
 
         label, mutmut_path = TARGETS[choice]
 
-        print(f"\n  [!] WARNING: This can take 10-60 minutes.")
-        print(f"  [!] Press Ctrl+C to abort at any time.\n")
+        print("\n  [!] WARNING: This can take 10-60 minutes.")
+        print("  [!] Press Ctrl+C to abort at any time.\n")
 
         mutmut_bin = _find_mutmut()
         if mutmut_bin is None:

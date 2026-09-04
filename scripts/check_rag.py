@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import contextlib
 import hashlib
+import json
 import re
 import signal
 import subprocess
@@ -194,7 +195,11 @@ def _setup_logging() -> Path:
     global _orig_stdout, _orig_stderr, _log_file_handle
     _orig_stdout = sys.stdout
     _orig_stderr = sys.stderr
-    _log_file_handle = open(log_path, "w", encoding="utf-8", buffering=1)
+    # SIM115: tee handle lives for the whole run; closed in
+    # _restore_logging(). A `with` cannot express the stdout swap.
+    _log_file_handle = open(  # noqa: SIM115
+        log_path, "w", encoding="utf-8", buffering=1
+    )
     sys.stdout = _Tee(_orig_stdout, _log_file_handle)
     sys.stderr = _Tee(_orig_stderr, _log_file_handle)
     return log_path
@@ -209,10 +214,8 @@ def _restore_logging() -> None:
         sys.stderr = _orig_stderr
         _orig_stderr = None
     if _log_file_handle is not None:
-        try:
+        with contextlib.suppress(OSError):
             _log_file_handle.close()
-        except OSError:
-            pass
         _log_file_handle = None
 
 
@@ -1338,7 +1341,7 @@ async def _request_with_retry(
 async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     by_ns: dict[str, list[dict[str, Any]]] = {}
-    for i, doc in enumerate(sources):
+    for doc in sources:
         # Deterministic ID: stable even if document order changes or --skip-index is used
         doc_id = hashlib.md5(f"{doc.namespace}:{doc.content[:100]}".encode()).hexdigest()[:16]
         by_ns.setdefault(doc.namespace, []).append(
@@ -1374,7 +1377,6 @@ async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
 async def query_rag(
     client: httpx.AsyncClient,
     url: str,
-    api_key: str,
     query: str,
     namespace: str,
     timeout: float | None = None,
@@ -1386,13 +1388,13 @@ async def query_rag(
         json={"query": query, "namespace": namespace},
         timeout=timeout,
     )
-    return r.json()
+    data: dict[str, Any] = r.json()
+    return data
 
 
 async def chat_query(
     client: httpx.AsyncClient,
     url: str,
-    api_key: str,
     query: str,
     namespace: str,
     timeout: float | None = None,
@@ -1401,7 +1403,6 @@ async def chat_query(
     stream: bool = False,
 ) -> dict[str, Any]:
     """Send a user message to the chat API and extract answer + sources flag."""
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     messages: list[dict[str, str]] = list(history) if history else []
     messages.append({"role": "user", "content": query})
     payload: dict[str, Any] = {
@@ -1421,18 +1422,16 @@ async def chat_query(
         ) as r:
             r.raise_for_status()
             chunks: list[str] = []
-            stream_error: str | None = None
             async for line in r.aiter_lines():
                 if line.startswith("data: "):
                     data_str = line[6:]
                     if data_str == "[DONE]":
                         break
                     try:
-                        import json
                         data = json.loads(data_str)
                         # Server-side error (AdapterError, validation, etc.)
                         if "error" in data:
-                            stream_error = str(data["error"])
+                            print(f"    [stream error] {data['error']}")
                             break
                         delta = data.get("choices", [{}])[0].get("delta", {})
                         content = delta.get("content", "")
@@ -1513,7 +1512,6 @@ async def run_tests(
                         data = await chat_query(
                             client,
                             url,
-                            api_key,
                             case.query,
                             case.namespace,
                             timeout=timeout,
@@ -1543,7 +1541,6 @@ async def run_tests(
                         data = await chat_query(
                             client,
                             url,
-                            api_key,
                             case.query,
                             case.namespace,
                             timeout=timeout,
@@ -1556,7 +1553,7 @@ async def run_tests(
                     print("    >>> [CHAT PREFIX E2E TEST] <<<")
                 else:
                     data = await query_rag(
-                        client, url, api_key, case.query, case.namespace, timeout=timeout
+                        client, url, case.query, case.namespace, timeout=timeout
                     )
             except Exception as exc:
                 # Error-handling tests demand a graceful response (HTTP 200
@@ -1565,8 +1562,8 @@ async def run_tests(
                 # the handler crashed — that is a FAIL.
                 if case.test_id.startswith("error-"):
                     print(f"    Answer: [API error: {type(exc).__name__}]")
-                    print(f"    Src   : 0 chunks")
-                    print(f"    Result: FAIL (0ms)")
+                    print("    Src   : 0 chunks")
+                    print("    Result: FAIL (0ms)")
                     print(f"    ! handler crashed instead of graceful response: {exc}")
                     if case.use_chat_api:
                         chat_total += 1
@@ -1605,11 +1602,10 @@ async def run_tests(
                 if kw.lower() not in answer.lower():
                     errors.append(f"missing required '{kw}'")
 
-            if case.answer_must_contain_any:
-                if not any(
-                    kw.lower() in answer.lower() for kw in case.answer_must_contain_any
-                ):
-                    errors.append(f"missing one of {case.answer_must_contain_any}")
+            if case.answer_must_contain_any and not any(
+                kw.lower() in answer.lower() for kw in case.answer_must_contain_any
+            ):
+                errors.append(f"missing one of {case.answer_must_contain_any}")
 
             if case.answer_must_contain_all_any:
                 for kw in case.answer_must_contain_all_any:
@@ -1651,13 +1647,16 @@ async def run_tests(
                     if forbidden.lower() in src_text:
                         errors.append(f"sources contain noise '{forbidden}'")
 
-            if case.sources_must_contain_any and has_sources:
-                if not any(
+            if (
+                case.sources_must_contain_any
+                and has_sources
+                and not any(
                     kw.lower() in src_text for kw in case.sources_must_contain_any
-                ):
-                    errors.append(
-                        f"sources missing one of {case.sources_must_contain_any}"
-                    )
+                )
+            ):
+                errors.append(
+                    f"sources missing one of {case.sources_must_contain_any}"
+                )
 
             if case.require_faithfulness and has_sources:
                 for kw in case.answer_must_contain:
@@ -1759,9 +1758,8 @@ async def run_tests(
         print("  • multi-chunk reasoning             (multihop-1, edge-2)")
         print("  • faithfulness / source coverage    (retrieval-1, multihop-1)")
         return 1
-    else:
-        print("\nContract tests passed. Known limitations are documented.")
-        return 0
+    print("\nContract tests passed. Known limitations are documented.")
+    return 0
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 def main() -> int:

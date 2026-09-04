@@ -139,7 +139,10 @@ def _kill_pid(pid: int, force: bool = False) -> bool:
     """Kill process by PID. Returns True if signal sent."""
     try:
         if os.name == "nt":
-            args = ["taskkill", "/F", "/PID", str(pid)] if force else ["taskkill", "/PID", str(pid)]
+            if force:
+                args = ["taskkill", "/F", "/PID", str(pid)]
+            else:
+                args = ["taskkill", "/PID", str(pid)]
             subprocess.run(args, capture_output=True, check=False)
         else:
             sig = signal.SIGKILL if force else signal.SIGTERM
