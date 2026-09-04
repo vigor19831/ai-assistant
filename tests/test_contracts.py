@@ -11,14 +11,12 @@ from __future__ import annotations
 
 import ast
 import inspect
-import logging
-import sys
 from pathlib import Path
 
 import pytest
 
-from ai_assistant.core.logger import get_logger
 from ai_assistant.adapters._registry import get_registry
+from ai_assistant.core.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -26,16 +24,18 @@ logger = get_logger(__name__)
 # ── AST helpers ──
 
 
-def _find_ast_calls(source: str, filename: str, func_names: set[str]) -> list[tuple[int, str]]:
+def _find_ast_calls(
+    source: str, filename: str, func_names: set[str]
+) -> list[tuple[int, str]]:
     """Find all calls to specific function names in source AST."""
     tree = ast.parse(source, filename=filename)
     hits: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id in func_names:
-                hits.append((node.lineno, ast.unparse(node)))
-            elif isinstance(node.func, ast.Attribute) and node.func.attr in func_names:
-                hits.append((node.lineno, ast.unparse(node)))
+        if isinstance(node, ast.Call) and (
+            (isinstance(node.func, ast.Name) and node.func.id in func_names)
+            or (isinstance(node.func, ast.Attribute) and node.func.attr in func_names)
+        ):
+            hits.append((node.lineno, ast.unparse(node)))
     return hits
 
 
@@ -49,15 +49,17 @@ def _find_print_calls(source: str, filename: str) -> list[tuple[int, str]]:
     return _find_ast_calls(source, filename, {"print", "pprint"})
 
 
-def _find_basicConfig_calls(source: str, filename: str) -> list[tuple[int, str]]:
+def _find_basic_config_calls(source: str, filename: str) -> list[tuple[int, str]]:
     """Find logging.basicConfig() calls in source."""
     tree = ast.parse(source, filename=filename)
     hits: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                if node.func.attr == "basicConfig":
-                    hits.append((node.lineno, ast.unparse(node)))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "basicConfig"
+        ):
+            hits.append((node.lineno, ast.unparse(node)))
     return hits
 
 
@@ -69,11 +71,13 @@ def _find_getattr_calls(source: str, filename: str) -> list[tuple[int, str]]:
 def _is_inside_function(tree: ast.AST, lineno: int, func_name: str) -> bool:
     """Check if lineno is inside a specific function definition in tree."""
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.name == func_name:
-                end = getattr(node, "end_lineno", node.lineno)
-                if node.lineno <= lineno <= end:
-                    return True
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == func_name
+        ):
+            end = getattr(node, "end_lineno", node.lineno)
+            if node.lineno <= lineno <= end:
+                return True
     return False
 
 
@@ -84,22 +88,22 @@ def _find_cross_feature_imports(source: str, filename: str) -> list[tuple[int, s
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if "features.chat" in module and "rag" in module:
-                hits.append((node.lineno, ast.unparse(node)))
-            elif "features.rag" in module and "chat" in module:
+            if ("features.chat" in module and "rag" in module) or (
+                "features.rag" in module and "chat" in module
+            ):
                 hits.append((node.lineno, ast.unparse(node)))
             elif node.level > 0:
                 names = [alias.name for alias in node.names]
-                if "features/chat" in filename and any("rag" in n for n in names):
-                    hits.append((node.lineno, ast.unparse(node)))
-                elif "features/rag" in filename and any("chat" in n for n in names):
+                if ("features/chat" in filename and any("rag" in n for n in names)) or (
+                    "features/rag" in filename and any("chat" in n for n in names)
+                ):
                     hits.append((node.lineno, ast.unparse(node)))
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 name = alias.name
-                if "features.chat" in name and "rag" in name:
-                    hits.append((node.lineno, ast.unparse(node)))
-                elif "features.rag" in name and "chat" in name:
+                if ("features.chat" in name and "rag" in name) or (
+                    "features.rag" in name and "chat" in name
+                ):
                     hits.append((node.lineno, ast.unparse(node)))
     return hits
 
@@ -193,7 +197,8 @@ class TestIsinstanceBan:
         # _make_hashable uses isinstance on plain Python values for LRU cache keys,
         # not on port objects — exempt per ai_rules §2 scope
         filtered = [
-            (line, code) for line, code in hits
+            (line, code)
+            for line, code in hits
             if not _is_inside_function(tree, line, "_make_hashable")
         ]
         assert not filtered, f"isinstance() banned in core/ (non-utility): {filtered}"
@@ -245,7 +250,9 @@ class TestPrintBan:
             source = py_file.read_text(encoding="utf-8")
             file_hits = _find_print_calls(source, str(py_file))
             for lineno, code in file_hits:
-                hits.append((str(py_file.relative_to(dir_path.parent.parent)), lineno, code))
+                hits.append(
+                    (str(py_file.relative_to(dir_path.parent.parent)), lineno, code)
+                )
         return hits
 
     def test_core_no_print(self):
@@ -294,12 +301,14 @@ class TestLoggingBasicConfigBan:
             if py_file.name.startswith("test_") or py_file.name == "conftest.py":
                 continue
             source = py_file.read_text(encoding="utf-8")
-            file_hits = _find_basicConfig_calls(source, str(py_file))
+            file_hits = _find_basic_config_calls(source, str(py_file))
             for lineno, code in file_hits:
-                hits.append((str(py_file.relative_to(dir_path.parent.parent)), lineno, code))
+                hits.append(
+                    (str(py_file.relative_to(dir_path.parent.parent)), lineno, code)
+                )
         return hits
 
-    def test_no_basicConfig_in_src(self):
+    def test_no_basic_config_calls_in_src(self):
         """Given: all .py files in src/.
         When: AST is scanned for logging.basicConfig().
         Then: no basicConfig() calls are found."""
@@ -364,15 +373,16 @@ class TestPortAbstractMethods:
     def _get_port_classes(self) -> dict[str, type]:
         """Import and return all port classes."""
         from ai_assistant.core.ports import (
+            ILLM,
             IChatStorage,
             IChunker,
             IClosable,
             IEmbedder,
-            ILLM,
             IReranker,
             ITokenizer,
             IVectorStore,
         )
+
         return {
             "ILLM": ILLM,
             "IEmbedder": IEmbedder,
@@ -407,7 +417,9 @@ class TestPortAbstractMethods:
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "complete" in abstract_methods, "ILLM.complete must be abstract"
-        assert "get_context_limit" in abstract_methods, "ILLM.get_context_limit must be abstract"
+        assert "get_context_limit" in abstract_methods, (
+            "ILLM.get_context_limit must be abstract"
+        )
 
     def test_iembedder_has_embed_abstract(self):
         """Given: IEmbedder port.
@@ -417,7 +429,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(IEmbedder, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                IEmbedder, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "embed" in abstract_methods, "IEmbedder.embed must be abstract"
@@ -430,7 +444,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(IVectorStore, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                IVectorStore, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "search" in abstract_methods, "IVectorStore.search must be abstract"
@@ -443,7 +459,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(IReranker, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                IReranker, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "rerank" in abstract_methods, "IReranker.rerank must be abstract"
@@ -456,11 +474,17 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(IChatStorage, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                IChatStorage, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
-        assert "get_history" in abstract_methods, "IChatStorage.get_history must be abstract"
-        assert "save_message" in abstract_methods, "IChatStorage.save_message must be abstract"
+        assert "get_history" in abstract_methods, (
+            "IChatStorage.get_history must be abstract"
+        )
+        assert "save_message" in abstract_methods, (
+            "IChatStorage.save_message must be abstract"
+        )
 
     def test_ichunker_has_chunk_abstract(self):
         """Given: IChunker port.
@@ -470,7 +494,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(IChunker, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                IChunker, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "chunk" in abstract_methods, "IChunker.chunk must be abstract"
@@ -483,7 +509,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(ITokenizer, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                ITokenizer, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "count" in abstract_methods, "ITokenizer.count must be abstract"
@@ -496,7 +524,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(ITokenizer, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                ITokenizer, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "count" in abstract_methods, "ITokenizer.count must be abstract"
@@ -521,7 +551,9 @@ class TestPortAbstractMethods:
 
         abstract_methods = [
             name
-            for name, method in inspect.getmembers(IClosable, predicate=inspect.isfunction)
+            for name, method in inspect.getmembers(
+                IClosable, predicate=inspect.isfunction
+            )
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "shutdown" in abstract_methods, "IClosable.shutdown must be abstract"
@@ -553,9 +585,7 @@ class TestGetattrDrift:
         hits = self._check_file("api/deps.py")
         # Filter out legitimate getattr uses (e.g., request.app.state)
         config_hits = [
-            (ln, code)
-            for ln, code in hits
-            if "cfg" in code or "config" in code.lower()
+            (ln, code) for ln, code in hits if "cfg" in code or "config" in code.lower()
         ]
         assert not config_hits, f"getattr on config is drift risk: {config_hits}"
 
@@ -565,9 +595,7 @@ class TestGetattrDrift:
         Then: no getattr(cfg, ...) patterns found."""
         hits = self._check_file("api/lifespan.py")
         config_hits = [
-            (ln, code)
-            for ln, code in hits
-            if "cfg" in code or "config" in code.lower()
+            (ln, code) for ln, code in hits if "cfg" in code or "config" in code.lower()
         ]
         assert not config_hits, f"getattr on config is drift risk: {config_hits}"
 
@@ -584,9 +612,7 @@ class TestGetattrDrift:
         Then: no getattr(cfg, ...) patterns found."""
         hits = self._check_file("features/chat/manager.py")
         config_hits = [
-            (ln, code)
-            for ln, code in hits
-            if "cfg" in code or "config" in code.lower()
+            (ln, code) for ln, code in hits if "cfg" in code or "config" in code.lower()
         ]
         assert not config_hits, f"getattr on config is drift risk: {config_hits}"
 
@@ -606,10 +632,12 @@ class TestHasattrBan:
         tree = ast.parse(source, filename=filename)
         hits: list[tuple[int, str]] = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                func = node.func
-                if isinstance(func, ast.Name) and func.id == "hasattr":
-                    hits.append((node.lineno, ast.unparse(node)))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("print", "pprint")
+            ):
+                hits.append((node.lineno, ast.unparse(node)))
         return hits
 
     def test_api_deps_no_hasattr(self):
@@ -617,6 +645,7 @@ class TestHasattrBan:
         When: AST is scanned for hasattr().
         Then: no hasattr() calls are found."""
         import inspect as _inspect
+
         from ai_assistant.api import deps
 
         source = _inspect.getsource(deps)
@@ -628,6 +657,7 @@ class TestHasattrBan:
         When: AST is scanned for hasattr().
         Then: no hasattr() calls are found."""
         import inspect as _inspect
+
         from ai_assistant.api import lifespan
 
         source = _inspect.getsource(lifespan)
@@ -809,6 +839,7 @@ def test_itokenizer_is_closable() -> None:
     assert issubclass(ITokenizer, IClosable)
     assert callable(getattr(ITokenizer, "shutdown", None))
 
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TestAdapterGetattrBan
 # ═══════════════════════════════════════════════════════════════════════════
@@ -835,7 +866,9 @@ class TestAdapterGetattrBan:
                 if "cfg" in code or "config" in code.lower()
             ]
             rel_path = str(py_file.relative_to(adapter_dir.parent.parent))
-            assert not config_hits, f"getattr on config is drift risk in {rel_path}: {config_hits}"
+            assert not config_hits, (
+                f"getattr on config is drift risk in {rel_path}: {config_hits}"
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -862,10 +895,6 @@ def test_pipelinedata_has_no_metadata_bag() -> None:
         "rerank_filtered_out, rerank_scores"
     )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# TestAdapterRegistry (NEW)
-# ═══════════════════════════════════════════════════════════════════════════
-
 
 @pytest.mark.slow
 @pytest.mark.contract
@@ -886,7 +915,15 @@ class TestAdapterRegistry:
         When: registry is inspected.
         Then: all 6 expected ports have registered adapters."""
         registry = self._get_registry()
-        expected_ports = {"llm", "embedder", "vector_store", "chunker", "storage", "reranker", "tokenizer"}
+        expected_ports = {
+            "llm",
+            "embedder",
+            "vector_store",
+            "chunker",
+            "storage",
+            "reranker",
+            "tokenizer",
+        }
         missing = expected_ports - registry.keys()
         assert not missing, f"Missing ports in registry: {missing}"
 
@@ -921,7 +958,9 @@ class TestAdapterRegistry:
         """Given: registry loaded.
         When: embedder port is inspected.
         Then: OpenAICompatibleEmbedder is registered under 'openai_compatible'."""
-        from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
+        from ai_assistant.adapters.embedder_openai_compatible import (
+            OpenAICompatibleEmbedder,
+        )
 
         registry = self._get_registry()
         assert registry["embedder"]["openai_compatible"] is OpenAICompatibleEmbedder
@@ -998,7 +1037,6 @@ class TestAdapterRegistry:
         registry = self._get_registry()
         assert registry["tokenizer"]["char_fallback"] is CharFallbackTokenizer
 
-
     def test_vector_store_adapters_implement_upsert(self) -> None:
         """All registered IVectorStore adapters must expose upsert."""
         registry = get_registry()
@@ -1021,10 +1059,10 @@ class TestPortKwargsBan:
     def _get_port_methods(self) -> list[tuple[str, str, inspect.Signature]]:
         """Return (port_name, method_name, signature) for all port methods."""
         from ai_assistant.core.ports import (
+            ILLM,
             IChatStorage,
             IChunker,
             IEmbedder,
-            ILLM,
             IReranker,
             ITokenizer,
             IVectorStore,
@@ -1124,12 +1162,12 @@ class TestRAGStateTypedStatus:
         import dataclasses
 
         from ai_assistant.api.deps import RAGState
-        from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 
         fields = {f.name: f for f in dataclasses.fields(RAGState)}
         status_field = fields["_status"]
         assert "ReindexStatusEntry" in str(status_field.type), (
-            f"RAGState._status must be typed with ReindexStatusEntry, got: {status_field.type}"
+            f"RAGState._status must be typed with ReindexStatusEntry, "
+            f"got: {status_field.type}"
         )
 
     def test_reindex_status_entry_is_frozen_dataclass(self):

@@ -32,7 +32,6 @@ class TestConfigMigration:
     When: AppConfig is instantiated.
     Then: deprecated keys are migrated or stripped without error."""
 
-
     def test_migrate_security_rate_limit(self):
         """Given: security config contains removed rate_limit key.
         When: AppConfig is loaded.
@@ -86,7 +85,9 @@ class TestConfigValidation:
             "embedder": {"dim": 768, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        with pytest.raises(ValueError, match="embedder.dim .* must equal vector_store.dim"):
+        with pytest.raises(
+            ValueError, match=r"embedder\.dim .* must equal vector_store\.dim"
+        ):
             AppConfig(**raw)
 
     def test_check_dimensions_passes_on_match(self):
@@ -269,11 +270,17 @@ class TestYamlLoading:
         Then: config is loaded from that file only."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            yaml.safe_dump({
-                "llm": {"provider": "mock", "api_key": None, "model": "custom-model"},
-                "embedder": {"dim": 384, "provider": "mock"},
-                "vector_store": {"dim": 384, "provider": "memory"},
-            }),
+            yaml.safe_dump(
+                {
+                    "llm": {
+                        "provider": "mock",
+                        "api_key": None,
+                        "model": "custom-model",
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                }
+            ),
             encoding="utf-8",
         )
         cfg = load_config(str(config_file))
@@ -288,18 +295,22 @@ class TestYamlLoading:
         Then: only the requested file is loaded (no deep merge)."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
-            yaml.safe_dump({
-                "llm": {"provider": "mock", "model": "from-main"},
-                "embedder": {"dim": 384, "provider": "mock"},
-                "vector_store": {"dim": 384, "provider": "memory"},
-            }),
+            yaml.safe_dump(
+                {
+                    "llm": {"provider": "mock", "model": "from-main"},
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                }
+            ),
             encoding="utf-8",
         )
         local = tmp_path / "config.local.yaml"
         local.write_text(
-            yaml.safe_dump({
-                "llm": {"model": "from-local"},
-            }),
+            yaml.safe_dump(
+                {
+                    "llm": {"model": "from-local"},
+                }
+            ),
             encoding="utf-8",
         )
         cfg = load_config(str(config_file))
@@ -340,11 +351,15 @@ class TestYamlLoading:
         When: load_config is called.
         Then: returned AppConfig reflects the overrides."""
         config_file = tmp_path / "valid_config.yaml"
-        config_file.write_text(yaml.safe_dump({
-            "app_name": "test-app",
-            "port": 9000,
-            "debug": True,
-        }))
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "app_name": "test-app",
+                    "port": 9000,
+                    "debug": True,
+                }
+            )
+        )
         cfg = load_config(config_file)
         assert cfg.app_name == "test-app"
         assert cfg.port == 9000
@@ -362,17 +377,21 @@ class TestYamlLoading:
         """Given: YAML file contains logging rotation settings.
         When: load_config is called. Then: logging reflects the overrides."""
         config_file = tmp_path / "logging_config.yaml"
-        config_file.write_text(yaml.safe_dump({
-            "logging": {
-                "level": "DEBUG",
-                "file": "./data/test.log",
-                "format": "json",
-                "max_bytes": 5_242_880,
-                "backup_count": 5,
-            },
-            "embedder": {"dim": 384, "provider": "mock"},
-            "vector_store": {"dim": 384, "provider": "memory"},
-        }))
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "logging": {
+                        "level": "DEBUG",
+                        "file": "./data/test.log",
+                        "format": "json",
+                        "max_bytes": 5_242_880,
+                        "backup_count": 5,
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                }
+            )
+        )
         cfg = load_config(config_file)
         assert cfg.logging.level == "DEBUG"
         assert cfg.logging.file == "./data/test.log"
@@ -392,7 +411,6 @@ class TestNamespacesEmptyDefault:
         Then: namespaces is empty."""
         cfg = AppConfig()
         assert cfg.namespaces == {}
-
 
     def test_namespace_extra_forbid(self):
         """Given: unknown key in NamespaceConfig.
@@ -421,7 +439,6 @@ class TestResourceLimits:
         cfg = RAGConfig()
         assert cfg.token_margin_min == 256
         assert cfg.token_margin_pct == 0.1
-
 
     def test_rag_config_token_margin_override(self, monkeypatch):
         """Given: AI_RAG_TOKEN_MARGIN_MIN and AI_RAG_TOKEN_MARGIN_PCT env vars.
@@ -494,13 +511,17 @@ class TestCORSConfig:
         When: loaded.
         Then: 'null' is not in allow_origins."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text(yaml.safe_dump({
-            "cors": {
-                "allow_origins": ["http://localhost", "http://127.0.0.1"],
-            },
-            "embedder": {"dim": 384, "provider": "mock"},
-            "vector_store": {"dim": 384, "provider": "memory"},
-        }))
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "cors": {
+                        "allow_origins": ["http://localhost", "http://127.0.0.1"],
+                    },
+                    "embedder": {"dim": 384, "provider": "mock"},
+                    "vector_store": {"dim": 384, "provider": "memory"},
+                }
+            )
+        )
         cfg = load_config(config_file)
         assert "null" not in cfg.cors.allow_origins
         assert "http://localhost" in cfg.cors.allow_origins
@@ -517,7 +538,8 @@ class TestCORSConfig:
             "vector_store": {"dim": 384, "provider": "memory"},
         }
         cfg = AppConfig(**raw)
-        # AppConfig allows 'null' — the fix is in main.py (not using *) and config.yaml (removing it)
+        # AppConfig allows 'null' — the fix is in main.py (not using *)
+        # and config.yaml (removing it)
         assert "null" in cfg.cors.allow_origins
 
 
@@ -559,7 +581,10 @@ class TestConfigMigrationParametrized:
                     "vector_store": {"dim": 384, "provider": "memory"},
                 },
                 [
-                    (lambda cfg: cfg.rag.steps, [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE]),
+                    (
+                        lambda cfg: cfg.rag.steps,
+                        [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE],
+                    ),
                 ],
                 id="rag_steps_string_to_list",
             ),
@@ -596,7 +621,15 @@ class TestConfigMigrationParametrized:
                 },
                 [
                     (lambda cfg: cfg.config_version, "0"),
-                    (lambda cfg: cfg.rag.steps, [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE, RAGStep.BUILD_CONTEXT, RAGStep.GENERATE]),
+                    (
+                        lambda cfg: cfg.rag.steps,
+                        [
+                            RAGStep.EMBED_QUERY,
+                            RAGStep.RETRIEVE,
+                            RAGStep.BUILD_CONTEXT,
+                            RAGStep.GENERATE,
+                        ],
+                    ),
                     (lambda cfg: cfg.security.api_key, "test-key"),
                     (lambda cfg: "rate_limit" not in cfg.security.model_dump(), True),
                 ],
@@ -641,7 +674,10 @@ class TestConfigMigrationParametrizedV2:
                     "vector_store": {"dim": 384, "provider": "memory"},
                 },
                 [
-                    (lambda cfg: cfg.rag.steps, [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE]),
+                    (
+                        lambda cfg: cfg.rag.steps,
+                        [RAGStep.EMBED_QUERY, RAGStep.RETRIEVE],
+                    ),
                     (lambda cfg: cfg.config_version, "0"),
                 ],
                 id="rag_steps_string_to_list",
@@ -683,7 +719,6 @@ class TestSourceConfigMigration:
         """Given: old config with documents_root but no sources.
         When: AppConfig is loaded.
         Then: sources is populated from documents_root automatically."""
-        from ai_assistant.core.config import SourceConfig
 
         data = {
             "rag": {
@@ -703,7 +738,6 @@ class TestSourceConfigMigration:
         """Given: config with both sources and documents_root.
         When: AppConfig is loaded.
         Then: documents_root is prepended to sources — no silent data loss."""
-        from ai_assistant.core.config import SourceConfig
 
         data = {
             "rag": {
@@ -728,7 +762,6 @@ class TestSourceConfigMigration:
         """Given: minimal SourceConfig with only namespace and path.
         When: SourceConfig is created.
         Then: defaults are applied correctly."""
-        from ai_assistant.core.config import SourceConfig
 
         sc = SourceConfig(namespace="test", path="./some/path")
         assert sc.include == ["*.md", "*.txt"]
@@ -738,7 +771,6 @@ class TestSourceConfigMigration:
         """Given: source path contains path traversal.
         When: SourceConfig is loaded.
         Then: ValidationError is raised."""
-        from ai_assistant.core.config import SourceConfig
 
         with pytest.raises(ValueError, match="traversal"):
             SourceConfig(namespace="test", path="../../etc/passwd")
@@ -747,7 +779,6 @@ class TestSourceConfigMigration:
         """Given: absolute source path.
         When: SourceConfig is loaded.
         Then: accepted (absolute paths allowed for external drives)."""
-        from ai_assistant.core.config import SourceConfig
 
         sc = SourceConfig(namespace="test", path="/etc/passwd")
         assert sc.path == "/etc/passwd"
@@ -759,7 +790,6 @@ class TestSourceConfigMigration:
         """Given: valid relative path without traversal.
         When: SourceConfig is loaded.
         Then: accepted."""
-        from ai_assistant.core.config import SourceConfig
 
         sc = SourceConfig(namespace="test", path="./documents")
         assert sc.path == "./documents"
@@ -768,7 +798,6 @@ class TestSourceConfigMigration:
         """Given: empty source path.
         When: SourceConfig is loaded.
         Then: ValidationError is raised."""
-        from ai_assistant.core.config import SourceConfig
 
         with pytest.raises(ValueError, match="non-empty"):
             SourceConfig(namespace="test", path="")
@@ -804,11 +833,14 @@ def test_config_v2_backward_compat():
     assert cfg.config_version == "2"
 
 
-@pytest.mark.parametrize("bad_path", [
-    "C:\\Users\\docs",
-    "D:/projects",
-    "E:\\data\\files",
-])
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "C:\\Users\\docs",
+        "D:/projects",
+        "E:\\data\\files",
+    ],
+)
 def test_chat_exports_root_rejects_windows_absolute(bad_path):
     """Windows drive-letter paths must be rejected as non-relative."""
     from ai_assistant.core.config import RAGConfig

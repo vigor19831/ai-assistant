@@ -25,7 +25,9 @@ def _make_file(tmp_path: Path, name: str, size_lines: int) -> Path:
     """Create a source file with one known line per row."""
     src = tmp_path / "src" / name
     src.parent.mkdir(parents=True, exist_ok=True)
-    content = "".join(f"line-{i:06d} of the source document\n" for i in range(size_lines))
+    content = "".join(
+        f"line-{i:06d} of the source document\n" for i in range(size_lines)
+    )
     src.write_text(content, encoding="utf-8")
     return src
 
@@ -37,6 +39,7 @@ def _run_split(tmp_path: Path, src: Path) -> list[Path]:
 
 
 # --- Invariant 1: lossless (the core guarantee) ---
+
 
 def test_split_is_lossless(tmp_path: Path) -> None:
     """Concat of parts equals the original byte-for-byte.
@@ -53,6 +56,7 @@ def test_split_is_lossless(tmp_path: Path) -> None:
 
 # --- Invariant 2: seams at line boundaries ---
 
+
 def test_parts_end_on_line_boundaries(tmp_path: Path) -> None:
     """Every part except possibly the last ends with a newline.
 
@@ -67,6 +71,7 @@ def test_parts_end_on_line_boundaries(tmp_path: Path) -> None:
 
 # --- Invariant 3: small files pass through whole ---
 
+
 def test_small_file_copied_as_is(tmp_path: Path) -> None:
     """Files under the threshold are copied, never split."""
     src = _make_file(tmp_path, "small.md", 100)  # < THRESHOLD_BYTES
@@ -76,6 +81,7 @@ def test_small_file_copied_as_is(tmp_path: Path) -> None:
 
 
 # --- Invariant 4: watcher-visible names ---
+
 
 def test_part_names_carry_md_extension(tmp_path: Path) -> None:
     """Parts keep the source suffix: watcher include is ["*.md", "*.txt"]."""
@@ -87,6 +93,7 @@ def test_part_names_carry_md_extension(tmp_path: Path) -> None:
 
 
 # --- Invariant 5: threshold boundary ---
+
 
 def test_threshold_boundary_not_split(tmp_path: Path) -> None:
     """A file of exactly THRESHOLD_BYTES is copied, not split."""
@@ -101,6 +108,7 @@ def test_threshold_boundary_not_split(tmp_path: Path) -> None:
 
 # --- Invariant 6: no empty parts (regression guard) ---
 
+
 def test_no_empty_parts(tmp_path: Path) -> None:
     """Splitting never produces zero-length part files."""
     src = _make_file(tmp_path, "big.md", 8000)
@@ -110,6 +118,7 @@ def test_no_empty_parts(tmp_path: Path) -> None:
 
 
 # --- make_atoms: local-LLM extraction invariants ---
+
 
 def _fake_llm(monkeypatch, answers: list[str]) -> list[dict]:
     """Patch httpx.post to return canned LLM answers. Returns calls.
@@ -130,7 +139,7 @@ def _fake_llm(monkeypatch, answers: list[str]) -> list[dict]:
         def json(self) -> dict:
             return {"choices": [{"message": {"content": self._content}}]}
 
-    def _post(url: str, json: dict, timeout: float) -> "_Resp":
+    def _post(url: str, json: dict, timeout: float) -> _Resp:
         calls.append(json)
         idx = min(len(calls) - 1, len(answers) - 1)
         return _Resp(answers[idx])
@@ -175,6 +184,7 @@ def test_make_atoms_last_part_marked_final(tmp_path: Path, monkeypatch) -> None:
         # itself mentions "PART N/M". Anchor on the header that
         # starts a line right after a blank-line separator.
         import re
+
         m = re.search(r"\n(PART \d+/\d+(?:\nFINAL)?)", content)
         return m.group(1) if m else ""
 
@@ -216,9 +226,7 @@ def test_make_atoms_payload_has_no_model(tmp_path: Path, monkeypatch) -> None:
     assert "model" not in calls[0]
 
 
-def test_make_atoms_omits_model_when_name_empty(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_make_atoms_omits_model_when_name_empty(tmp_path: Path, monkeypatch) -> None:
     """No model field in the payload when the config is unreadable."""
     fake_root = tmp_path / "root"
     fake_root.mkdir()
@@ -232,6 +240,7 @@ def test_make_atoms_omits_model_when_name_empty(
 
 
 # --- _needs_processing: idempotency invariants ---
+
 
 def _touch_later(path: Path, offset: float) -> None:
     """Set mtime into the future/past relative to now."""
@@ -311,9 +320,7 @@ def test_idempotent_rerun_after_real_split(tmp_path: Path) -> None:
     dest.mkdir()
     prepare_docs.split_file(small, dest)
     prepare_docs.split_file(big, dest)
-    assert not prepare_docs._needs_processing(
-        small, dest, atoms=False, split=True
-    )
+    assert not prepare_docs._needs_processing(small, dest, atoms=False, split=True)
     assert not prepare_docs._needs_processing(big, dest, atoms=False, split=True)
 
 
@@ -367,7 +374,8 @@ def test_make_atoms_payload_contains_prompt(tmp_path, monkeypatch):
     (2026-09-03, watch-chat atoms).
     """
     src = _make_file(tmp_path, "chat.md", 100)
-    dest = tmp_path / "dest"; dest.mkdir()
+    dest = tmp_path / "dest"
+    dest.mkdir()
     calls = _fake_llm(monkeypatch, ["answer"])
     prepare_docs.make_atoms(src, dest)
     content = calls[0]["messages"][0]["content"]

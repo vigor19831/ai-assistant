@@ -53,8 +53,8 @@ include = ["ai_assistant*"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-# scripts/ now linted; tests/ stay excluded per §15; vendor/ is binaries.
-extend-exclude = ["tests/", "vendor/"]
+# scripts/ and tests/ now linted (drift #71); vendor/ is binaries.
+extend-exclude = ["vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ASYNC", "B", "SIM", "C4", "TCH", "A", "ERA", "RUF", "RET"]
@@ -70,6 +70,11 @@ ignore = ["TC003", "TC001"]
 # CancelledError, bypassing retry — a semantics change with no
 # proven defect (§13.4).
 "scripts/check_rag.py" = ["E501", "RUF001", "RUF002", "RUF003", "ASYNC109"]
+
+# tests/: blocking sync IO in fixtures is legitimate — ASYNC230/240
+# guard the production event loop, not test setup. N806: UPPERCASE
+# inline config constants in test bodies are idiomatic.
+"tests/*" = ["ASYNC230", "ASYNC240", "N806"]
 
 [tool.mypy]
 strict = true

@@ -5,6 +5,7 @@ prefix routing, source formatting, graceful degradation.
 Design: Given/When/Then docstrings, one function per test case.
 Public API only — no private method assertions.
 """
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,7 +16,7 @@ from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-from ai_assistant.core.config import NamespaceConfig, RAGStep
+from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     RerankerConfigData,
@@ -96,12 +97,8 @@ def chat_manager_with_rag():
     embedder = MockEmbedder(EmbedderConfigData(dim=3))
     store = MemoryVectorStore(VectorStoreConfigData(dim=3))
     namespaces = {
-        "test": NamespaceConfig(
-            prefix="t", chunk_size=512, prompt="rag_strict"
-        ),
-        "test-alt": NamespaceConfig(
-            prefix="a", chunk_size=1024, prompt="rag_strict"
-        ),
+        "test": NamespaceConfig(prefix="t", chunk_size=512, prompt="rag_strict"),
+        "test-alt": NamespaceConfig(prefix="a", chunk_size=1024, prompt="rag_strict"),
         "test-default": NamespaceConfig(
             prefix="d", chunk_size=512, prompt="rag_strict"
         ),
@@ -185,7 +182,7 @@ def prefix_manager():
     mock_llm = MagicMock(spec=ILLM)
     mock_llm.get_context_limit.return_value = 4096
     mock_llm.system_message = None
-    mgr = ChatManager(
+    return ChatManager(
         llm=mock_llm,
         embedder=None,
         vector_store=None,
@@ -196,7 +193,6 @@ def prefix_manager():
         },
         tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
     )
-    return mgr
 
 
 # ── TestChatRAG ──
@@ -235,9 +231,7 @@ class TestChatRAG:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Answer."])
         )
@@ -265,9 +259,7 @@ class TestChatRAG:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Answer."])
         )
@@ -293,12 +285,8 @@ class TestChatRAG:
             embedding=[1.0, 0.0, 0.0],
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
-        await chat_manager_with_rag.vector_store.add(
-            [chunk], namespace="test-default"
-        )
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        await chat_manager_with_rag.vector_store.add([chunk], namespace="test-default")
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Answer."])
         )
@@ -323,9 +311,7 @@ class TestChatRAG:
         chat_manager_with_rag.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await chat_manager_with_rag.chat(
-            "[t] something impossible to find", "conv-1"
-        )
+        await chat_manager_with_rag.chat("[t] something impossible to find", "conv-1")
         messages = chat_manager_with_rag.llm.complete.call_args[0][0]
         # Empty-context RAG prompt contains the original query text
         assert "something impossible to find" in messages[-1].text
@@ -366,9 +352,7 @@ class TestChatRAG:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Answer."])
@@ -436,9 +420,7 @@ class TestChatRAG:
         assert messages[-1].text == "query"
 
     @pytest.mark.asyncio
-    async def test_retrieve_per_namespace_prompt(
-        self, chat_manager_with_rag
-    ):
+    async def test_retrieve_per_namespace_prompt(self, chat_manager_with_rag):
         """Given: test-alt namespace with custom prompt.
         When: stream_chat() is called with [a] prefix.
         Then: correct prompt name is requested.
@@ -450,13 +432,9 @@ class TestChatRAG:
             metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
-        with patch(
-            "ai_assistant.features.chat.manager.get_prompt"
-        ) as mock_get_prompt:
+        with patch("ai_assistant.features.chat.manager.get_prompt") as mock_get_prompt:
             mock_get_prompt.return_value = "alt prompt"
             chat_manager_with_rag.llm.stream = MagicMock(
                 return_value=async_iter(["Answer."])
@@ -499,9 +477,7 @@ class TestChatRAG:
         await manager.vector_store.add([chunk], namespace="test")
         manager.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
-        with patch(
-            "ai_assistant.features.chat.manager.get_prompt"
-        ) as mock_get_prompt:
+        with patch("ai_assistant.features.chat.manager.get_prompt") as mock_get_prompt:
             mock_get_prompt.return_value = "default prompt"
             manager.llm.stream = MagicMock(return_value=async_iter(["Answer."]))
             chunks = []
@@ -621,9 +597,7 @@ class TestChatMethods:
         When: message is processed.
         Then: LLM stream is called and chunks are yielded.
         """
-        manager_no_rag.llm.stream = MagicMock(
-            return_value=async_iter(["Hi", " there"])
-        )
+        manager_no_rag.llm.stream = MagicMock(return_value=async_iter(["Hi", " there"]))
         chunks = []
         async for chunk in manager_no_rag.stream_chat("Hello", "conv-1"):
             chunks.append(chunk)
@@ -711,9 +685,7 @@ class TestChatGracefulDegradation:
         When: message is streamed.
         Then: LLM stream is called and chunks yielded.
         """
-        manager_no_rag.llm.stream = MagicMock(
-            return_value=async_iter(["Hello", "!"])
-        )
+        manager_no_rag.llm.stream = MagicMock(return_value=async_iter(["Hello", "!"]))
         chunks = []
         async for chunk in manager_no_rag.stream_chat("Hello", "conv-1"):
             chunks.append(chunk)
@@ -736,13 +708,9 @@ class TestChatGracefulDegradation:
             namespaces={"personal": NamespaceConfig(prefix="p")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        manager.llm.stream = MagicMock(
-            return_value=async_iter(["RAG unavailable"])
-        )
+        manager.llm.stream = MagicMock(return_value=async_iter(["RAG unavailable"]))
         chunks = []
-        async for chunk in manager.stream_chat(
-            "[p] capital of France", "conv-1"
-        ):
+        async for chunk in manager.stream_chat("[p] capital of France", "conv-1"):
             chunks.append(chunk)
         assert len(chunks) == 1
         assert "unavailable" in chunks[0].lower()
@@ -799,9 +767,7 @@ class TestChatStreamRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
 
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Paris", " is", " sunny."])
@@ -833,27 +799,17 @@ class TestChatStreamRAG:
         )
         await chat_manager_with_rag.vector_store.add([chunk_t], namespace="test")
         await chat_manager_with_rag.vector_store.add([chunk_a], namespace="test-alt")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
-        chat_manager_with_rag.llm.stream = MagicMock(
-            return_value=async_iter(["ok"])
-        )
+        chat_manager_with_rag.llm.stream = MagicMock(return_value=async_iter(["ok"]))
         chunks_t = []
-        async for text in chat_manager_with_rag.stream_chat(
-            "[t] settings?", "conv-1"
-        ):
+        async for text in chat_manager_with_rag.stream_chat("[t] settings?", "conv-1"):
             chunks_t.append(text)
         assert "Sources:" in "".join(chunks_t)
 
-        chat_manager_with_rag.llm.stream = MagicMock(
-            return_value=async_iter(["ok"])
-        )
+        chat_manager_with_rag.llm.stream = MagicMock(return_value=async_iter(["ok"]))
         chunks_a = []
-        async for text in chat_manager_with_rag.stream_chat(
-            "[a] plan?", "conv-1"
-        ):
+        async for text in chat_manager_with_rag.stream_chat("[a] plan?", "conv-1"):
             chunks_a.append(text)
         assert "Sources:" in "".join(chunks_a)
 
@@ -994,17 +950,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Paris is the capital of France."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1028,17 +980,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Berlin is the capital of Germany."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1047,7 +995,9 @@ class TestChatManagerSources:
         assert "Sources:" in text
 
     @pytest.mark.asyncio
-    async def test_append_sources_always_when_chunks_present(self, chat_manager_with_rag):
+    async def test_append_sources_always_when_chunks_present(
+        self, chat_manager_with_rag
+    ):
         """Given: chunks exist even if LLM refuses to answer.
         When: stream_chat() is called.
         Then: sources are still appended.
@@ -1066,17 +1016,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["I don't have enough information."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1103,17 +1049,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Paris is the capital of France."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1151,17 +1093,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Combined info."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1204,23 +1142,18 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Old answer."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
         assert "[1] legacy_doc" in text
         assert "Sources:" in text
-
 
     @pytest.mark.asyncio
     async def test_append_sources_with_original_path(self, chat_manager_with_rag):
@@ -1242,17 +1175,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Configuration details."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1305,17 +1234,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Answer."])
         )
 
         result = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(chunk)
 
         text = "".join(result)
@@ -1325,7 +1250,9 @@ class TestChatManagerSources:
         assert "Sources:" in text
 
     @pytest.mark.asyncio
-    async def test_append_sources_skipped_when_answer_empty(self, chat_manager_with_rag):
+    async def test_append_sources_skipped_when_answer_empty(
+        self, chat_manager_with_rag
+    ):
         """Given: chunks exist but LLM returns an empty answer.
         When: chat() and stream_chat() are called.
         Then: 'Sources:' block is NOT appended to the empty answer.
@@ -1344,9 +1271,7 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
         # Test chat()
         chat_manager_with_rag.llm.complete = AsyncMock(
@@ -1357,13 +1282,9 @@ class TestChatManagerSources:
         assert chat_result.text == ""
 
         # Test stream_chat()
-        chat_manager_with_rag.llm.stream = MagicMock(
-            return_value=async_iter([""])
-        )
+        chat_manager_with_rag.llm.stream = MagicMock(return_value=async_iter([""]))
         result_stream = []
-        async for chunk in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for chunk in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result_stream.append(chunk)
         stream_text = "".join(result_stream)
         assert "Sources:" not in stream_text
@@ -1388,17 +1309,13 @@ class TestChatManagerSources:
             ),
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
-        chat_manager_with_rag.embedder.embed = AsyncMock(
-            return_value=[[1.0, 0.0, 0.0]]
-        )
+        chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
             return_value=async_iter(["Answer."])
         )
 
         result = []
-        async for text in chat_manager_with_rag.stream_chat(
-            "[t] query?", "conv-1"
-        ):
+        async for text in chat_manager_with_rag.stream_chat("[t] query?", "conv-1"):
             result.append(text)
 
         full_text = "".join(result)
@@ -1441,29 +1358,26 @@ class TestStreamPersistence:
 
         The manager's LLM stream is replaceable per test via state.
         """
-        from ai_assistant.api.deps import InitializedAppState, RAGState
-        from ai_assistant.core.task_registry import TaskRegistry
         from ai_assistant.adapters.char_fallback_tokenizer import (
             CharFallbackTokenizer,
         )
+        from ai_assistant.api.deps import InitializedAppState, RAGState
         from ai_assistant.core.config import AppConfig
         from ai_assistant.core.domain.configs import TokenizerConfigData
         from ai_assistant.core.domain.messages import AssistantMessage
-        from ai_assistant.core.ports.llm import ILLM
-        from ai_assistant.core.ports.embedder import IEmbedder
-        from ai_assistant.core.ports.vector_store import IVectorStore
         from ai_assistant.core.ports.chunker import IChunker
-        from ai_assistant.core.ports.storage import IChatStorage
+        from ai_assistant.core.ports.embedder import IEmbedder
+        from ai_assistant.core.ports.llm import ILLM
         from ai_assistant.core.ports.reranker import IReranker
-        from ai_assistant.features.chat.manager import ChatManager, strip_rag_sources
+        from ai_assistant.core.ports.vector_store import IVectorStore
+        from ai_assistant.core.task_registry import TaskRegistry
+        from ai_assistant.features.chat.manager import ChatManager
 
         config = AppConfig()
 
         llm = AsyncMock(spec=ILLM)
         llm.get_context_limit = MagicMock(return_value=8192)
-        llm.complete = AsyncMock(
-            return_value=AssistantMessage(text="ok", metadata={})
-        )
+        llm.complete = AsyncMock(return_value=AssistantMessage(text="ok", metadata={}))
         embedder = AsyncMock(spec=IEmbedder)
         vector_store = AsyncMock(spec=IVectorStore)
         chunker = AsyncMock(spec=IChunker)
@@ -1486,7 +1400,7 @@ class TestStreamPersistence:
             rag_steps=[],
         )
 
-        state = InitializedAppState(
+        return InitializedAppState(
             config=config,
             task_registry=TaskRegistry(),
             llm=llm,
@@ -1500,7 +1414,6 @@ class TestStreamPersistence:
             chat_manager=chat_manager,
             rag_manager=None,
         )
-        return state
 
     @pytest.mark.asyncio
     async def test_completed_stream_persists_full_turn(self, storage):
@@ -1514,7 +1427,9 @@ class TestStreamPersistence:
         )
 
         req = ChatRequest(message="hi", conversation_id="c1")
-        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        response = await chat_stream(
+            req, request=MagicMock(), manager=state.chat_manager, state=state
+        )
         # Consume the streaming response
         async for _ in response.body_iterator:
             pass
@@ -1529,6 +1444,7 @@ class TestStreamPersistence:
     @pytest.mark.asyncio
     async def test_failed_stream_does_not_persist(self, storage):
         """A stream that fails mid-generation must not save anything."""
+        from ai_assistant.core.domain.errors import AdapterError
         from ai_assistant.features.chat.handlers import chat_stream
         from ai_assistant.features.chat.schemas import ChatRequest
 
@@ -1544,7 +1460,9 @@ class TestStreamPersistence:
         state.chat_manager.llm.stream = MagicMock(side_effect=_failing_stream)
 
         req = ChatRequest(message="hi")
-        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        response = await chat_stream(
+            req, request=MagicMock(), manager=state.chat_manager, state=state
+        )
         # Consume the streaming response
         async for _ in response.body_iterator:
             pass
@@ -1558,12 +1476,12 @@ class TestStreamPersistence:
         from ai_assistant.features.chat.schemas import ChatRequest
 
         state = self._stream_state(storage)
-        state.chat_manager.llm.stream = MagicMock(
-            return_value=async_iter([])
-        )
+        state.chat_manager.llm.stream = MagicMock(return_value=async_iter([]))
 
         req = ChatRequest(message="hi")
-        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        response = await chat_stream(
+            req, request=MagicMock(), manager=state.chat_manager, state=state
+        )
         # Consume the streaming response
         async for _ in response.body_iterator:
             pass
@@ -1614,7 +1532,9 @@ class TestStreamPersistence:
         )
 
         req = ChatRequest(message="hi", conversation_id="c1")
-        response = await chat_stream(req, request=MagicMock(), manager=state.chat_manager, state=state)
+        response = await chat_stream(
+            req, request=MagicMock(), manager=state.chat_manager, state=state
+        )
         frames: list[str] = []
         async for chunk in response.body_iterator:
             frames.append(chunk)
@@ -1637,7 +1557,9 @@ class TestStreamPersistence:
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat("Current question", "conv-1", history=history)
+        await manager_with_tokenizer_and_storage.chat(
+            "Current question", "conv-1", history=history
+        )
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         texts = [m.text for m in messages]
         assert "A" * 100 not in texts
@@ -1659,7 +1581,9 @@ class TestStreamPersistence:
         manager_with_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_tokenizer_and_storage.chat(long_msg, "conv-1", history=history)
+        await manager_with_tokenizer_and_storage.chat(
+            long_msg, "conv-1", history=history
+        )
         messages = manager_with_tokenizer_and_storage.llm.complete.call_args[0][0]
         assert len(messages) == 1
         assert messages[0].text == long_msg
@@ -1682,7 +1606,9 @@ class TestStreamPersistence:
         manager_with_fallback_tokenizer_and_storage.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
         )
-        await manager_with_fallback_tokenizer_and_storage.chat("q", "conv-1", history=history)
+        await manager_with_fallback_tokenizer_and_storage.chat(
+            "q", "conv-1", history=history
+        )
         call_args = manager_with_fallback_tokenizer_and_storage.llm.complete.call_args
         messages = call_args[0][0]
         # 5 history + 1 current = 6 messages
@@ -1823,6 +1749,7 @@ async def test_get_chat_manager_returns_cached_instance():
     When: get_chat_manager is called.
     Then: returns state.chat_manager without creating a new instance."""
     from unittest.mock import MagicMock
+
     from ai_assistant.features.chat.handlers import get_chat_manager
 
     state = MagicMock()

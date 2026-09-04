@@ -13,7 +13,6 @@ import sqlite3
 import tempfile
 from contextlib import closing
 from pathlib import Path
-
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -42,7 +41,6 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
-from ai_assistant.core.ports.reranker import RerankResult
 
 logger = get_logger(__name__)
 
@@ -361,7 +359,9 @@ class TestMemoryVectorStoreUpsert:
     """Coverage for IVectorStore.upsert default implementation (Memory)."""
 
     @pytest.mark.asyncio
-    async def test_memory_upsert_replaces_old_chunks_by_source(self, tmp_path: Path) -> None:
+    async def test_memory_upsert_replaces_old_chunks_by_source(
+        self, tmp_path: Path
+    ) -> None:
         """Same as Faiss upsert test, but for MemoryVectorStore."""
         config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
         store = MemoryVectorStore(config)
@@ -399,7 +399,9 @@ class TestFaissVectorStoreUpsert:
     """Coverage for IVectorStore.upsert default implementation (Faiss)."""
 
     @pytest.mark.asyncio
-    async def test_faiss_upsert_replaces_old_chunks_by_source(self, tmp_path: Path) -> None:
+    async def test_faiss_upsert_replaces_old_chunks_by_source(
+        self, tmp_path: Path
+    ) -> None:
         """upsert removes old chunks with the same source and adds new ones."""
         pytest.importorskip("faiss")
         from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
@@ -465,9 +467,7 @@ class TestVectorStoreDeleteAllPersistence:
     """
 
     @pytest.mark.asyncio
-    async def test_delete_all_removes_namespace_from_disk(
-        self, vector_store_adapter
-    ):
+    async def test_delete_all_removes_namespace_from_disk(self, vector_store_adapter):
         chunk = Chunk(id="c1", text="a", embedding=[0.1] * 384)
         index_path = vector_store_adapter.index_path
         await vector_store_adapter.add([chunk], namespace="ns")
@@ -557,9 +557,7 @@ class TestFaissStorePersistenceGuards:
         pytest.importorskip("faiss")
         from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 
-        store = FaissVectorStore(
-            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
-        )
+        store = FaissVectorStore(VectorStoreConfigData(dim=3, index_path=str(tmp_path)))
         await store.add(
             [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="ns"
         )
@@ -610,7 +608,6 @@ class TestNullReranker:
         results = await reranker.rerank("q", chunks, top_k=1)
         assert len(results) == 1
         assert results[0].chunk.id == "c1"
-
 
     @pytest.mark.asyncio
     async def test_shutdown(self):
@@ -680,8 +677,8 @@ class TestLocalReranker:
         reranker = LocalReranker(config)
         mock_response = {
             "results": [
-                {"index": 1, "relevance_score": 2.0},   # ~0.88
-                {"index": 0, "relevance_score": 0.0},    # 0.5
+                {"index": 1, "relevance_score": 2.0},  # ~0.88
+                {"index": 0, "relevance_score": 0.0},  # 0.5
                 {"index": 2, "relevance_score": -1.0},  # ~0.27
             ]
         }
@@ -728,9 +725,7 @@ class TestLocalReranker:
     ) -> None:
         reranker = LocalReranker(config)
         mock_post = AsyncMock(return_value={"results": []})
-        with patch(
-            "ai_assistant.adapters.reranker_local.async_post_json", mock_post
-        ):
+        with patch("ai_assistant.adapters.reranker_local.async_post_json", mock_post):
             await reranker.rerank("query", chunks)
         payload = mock_post.call_args[0][3]
         assert payload["top_n"] == len(chunks)
@@ -741,9 +736,7 @@ class TestLocalReranker:
     ) -> None:
         reranker = LocalReranker(config)
         mock_post = AsyncMock(return_value={"results": []})
-        with patch(
-            "ai_assistant.adapters.reranker_local.async_post_json", mock_post
-        ):
+        with patch("ai_assistant.adapters.reranker_local.async_post_json", mock_post):
             await reranker.rerank("query", chunks, top_k=2)
         payload = mock_post.call_args[0][3]
         assert payload["top_n"] == 2
@@ -753,10 +746,10 @@ class TestLocalReranker:
         self, config_with_key: RerankerConfigData, chunks: list[Chunk]
     ) -> None:
         reranker = LocalReranker(config_with_key)
-        mock_post = AsyncMock(return_value={"results": [{"index": 0, "relevance_score": 1.0}]})
-        with patch(
-            "ai_assistant.adapters.reranker_local.async_post_json", mock_post
-        ):
+        mock_post = AsyncMock(
+            return_value={"results": [{"index": 0, "relevance_score": 1.0}]}
+        )
+        with patch("ai_assistant.adapters.reranker_local.async_post_json", mock_post):
             await reranker.rerank("query", chunks)
         headers = mock_post.call_args[0][2]
         assert headers["Authorization"] == "Bearer secret-key"
@@ -768,39 +761,45 @@ class TestLocalReranker:
         self, config: RerankerConfigData, chunks: list[Chunk]
     ) -> None:
         reranker = LocalReranker(config)
-        with patch(
-            "ai_assistant.adapters.reranker_local.async_post_json",
-            new_callable=AsyncMock,
-            side_effect=ConnectionError("refused"),
+        with (
+            patch(
+                "ai_assistant.adapters.reranker_local.async_post_json",
+                new_callable=AsyncMock,
+                side_effect=ConnectionError("refused"),
+            ),
+            pytest.raises(AdapterError, match="Local reranker request failed"),
         ):
-            with pytest.raises(AdapterError, match="Local reranker request failed"):
-                await reranker.rerank("query", chunks)
+            await reranker.rerank("query", chunks)
 
     @pytest.mark.asyncio
     async def test_rerank_missing_results_key(
         self, config: RerankerConfigData, chunks: list[Chunk]
     ) -> None:
         reranker = LocalReranker(config)
-        with patch(
-            "ai_assistant.adapters.reranker_local.async_post_json",
-            new_callable=AsyncMock,
-            return_value={"other": "data"},
+        with (
+            patch(
+                "ai_assistant.adapters.reranker_local.async_post_json",
+                new_callable=AsyncMock,
+                return_value={"other": "data"},
+            ),
+            pytest.raises(AdapterError, match="Missing 'results' in reranker response"),
         ):
-            with pytest.raises(AdapterError, match="Missing 'results' in reranker response"):
-                await reranker.rerank("query", chunks)
+            await reranker.rerank("query", chunks)
 
     @pytest.mark.asyncio
     async def test_rerank_results_not_list(
         self, config: RerankerConfigData, chunks: list[Chunk]
     ) -> None:
         reranker = LocalReranker(config)
-        with patch(
-            "ai_assistant.adapters.reranker_local.async_post_json",
-            new_callable=AsyncMock,
-            return_value={"results": "notalist"},
+        with (
+            patch(
+                "ai_assistant.adapters.reranker_local.async_post_json",
+                new_callable=AsyncMock,
+                return_value={"results": "notalist"},
+            ),
+            pytest.raises(AdapterError, match="Expected 'results' list"),
         ):
-            with pytest.raises(AdapterError, match="Expected 'results' list"):
-                await reranker.rerank("query", chunks)
+            await reranker.rerank("query", chunks)
 
     @pytest.mark.asyncio
     async def test_rerank_malformed_items_skipped(
@@ -811,12 +810,12 @@ class TestLocalReranker:
         mock_response = {
             "results": [
                 "not a dict",
-                {"index": 0, "relevance_score": 1.0},      # valid
+                {"index": 0, "relevance_score": 1.0},  # valid
                 {"index": "bad", "relevance_score": 1.0},  # wrong type
-                {"index": 0},                               # missing score
-                {"relevance_score": 1.0},                   # missing index
-                {"index": 99, "relevance_score": 1.0},      # out of range
-                {"index": 0, "relevance_score": "bad"},     # wrong score type
+                {"index": 0},  # missing score
+                {"relevance_score": 1.0},  # missing index
+                {"index": 99, "relevance_score": 1.0},  # out of range
+                {"index": 0, "relevance_score": "bad"},  # wrong score type
             ]
         }
         with patch(
@@ -931,15 +930,14 @@ class TestSQLiteStorage:
     async def test_concurrent_reads(self, storage, tmp_path):
         await storage.init_db()
         for i in range(3):
-            await storage.save_message(
-                "conv-1", {"role": "user", "content": f"msg{i}"}
-            )
+            await storage.save_message("conv-1", {"role": "user", "content": f"msg{i}"})
 
         results = []
         for _ in range(3):
             with closing(sqlite3.connect(str(tmp_path / "test.db"))) as conn:
                 cur = conn.execute(
-                    "SELECT content FROM chat_messages WHERE conversation_id = ? ORDER BY id",
+                    "SELECT content FROM chat_messages "
+                    "WHERE conversation_id = ? ORDER BY id",
                     ("conv-1",),
                 )
                 rows = [r[0] for r in cur.fetchall()]
@@ -1003,7 +1001,9 @@ class TestSQLiteStorage:
         assert history[1]["content"] == "msg2"
 
     @pytest.mark.asyncio
-    async def test_save_message_raises_adapter_error_on_corrupted_db(self, storage, tmp_path):
+    async def test_save_message_raises_adapter_error_on_corrupted_db(
+        self, storage, tmp_path
+    ):
         """Given: corrupted DB file.
         When: save_message called.
         Then: AdapterError is raised, not raw sqlite3.Error."""
@@ -1204,9 +1204,7 @@ class TestOpenAICompatibleLLM:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch(
@@ -1233,9 +1231,7 @@ class TestOpenAICompatibleLLM:
         )
 
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch(
@@ -1251,9 +1247,7 @@ class TestOpenAICompatibleLLM:
         from unittest.mock import AsyncMock, MagicMock, patch
 
         mock_response = MagicMock(spec=httpx.Response)
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
         mock_response.raise_for_status = MagicMock()
 
         with patch(
@@ -1277,11 +1271,15 @@ class TestOpenAICompatibleLLM:
         mock_response.json.return_value = {"choices": []}  # missing message
         mock_response.raise_for_status = MagicMock()
 
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+        with (
+            patch(
+                "httpx.AsyncClient.post",
+                new_callable=AsyncMock,
+                return_value=mock_response,
+            ),
+            pytest.raises(AdapterError, match="Unexpected response shape"),
         ):
-            with pytest.raises(AdapterError, match="Unexpected response shape"):
-                await llm.complete([UserMessage(text="hi")])
+            await llm.complete([UserMessage(text="hi")])
 
     @pytest.mark.asyncio
     async def test_stream_sends_stream_true(self):
@@ -1312,7 +1310,7 @@ class TestOpenAICompatibleLLM:
                     stop_sequences=["", "end", "stop", ""],
                 )
             )
-            chunks = [c async for c in llm.stream([UserMessage(text="hi")])]
+            _ = [c async for c in llm.stream([UserMessage(text="hi")])]
 
         call_args = mock_client.stream.call_args
         payload = call_args.kwargs["json"]
@@ -1410,14 +1408,18 @@ class TestOpenAICompatibleLLM:
         )
 
         mock_stream_ctx = AsyncMock()
-        mock_stream_ctx.__aenter__.side_effect = httpx.ConnectError("connection refused")
+        mock_stream_ctx.__aenter__.side_effect = httpx.ConnectError(
+            "connection refused"
+        )
 
         mock_client = MagicMock(spec=httpx.AsyncClient)
         mock_client.stream.return_value = mock_stream_ctx
 
-        with patch("httpx.AsyncClient", return_value=mock_client):
-            with pytest.raises(AdapterError):
-                _ = [c async for c in llm.stream([UserMessage(text="hi")])]
+        with (
+            patch("httpx.AsyncClient", return_value=mock_client),
+            pytest.raises(AdapterError),
+        ):
+            _ = [c async for c in llm.stream([UserMessage(text="hi")])]
 
 
 # ── TestFactoryRegistry ──
@@ -1541,7 +1543,8 @@ class TestOpenAICompatibleEmbedder:
 
     @pytest.mark.asyncio
     async def test_embed_count_mismatch_raises(self, embedder):
-        """Server returning fewer embeddings than input texts must raise AdapterError."""
+        """Server returning fewer embeddings than input texts
+        must raise AdapterError."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
         mock_resp = MagicMock(spec=httpx.Response)
@@ -1549,11 +1552,13 @@ class TestOpenAICompatibleEmbedder:
         mock_resp.raise_for_status = MagicMock()
         mock_resp.text = "ok"
 
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp
+        with (
+            patch(
+                "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp
+            ),
+            pytest.raises(AdapterError, match="count mismatch"),
         ):
-            with pytest.raises(AdapterError, match="count mismatch"):
-                await embedder.embed(["hello", "world"])
+            await embedder.embed(["hello", "world"])
 
     @pytest.mark.asyncio
     async def test_shutdown_unconditional(self, embedder):
@@ -1710,7 +1715,7 @@ async def test_faiss_load_both_missing_is_noop(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_faiss_save_atomic_replaces_existing(tmp_path: Path) -> None:
     """Atomic save must replace old index without leaving partial files."""
-    faiss = pytest.importorskip("faiss")
+    pytest.importorskip("faiss")
     from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 
     config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
@@ -1749,15 +1754,14 @@ async def test_faiss_load_ntotal_mismatch_raises(tmp_path: Path) -> None:
     """If index.ntotal differs from metadata chunk count, load() must raise."""
     faiss = pytest.importorskip("faiss")
     import numpy as np
+
     from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 
     config = VectorStoreConfigData(dim=3, index_path=str(tmp_path))
     store = FaissVectorStore(config)
 
     index = faiss.IndexFlatL2(3)
-    vectors = np.array(
-        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32
-    )
+    vectors = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
     index.add(vectors)
     faiss.write_index(index, str(tmp_path / "default.faiss"))
 
@@ -1791,9 +1795,7 @@ async def test_faiss_load_metric_mismatch_raises(tmp_path: Path) -> None:
     faiss = pytest.importorskip("faiss")
     from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 
-    config = VectorStoreConfigData(
-        dim=3, metric="cosine", index_path=str(tmp_path)
-    )
+    config = VectorStoreConfigData(dim=3, metric="cosine", index_path=str(tmp_path))
     store = FaissVectorStore(config)
 
     index = faiss.IndexFlatL2(3)
@@ -1907,6 +1909,7 @@ async def test_llm_openai_compatible_rejects_after_shutdown():
 def faiss_store():
     pytest.importorskip("faiss")
     from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
     cfg = VectorStoreConfigData(
         index_path="./data/indices/test",
         metric="l2",
@@ -1988,7 +1991,6 @@ class TestFaissVectorStoreBugFixes:
     @pytest.mark.asyncio
     async def test_delete_under_lock_persists_atomically(self, faiss_store, tmp_path):
         """delete() must hold lock during save() and rollback on failure."""
-        import faiss
 
         chunks = [
             Chunk(id="c1", text="keep", embedding=[1.0, 0.0, 0.0]),
@@ -1999,21 +2001,18 @@ class TestFaissVectorStoreBugFixes:
 
         await faiss_store.delete(["c2"], namespace="test")
 
-        results = await faiss_store.search(
-            [0.0, 1.0, 0.0], top_k=5, namespace="test"
-        )
+        results = await faiss_store.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
         assert not any(r.id == "c2" for r in results)
         assert any(r.id == "c1" for r in results)
 
         await faiss_store.save(str(tmp_path), namespace="test")
         from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
         store2 = FaissVectorStore(
             VectorStoreConfigData(dim=3, index_path=str(tmp_path))
         )
         await store2.load(str(tmp_path), namespace="test")
-        results2 = await store2.search(
-            [0.0, 1.0, 0.0], top_k=5, namespace="test"
-        )
+        results2 = await store2.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
         assert not any(r.id == "c2" for r in results2)
 
     @pytest.mark.asyncio
@@ -2028,13 +2027,13 @@ class TestFaissVectorStoreBugFixes:
         await faiss_store.add(chunks, namespace="test")
         await faiss_store.save(str(tmp_path), namespace="test")
 
-        with patch("faiss.write_index", side_effect=OSError("disk full")):
-            with pytest.raises(OSError, match="disk full"):
-                await faiss_store.delete(["c2"], namespace="test")
+        with (
+            patch("faiss.write_index", side_effect=OSError("disk full")),
+            pytest.raises(OSError, match="disk full"),
+        ):
+            await faiss_store.delete(["c2"], namespace="test")
 
-        results = await faiss_store.search(
-            [0.0, 1.0, 0.0], top_k=5, namespace="test"
-        )
+        results = await faiss_store.search([0.0, 1.0, 0.0], top_k=5, namespace="test")
         assert any(r.id == "c2" for r in results)
         assert any(r.id == "c1" for r in results)
 
@@ -2046,9 +2045,11 @@ class TestFaissVectorStoreBugFixes:
         chunks = [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])]
         await faiss_store.add(chunks, namespace="test")
 
-        with patch("faiss.write_index", side_effect=OSError("simulated write failure")):
-            with pytest.raises(OSError, match="simulated write failure"):
-                await faiss_store.save(str(tmp_path), namespace="test")
+        with (
+            patch("os.replace", side_effect=OSError("replace failed")),
+            pytest.raises(OSError, match="replace failed"),
+        ):
+            await faiss_store.save(str(tmp_path), namespace="test")
 
         temp_files = list(tmp_path.glob("*.tmp"))
         assert not temp_files, f"Temp files left behind after failure: {temp_files}"
@@ -2061,17 +2062,20 @@ class TestFaissVectorStoreBugFixes:
         chunks = [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])]
         await faiss_store.add(chunks, namespace="test")
 
-        with patch("os.replace", side_effect=OSError("replace failed")):
-            with pytest.raises(OSError, match="replace failed"):
-                await faiss_store.save(str(tmp_path), namespace="test")
+        with (
+            patch("os.replace", side_effect=OSError("replace failed")),
+            pytest.raises(OSError, match="replace failed"),
+        ):
+            await faiss_store.save(str(tmp_path), namespace="test")
 
         temp_files = list(tmp_path.glob("*.tmp"))
-        assert not temp_files, f"Temp files left behind after replace failure: {temp_files}"
+        assert not temp_files, (
+            f"Temp files left behind after replace failure: {temp_files}"
+        )
 
     @pytest.mark.asyncio
     async def test_save_no_temp_files_left(self, faiss_store, tmp_path):
         """After save(), no .tmp files or temp directories should remain."""
-        import faiss
 
         chunks = [
             Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
@@ -2111,7 +2115,6 @@ class TestFaissVectorStoreBugFixes:
     @pytest.mark.asyncio
     async def test_add_rejects_when_exceeds_max_chunks(self, faiss_store, tmp_path):
         """add() must raise AdapterError when total would exceed max_chunks."""
-        import faiss
 
         for i in range(8):
             await faiss_store.add(
@@ -2129,9 +2132,7 @@ class TestFaissVectorStoreBugFixes:
                 namespace="test",
             )
 
-        results = await faiss_store.search(
-            [1.0, 0.0, 0.0], top_k=20, namespace="test"
-        )
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=20, namespace="test")
         assert len(results) == 8
 
     @pytest.mark.asyncio
@@ -2141,9 +2142,7 @@ class TestFaissVectorStoreBugFixes:
         from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 
         store = FaissVectorStore(
-            VectorStoreConfigData(
-                dim=3, index_path=str(tmp_path), metric="cosine"
-            )
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path), metric="cosine")
         )
 
         chunks = [Chunk(id="c1", text="empty", embedding=[0.0, 0.0, 0.0])]
@@ -2160,18 +2159,14 @@ class TestFaissVectorStoreBugFixes:
         await faiss_store.add(chunks, namespace="test")
 
         await faiss_store.delete([], namespace="test")
-        results = await faiss_store.search(
-            [1.0, 0.0, 0.0], top_k=5, namespace="test"
-        )
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
         assert len(results) == 1
 
     @pytest.mark.asyncio
     async def test_add_empty_chunks_noop(self, faiss_store):
         """add() with empty list must be a no-op."""
         await faiss_store.add([], namespace="test")
-        results = await faiss_store.search(
-            [1.0, 0.0, 0.0], top_k=5, namespace="test"
-        )
+        results = await faiss_store.search([1.0, 0.0, 0.0], top_k=5, namespace="test")
         assert results == []
 
 
@@ -2181,9 +2176,7 @@ async def test_recursive_chunker_preserves_structure():
     doc = Document(
         id="test.md",
         content=(
-            "First paragraph here.\n\n"
-            "Second paragraph with more text.\n\n"
-            "Third one."
+            "First paragraph here.\n\nSecond paragraph with more text.\n\nThird one."
         ),
     )
     chunks = await chunker.chunk(doc)
@@ -2459,7 +2452,6 @@ class TestSQLiteStorageErrorPaths:
         assert history[0]["metadata"] == {}
 
 
-
 # ── TiktokenTokenizer ────────────────────────────────────────────────────
 
 
@@ -2487,9 +2479,7 @@ class TestResolveTokenizerDir:
         model_dir.mkdir()
         (model_dir / "tokenizer.json").write_text("{}")
 
-        result = _resolve_tokenizer_dir(
-            "Qwen2.5-7B-Instruct", str(tmp_path)
-        )
+        result = _resolve_tokenizer_dir("Qwen2.5-7B-Instruct", str(tmp_path))
         assert result == model_dir
 
     def test_exact_match_with_underscores(self, tmp_path):
@@ -2503,9 +2493,7 @@ class TestResolveTokenizerDir:
         model_dir.mkdir()
         (model_dir / "tokenizer.json").write_text("{}")
 
-        result = _resolve_tokenizer_dir(
-            "qwen2.5-7b-instruct", str(tmp_path)
-        )
+        result = _resolve_tokenizer_dir("qwen2.5-7b-instruct", str(tmp_path))
         assert result == model_dir
 
     def test_fuzzy_match_returns_dir(self, tmp_path):
@@ -2519,9 +2507,7 @@ class TestResolveTokenizerDir:
         model_dir.mkdir()
         (model_dir / "tokenizer.json").write_text("{}")
 
-        result = _resolve_tokenizer_dir(
-            "qwen2.5-7b-instruct-1m", str(tmp_path)
-        )
+        result = _resolve_tokenizer_dir("qwen2.5-7b-instruct-1m", str(tmp_path))
         assert result == model_dir
 
     def test_no_match_returns_none(self, tmp_path):
@@ -2564,9 +2550,7 @@ class TestResolveTokenizerDir:
         base_dir = tmp_path / "models"
         base_dir.mkdir()
 
-        with patch.object(
-            Path, "iterdir", side_effect=OSError("Permission denied")
-        ):
+        with patch.object(Path, "iterdir", side_effect=OSError("Permission denied")):
             result = _resolve_tokenizer_dir("qwen", str(base_dir))
 
         assert result is None
@@ -2649,13 +2633,12 @@ class TestTiktokenTokenizerCount:
             )
         )
 
-        with patch(
-            "ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None
-        ), patch(
-            "ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None
+        with (
+            patch("ai_assistant.adapters.tiktoken_tokenizer.tiktoken", None),
+            patch("ai_assistant.adapters.tiktoken_tokenizer.tokenizers", None),
+            pytest.raises(AdapterError, match="No tokenizer backend available"),
         ):
-            with pytest.raises(AdapterError, match="No tokenizer backend available"):
-                tokenizer.count("hello world")
+            tokenizer.count("hello world")
 
     def test_hf_tokenizer_attribute_error_fallback(self, tmp_path):
         """Given: HF tokenizer result has no .tokens attribute.
@@ -2710,9 +2693,7 @@ class TestTiktokenTokenizerCount:
         from ai_assistant.core.domain.errors import AdapterError
 
         tokenizer = TiktokenTokenizer(
-            TokenizerConfigData(
-                provider="tiktoken", model_name="cl100k_base"
-            )
+            TokenizerConfigData(provider="tiktoken", model_name="cl100k_base")
         )
 
         with patch(
@@ -2728,7 +2709,7 @@ class TestTiktokenTokenizerCount:
         When: count is called.
         Then: AdapterError raised.
         """
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from ai_assistant.adapters.tiktoken_tokenizer import TiktokenTokenizer
         from ai_assistant.core.domain.configs import TokenizerConfigData
@@ -2760,9 +2741,6 @@ class TestTiktokenTokenizerCount:
 
                 with pytest.raises(AdapterError, match="HF tokenizer failed"):
                     tokenizer.count("hello")
-
-
-
 
 
 # ── OpenAICompatibleLLM ──────────────────────────────────────────────────
@@ -2835,7 +2813,9 @@ class TestOpenAICompatibleLLMBuildMessages:
         from ai_assistant.core.domain.messages import AssistantMessage
 
         llm = self._make_llm()
-        tool_calls = [{"id": "call_1", "type": "function", "function": {"name": "get_weather"}}]
+        tool_calls = [
+            {"id": "call_1", "type": "function", "function": {"name": "get_weather"}}
+        ]
         messages = [AssistantMessage(text="Let me check", tool_calls=tool_calls)]
         result = llm._build_messages(messages)
 
@@ -2892,15 +2872,15 @@ class TestOpenAICompatibleLLMParseToolCalls:
         """
         llm = self._make_llm()
         # Missing id
-        result = llm._parse_tool_calls([
-            {"type": "function", "function": {"name": "get_weather"}}
-        ])
+        result = llm._parse_tool_calls(
+            [{"type": "function", "function": {"name": "get_weather"}}]
+        )
         assert result == []
 
         # Missing name
-        result = llm._parse_tool_calls([
-            {"id": "call_1", "type": "function", "function": {}}
-        ])
+        result = llm._parse_tool_calls(
+            [{"id": "call_1", "type": "function", "function": {}}]
+        )
         assert result == []
 
     def test_unknown_tool_call_type_skipped(self):
@@ -2909,9 +2889,9 @@ class TestOpenAICompatibleLLMParseToolCalls:
         Then: skipped with warning.
         """
         llm = self._make_llm()
-        result = llm._parse_tool_calls([
-            {"id": "call_1", "type": "unknown_type", "function": {"name": "test"}}
-        ])
+        result = llm._parse_tool_calls(
+            [{"id": "call_1", "type": "unknown_type", "function": {"name": "test"}}]
+        )
         assert result == []
 
     def test_valid_function_tool_call_parsed(self):
@@ -2920,13 +2900,18 @@ class TestOpenAICompatibleLLMParseToolCalls:
         Then: parsed correctly.
         """
         llm = self._make_llm()
-        result = llm._parse_tool_calls([
-            {
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "get_weather", "arguments": '{"city": "Paris"}'},
-            }
-        ])
+        result = llm._parse_tool_calls(
+            [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": '{"city": "Paris"}',
+                    },
+                }
+            ]
+        )
         assert len(result) == 1
         assert result[0]["id"] == "call_1"
         assert result[0]["function"]["name"] == "get_weather"
@@ -3063,10 +3048,9 @@ class TestOpenAICompatibleLLMComplete:
         """
         import respx
 
+        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
         from ai_assistant.core.domain.configs import LLMConfigData
         from ai_assistant.core.domain.messages import UserMessage
-
-        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 
         llm = OpenAICompatibleLLM(
             LLMConfigData(
@@ -3256,7 +3240,9 @@ class TestOpenAICompatibleLLMStream:
         # Generate more than 4 chunks
         lines = []
         for i in range(10):
-            lines.append(f'data: {{"choices": [{{"delta": {{"content": "tok{i}"}}}}]}}\n\n')
+            lines.append(
+                f'data: {{"choices": [{{"delta": {{"content": "tok{i}"}}}}]}}\n\n'
+            )
         lines.append("data: [DONE]\n\n")
         sse_content = "".join(lines)
 
@@ -3276,8 +3262,6 @@ class TestOpenAICompatibleLLMStream:
         # Should stop at _max_stream_tokens (4)
         assert len(chunks) <= 4
         await llm.shutdown()
-
-
 
 
 # ── APIReranker ──────────────────────────────────────────────────────────

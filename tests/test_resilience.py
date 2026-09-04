@@ -18,16 +18,16 @@ import pytest_asyncio
 import respx
 from httpx import Response
 
+from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
+from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 from ai_assistant.core.domain.configs import EmbedderConfigData, LLMConfigData
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import UserMessage
-from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
-from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-
 
 # ---------------------------------------------------------------------------
 # Embedder resilience
 # ---------------------------------------------------------------------------
+
 
 class TestEmbedderResilience:
     """respx tests for OpenAICompatibleEmbedder."""
@@ -180,6 +180,7 @@ class TestEmbedderResilience:
 # LLM resilience
 # ---------------------------------------------------------------------------
 
+
 class TestLLMResilience:
     """respx tests for OpenAICompatibleLLM."""
 
@@ -278,9 +279,7 @@ class TestLLMResilience:
                 await llm.complete([UserMessage(text="Hi")])
 
     @pytest.mark.asyncio
-    async def test_complete_500_then_retry(
-        self, llm: OpenAICompatibleLLM
-    ) -> None:
+    async def test_complete_500_then_retry(self, llm: OpenAICompatibleLLM) -> None:
         """Given: API returns 500 then 200.
         When: complete() is called.
         Then: succeeds after retry.
@@ -334,9 +333,7 @@ class TestLLMResilience:
             assert route.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_stream_ignores_malformed_sse(
-        self, llm: OpenAICompatibleLLM
-    ) -> None:
+    async def test_stream_ignores_malformed_sse(self, llm: OpenAICompatibleLLM) -> None:
         """Given: API returns mixed valid/invalid SSE lines.
         When: stream() is consumed.
         Then: skips invalid lines, yields valid tokens.
@@ -373,7 +370,7 @@ class TestLLMResilience:
         """
         # Generate many SSE lines — more than any reasonable max_tokens
         lines = [
-            f'data: {json.dumps({"choices": [{"delta": {"content": "x"}}]})}'
+            f"data: {json.dumps({'choices': [{'delta': {'content': 'x'}}]})}"
             for _ in range(500)
         ]
         lines.append("data: [DONE]")

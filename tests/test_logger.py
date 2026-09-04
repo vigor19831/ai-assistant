@@ -19,6 +19,7 @@ ROOT_LOGGER_NAME = "ai_assistant"
 # Isolation fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolate_logger_state() -> None:
     """Save and restore ai_assistant logger state to prevent cross-test leaks."""
@@ -68,9 +69,7 @@ def test_setup_logging_reconfigure_clears_handlers(tmp_path: Path) -> None:
     log_file = tmp_path / "reconfig.log"
     logger = setup_logging(level="INFO", log_file=str(log_file), fmt="text")
     old_handlers = list(logger.handlers)
-    old_file_handlers = [
-        h for h in old_handlers if isinstance(h, logging.FileHandler)
-    ]
+    old_file_handlers = [h for h in old_handlers if isinstance(h, logging.FileHandler)]
 
     setup_logging(level="DEBUG", log_file=str(log_file), fmt="json")
 
@@ -96,7 +95,8 @@ def test_setup_logging_file_handler_created(tmp_path: Path) -> None:
     log_file = tmp_path / "file.log"
     logger = setup_logging(level="INFO", log_file=str(log_file), fmt="text")
     file_handlers = [
-        h for h in logger.handlers
+        h
+        for h in logger.handlers
         if isinstance(h, logging.handlers.RotatingFileHandler)
     ]
     assert len(file_handlers) == 1
@@ -128,18 +128,16 @@ def test_setup_logging_json_format(tmp_path: Path) -> None:
 
 def test_setup_logging_oserror_on_file(monkeypatch: pytest.MonkeyPatch) -> None:
     """OSError on file creation falls back to console, does not crash."""
+
     def _raise(*args: Any, **kwargs: Any) -> None:
         raise OSError("disk full")
 
     monkeypatch.setattr("ai_assistant.core.logger.Path.mkdir", _raise)
-    logger = setup_logging(
-        level="INFO", log_file="/tmp/fake/sub/test.log", fmt="text"
-    )
+    logger = setup_logging(level="INFO", log_file="/tmp/fake/sub/test.log", fmt="text")
     assert logger.name == ROOT_LOGGER_NAME
     # Console handler still present as fallback
     assert any(
-        isinstance(h, logging.StreamHandler)
-        and not isinstance(h, logging.FileHandler)
+        isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
         for h in logger.handlers
     )
 

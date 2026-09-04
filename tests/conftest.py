@@ -1,4 +1,5 @@
 """tests/conftest.py — Global test configuration."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
@@ -7,6 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 
 # ── Pytest markers ──
+
 
 def pytest_configure(config: pytest.Config) -> None:
     """Register custom markers."""
@@ -149,7 +151,9 @@ def mock_chunker():
 # ---------------------------------------------------------------------------
 
 
-def build_mock_state() -> InitializedAppState:
+# F821 false positive: the annotation resolves via the
+# function-scoped import below and is never evaluated at runtime.
+def build_mock_state() -> InitializedAppState:  # noqa: F821
     """Build a fresh InitializedAppState with isolated defaults.
     Returns a real dataclass instance so that adding a new required field
     to InitializedAppState raises TypeError here immediately, rather than
@@ -157,23 +161,22 @@ def build_mock_state() -> InitializedAppState:
     """
     from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
     from ai_assistant.api.deps import InitializedAppState, RAGState
-    from ai_assistant.core.task_registry import TaskRegistry
     from ai_assistant.core.config import AppConfig
-    from ai_assistant.core.domain.configs import TokenizerConfigData
-    from ai_assistant.core.domain.configs import SamplingConfig
+    from ai_assistant.core.domain.configs import SamplingConfig, TokenizerConfigData
     from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.core.ports.reranker import RerankResult
+    from ai_assistant.core.task_registry import TaskRegistry
     from ai_assistant.features.chat.manager import ChatManager
     from ai_assistant.features.rag.manager import RAGManager
 
     config = AppConfig()
 
-    from ai_assistant.core.ports.llm import ILLM
-    from ai_assistant.core.ports.embedder import IEmbedder
-    from ai_assistant.core.ports.vector_store import IVectorStore
     from ai_assistant.core.ports.chunker import IChunker
-    from ai_assistant.core.ports.storage import IChatStorage
+    from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.llm import ILLM
     from ai_assistant.core.ports.reranker import IReranker
+    from ai_assistant.core.ports.storage import IChatStorage
+    from ai_assistant.core.ports.vector_store import IVectorStore
 
     llm = AsyncMock(spec=ILLM)
     embedder = AsyncMock(spec=IEmbedder)
@@ -341,9 +344,9 @@ def _build_chat_manager_mock() -> MagicMock:
 
 def _build_test_client(state, raise_server_exceptions: bool = True) -> TestClient:
     """Build a TestClient with mock state, auth header, and ChatManager override."""
-    from ai_assistant.main import create_app
     from ai_assistant.api.security import set_api_key
     from ai_assistant.features.chat.handlers import get_chat_manager
+    from ai_assistant.main import create_app
 
     set_api_key("test-e2e-key")
     app = create_app(state=state)
@@ -386,7 +389,9 @@ def client_no_raise(mock_state):
 def embedder_adapter(request):
     """Factory: yield concrete IEmbedder for parametrized contract tests."""
     from ai_assistant.adapters.embedder_mock import MockEmbedder
-    from ai_assistant.adapters.embedder_openai_compatible import OpenAICompatibleEmbedder
+    from ai_assistant.adapters.embedder_openai_compatible import (
+        OpenAICompatibleEmbedder,
+    )
     from ai_assistant.core.domain.configs import EmbedderConfigData
 
     if request.param == "mock":
@@ -440,6 +445,7 @@ def vector_store_adapter(request, tmp_path):
 
     if request.param == "memory":
         from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
+
         return MemoryVectorStore(
             VectorStoreConfigData(
                 dim=384,
@@ -449,6 +455,7 @@ def vector_store_adapter(request, tmp_path):
     if request.param == "faiss":
         pytest.importorskip("faiss")
         from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
         return FaissVectorStore(
             VectorStoreConfigData(
                 dim=384,
@@ -465,9 +472,7 @@ def reranker_adapter(request):
     from ai_assistant.core.domain.configs import RerankerConfigData
 
     if request.param == "null":
-        return NullReranker(
-            RerankerConfigData(model="null", api_base="", api_key="")
-        )
+        return NullReranker(RerankerConfigData(model="null", api_base="", api_key=""))
     if request.param == "api":
         from ai_assistant.adapters.reranker_api import APIReranker
 
@@ -486,9 +491,7 @@ def chunker_adapter(request):
     from ai_assistant.core.domain.configs import ChunkerConfigData
 
     if request.param == "simple":
-        return SimpleChunker(
-            ChunkerConfigData(chunk_size=100, chunk_overlap=0)
-        )
+        return SimpleChunker(ChunkerConfigData(chunk_size=100, chunk_overlap=0))
     raise ValueError(f"Unknown chunker: {request.param}")
 
 
@@ -499,8 +502,5 @@ def chat_storage_adapter(request):
     from ai_assistant.core.domain.configs import StorageConfigData
 
     if request.param == "sqlite":
-        storage = SQLiteStorage(
-            StorageConfigData(db_path=":memory:")
-        )
-        return storage
+        return SQLiteStorage(StorageConfigData(db_path=":memory:"))
     raise ValueError(f"Unknown storage: {request.param}")

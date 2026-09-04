@@ -11,11 +11,11 @@ from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.core.domain.configs import TokenizerConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import (
-    AdapterError,
     EMBEDDER_NOT_PROVIDED,
     INTERNAL_SERVER_ERROR,
     LLM_NOT_PROVIDED,
@@ -25,9 +25,13 @@ from ai_assistant.core.domain.errors import (
     QUERY_TEXT_MISSING,
     RERANKER_NOT_PROVIDED,
     VECTOR_STORE_NOT_PROVIDED,
+    AdapterError,
 )
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
+from ai_assistant.core.pipeline_steps import (
+    _build_fallback_prompt as build_fallback_prompt,
+)
 from ai_assistant.core.pipeline_steps import (
     build_context,
     embed_query,
@@ -37,7 +41,6 @@ from ai_assistant.core.pipeline_steps import (
     rerank,
     retrieve,
 )
-from ai_assistant.core.pipeline_steps import _build_fallback_prompt as build_fallback_prompt
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.retry import with_retry
 
@@ -115,7 +118,9 @@ class TestEmbedQuery:
         When: embed_query is called.
         Then: QUERY_TEXT_MISSING error is added."""
         embedder = FakeEmbedder()
-        data = PipelineData(query=UserMessage(text=""), pipeline_config=PipelineConfig())
+        data = PipelineData(
+            query=UserMessage(text=""), pipeline_config=PipelineConfig()
+        )
         data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(QUERY_TEXT_MISSING in e for e in result.errors)
@@ -126,6 +131,7 @@ class TestEmbedQuery:
         """Given: embedder returns empty list.
         When: embed_query is called.
         Then: INTERNAL_SERVER_ERROR is added; no IndexError."""
+
         class EmptyEmbedder:
             def __init__(self):
                 self.dimension = 384
@@ -134,7 +140,9 @@ class TestEmbedQuery:
                 return []
 
         embedder = EmptyEmbedder()
-        data = PipelineData(query=UserMessage(text="hello"), pipeline_config=PipelineConfig())
+        data = PipelineData(
+            query=UserMessage(text="hello"), pipeline_config=PipelineConfig()
+        )
         data = replace(data, embedder=embedder)
         result = await embed_query(data)
         assert any(INTERNAL_SERVER_ERROR in e for e in result.errors)
@@ -145,7 +153,9 @@ class TestEmbedQuery:
         """Given: no embedder (None value).
         When: embed_query is called.
         Then: EMBEDDER_NOT_PROVIDED error is added."""
-        data = PipelineData(query=UserMessage(text="hello"), pipeline_config=PipelineConfig())
+        data = PipelineData(
+            query=UserMessage(text="hello"), pipeline_config=PipelineConfig()
+        )
         data = replace(data, embedder=None)
         result = await embed_query(data)
         assert any(EMBEDDER_NOT_PROVIDED in e for e in result.errors)
@@ -166,6 +176,7 @@ class TestEmbedQuery:
         """Given: embedder raises exception with specific message.
         When: embed_query catches it.
         Then: error_details contains the exception string; errors stays clean."""
+
         class FailingEmbedder:
             def __init__(self):
                 self.dimension = 384
@@ -220,10 +231,13 @@ class TestRetrieve:
         Then: retrieve over-fetches (top_k * expansion) so reranker has
         more candidates; final top_k is enforced by rerank step."""
         store = FakeVectorStore()
-        await store.add([
-            Chunk(id="c1", text="first", embedding=[0.0, 1.0, 0.0]),
-            Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
-        ], namespace="test")
+        await store.add(
+            [
+                Chunk(id="c1", text="first", embedding=[0.0, 1.0, 0.0]),
+                Chunk(id="c2", text="second", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="test",
+        )
 
         data = PipelineData(
             query=UserMessage(text="hello"),
@@ -270,6 +284,7 @@ class TestRetrieve:
         """Given: vector_store.search raises unexpected exception.
         When: retrieve is called.
         Then: error_details contains original exception; errors stays clean."""
+
         class FailingVectorStore:
             async def search(self, query_embedding, top_k=5, namespace="default"):
                 raise RuntimeError("disk I/O error")
@@ -349,7 +364,9 @@ class TestBuildContext:
         """Given: no chunks.
         When: build_context is called.
         Then: context is empty string."""
-        data = PipelineData(query=UserMessage(text="hello"), pipeline_config=PipelineConfig())
+        data = PipelineData(
+            query=UserMessage(text="hello"), pipeline_config=PipelineConfig()
+        )
         result = await build_context(data)
         assert result.context == ""
 
@@ -369,6 +386,7 @@ class TestRerank:
         """Given: top_k is less than number of chunks.
         When: rerank is called.
         Then: only top_k chunks are returned (handled by reranker)."""
+
         class FakeReranker:
             async def rerank(self, query, chunks, top_k=None):
                 results = [RerankResult(chunk=c, score=0.9) for c in chunks]
@@ -393,6 +411,7 @@ class TestRerank:
         """Given: reranker raises AdapterError with specific message.
         When: rerank is called.
         Then: error_details contains original exception; errors stays clean."""
+
         class FailingReranker:
             async def rerank(self, query, chunks, top_k=None):
                 raise AdapterError("HTTP request failed: connection timeout")
@@ -430,7 +449,9 @@ class TestRerank:
                 Chunk(
                     id="c1",
                     text="test chunk",
-                    metadata=ChunkMetadata(source="s", source_uri="s", index=0, total_chunks=1),
+                    metadata=ChunkMetadata(
+                        source="s", source_uri="s", index=0, total_chunks=1
+                    ),
                 ),
             ),
             pipeline_config=PipelineConfig(top_k=5),
@@ -460,6 +481,7 @@ class TestGenerate:
         """Given: prompt tokens exactly equal the limit.
         When: generate is called.
         Then: no truncation needed; LLM is called."""
+
         class ExactLimitTokenizer(CharFallbackTokenizer):
             def count(self, text: str) -> int:
                 # limit = 4096 - max(256, int(4096 * 0.1)) = 3686
@@ -610,6 +632,7 @@ class TestGenerate:
         """Given: LLM raises AdapterError.
         When: generate is called.
         Then: PipelineData returned with error and fallback response."""
+
         class FailingLLM:
             async def complete(
                 self,
@@ -649,6 +672,7 @@ class TestGenerate:
         """Given: llm.get_context_limit() returns None.
         When: generate is called.
         Then: error response without exception; no TypeError."""
+
         class NoLimitLLM:
             async def complete(
                 self,
@@ -702,7 +726,9 @@ class TestGenerate:
                 presence_penalty=None,
             ):
                 captured_calls.append(messages)
-                return AssistantMessage(text="I don't have specific information about that.")
+                return AssistantMessage(
+                    text="I don't have specific information about that."
+                )
 
             def get_context_limit(self) -> int | None:
                 return 4096
@@ -751,7 +777,11 @@ class TestGenerate:
                 Chunk(id="c2", text="chunk2 medium relevant"),
                 Chunk(id="c3", text="chunk3 least relevant"),
             ),
-            context="chunk1 most relevant\n\nchunk2 medium relevant\n\nchunk3 least relevant",
+            context=(
+                "chunk1 most relevant\n\n"
+                "chunk2 medium relevant\n\n"
+                "chunk3 least relevant"
+            ),
             pipeline_config=PipelineConfig(
                 prompt_version="v1",
                 prompt_name="rag_default",
@@ -774,6 +804,7 @@ class TestGenerate:
         """Given: even with all chunks removed, prompt still exceeds limit.
         When: generate is called with a tokenizer that always reports over-limit.
         Then: empty chunks and empty context returned."""
+
         class HeavyTokenizer(CharFallbackTokenizer):
             def count(self, text: str) -> int:
                 return 9999
@@ -797,6 +828,7 @@ class TestGenerate:
 
         assert result.chunks == ()
         assert result.context == ""
+
 
 # ———————————————————————————————————————
 # TestHydeQuery
@@ -882,6 +914,7 @@ class TestCondenseQuestion:
             pipeline_config=PipelineConfig(),
         )
         from ai_assistant.core.pipeline_steps import condense_question
+
         result = await condense_question(data)
         assert result.query is not None
         assert result.query.text == "condensed question"
@@ -900,6 +933,7 @@ class TestCondenseQuestion:
             pipeline_config=PipelineConfig(),
         )
         from ai_assistant.core.pipeline_steps import condense_question
+
         result = await condense_question(data)
         assert result.query.text == "standalone question"
         assert result.original_query is None
@@ -909,6 +943,7 @@ class TestCondenseQuestion:
         """Given: LLM raises AdapterError.
         When: condense_question is called.
         Then: error added; original query preserved as fallback."""
+
         class FailingLLM:
             async def complete(
                 self,
@@ -929,6 +964,7 @@ class TestCondenseQuestion:
             pipeline_config=PipelineConfig(),
         )
         from ai_assistant.core.pipeline_steps import condense_question
+
         result = await condense_question(data)
         assert len(result.errors) > 0
         assert result.query.text == "question"  # fallback to original
@@ -946,6 +982,7 @@ class TestCondenseQuestion:
             pipeline_config=PipelineConfig(),
         )
         from ai_assistant.core.pipeline_steps import condense_question
+
         result = await condense_question(data)
         assert result.query.text == "original"  # fallback
         assert result.original_query is not None
@@ -977,7 +1014,9 @@ class TestChatManagerStepValidation:
         )
         pipeline = manager._build_pipeline()
         assert pipeline is not None
-        assert len(pipeline.steps) == 5  # condense, embed, retrieve, rerank, build_context
+        assert (
+            len(pipeline.steps) == 5
+        )  # condense, embed, retrieve, rerank, build_context
 
     @pytest.mark.asyncio
     async def test_custom_steps_skip_generate(self) -> None:
@@ -993,12 +1032,14 @@ class TestChatManagerStepValidation:
             embedder=FakeEmbedder(),
             vector_store=FakeVectorStore(),
         )
-        pipeline = manager._build_pipeline(rag_steps=[
-            RAGStep.EMBED_QUERY,
-            RAGStep.RETRIEVE,
-            RAGStep.GENERATE,  # Should be skipped
-            RAGStep.BUILD_CONTEXT,
-        ])
+        pipeline = manager._build_pipeline(
+            rag_steps=[
+                RAGStep.EMBED_QUERY,
+                RAGStep.RETRIEVE,
+                RAGStep.GENERATE,  # Should be skipped
+                RAGStep.BUILD_CONTEXT,
+            ]
+        )
         assert pipeline is not None
         # GENERATE is skipped, BUILD_CONTEXT comes after it so also not included
         # Only EMBED_QUERY and RETRIEVE before GENERATE break
@@ -1129,11 +1170,13 @@ class TestRetry:
             await always_fail()
         assert calls == 3  # initial + 2 retries
 
+
 @pytest.mark.asyncio
 async def test_multi_query_retrieve_dedup_and_fallback():
     """Given: LLM returns 2 variations, vector store returns overlapping chunks.
     When: multi_query_retrieve runs.
-    Then: deduplication by chunk id preserves order, original query is always included."""
+    Then: deduplication by chunk id preserves order,
+    original query is always included."""
     llm = MagicMock()
     llm.complete = AsyncMock(
         return_value=AssistantMessage(
@@ -1145,20 +1188,46 @@ async def test_multi_query_retrieve_dedup_and_fallback():
     embedder.embed = AsyncMock(return_value=[[0.1] * 384])
 
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(side_effect=[
-        [
-            Chunk(id="c1", text="blue", metadata=ChunkMetadata(source="s1", index=0, total_chunks=1)),
-            Chunk(id="c2", text="red", metadata=ChunkMetadata(source="s1", index=1, total_chunks=1)),
-        ],
-        [
-            Chunk(id="c2", text="red", metadata=ChunkMetadata(source="s1", index=1, total_chunks=1)),
-            Chunk(id="c3", text="green", metadata=ChunkMetadata(source="s2", index=0, total_chunks=1)),
-        ],
-        [
-            Chunk(id="c3", text="green", metadata=ChunkMetadata(source="s2", index=0, total_chunks=1)),
-            Chunk(id="c4", text="yellow", metadata=ChunkMetadata(source="s2", index=1, total_chunks=1)),
-        ],
-    ])
+    vector_store.search = AsyncMock(
+        side_effect=[
+            [
+                Chunk(
+                    id="c1",
+                    text="blue",
+                    metadata=ChunkMetadata(source="s1", index=0, total_chunks=1),
+                ),
+                Chunk(
+                    id="c2",
+                    text="red",
+                    metadata=ChunkMetadata(source="s1", index=1, total_chunks=1),
+                ),
+            ],
+            [
+                Chunk(
+                    id="c2",
+                    text="red",
+                    metadata=ChunkMetadata(source="s1", index=1, total_chunks=1),
+                ),
+                Chunk(
+                    id="c3",
+                    text="green",
+                    metadata=ChunkMetadata(source="s2", index=0, total_chunks=1),
+                ),
+            ],
+            [
+                Chunk(
+                    id="c3",
+                    text="green",
+                    metadata=ChunkMetadata(source="s2", index=0, total_chunks=1),
+                ),
+                Chunk(
+                    id="c4",
+                    text="yellow",
+                    metadata=ChunkMetadata(source="s2", index=1, total_chunks=1),
+                ),
+            ],
+        ]
+    )
 
     data = PipelineData(
         query=UserMessage(text="What is my favorite color?"),
@@ -1179,12 +1248,11 @@ async def test_multi_query_retrieve_dedup_and_fallback():
 async def test_multi_query_retrieve_preserves_meaningful_prefixes() -> None:
     """Given: LLM returns variations with digits/dashes that are content, not artifacts.
     When: multi_query_retrieve parses lines.
-    Then: meaningful leading digits/dashes are preserved; only 'N. ' / 'N) ' / 'N- ' stripped."""
+    Then: meaningful leading digits/dashes are preserved;
+    only 'N. ' / 'N) ' / 'N- ' stripped."""
     llm = MagicMock()
     llm.complete = AsyncMock(
-        return_value=AssistantMessage(
-            text="-budget overview\n1. cash flow"
-        )
+        return_value=AssistantMessage(text="-budget overview\n1. cash flow")
     )
 
     embedder = MagicMock()
@@ -1200,7 +1268,7 @@ async def test_multi_query_retrieve_preserves_meaningful_prefixes() -> None:
         embedder=embedder,
         vector_store=vector_store,
     )
-    result = await multi_query_retrieve(data)
+    await multi_query_retrieve(data)
 
     texts_embedded = [call.args[0][0] for call in embedder.embed.await_args_list]
     assert "-budget overview" in texts_embedded
@@ -1224,6 +1292,7 @@ async def test_rerank_without_reranker_returns_error() -> None:
     assert RERANKER_NOT_PROVIDED in result.errors
     assert result.chunks == (chunk,)
     assert result.rerank_scores is None
+
 
 @pytest.mark.asyncio
 async def test_rerank_skips_on_empty_query() -> None:

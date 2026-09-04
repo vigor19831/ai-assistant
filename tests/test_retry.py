@@ -12,18 +12,16 @@ from __future__ import annotations
 
 import asyncio
 import random
-from collections.abc import Callable
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
 from ai_assistant.core.retry import with_retry
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class _CallTracker:
     """Count invocations and optionally fail N times."""
@@ -44,6 +42,7 @@ class _CallTracker:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def instrumented_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Return a list that captures all asyncio.sleep delays. No real sleep."""
@@ -59,6 +58,7 @@ def instrumented_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 # ---------------------------------------------------------------------------
 # Basic retry behaviour
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_retry_success_first_attempt() -> None:
@@ -115,6 +115,7 @@ async def test_retry_exhausts_max_retries() -> None:
 # ---------------------------------------------------------------------------
 # Non-retryable exceptions
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_retry_no_retry_on_permanent_error() -> None:
@@ -206,6 +207,7 @@ async def test_permanent_errors_are_non_retryable(exc_cls: type[Exception]) -> N
 # Backoff and delay
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_retry_backoff_increases_delay(
     instrumented_sleep: list[float],
@@ -250,6 +252,7 @@ async def test_retry_max_delay_cap(
 # Jitter
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_retry_jitter_exact_with_fixed_seed(
     instrumented_sleep: list[float],
@@ -278,7 +281,7 @@ async def test_retry_jitter_exact_with_fixed_seed(
     # attempt 2: current_delay=4.0  → 2.0
     # attempt 3: current_delay=8.0  → 4.0
     expected = [0.5, 1.0, 2.0, 4.0]
-    for actual, exp in zip(instrumented_sleep, expected):
+    for actual, exp in zip(instrumented_sleep, expected, strict=True):
         assert abs(actual - exp) < 0.0001
 
 
@@ -301,7 +304,7 @@ async def test_retry_jitter_randomness_bounds(
 
     assert len(instrumented_sleep) == 4
     expected_max = [1.0, 2.0, 4.0, 8.0]
-    for i, (d, max_d) in enumerate(zip(instrumented_sleep, expected_max)):
+    for i, (d, max_d) in enumerate(zip(instrumented_sleep, expected_max, strict=True)):
         assert 0.0 <= d <= max_d, f"delay[{i}]={d} not in [0, {max_d}]"
 
 
@@ -344,6 +347,7 @@ async def test_retry_jitter_with_max_delay(
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_retry_zero_max_retries() -> None:

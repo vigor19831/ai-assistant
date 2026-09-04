@@ -7,7 +7,6 @@ import threading
 import pytest
 
 import ai_assistant.core.metrics as _metrics_mod
-
 from ai_assistant.core.metrics import (
     _DEFAULT_BUCKETS,
     get_metrics,

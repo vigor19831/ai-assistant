@@ -127,7 +127,8 @@ COVERAGE_FILE = ROOT / ".coverage"
 # an explicit file list (§11 explicit over implicit): a new script
 # must be added to MYPY_TARGETS.
 RUFF_TARGETS: tuple[str, ...] = (
-    "src/ai_assistant", "scripts", "run_scripts.py", "run_servers.py",
+    "src/ai_assistant", "scripts", "tests",
+    "run_scripts.py", "run_servers.py",
 )
 MYPY_TARGETS: tuple[str, ...] = (
     "src/ai_assistant",
@@ -847,7 +848,7 @@ def _audit_test_quality() -> list[str]:
     """Test rule enforcement — runs in full mode only.
 
     Each check maps 1:1 to a rule in ai_rules.md §2 or §15.
-    Sleep calls annotated with '# noqa: SLEEP' are skipped.
+    Sleep calls annotated with '# sleep: intentional' are skipped.
     """
     if not TESTS.exists():
         return []
@@ -864,9 +865,17 @@ def _audit_test_quality() -> list[str]:
             self.violations: list[str] = []
             self._lines = source_lines
 
-        def _has_noqa(self, lineno: int) -> bool:
-            if 1 <= lineno <= len(self._lines):
-                return "# noqa: SLEEP" in self._lines[lineno - 1]
+        def _has_sleep_marker(self, node: ast.Call) -> bool:
+            """Marker may ride any line of the call: ruff format moves
+            arguments across lines, detaching a line-bound marker from
+            the first line (node.lineno). Check the whole call span."""
+            end = getattr(node, "end_lineno", node.lineno)
+            for ln in range(node.lineno, end + 1):
+                if (
+                    1 <= ln <= len(self._lines)
+                    and "# sleep: intentional" in self._lines[ln - 1]
+                ):
+                    return True
             return False
 
         def visit_Call(self, node: ast.Call) -> None:
@@ -884,7 +893,7 @@ def _audit_test_quality() -> list[str]:
                 self.generic_visit(node)
                 return
 
-            if self._has_noqa(node.lineno):
+            if self._has_sleep_marker(node):
                 self.generic_visit(node)
                 return
 

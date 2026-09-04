@@ -29,20 +29,17 @@ from ai_assistant.core.domain.errors import (
     QUERY_EMBEDDING_MISSING,
     QUERY_TEXT_MISSING,
 )
-from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
+from ai_assistant.core.domain.messages import UserMessage
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
-from ai_assistant.core.pipeline import RAGPipeline
 from ai_assistant.core.pipeline_steps import (
     build_context,
     embed_query,
     generate,
-    rerank,
     retrieve,
 )
-from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
+from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
-
 
 # ============================================================================
 # 12.1 Unicode & Special Characters
@@ -73,7 +70,8 @@ class TestUnicodeChunker:
     @pytest.mark.asyncio
     async def test_chinese_text(self, chunker):
         """CJK characters must be handled correctly (each char counts)."""
-        text = "这是一个中文测试文档。它包含多个句子，用于测试分块器。"
+        # RUF001: fullwidth comma IS the payload — CJK chunking test data.
+        text = "这是一个中文测试文档。它包含多个句子，用于测试分块器。"  # noqa: RUF001
         doc = Document(id="doc-cjk", content=text)
         chunks = await chunker.chunk(doc)
         assert len(chunks) > 0
@@ -83,12 +81,7 @@ class TestUnicodeChunker:
     @pytest.mark.asyncio
     async def test_emoji_and_mixed_scripts(self, chunker):
         """Emoji and mixed scripts must not cause errors."""
-        text = (
-            "Hello 👋 World 🌍! "
-            "こんにちは世界 🗾 "
-            "مرحبا بالعالم 🌙 "
-            "Привет мир 🪆"
-        )
+        text = "Hello 👋 World 🌍! こんにちは世界 🗾 مرحبا بالعالم 🌙 Привет мир 🪆"
         doc = Document(id="doc-emoji", content=text)
         chunks = await chunker.chunk(doc)
         assert len(chunks) > 0
@@ -101,7 +94,7 @@ class TestUnicodeChunker:
         """Quotes, backslashes, code snippets must survive chunking."""
         text = (
             'He said: "quoted text" and \\ escaped backslash. '
-            "Code: x = y + z; print(\"hello\")"
+            'Code: x = y + z; print("hello")'
         )
         doc = Document(id="doc-special", content=text)
         chunks = await chunker.chunk(doc)
@@ -289,7 +282,7 @@ class TestVeryLongDocuments:
             if i == 0:
                 full += c.text
             else:
-                full += c.text[chunker.chunk_overlap:]
+                full += c.text[chunker.chunk_overlap :]
         assert len(full) >= 100_000
         for char in set(text):
             assert any(char in ch.text for ch in chunks), f"Char {char!r} lost"
@@ -426,7 +419,6 @@ class TestEmptySystemState:
             )
         )
         tokenizer = CharFallbackTokenizer(TokenizerConfigData())
-        reranker = NullReranker(RerankerConfigData())
 
         cfg = PipelineConfig(
             top_k=5,
@@ -505,11 +497,10 @@ class TestEmptySystemState:
         )
         assert "[MOCK LLM] Echo:" in response.text
 
-
     @pytest.mark.asyncio
     async def test_upsert_preserves_chunks_without_metadata_source(
         self,
-        tmp_path: Path,
+        tmp_path: Path,  # noqa: F821 — annotation-only usage
     ) -> None:
         from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
         from ai_assistant.core.domain.configs import VectorStoreConfigData
@@ -621,7 +612,13 @@ class TestUnicodeFullPipeline:
             vector_store=store,
         )
         await indexer.index_documents(
-            [{"id": "doc-emoji", "content": "Hello 👋 World 🌍! AI is great 🚀.", "metadata": {}}],
+            [
+                {
+                    "id": "doc-emoji",
+                    "content": "Hello 👋 World 🌍! AI is great 🚀.",
+                    "metadata": {},
+                }
+            ],
             namespace="default",
         )
 

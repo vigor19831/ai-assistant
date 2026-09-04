@@ -4,12 +4,11 @@ Given: API layer components (security, deps, router, lifespan, middleware, admin
 When: tests run in a single flat tests/ folder
 Then: all contracts, boundaries, and error paths are verified.
 """
+
 from __future__ import annotations
 
 import asyncio
 import threading
-import time
-from collections.abc import Awaitable, Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,8 +19,13 @@ from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.testclient import TestClient
 
+from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.api import admin
-from ai_assistant.api.admin import update_api_key, UpdateApiKeyRequest, UpdateApiKeyResponse
+from ai_assistant.api.admin import (
+    UpdateApiKeyRequest,
+    UpdateApiKeyResponse,
+    update_api_key,
+)
 from ai_assistant.api.deps import (
     AppState,
     InitializedAppState,
@@ -29,20 +33,18 @@ from ai_assistant.api.deps import (
     get_state,
     init_adapters,
 )
-from ai_assistant.core.task_registry import TaskRegistry
-from ai_assistant.api.lifespan import lifespan, _async_cleanup as async_cleanup
+from ai_assistant.api.lifespan import _async_cleanup as async_cleanup
+from ai_assistant.api.lifespan import lifespan
 from ai_assistant.api.middleware import MetricsMiddleware
-from ai_assistant.api.router import assemble_routers, ROUTERS
-from ai_assistant.adapters.chunker_simple import SimpleChunker
+from ai_assistant.api.router import ROUTERS, assemble_routers
 from ai_assistant.api.security import (
     SECURITY_MAX_BODY,
-    bearer_scheme,
     check_request_size,
     get_expected_api_key,
     require_api_key,
     set_api_key,
 )
-from ai_assistant.core.config import AppConfig, RAGStep, SecurityConfig
+from ai_assistant.core.config import AppConfig, SecurityConfig
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
@@ -50,6 +52,7 @@ from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker
 from ai_assistant.core.ports.storage import IChatStorage
 from ai_assistant.core.ports.vector_store import IVectorStore
+from ai_assistant.core.task_registry import TaskRegistry
 
 logger = get_logger(__name__)
 
@@ -389,8 +392,7 @@ class TestAPISecurity:
                 errors.append(e)
 
         threads = [
-            threading.Thread(target=worker, args=(f"key-{i}",))
-            for i in range(4)
+            threading.Thread(target=worker, args=(f"key-{i}",)) for i in range(4)
         ]
         for t in threads:
             t.start()
@@ -411,6 +413,7 @@ class TestAPISecurity:
         Then: 422 validation error blocks the request.
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         payload = {
             "content": "test",
@@ -430,6 +433,7 @@ class TestAPISecurity:
         Then: 422 validation error blocks the request.
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         payload = {"content": "test", "namespace": "Hacked123", "filename": "test.md"}
         resp = client.post(
@@ -445,6 +449,7 @@ class TestAPISecurity:
         Then: request is blocked (422 or 400, never 200).
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         payload = {
             "content": "test",
@@ -464,6 +469,7 @@ class TestAPISecurity:
         Then: handler returns 400 or Pydantic returns 422; never 200.
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         payload = {
             "content": "test",
@@ -536,7 +542,9 @@ class TestAPIDeps:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
+        def fake_create_adapter(
+            port: str, name: str, config: Any, **kwargs: Any
+        ) -> Any:
             mapping = {
                 ("llm", "mock"): mock_llm,
                 ("embedder", "mock"): mock_embedder,
@@ -572,8 +580,6 @@ class TestAPIDeps:
         assert result.storage is mock_storage
         assert result.reranker is mock_reranker
 
-
-
     @pytest.mark.asyncio
     async def test_init_adapters_null_reranker_when_not_configured(self):
         """Given: reranker provider is None in config.
@@ -591,7 +597,9 @@ class TestAPIDeps:
         mock_storage = MagicMock(spec=IChatStorage)
         mock_storage.init_db = AsyncMock()
 
-        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
+        def fake_create_adapter(
+            port: str, name: str, config: Any, **kwargs: Any
+        ) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
@@ -632,7 +640,9 @@ class TestAPIDeps:
         mock_embedder = MagicMock(spec=IEmbedder)
         mock_embedder.shutdown = AsyncMock()
 
-        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
+        def fake_create_adapter(
+            port: str, name: str, config: Any, **kwargs: Any
+        ) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
@@ -651,11 +661,13 @@ class TestAPIDeps:
             }
             return MagicMock(spec=port_specs.get(port))
 
-        with patch(
-            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
+        with (
+            patch(
+                "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
+            ),
+            pytest.raises(RuntimeError, match="Storage adapter failed"),
         ):
-            with pytest.raises(RuntimeError, match="Storage adapter failed"):
-                await init_adapters(minimal_config)
+            await init_adapters(minimal_config)
 
         mock_llm.shutdown.assert_awaited_once()
         mock_embedder.shutdown.assert_awaited_once()
@@ -672,7 +684,9 @@ class TestAPIDeps:
         mock_vector_store.list_namespaces = AsyncMock(return_value=[])
         mock_vector_store.load = AsyncMock(return_value=None)
 
-        def fake_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
+        def fake_create_adapter(
+            port: str, name: str, config: Any, **kwargs: Any
+        ) -> Any:
             if port == "vector_store" and name == "memory":
                 return mock_vector_store
             if port == "storage" and name == "sqlite":
@@ -687,11 +701,13 @@ class TestAPIDeps:
             }
             return MagicMock(spec=port_specs.get(port))
 
-        with patch(
-            "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
+        with (
+            patch(
+                "ai_assistant.api.deps.create_adapter", side_effect=fake_create_adapter
+            ),
+            pytest.raises(RuntimeError, match="Storage adapter failed"),
         ):
-            with pytest.raises(RuntimeError, match="Storage adapter failed"):
-                await init_adapters(minimal_config)
+            await init_adapters(minimal_config)
 
     @pytest.mark.asyncio
     async def test_init_adapters_returns_fresh_state(self):
@@ -702,9 +718,17 @@ class TestAPIDeps:
         minimal_config = _make_minimal_config()
         call_count = {"count": 0}
 
-        def counting_create_adapter(port: str, name: str, config: Any, **kwargs: Any) -> Any:
+        def counting_create_adapter(
+            port: str, name: str, config: Any, **kwargs: Any
+        ) -> Any:
             call_count["count"] += 1
-            m = MagicMock(spec=IVectorStore if port == "vector_store" else IChatStorage if port == "storage" else ILLM)
+            m = MagicMock(
+                spec=IVectorStore
+                if port == "vector_store"
+                else IChatStorage
+                if port == "storage"
+                else ILLM
+            )
             if port == "vector_store":
                 m.list_namespaces = AsyncMock(return_value=[])
                 m.load = AsyncMock(return_value=None)
@@ -749,7 +773,6 @@ class TestAPIDeps:
         When: get_state is called.
         Then: the mock is returned.
         """
-        from ai_assistant.api.deps import RAGState
         from ai_assistant.core.task_registry import TaskRegistry
 
         app = FastAPI()
@@ -814,6 +837,7 @@ class TestAPIDeps:
 
         def fake_create(port: str, name: str, config: Any, **kwargs: Any) -> Any:
             from ai_assistant.core.ports.tokenizer import ITokenizer
+
             specs = {
                 "llm": ILLM,
                 "embedder": IEmbedder,
@@ -862,9 +886,7 @@ class TestAPIDeps:
             embedder=MagicMock(spec=IEmbedder),
             vector_store=MagicMock(spec=IVectorStore),
             storage=MagicMock(spec=IChatStorage),
-            chunker=SimpleChunker(
-                ChunkerConfigData(chunk_size=512, chunk_overlap=50)
-            ),
+            chunker=SimpleChunker(ChunkerConfigData(chunk_size=512, chunk_overlap=50)),
             tokenizer=MagicMock(spec=ITokenizer),
             reranker=MagicMock(spec=IReranker),
             rag_state=MagicMock(),
@@ -917,7 +939,8 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         routers = assemble_routers()
         oai_routers = [r for r in routers if any(t in _ROOT_TAGS for t in r.tags)]
@@ -934,10 +957,13 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         routers = assemble_routers()
-        legacy_wrappers = [r for r in routers if not any(t in _ROOT_TAGS for t in r.tags)]
+        legacy_wrappers = [
+            r for r in routers if not any(t in _ROOT_TAGS for t in r.tags)
+        ]
         for router in legacy_wrappers:
             for route in router.routes:
                 if hasattr(route, "path"):
@@ -950,7 +976,8 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         routers = assemble_routers()
         for router in routers:
@@ -980,7 +1007,8 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
         admin_routers = [r for r in ROUTERS if "admin" in r.tags]
         assert len(admin_routers) == 1
@@ -1001,7 +1029,8 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
 
         security = SecurityConfig(openai_routes_require_auth=True)
@@ -1019,7 +1048,8 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
 
         routers = assemble_routers()
@@ -1043,9 +1073,7 @@ class TestAPIRouter:
         for router in routers:
             if "metrics" in router.tags:
                 # Metrics routes should live in a router without dependencies
-                assert not router.dependencies, (
-                    "Metrics router must never require auth"
-                )
+                assert not router.dependencies, "Metrics router must never require auth"
 
     def test_assemble_routers_uses_configured_max_body(self):
         """Given: security config with custom max_body_size.
@@ -1054,16 +1082,17 @@ class TestAPIRouter:
         """
         # _ROOT_TAGS is private; test behavior via assemble_routers() instead
         from ai_assistant.api.router import assemble_routers
-        routers = assemble_routers()
+
+        assemble_routers()
         _ROOT_TAGS = {"admin", "metrics", "chat-oai"}
 
         security = SecurityConfig(max_body_size=2048)
         routers = assemble_routers(security=security)
         # Find a legacy wrapper (non-root, non-metrics router)
         legacy_wrappers = [
-            r for r in routers
-            if not any(t in _ROOT_TAGS for t in r.tags)
-            and "metrics" not in r.tags
+            r
+            for r in routers
+            if not any(t in _ROOT_TAGS for t in r.tags) and "metrics" not in r.tags
         ]
         assert len(legacy_wrappers) > 0
         for wrapper in legacy_wrappers:
@@ -1075,6 +1104,7 @@ class TestAPIRouter:
         Then: 422 Unprocessable Entity is returned (not 500).
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         resp = client.post(
             "/v1/chat/completions",
@@ -1143,18 +1173,13 @@ class TestAPILifespan:
         mock_state.reranker = MagicMock(spec=IReranker)
         mock_state.chunker = MagicMock(spec=IChunker)
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ), patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ), patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static"),
+            patch("ai_assistant.api.lifespan.setup_logging"),
+            patch("ai_assistant.api.lifespan.get_expected_api_key", return_value=None),
+            patch("ai_assistant.api.lifespan.set_api_key"),
         ):
             async with lifespan(app):
                 assert hasattr(app.state, "app_state")
@@ -1209,18 +1234,13 @@ class TestAPILifespan:
         mock_state.chunker = AsyncMock()
         mock_state.chunker.shutdown = AsyncMock(side_effect=mark_chunker_shutdown)
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ), patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ), patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static"),
+            patch("ai_assistant.api.lifespan.setup_logging"),
+            patch("ai_assistant.api.lifespan.get_expected_api_key", return_value=None),
+            patch("ai_assistant.api.lifespan.set_api_key"),
         ):
             async with lifespan(app):
                 pass
@@ -1252,9 +1272,7 @@ class TestAPILifespan:
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
         mock_state.vector_store.index_path = "./data/indices"
-        mock_state.vector_store.list_namespaces = AsyncMock(
-            return_value=["ns1", "ns2"]
-        )
+        mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1", "ns2"])
         mock_state.vector_store.save = AsyncMock(side_effect=track_save)
 
         mock_state.llm = AsyncMock()
@@ -1283,11 +1301,11 @@ class TestAPILifespan:
         save_attempted = {"count": 0}
 
         async def save_with_retry(*args, **kwargs):
-            """Side-effect: fail 3× with TimeoutError, then succeed."""
+            """Side-effect: fail 3x with TimeoutError, then succeed."""
             save_attempted["count"] += 1
             if save_attempted["count"] <= 3:
                 raise TimeoutError()
-            return None
+            return
 
         mock_state = MagicMock()
         mock_state.task_registry = AsyncMock()
@@ -1398,18 +1416,13 @@ class TestAPILifespan:
         def track_mount(app_arg, config_arg):
             mount_calls.append((app_arg, config_arg))
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ) as mock_mount, patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ), patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static") as mock_mount,
+            patch("ai_assistant.api.lifespan.setup_logging"),
+            patch("ai_assistant.api.lifespan.get_expected_api_key", return_value=None),
+            patch("ai_assistant.api.lifespan.set_api_key"),
         ):
             mock_mount.side_effect = track_mount
             async with lifespan(app):
@@ -1443,18 +1456,13 @@ class TestAPILifespan:
         def track_setup(*args, **kwargs):
             setup_calls.append(kwargs)
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ), patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ) as mock_setup, patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static"),
+            patch("ai_assistant.api.lifespan.setup_logging") as mock_setup,
+            patch("ai_assistant.api.lifespan.get_expected_api_key", return_value=None),
+            patch("ai_assistant.api.lifespan.set_api_key"),
         ):
             mock_setup.side_effect = track_setup
             async with lifespan(app):
@@ -1483,16 +1491,12 @@ class TestAPILifespan:
         mock_state.reranker = MagicMock(spec=IReranker)
         mock_state.chunker = MagicMock(spec=IChunker)
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ), patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ), patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static"),
+            patch("ai_assistant.api.lifespan.setup_logging"),
+            patch("ai_assistant.api.lifespan.get_expected_api_key", return_value=None),
         ):
             async with lifespan(app):
                 # Assert on security state during lifespan
@@ -1517,19 +1521,17 @@ class TestAPILifespan:
         mock_state.reranker = AsyncMock()
         mock_state.chunker = AsyncMock()
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ), patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ), patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value="env-secret"
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
-        ) as mock_set_key:
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static"),
+            patch("ai_assistant.api.lifespan.setup_logging"),
+            patch(
+                "ai_assistant.api.lifespan.get_expected_api_key",
+                return_value="env-secret",
+            ),
+            patch("ai_assistant.api.lifespan.set_api_key") as mock_set_key,
+        ):
             async with lifespan(app):
                 pass
 
@@ -1562,18 +1564,13 @@ class TestAPILifespan:
         mock_state.reranker = MagicMock(spec=IReranker)
         mock_state.chunker = MagicMock(spec=IChunker)
 
-        with patch(
-            "ai_assistant.api.lifespan.load_config", return_value=minimal_config
-        ), patch(
-            "ai_assistant.api.lifespan.init_adapters", return_value=mock_state
-        ), patch(
-            "ai_assistant.api.static.mount_static"
-        ), patch(
-            "ai_assistant.api.lifespan.setup_logging"
-        ), patch(
-            "ai_assistant.api.lifespan.get_expected_api_key", return_value=None
-        ), patch(
-            "ai_assistant.api.lifespan.set_api_key"
+        with (
+            patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
+            patch("ai_assistant.api.lifespan.init_adapters", return_value=mock_state),
+            patch("ai_assistant.api.static.mount_static"),
+            patch("ai_assistant.api.lifespan.setup_logging"),
+            patch("ai_assistant.api.lifespan.get_expected_api_key", return_value=None),
+            patch("ai_assistant.api.lifespan.set_api_key"),
         ):
             async with lifespan(app):
                 pass
@@ -1706,9 +1703,10 @@ class TestAPIMiddleware:
         async def test_endpoint():
             return {"ok": True}
 
-        with patch.object(metrics, "increment_counter") as mock_counter, patch.object(
-            metrics, "observe_histogram"
-        ) as mock_histogram:
+        with (
+            patch.object(metrics, "increment_counter") as mock_counter,
+            patch.object(metrics, "observe_histogram") as mock_histogram,
+        ):
             client = TestClient(app)
             resp = client.get("/test")
             assert resp.status_code == 200
@@ -1738,9 +1736,10 @@ class TestAPIMiddleware:
         async def error_endpoint():
             raise HTTPException(status_code=500)
 
-        with patch.object(metrics, "increment_counter") as mock_counter, patch.object(
-            metrics, "observe_histogram"
-        ) as mock_histogram:
+        with (
+            patch.object(metrics, "increment_counter") as mock_counter,
+            patch.object(metrics, "observe_histogram"),
+        ):
             client = TestClient(app, raise_server_exceptions=False)
             resp = client.get("/error")
             assert resp.status_code == 500
@@ -1836,9 +1835,10 @@ class TestAPIMiddleware:
         async def _handler(task_id: str) -> dict[str, str]:
             return {"task_id": task_id}
 
-        with patch.object(metrics, "increment_counter") as mock_counter, patch.object(
-            metrics, "observe_histogram"
-        ) as mock_histogram:
+        with (
+            patch.object(metrics, "increment_counter") as mock_counter,
+            patch.object(metrics, "observe_histogram") as mock_histogram,
+        ):
             client = TestClient(app)
             resp = client.get("/reindex/status/abc-123")
 
@@ -1958,6 +1958,7 @@ class TestAPIAdmin:
         Then: SECURITY_AUDIT marker is present in logs.
         """
         import logging
+
         from ai_assistant.api.admin import update_api_key
 
         caplog.set_level(logging.WARNING, logger="ai_assistant.api.admin")
@@ -1967,7 +1968,9 @@ class TestAPIAdmin:
 
         await update_api_key(req, state)
 
-        audit_records = [r for r in caplog.records if "SECURITY_AUDIT" in r.getMessage()]
+        audit_records = [
+            r for r in caplog.records if "SECURITY_AUDIT" in r.getMessage()
+        ]
         assert len(audit_records) == 1
         assert audit_records[0].__dict__.get("security_event") == "api_key_changed"
         assert audit_records[0].__dict__.get("actor") == "admin_endpoint"
@@ -2044,7 +2047,8 @@ class TestAPIImports:
     def test_no_cyclic_imports_between_api_modules(self):
         """Given: api submodules are imported.
         When: checking import graph.
-        Then: no circular dependencies exist between security, deps, router, lifespan, admin.
+        Then: no circular dependencies exist between security,
+        deps, router, lifespan, admin.
         """
         # Re-importing after previous tests should not raise ImportError
         import ai_assistant.api.admin as _admin
@@ -2074,6 +2078,7 @@ class TestChatPersistence:
         Then: storage.get_history is called to load conversation history.
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         resp = client.post(
             "/api/v1/chat",
@@ -2084,13 +2089,16 @@ class TestChatPersistence:
         isolated_app_state.storage.get_history.assert_awaited_once()
         isolated_app_state.storage.save_exchange.assert_awaited_once()
 
-    def test_openai_chat_persists_when_conversation_id_set(self, client, isolated_app_state):
+    def test_openai_chat_persists_when_conversation_id_set(
+        self, client, isolated_app_state
+    ):
         """Given: OpenAI /v1/chat/completions endpoint with conversation_id.
         When: POST request is made.
         Then: save_exchange persists the pair AND stored history is loaded
         (server-side recall, drift #51 client-first rule).
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         resp = client.post(
             "/v1/chat/completions",
@@ -2104,12 +2112,15 @@ class TestChatPersistence:
         isolated_app_state.storage.save_exchange.assert_awaited_once()
         isolated_app_state.storage.get_history.assert_awaited_once()
 
-    def test_openai_chat_stateless_without_conversation_id(self, client, isolated_app_state):
+    def test_openai_chat_stateless_without_conversation_id(
+        self, client, isolated_app_state
+    ):
         """Given: OpenAI /v1/chat/completions endpoint without conversation_id.
         When: POST request is made.
         Then: storage.save_message is NOT called (stateless mode).
         """
         from ai_assistant.api.security import set_api_key
+
         set_api_key("test-key")
         resp = client.post(
             "/v1/chat/completions",
@@ -2120,6 +2131,7 @@ class TestChatPersistence:
         isolated_app_state.storage.save_message.assert_not_awaited()
         isolated_app_state.storage.get_history.assert_not_awaited()
 
+
 @pytest.mark.asyncio
 async def test_update_api_key_rejects_whitespace_only(mock_state):
     """Given: whitespace-only string as api_key.
@@ -2127,9 +2139,10 @@ async def test_update_api_key_rejects_whitespace_only(mock_state):
     Then: HTTPException(400) is raised.
     """
     mock_state.config.security.admin_enabled = True
-    from ai_assistant.main import create_app
-    from ai_assistant.api.security import set_api_key
     from starlette.testclient import TestClient
+
+    from ai_assistant.api.security import set_api_key
+    from ai_assistant.main import create_app
 
     set_api_key("test-e2e-key")
     app = create_app(state=mock_state)
@@ -2145,13 +2158,14 @@ async def test_oai_conversation_id_recalls_server_history(mock_state):
     """Drift #51: same conversation_id + no client messages -> server
     history is loaded and reaches the LLM.
     """
+    from unittest.mock import AsyncMock
+
+    from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.features.chat.handlers import openai_chat_completions
     from ai_assistant.features.chat.schemas import (
         OAIChatCompletionRequest,
         OAIChatMessage,
     )
-    from ai_assistant.core.domain.messages import AssistantMessage
-    from unittest.mock import AsyncMock
 
     mock_state.storage.get_history = AsyncMock(
         return_value=[
@@ -2168,7 +2182,9 @@ async def test_oai_conversation_id_recalls_server_history(mock_state):
         messages=[OAIChatMessage(role="user", content="What is my favorite number?")],
         conversation_id="conv-alpha",
     )
-    await openai_chat_completions(req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state)
+    await openai_chat_completions(
+        req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state
+    )
 
     # Server history was fetched and passed to the manager.
     mock_state.storage.get_history.assert_awaited_once()
@@ -2181,13 +2197,14 @@ async def test_oai_client_history_wins_over_server(mock_state):
     """Drift #51 client-first: when the client sends prior messages,
     server history is NOT loaded.
     """
+    from unittest.mock import AsyncMock
+
+    from ai_assistant.core.domain.messages import AssistantMessage
     from ai_assistant.features.chat.handlers import openai_chat_completions
     from ai_assistant.features.chat.schemas import (
         OAIChatCompletionRequest,
         OAIChatMessage,
     )
-    from ai_assistant.core.domain.messages import AssistantMessage
-    from unittest.mock import AsyncMock
 
     mock_state.storage.get_history = AsyncMock(return_value=[])
 
@@ -2203,7 +2220,9 @@ async def test_oai_client_history_wins_over_server(mock_state):
     mock_state.chat_manager.chat = AsyncMock(
         return_value=AssistantMessage(text="42", metadata={})
     )
-    await openai_chat_completions(req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state)
+    await openai_chat_completions(
+        req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state
+    )
 
     mock_state.storage.get_history.assert_not_awaited()
 
@@ -2219,10 +2238,12 @@ async def test_stream_chat_discards_partial_on_error(client_no_raise, mock_state
 
     # Mock manager that yields chunks then raises
     mock_mgr = MagicMock()
+
     async def failing_stream(*args, **kwargs):
         yield "Partial"
         yield " response"
         raise Exception("Stream error")
+
     mock_mgr.stream_chat = failing_stream
 
     client_no_raise.app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
@@ -2306,7 +2327,7 @@ class TestRAGStateCleanup:
         """
         import time as time_mod
 
-        from ai_assistant.api.deps import RAGState, _RUNNING_TTL_SECONDS
+        from ai_assistant.api.deps import _RUNNING_TTL_SECONDS
         from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 
         state = RAGState()
@@ -2337,7 +2358,7 @@ class TestRAGStateCleanup:
         """
         import time as time_mod
 
-        from ai_assistant.api.deps import RAGState, _COMPLETED_TTL_SECONDS
+        from ai_assistant.api.deps import _COMPLETED_TTL_SECONDS
         from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 
         state = RAGState()
@@ -2372,7 +2393,7 @@ class TestRAGStateCleanup:
         """
         import time as time_mod
 
-        from ai_assistant.api.deps import RAGState, _MAX_STATUS_ENTRIES
+        from ai_assistant.api.deps import _MAX_STATUS_ENTRIES
         from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 
         state = RAGState()
@@ -2428,12 +2449,14 @@ class TestInitAdaptersFailureCleanup:
             )
             return adapter
 
-        with patch(
-            "ai_assistant.api.deps.create_adapter",
-            side_effect=mock_create_adapter,
+        with (
+            patch(
+                "ai_assistant.api.deps.create_adapter",
+                side_effect=mock_create_adapter,
+            ),
+            pytest.raises(ImportError, match="LLM provider not available"),
         ):
-            with pytest.raises(ImportError, match="LLM provider not available"):
-                await init_adapters(config)
+            await init_adapters(config)
 
         # Verify cleanup was attempted for already-created adapters
         assert len(shutdown_calls) > 0
@@ -2463,17 +2486,17 @@ class TestInitAdaptersFailureCleanup:
 
             adapter.shutdown = track_shutdown
             if category == "storage":
-                adapter.init_db = AsyncMock(
-                    side_effect=RuntimeError("DB init failed")
-                )
+                adapter.init_db = AsyncMock(side_effect=RuntimeError("DB init failed"))
             return adapter
 
-        with patch(
-            "ai_assistant.api.deps.create_adapter",
-            side_effect=mock_create_adapter,
+        with (
+            patch(
+                "ai_assistant.api.deps.create_adapter",
+                side_effect=mock_create_adapter,
+            ),
+            pytest.raises(RuntimeError),
         ):
-            with pytest.raises(RuntimeError):
-                await init_adapters(config)
+            await init_adapters(config)
 
         assert len(shutdown_calls) > 0
 

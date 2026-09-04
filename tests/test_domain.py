@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
-import os
-from unittest import mock
-from unittest.mock import patch
 
 import pytest
 
@@ -21,7 +18,6 @@ from ai_assistant.core.domain.messages import (
     UserMessage,
 )
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
-
 
 # ───────────────────────────────────────────────
 # PipelineData — functional behaviour
@@ -176,8 +172,10 @@ class TestPipelineDataFunctional:
         """Given: empty PipelineData.
         When: replace() is called with embedder.
         Then: new instance holds embedder; original is None."""
+
         class FakeEmbedder:
             pass
+
         embedder = FakeEmbedder()
         data = PipelineData()
         data2 = replace(data, embedder=embedder)
@@ -190,8 +188,10 @@ class TestPipelineDataFunctional:
         """Given: empty PipelineData.
         When: replace() is called with vector_store.
         Then: new instance holds vector_store; original is None."""
+
         class FakeVS:
             pass
+
         vs = FakeVS()
         data = PipelineData()
         data2 = replace(data, vector_store=vs)
@@ -204,8 +204,10 @@ class TestPipelineDataFunctional:
         """Given: empty PipelineData.
         When: replace() is called with llm.
         Then: new instance holds llm; original is None."""
+
         class FakeLLM:
             pass
+
         llm = FakeLLM()
         data = PipelineData()
         data2 = replace(data, llm=llm)
@@ -298,8 +300,10 @@ class TestPipelineDataFrozen:
         """Given: PipelineData with embedder.
         When: embedder is reassigned.
         Then: FrozenInstanceError."""
+
         class FakeEmbedder:
             pass
+
         data = PipelineData(embedder=FakeEmbedder())
         with pytest.raises(FrozenInstanceError):
             data.embedder = None  # type: ignore[misc]
@@ -308,8 +312,10 @@ class TestPipelineDataFrozen:
         """Given: PipelineData with vector_store.
         When: vector_store is reassigned.
         Then: FrozenInstanceError."""
+
         class FakeVS:
             pass
+
         data = PipelineData(vector_store=FakeVS())
         with pytest.raises(FrozenInstanceError):
             data.vector_store = None  # type: ignore[misc]
@@ -502,7 +508,11 @@ class TestChunk:
         """Given: constructed Chunk with metadata.
         When: metadata is reassigned.
         Then: FrozenInstanceError."""
-        chunk = Chunk(id="c1", text="hello", metadata=ChunkMetadata(source="doc", index=0, total_chunks=1))
+        chunk = Chunk(
+            id="c1",
+            text="hello",
+            metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
+        )
         with pytest.raises(FrozenInstanceError):
             chunk.metadata = ChunkMetadata(source="doc2", index=0, total_chunks=1)  # type: ignore[misc]
 
@@ -574,7 +584,9 @@ class TestAtomicWrite:
             await atomic_write(str(target), "text", mode="x")  # type: ignore[arg-type]
 
     @pytest.mark.asyncio
-    async def test_str_content_with_wb_mode_raises_type_error(self, tmp_path: Path) -> None:
+    async def test_str_content_with_wb_mode_raises_type_error(
+        self, tmp_path: Path
+    ) -> None:
         """Given: str content with mode='wb'.
         When: atomic_write is called.
         Then: TypeError is raised."""
@@ -585,7 +597,9 @@ class TestAtomicWrite:
             await atomic_write(str(target), "text", mode="wb")
 
     @pytest.mark.asyncio
-    async def test_bytes_content_with_w_mode_raises_type_error(self, tmp_path: Path) -> None:
+    async def test_bytes_content_with_w_mode_raises_type_error(
+        self, tmp_path: Path
+    ) -> None:
         """Given: bytes content with mode='w'.
         When: atomic_write is called.
         Then: TypeError is raised."""

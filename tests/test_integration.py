@@ -7,8 +7,6 @@ Then: end-to-end RAG flows complete without mutation.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 import respx
 from httpx import Response
@@ -95,7 +93,9 @@ class TestIntegrationAdapters:
             route = respx.post("https://api.integration.test/v1/embeddings")
             route.return_value = Response(
                 200,
-                json={"data": [{"embedding": [0.1] * 1536}, {"embedding": [0.2] * 1536}]},
+                json={
+                    "data": [{"embedding": [0.1] * 1536}, {"embedding": [0.2] * 1536}]
+                },
             )
             result = await embedder.embed(["a", "b"])
             assert len(result) == 2
@@ -212,7 +212,9 @@ class TestIntegrationAdapters:
         """Given: SQLite storage with temp DB path.
         When: saving and retrieving messages.
         Then: history preserved across operations."""
-        storage = SQLiteStorage(StorageConfigData(db_path=str(tmp_path / "integration.db")))
+        storage = SQLiteStorage(
+            StorageConfigData(db_path=str(tmp_path / "integration.db"))
+        )
         await storage.init_db()
         await storage.save_message(
             "conv-1", {"role": "user", "content": "hi", "metadata": {}}
@@ -243,19 +245,25 @@ class TestIntegrationChatRAG:
 
         # Index documents
         chunks = [
-            Chunk(id="c1", text="Paris is capital of France", embedding=[1.0, 0.0, 0.0]),
-            Chunk(id="c2", text="Berlin is capital of Germany", embedding=[0.0, 1.0, 0.0]),
+            Chunk(
+                id="c1", text="Paris is capital of France", embedding=[1.0, 0.0, 0.0]
+            ),
+            Chunk(
+                id="c2", text="Berlin is capital of Germany", embedding=[0.0, 1.0, 0.0]
+            ),
         ]
         await vector_store.add(chunks, namespace="default")
 
         # Build pipeline
-        pipeline = RAGPipeline([
-            embed_query,
-            retrieve,
-            rerank,
-            build_context,
-            generate,
-        ])
+        pipeline = RAGPipeline(
+            [
+                embed_query,
+                retrieve,
+                rerank,
+                build_context,
+                generate,
+            ]
+        )
 
         # Query with [p] prefix (RAG trigger)
         query = UserMessage(text="[p] What is the capital of France?")
@@ -306,12 +314,18 @@ class TestIntegrationNamespaceIsolation:
         Then: only test chunks returned; test-alt chunks isolated."""
         vector_store = MemoryVectorStore(VectorStoreConfigData(dim=3))
 
-        await vector_store.add([
-            Chunk(id="t1", text="test secret", embedding=[1.0, 0.0, 0.0]),
-        ], namespace="test")
-        await vector_store.add([
-            Chunk(id="a1", text="alt secret", embedding=[1.0, 0.0, 0.0]),
-        ], namespace="test-alt")
+        await vector_store.add(
+            [
+                Chunk(id="t1", text="test secret", embedding=[1.0, 0.0, 0.0]),
+            ],
+            namespace="test",
+        )
+        await vector_store.add(
+            [
+                Chunk(id="a1", text="alt secret", embedding=[1.0, 0.0, 0.0]),
+            ],
+            namespace="test-alt",
+        )
 
         # Query test namespace directly
         results_test = await vector_store.search(
@@ -355,19 +369,29 @@ class TestIntegrationFullRAG:
 
         # Index
         chunks = [
-            Chunk(id="c1", text="Python is a programming language", embedding=[1.0, 0.0, 0.0]),
-            Chunk(id="c2", text="Java is also a programming language", embedding=[0.0, 1.0, 0.0]),
+            Chunk(
+                id="c1",
+                text="Python is a programming language",
+                embedding=[1.0, 0.0, 0.0],
+            ),
+            Chunk(
+                id="c2",
+                text="Java is also a programming language",
+                embedding=[0.0, 1.0, 0.0],
+            ),
         ]
         await vector_store.add(chunks, namespace="docs")
 
         # Pipeline with hyde
-        pipeline = RAGPipeline([
-            hyde_query,
-            retrieve,
-            rerank,
-            build_context,
-            generate,
-        ])
+        pipeline = RAGPipeline(
+            [
+                hyde_query,
+                retrieve,
+                rerank,
+                build_context,
+                generate,
+            ]
+        )
 
         query = UserMessage(text="Tell me about Python")
 
@@ -429,7 +453,12 @@ class TestIntegrationAPIInit:
                 "connect_timeout": 2.0,
                 "stop_sequences": [],
             },
-            embedder={"provider": "mock", "dim": 3, "timeout": 5.0, "connect_timeout": 2.0},
+            embedder={
+                "provider": "mock",
+                "dim": 3,
+                "timeout": 5.0,
+                "connect_timeout": 2.0,
+            },
             vector_store={
                 "provider": "memory",
                 "dim": 3,
@@ -526,7 +555,12 @@ class TestIntegrationAPIInit:
                 "connect_timeout": 2.0,
                 "stop_sequences": [],
             },
-            embedder={"provider": "mock", "dim": 3, "timeout": 5.0, "connect_timeout": 2.0},
+            embedder={
+                "provider": "mock",
+                "dim": 3,
+                "timeout": 5.0,
+                "connect_timeout": 2.0,
+            },
             vector_store={
                 "provider": "memory",
                 "dim": 3,
@@ -557,7 +591,9 @@ class TestIntegrationAPIInit:
 
         # Index
         chunks = [
-            Chunk(id="c1", text="Go is a programming language", embedding=[1.0, 0.0, 0.0]),
+            Chunk(
+                id="c1", text="Go is a programming language", embedding=[1.0, 0.0, 0.0]
+            ),
         ]
         await state.vector_store.add(chunks, namespace="test")
 

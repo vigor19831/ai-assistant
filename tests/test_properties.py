@@ -15,13 +15,19 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-from hypothesis import HealthCheck, assume, given, settings, strategies as st
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
 
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.llm_mock import MockLLM
 from ai_assistant.adapters.reranker_null import NullReranker
-from ai_assistant.core.domain.configs import ChunkerConfigData, EmbedderConfigData, LLMConfigData, RerankerConfigData
+from ai_assistant.core.domain.configs import (
+    ChunkerConfigData,
+    EmbedderConfigData,
+    LLMConfigData,
+    RerankerConfigData,
+)
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.ports.chunker import IChunker
@@ -29,10 +35,10 @@ from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: parametrized over ALL adapter implementations
 # ---------------------------------------------------------------------------
+
 
 @pytest_asyncio.fixture(params=["mock"])
 async def embedder_impl(request):
@@ -83,9 +89,7 @@ async def reranker_impl(request):
 async def chunker_impl(request):
     """Yield concrete IChunker implementations for property tests."""
     if request.param == "simple":
-        adapter = SimpleChunker(
-            ChunkerConfigData(chunk_size=100, chunk_overlap=0)
-        )
+        adapter = SimpleChunker(ChunkerConfigData(chunk_size=100, chunk_overlap=0))
     else:
         raise ValueError(f"Unknown chunker: {request.param}")
     yield adapter
@@ -96,12 +100,17 @@ async def chunker_impl(request):
 # IEmbedder properties
 # ---------------------------------------------------------------------------
 
+
 class TestEmbedderProperties:
     """Property-based contract tests for IEmbedder."""
 
     @pytest.mark.asyncio
     @given(texts=st.lists(st.text(min_size=0, max_size=500), min_size=0, max_size=20))
-    @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_embed_output_count_matches_input(
         self, embedder_impl: IEmbedder, texts: list[str]
     ) -> None:
@@ -114,7 +123,11 @@ class TestEmbedderProperties:
 
     @pytest.mark.asyncio
     @given(texts=st.lists(st.text(min_size=1, max_size=100), min_size=1, max_size=5))
-    @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_embed_dimension_consistency(
         self, embedder_impl: IEmbedder, texts: list[str]
     ) -> None:
@@ -143,6 +156,7 @@ class TestEmbedderProperties:
 # IReranker properties
 # ---------------------------------------------------------------------------
 
+
 class TestRerankerProperties:
     """Property-based contract tests for IReranker."""
 
@@ -160,7 +174,11 @@ class TestRerankerProperties:
             max_size=20,
         ),
     )
-    @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_rerank_result_count_bounded(
         self, reranker_impl: IReranker, query: str, chunks: list[Chunk]
     ) -> None:
@@ -186,7 +204,11 @@ class TestRerankerProperties:
         ),
         top_k=st.integers(min_value=1, max_value=50),
     )
-    @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_rerank_top_k_respected(
         self, reranker_impl: IReranker, query: str, chunks: list[Chunk], top_k: int
     ) -> None:
@@ -213,7 +235,11 @@ class TestRerankerProperties:
             max_size=10,
         ),
     )
-    @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=50,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_rerank_scores_in_valid_range(
         self, reranker_impl: IReranker, query: str, chunks: list[Chunk]
     ) -> None:
@@ -239,7 +265,11 @@ class TestRerankerProperties:
             max_size=10,
         ),
     )
-    @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_rerank_scores_descending(
         self, reranker_impl: IReranker, query: str, chunks: list[Chunk]
     ) -> None:
@@ -256,6 +286,7 @@ class TestRerankerProperties:
 # IChunker properties
 # ---------------------------------------------------------------------------
 
+
 class TestChunkerProperties:
     """Property-based contract tests for IChunker."""
 
@@ -265,7 +296,11 @@ class TestChunkerProperties:
         chunk_size=st.integers(min_value=10, max_value=500),
         chunk_overlap=st.integers(min_value=0, max_value=50),
     )
-    @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_chunk_count_and_bounds(
         self, chunker_impl: IChunker, text: str, chunk_size: int, chunk_overlap: int
     ) -> None:
@@ -300,7 +335,6 @@ class TestChunkerProperties:
             ids = [c.id for c in chunks]
             assert len(ids) == len(set(ids))
 
-            # Invariant: metadata.total_chunks is consistent
             for c in chunks:
                 assert c.metadata.total_chunks == len(chunks)
         finally:
@@ -311,6 +345,7 @@ class TestChunkerProperties:
 # ILLM properties
 # ---------------------------------------------------------------------------
 
+
 class TestLLMProperties:
     """Property-based contract tests for ILLM."""
 
@@ -320,22 +355,36 @@ class TestLLMProperties:
         max_tokens=st.one_of(st.none(), st.integers(min_value=1, max_value=4096)),
         temperature=st.one_of(st.none(), st.floats(min_value=0.0, max_value=2.0)),
     )
-    @settings(max_examples=30, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=30,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_complete_returns_assistant_message(
-        self, llm_impl: ILLM, texts: list[str], max_tokens: int | None, temperature: float | None
+        self,
+        llm_impl: ILLM,
+        texts: list[str],
+        max_tokens: int | None,
+        temperature: float | None,
     ) -> None:
         """Given: list of user messages with optional params.
         When: complete() is called.
         Then: returns AssistantMessage with text and metadata.
         """
         messages = [UserMessage(text=t) for t in texts]
-        result = await llm_impl.complete(messages, max_tokens=max_tokens, temperature=temperature)
+        result = await llm_impl.complete(
+            messages, max_tokens=max_tokens, temperature=temperature
+        )
         assert isinstance(result, AssistantMessage)
         assert isinstance(result.text, str)
 
     @pytest.mark.asyncio
     @given(texts=st.lists(st.text(min_size=0, max_size=500), min_size=1, max_size=3))
-    @settings(max_examples=20, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @settings(
+        max_examples=20,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
     async def test_stream_yields_strings(
         self, llm_impl: ILLM, texts: list[str]
     ) -> None:
@@ -350,9 +399,7 @@ class TestLLMProperties:
             chunks.append(chunk)
         # Mock may yield empty stream — that is ok for this invariant
 
-    def test_get_context_limit_non_negative_or_none(
-        self, llm_impl: ILLM
-    ) -> None:
+    def test_get_context_limit_non_negative_or_none(self, llm_impl: ILLM) -> None:
         """Given: LLM adapter.
         When: get_context_limit() is called.
         Then: returns None or positive int.

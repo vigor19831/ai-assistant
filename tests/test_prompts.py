@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from ai_assistant.core.prompts import _env_cache, get_prompt
+from ai_assistant.core.prompts import get_prompt
 
 
 class TestPromptVersion:
@@ -126,8 +126,6 @@ class TestJinja2EnvironmentConfig:
         # With trim_blocks=True and lstrip_blocks=True, output should be compact
         assert "a" in result
         assert "b" in result
-
-
 
 
 class TestRefusalConstantsSync:

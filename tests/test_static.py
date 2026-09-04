@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import uuid
+from pathlib import Path
 
-import pytest
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.routing import Mount
 
 from ai_assistant.api.static import mount_static
 from ai_assistant.core.config import AppConfig, UIConfig
-
 
 # ---------------------------------------------------------------------------
 # mount_static
@@ -94,9 +92,7 @@ def test_mount_static_mounts_at_ui_path(tmp_path: Path) -> None:
     mount_static(app, config)
     assert app.state.static_mounted is True
     # Verify mount exists by inspecting routes
-    mount_routes = [
-        r for r in app.routes if isinstance(r, Mount) and r.path == "/ui"
-    ]
+    mount_routes = [r for r in app.routes if isinstance(r, Mount) and r.path == "/ui"]
     assert len(mount_routes) == 1
 
 

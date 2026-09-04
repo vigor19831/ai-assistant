@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import ast
 import compileall
-import importlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -272,7 +271,10 @@ class TestModuleLevelImports:
             if isinstance(node, ast.ImportFrom):
                 module = node.module or ""
                 if "ai_assistant.main" in module:
-                    pytest.fail("lifespan.py imports from main.py — circular entry point dependency")
+                    pytest.fail(
+                        "lifespan.py imports from main.py — "
+                        "circular entry point dependency"
+                    )
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name == "ai_assistant.main":
@@ -311,9 +313,12 @@ class TestNoPrintPprintAST:
         tree = ast.parse(source, filename=filename)
         hits: list[tuple[int, str]] = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id in ("print", "pprint"):
-                    hits.append((node.lineno, ast.unparse(node)))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in ("print", "pprint")
+            ):
+                hits.append((node.lineno, ast.unparse(node)))
         return hits
 
     def test_src_no_print_pprint(self):
@@ -336,7 +341,9 @@ class TestLoggingFormat:
     Enforces structured logging: static message strings, data in extra dict.
     """
 
-    def _find_positional_logging(self, source: str, filename: str) -> list[tuple[int, str]]:
+    def _find_positional_logging(
+        self, source: str, filename: str
+    ) -> list[tuple[int, str]]:
         """AST-scan for logger.* calls with % format specifiers or positional args.
 
         Detects all variables assigned from get_logger(), not just 'logger'.
@@ -347,15 +354,15 @@ class TestLoggingFormat:
 
         # Phase 1: discover logger variable names (e.g. log = get_logger(...))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                if (
-                    len(node.targets) == 1
-                    and isinstance(node.targets[0], ast.Name)
-                    and isinstance(node.value, ast.Call)
-                    and isinstance(node.value.func, ast.Name)
-                    and node.value.func.id == "get_logger"
-                ):
-                    logger_names.add(node.targets[0].id)
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "get_logger"
+            ):
+                logger_names.add(node.targets[0].id)
 
         # Phase 2: scan for logger.* calls
         for node in ast.walk(tree):
@@ -364,14 +371,26 @@ class TestLoggingFormat:
             func = node.func
             if not isinstance(func, ast.Attribute):
                 continue
-            if func.attr not in ("info", "debug", "warning", "error", "exception", "critical"):
+            if func.attr not in (
+                "info",
+                "debug",
+                "warning",
+                "error",
+                "exception",
+                "critical",
+            ):
                 continue
-            if not isinstance(func.value, ast.Name) or func.value.id not in logger_names:
+            if (
+                not isinstance(func.value, ast.Name)
+                or func.value.id not in logger_names
+            ):
                 continue
             # Check for % format specifiers in message string (exclude %% escapes)
             if node.args:
                 first_arg = node.args[0]
-                if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                if isinstance(first_arg, ast.Constant) and isinstance(
+                    first_arg.value, str
+                ):
                     msg = first_arg.value
                     # Match %s, %d, %f, %(name)s, etc. but not %% escape sequences
                     cleaned = msg.replace("%%", "")
@@ -379,7 +398,9 @@ class TestLoggingFormat:
                         hits.append((node.lineno, f"percent-format: {msg[:40]}"))
             # Check for positional args beyond message (extra= should be keyword)
             if len(node.args) > 1:
-                hits.append((node.lineno, f"extra-positional: {ast.unparse(node)[:60]}"))
+                hits.append(
+                    (node.lineno, f"extra-positional: {ast.unparse(node)[:60]}")
+                )
         return hits
 
     def test_src_no_positional_logging(self):
@@ -546,7 +567,9 @@ class TestFrozenVersions:
 
     def _parse_requirement(self, req: str) -> tuple[str, str | None, str | None]:
         """Parse name, lower bound, upper bound from PEP 508 string."""
-        pytest.importorskip("packaging", reason="packaging library required for PEP 508 parsing")
+        pytest.importorskip(
+            "packaging", reason="packaging library required for PEP 508 parsing"
+        )
         from packaging.requirements import Requirement
 
         try:
@@ -571,7 +594,7 @@ class TestFrozenVersions:
         deps = self._get_dependencies()
         fastapi_dep = next((d for d in deps if d.startswith("fastapi")), None)
         assert fastapi_dep is not None, "fastapi not in dependencies"
-        name, lower, upper = self._parse_requirement(fastapi_dep)
+        _name, lower, upper = self._parse_requirement(fastapi_dep)
         assert lower is not None, "fastapi missing lower bound"
         assert upper is not None, "fastapi missing upper bound"
 
@@ -582,7 +605,7 @@ class TestFrozenVersions:
         deps = self._get_dependencies()
         pydantic_dep = next((d for d in deps if d.startswith("pydantic")), None)
         assert pydantic_dep is not None, "pydantic not in dependencies"
-        name, lower, upper = self._parse_requirement(pydantic_dep)
+        _name, lower, upper = self._parse_requirement(pydantic_dep)
         assert lower is not None, "pydantic missing lower bound"
         assert upper is not None, "pydantic missing upper bound"
 
@@ -593,7 +616,7 @@ class TestFrozenVersions:
         deps = self._get_dependencies()
         uvicorn_dep = next((d for d in deps if d.startswith("uvicorn")), None)
         assert uvicorn_dep is not None, "uvicorn not in dependencies"
-        name, lower, upper = self._parse_requirement(uvicorn_dep)
+        _name, lower, upper = self._parse_requirement(uvicorn_dep)
         assert lower is not None, "uvicorn missing lower bound"
         assert upper is not None, "uvicorn missing upper bound"
         assert "standard" in uvicorn_dep, "uvicorn must have [standard] extra"
@@ -605,7 +628,7 @@ class TestFrozenVersions:
         deps = self._get_dependencies()
         unbounded = []
         for dep in deps:
-            name, lower, upper = self._parse_requirement(dep)
+            _name, _lower, upper = self._parse_requirement(dep)
             if upper is None:
                 unbounded.append(dep)
         assert not unbounded, f"Dependencies missing upper bound: {unbounded}"
@@ -718,13 +741,13 @@ def test_pipeline_steps_no_kwargs_smoke() -> None:
     tree = ast.parse(source)
 
     for node in ast.walk(tree):
-        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
-            # Check if function name is in STEP_REGISTRY (regardless of decorator alias)
-            if node.name in step_registry_names and node.args.kwarg is not None:
-                pytest.fail(
-                    f"Step function {node.name!r} uses **kwargs. "
-                    f"Use StepContext instead."
-                )
+        # Check if function name is in STEP_REGISTRY (regardless of decorator alias)
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)) and (
+            node.name in step_registry_names and node.args.kwarg is not None
+        ):
+            pytest.fail(
+                f"Step function {node.name!r} uses **kwargs. Use StepContext instead."
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -840,7 +863,6 @@ class TestLoggingSetup:
 def test_factory_import_without_faiss():
     """Factory must not crash when faiss-cpu is not installed."""
     import subprocess
-    import sys
 
     code = (
         "import sys; sys.modules['faiss'] = None; "

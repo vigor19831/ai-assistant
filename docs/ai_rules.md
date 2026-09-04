@@ -204,7 +204,7 @@ These rules themselves change:
 
 ## 15. Test Discipline
 
-`tests/` excluded from ruff/mypy, but not from architecture. Tests must survive `pytest -n auto --random-order` (xdist + random-order plugins).
+`tests/` excluded from mypy, but not from architecture or ruff (2026-09-04, drift #71; per-file-ignores: ASYNC230/240, N806 — fixture IO and inline config constants). Tests must survive `pytest -n auto --random-order` (xdist + random-order plugins).
 
 - **Isolation**: No hardcoded paths — use `tmp_path`. No mutable shared state between tests.
 - **Async**: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop.

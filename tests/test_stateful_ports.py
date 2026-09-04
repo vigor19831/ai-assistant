@@ -14,23 +14,23 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import os
 import tempfile
-import uuid
 from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import settings, strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, rule, precondition, invariant
+from hypothesis import strategies as st
+from hypothesis.stateful import RuleBasedStateMachine, invariant, precondition, rule
 
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
-from ai_assistant.core.domain.configs import VectorStoreConfigData, StorageConfigData
+from ai_assistant.core.domain.configs import StorageConfigData, VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import VersionMismatchError
-from ai_assistant.core.ports.vector_store import IVectorStore
 from ai_assistant.core.ports.storage import IChatStorage
+from ai_assistant.core.ports.vector_store import IVectorStore
 
 pytestmark = pytest.mark.timeout(0)
 
@@ -76,6 +76,7 @@ def _run_async(coro):
 # IVectorStore state machine (in-memory only)
 # ---------------------------------------------------------------------------
 
+
 class VectorStoreStateMachine(RuleBasedStateMachine):
     """Model: vector store contains a set of chunks per namespace.
 
@@ -92,9 +93,7 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
 
     def _init_store(self) -> IVectorStore:
         """Create a fresh MemoryVectorStore."""
-        return MemoryVectorStore(
-            VectorStoreConfigData(dim=self._dim)
-        )
+        return MemoryVectorStore(VectorStoreConfigData(dim=self._dim))
 
     @rule()
     def init(self) -> None:
@@ -114,9 +113,7 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
     def search(self, idx: int, namespace: str) -> None:
         """Given: store has chunks. When: search. Then: results from set."""
         query = [0.01 * (idx % 100)] * self._dim
-        results = _run_async(
-            self._store.search(query, top_k=5, namespace=namespace)
-        )
+        results = _run_async(self._store.search(query, top_k=5, namespace=namespace))
         expected_ids = self._expected.get(namespace, set())
         for r in results:
             assert r.id in expected_ids
@@ -135,10 +132,9 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
     def teardown(self) -> None:
         """Unconditionally shutdown the store to release resources."""
         if self._store is not None:
-            try:
+            # Best-effort cleanup; do not let teardown fail
+            with contextlib.suppress(Exception):
                 _run_async(self._store.shutdown())
-            except Exception:
-                pass  # Best-effort cleanup; do not let teardown fail
         super().teardown()
 
     @invariant()
@@ -153,6 +149,7 @@ TestVectorStoreStateful = VectorStoreStateMachine.TestCase
 # ---------------------------------------------------------------------------
 # IChatStorage state machine (file-based temp DB)
 # ---------------------------------------------------------------------------
+
 
 class ChatStorageStateMachine(RuleBasedStateMachine):
     """Model: chat storage contains messages per conversation.
@@ -170,25 +167,20 @@ class ChatStorageStateMachine(RuleBasedStateMachine):
         super().__init__()
         self._storage: IChatStorage | None = None
         self._expected: dict[str, list[dict[str, Any]]] = {}
-        fd, self._db_path = tempfile.mkstemp(
-            prefix="chat_stateful_", suffix=".db"
-        )
+        fd, self._db_path = tempfile.mkstemp(prefix="chat_stateful_", suffix=".db")
         os.close(fd)
 
     def teardown(self) -> None:
         """Close storage and remove the temp DB file to avoid accumulation."""
         try:
             if self._storage is not None:
-                try:
+                # Best-effort; still unlink files below
+                with contextlib.suppress(Exception):
                     _run_async(self._storage.shutdown())
-                except Exception:
-                    pass  # Best-effort; still unlink files below
         finally:
             for suffix in ("", "-wal", "-shm"):
-                try:
+                with contextlib.suppress(OSError):
                     os.unlink(self._db_path + suffix)
-                except OSError:
-                    pass
             super().teardown()
 
     def _init_storage(self) -> IChatStorage:
@@ -259,6 +251,7 @@ TestChatStorageStateful = ChatStorageStateMachine.TestCase
 # ---------------------------------------------------------------------------
 # Persistence tests (async, separate from state machines)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_vector_store_save_load_preserves_state(tmp_path: Path) -> None:
@@ -332,9 +325,7 @@ async def test_vector_store_delete_auto_persists(tmp_path: Path) -> None:
     """
     dim = 384
     path = str(tmp_path / "vs_delete")
-    store = MemoryVectorStore(
-        VectorStoreConfigData(dim=dim, index_path=path)
-    )
+    store = MemoryVectorStore(VectorStoreConfigData(dim=dim, index_path=path))
     namespace = "test_ns"
 
     try:
@@ -388,6 +379,7 @@ async def test_chat_storage_persistence(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # SQLiteStorage shutdown tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_sqlite_storage_shutdown_wal_checkpoint(tmp_path: Path) -> None:
@@ -517,6 +509,7 @@ async def test_sqlite_settings_none_value(tmp_path: Path) -> None:
 # MemoryVectorStore regression tests (bugs found 2026-07-06)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_memory_vector_store_nan_query_returns_empty(tmp_path: Path) -> None:
     """Given: store with chunks. When: search with NaN query. Then: empty results."""
@@ -557,7 +550,8 @@ async def test_memory_vector_store_inf_query_returns_empty(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 async def test_memory_vector_store_zero_query_returns_empty(tmp_path: Path) -> None:
-    """Given: store with chunks. When: search with zero vector query. Then: empty results."""
+    """Given: store with chunks. When: search with zero vector query.
+    Then: empty results."""
     dim = 384
     store = MemoryVectorStore(VectorStoreConfigData(dim=dim))
     namespace = "test_ns"
@@ -575,7 +569,9 @@ async def test_memory_vector_store_zero_query_returns_empty(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_memory_vector_store_chunk_embedding_preserved_after_load(tmp_path: Path) -> None:
+async def test_memory_vector_store_chunk_embedding_preserved_after_load(
+    tmp_path: Path,
+) -> None:
     """Given: MemoryVectorStore with chunks. When: save then load.
     Then: Chunk.embedding is preserved (not None).
     """
@@ -603,7 +599,9 @@ async def test_memory_vector_store_chunk_embedding_preserved_after_load(tmp_path
             assert len(results) == len(chunks)
 
             for chunk in results:
-                assert chunk.embedding is not None, f"Chunk {chunk.id} lost embedding after load"
+                assert chunk.embedding is not None, (
+                    f"Chunk {chunk.id} lost embedding after load"
+                )
                 assert len(chunk.embedding) == dim
         finally:
             await store2.shutdown()
@@ -612,7 +610,9 @@ async def test_memory_vector_store_chunk_embedding_preserved_after_load(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_memory_vector_store_list_namespaces_includes_in_memory(tmp_path: Path) -> None:
+async def test_memory_vector_store_list_namespaces_includes_in_memory(
+    tmp_path: Path,
+) -> None:
     """Given: namespace created in memory but not persisted.
     When: list_namespaces called.
     Then: in-memory namespace is included.
@@ -634,7 +634,9 @@ async def test_memory_vector_store_list_namespaces_includes_in_memory(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_memory_vector_store_delete_clears_empty_namespace(tmp_path: Path) -> None:
+async def test_memory_vector_store_delete_clears_empty_namespace(
+    tmp_path: Path,
+) -> None:
     """Given: namespace with one chunk. When: delete the chunk.
     Then: namespace is removed from _namespaces (no leak).
     """
@@ -656,7 +658,9 @@ async def test_memory_vector_store_delete_clears_empty_namespace(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_memory_vector_store_add_invalid_chunks_no_empty_namespace(tmp_path: Path) -> None:
+async def test_memory_vector_store_add_invalid_chunks_no_empty_namespace(
+    tmp_path: Path,
+) -> None:
     """Given: add() called with all-invalid chunks (no embeddings).
     When: add completes.
     Then: no empty namespace is created.

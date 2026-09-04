@@ -4,26 +4,25 @@ Given: FastAPI application with all routers assembled.
 When: tests run via TestClient (offline) or real HTTP (online).
 Then: all critical user flows are validated end-to-end.
 """
+
 from __future__ import annotations
 
-import asyncio
 import json
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from starlette.testclient import TestClient
 
+from ai_assistant.api.security import set_api_key
 from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
-from ai_assistant.core.domain.errors import AdapterError, LLM_UNAVAILABLE
+from ai_assistant.core.domain.errors import LLM_UNAVAILABLE, AdapterError
 from ai_assistant.features.chat.handlers import get_chat_manager
 from ai_assistant.main import create_app
-from ai_assistant.api.security import set_api_key
-
 
 # ── Health & Info ──
+
 
 @pytest.mark.slow
 @pytest.mark.e2e
@@ -52,6 +51,7 @@ class TestE2EHealth:
 
 
 # ── Legacy Chat ──
+
 
 @pytest.mark.slow
 @pytest.mark.e2e
@@ -115,8 +115,8 @@ class TestE2EChat:
         """Given: ChatManager.chat raises generic Exception.
         When: POST /api/v1/chat.
         Then: handler catches it and returns 500."""
-        from ai_assistant.main import create_app
         from ai_assistant.api.security import set_api_key
+        from ai_assistant.main import create_app
 
         mock_mgr = MagicMock()
         mock_mgr.chat = AsyncMock(side_effect=Exception("Generic LLM fail"))
@@ -140,6 +140,7 @@ class TestE2EChat:
 
 # ── SSE Streaming ──
 
+
 @pytest.mark.slow
 @pytest.mark.e2e
 class TestE2EStream:
@@ -161,10 +162,9 @@ class TestE2EStream:
         """Given: handler generates trace_id for each request.
         When: POST /api/v1/chat/stream.
         Then: trace_id is passed to chat_manager via metadata."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.core.domain.messages import AssistantMessage
 
         captured_meta: dict[str, Any] = {}
 
@@ -191,13 +191,13 @@ class TestE2EStream:
         """Given: ChatManager.stream_chat raises AdapterError.
         When: POST /api/v1/chat/stream.
         Then: returns SSE stream with error payload and [DONE] sentinel."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
 
         async def failing_stream(*args, **kwargs):
             raise AdapterError("LLM stream down")
-            yield ""  # noqa: B901
+            yield ""
 
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = failing_stream
@@ -220,13 +220,13 @@ class TestE2EStream:
         """Given: ChatManager.stream_chat raises generic Exception.
         When: POST /api/v1/chat/stream.
         Then: returns SSE stream with error payload and [DONE] sentinel."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
 
         async def failing_stream(*args, **kwargs):
             raise Exception("Generic stream fail")
-            yield ""  # noqa: B901
+            yield ""
 
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = failing_stream
@@ -249,9 +249,9 @@ class TestE2EStream:
         """Given: server is producing an SSE stream.
         When: client disconnects after reading a few chunks.
         Then: handler does not crash; cancellation is handled gracefully."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
 
         async def endless_stream(*args, **kwargs):
             """Yield chunks immediately; client disconnects mid-stream."""
@@ -285,13 +285,13 @@ class TestE2EStream:
         """Given: stream raises exception containing quotes and newlines.
         When: POST /api/v1/chat/stream.
         Then: SSE error payload is valid JSON without injection."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
 
         async def _malicious_stream(*args, **kwargs):
             raise ValueError('Error with "quotes" and \n newlines')
-            yield ""  # noqa: B901 — forces async generator protocol
+            yield ""
 
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = _malicious_stream
@@ -318,6 +318,7 @@ class TestE2EStream:
 
 
 # ── OpenAI Compatible ──
+
 
 @pytest.mark.slow
 @pytest.mark.e2e
@@ -370,9 +371,9 @@ class TestE2EOpenAICompat:
         """Given: ChatManager.chat raises AdapterError in OAI endpoint.
         When: POST /v1/chat/completions.
         Then: returns 503 Service Unavailable."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
 
         mock_mgr = MagicMock()
         mock_mgr.chat = AsyncMock(side_effect=AdapterError("LLM down"))
@@ -412,10 +413,9 @@ class TestE2EOpenAICompat:
         """Given: OpenAI handler generates trace_id.
         When: POST /v1/chat/completions (non-streaming).
         Then: trace_id is propagated to chat_manager metadata."""
+        from ai_assistant.api.security import set_api_key
         from ai_assistant.features.chat.handlers import get_chat_manager
         from ai_assistant.main import create_app
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.core.domain.messages import AssistantMessage
 
         captured_meta: dict[str, Any] = {}
 
@@ -445,6 +445,7 @@ class TestE2EOpenAICompat:
 
 # ── RAG ──
 
+
 @pytest.mark.slow
 @pytest.mark.e2e
 class TestE2ERAG:
@@ -472,9 +473,15 @@ class TestE2ERAG:
         When: POST /api/v1/rag/index.
         Then: returns 500 Internal Server Error (unhandled in handler)."""
         mock_state.embedder.embed = AsyncMock(side_effect=Exception("Embedder down"))
-        mock_state.chunker.chunk = AsyncMock(return_value=[
-            Chunk(id="c1", text="test", metadata=ChunkMetadata(source="s", index=0, total_chunks=1))
-        ])
+        mock_state.chunker.chunk = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="test",
+                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                )
+            ]
+        )
 
         resp = client_no_raise.post(
             "/api/v1/rag/index",
@@ -514,9 +521,7 @@ class TestE2ERAG:
         """Given: index contains multiple namespaces.
         When: GET /api/v1/rag/namespaces.
         Then: returns list including those namespaces."""
-        monkeypatch.setattr(
-            mock_state.config.vector_store, "index_path", str(tmp_path)
-        )
+        monkeypatch.setattr(mock_state.config.vector_store, "index_path", str(tmp_path))
         mock_state.vector_store.list_namespaces = AsyncMock(
             return_value=["test", "default"]
         )
@@ -528,9 +533,7 @@ class TestE2ERAG:
         """Given: chat content to persist.
         When: POST /api/v1/rag/save-chat.
         Then: file is saved under namespace and indexing is attempted."""
-        monkeypatch.setattr(
-            mock_state.config.rag, "chat_exports_root", str(tmp_path)
-        )
+        monkeypatch.setattr(mock_state.config.rag, "chat_exports_root", str(tmp_path))
         mock_state.chunker.chunk = AsyncMock(return_value=[])
         mock_state.embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_state.vector_store.add = AsyncMock(return_value=None)
@@ -568,9 +571,7 @@ class TestE2ERAG:
         When: POST /api/v1/rag/query with that namespace.
         Then: RAGManager receives overridden parameters."""
         mock_state.config.namespaces = {
-            "test-alt": NamespaceConfig(
-                chunk_size=1024, prompt="rag_creative"
-            ),
+            "test-alt": NamespaceConfig(chunk_size=1024, prompt="rag_creative"),
         }
         mock_state.rag_manager.query = AsyncMock(
             return_value={
@@ -638,7 +639,9 @@ class TestE2ERAG:
         """Given: vector_store.search raises Exception during query.
         When: POST /api/v1/rag/query.
         Then: pipeline catches it, returns 503 (errors + empty answer)."""
-        mock_state.vector_store.search = AsyncMock(side_effect=Exception("Vector store down"))
+        mock_state.vector_store.search = AsyncMock(
+            side_effect=Exception("Vector store down")
+        )
 
         set_api_key("test-e2e-key")
         app = create_app(state=mock_state)
@@ -658,14 +661,16 @@ class TestE2ERAG:
         """Given: reranker.rerank raises Exception during query.
         When: POST /api/v1/rag/query.
         Then: pipeline catches it, returns 503 (errors + empty answer)."""
-        mock_state.vector_store.search = AsyncMock(return_value=[
-            Chunk(
-                id="c1",
-                text="test chunk",
-                embedding=[0.1] * 384,
-                metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
-            )
-        ])
+        mock_state.vector_store.search = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="test chunk",
+                    embedding=[0.1] * 384,
+                    metadata=ChunkMetadata(source="s", index=0, total_chunks=1),
+                )
+            ]
+        )
         mock_state.reranker.rerank = AsyncMock(side_effect=Exception("Reranker down"))
 
         set_api_key("test-e2e-key")
@@ -718,6 +723,7 @@ class TestE2ERAG:
 
 
 # ── Admin ──
+
 
 @pytest.mark.slow
 @pytest.mark.e2e
