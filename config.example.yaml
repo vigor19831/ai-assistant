@@ -34,6 +34,9 @@ chat:
   history_limit: 4
   # Total token budget for system message + history + current prompt.
   # Must stay below llm.server_context_size minus generation headroom.
+  # Raise together with server_context_size: keep ~60% of
+  # (server_context_size - max_tokens) or long dialogs silently
+  # truncate (drift #68, the window-math method).
   max_context_tokens: 1280
   # Max simultaneous chat requests per process. Tune for your hardware:
   # 2-3 for 4GB VRAM, 5-10 for 16GB RAM.
@@ -255,9 +258,10 @@ rag:
     # A changed file gets 3 indexing attempts; after 3 failures the watcher
     # stops retrying it until it changes again or POST /rag/reindex runs.
     # Files >150 KB: the CPU embedder (~4 chunks/s) cannot finish within
-    # the 300 s indexing window — split first: put originals into
-    # data/raw_documents/ and run scripts/prepare_docs.py (writes ~30 KB
-    # parts here). Or run the GPU indexing profile (see embedder section).
+    # the 600 s indexing window — split first: put originals into
+    # data/raw_documents/ and run scripts/prepare_docs.py (writes ~12 KB
+    # parts here, archivist part_bytes). Or run the GPU indexing profile
+    # (see embedder section).
     # NOTE: one source per namespace — multiple sources sharing a namespace
     # is a known limitation (see drift.md FUTURE RISKS).
     - namespace: default

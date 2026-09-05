@@ -36,16 +36,17 @@ Production-grade offline RAG framework for solo maintainers.
 
 ### Quality Assurance
 
-- **47 automated tests** via `check_rag.py` — single source of truth for RAG quality.
+- **57 test cases** via `check_rag.py` — single source of truth for RAG quality.
 - **17 contract tests** (must pass on any hardware).
 - **30 future capability tests** (quality depends on LLM size).
+- **9+2 chat e2e tests** (prefix conversation, contract).
 - **Hardware Ceiling Log**: honest documentation of what works on your GPU.
 
 ---
 
 ## Quality Assurance
 
-Every release is validated against `check_rag.py` — a 47-test benchmark covering retrieval, ranking, generation, and edge cases.
+Every release is validated against `check_rag.py` — a 57-case benchmark covering retrieval, ranking, generation, and edge cases.
 
 ### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 20 GPU layers, 4GB VRAM)
 
@@ -137,7 +138,8 @@ Full campaign history, per-run details, and the throne decision:
 ```bash
 git clone <repo-url> ai-assistant && cd ai-assistant
 python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
-pip install -e ".[dev,faiss]"
+pip install -e ".[faiss]"        # runtime only
+pip install -e ".[dev,faiss]"    # if you will run tests/lint (check_all)
 cp config.example.yaml config.yaml
 # Edit config.yaml: set llm.model, embedder.model, reranker.model, n_gpu_layers
 python scripts/download_tokenizers.py
@@ -202,7 +204,8 @@ Full reference in `config.example.yaml`.
 ## Running Tests
 
 ```bash
-# Full check (ruff + mypy + tests + coverage)
+# Full check (ruff + mypy + tests + coverage + audits) — all 93
+# Python files in the repo (src/, scripts/, tests/, launchers)
 python scripts/check_all.py
 
 # Tests only
@@ -241,7 +244,7 @@ ai-assistant/
 ├── run_servers.py ← Starts LLM, embedder, reranker, API servers
 ├── run_servers.yaml ← Server launch configuration
 ├── src/ ← Application source code
-├── tests/ ← 1000+ tests
+├── tests/ ← ~1000 tests
 ├── scripts/ ← Utility scripts
 ├── docs/ ← Architecture and rules documentation
 ├── data/ ← Runtime data (git-ignored, auto-created)
@@ -254,7 +257,7 @@ ai-assistant/
 | Directory | Purpose | Auto-created? |
 |-----------|---------|---------------|
 | `src/ai_assistant/` | Application code: `core/` (domain, ports), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes) | No |
-| `tests/` | 1000+ tests covering contracts, edge cases, integration, e2e | No |
+| `tests/` | ~1000 tests covering contracts, edge cases, integration, e2e | No |
 | `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `prepare_docs.py` (split large files; --atoms extracts status-disciplined knowledge atoms) | No |
 | `docs/` | `ai_rules.md` (AI constraints), `architecture.md` (strategy + RAG philosophy), `drift.md` (known compromises) | No |
 | `data/` | Runtime data: `indices/` (FAISS vector indices per namespace), `storage.db` (SQLite chat history), `documents/` (your docs for RAG), `tokenizers/` (downloaded tokenizer files), `app.log` (application log) | Yes (on first run) |
@@ -263,7 +266,7 @@ ai-assistant/
 | `data/tokenizers/` | Downloaded tokenizer files. Run `scripts/download_tokenizers.py` to populate | Yes (via script) |
 | `vendor/llama/` | `llama-server` binary. Download from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) | You provide it |
 | `vendor/models/` | GGUF model files: LLM (~4.5GB), embedder (~1.2GB), reranker (~0.5GB) | You provide it |
-| `ui/` | Static web interface served at `/ui` | No |
+| `ui/` | Static web interface served at `/ui` (no Python — outside lint/type/AST audits) | No |
 | `config.yaml` | Your personal settings: models, API endpoints, GPU layers. Copy from `config.example.yaml` and edit | You create it |
 
 ### What You Must Provide

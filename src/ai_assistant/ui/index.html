@@ -196,7 +196,6 @@
         }
     </style>
     <base target="_blank">
-<base target="_blank">
 </head>
 <body>
 
@@ -338,7 +337,7 @@
         let currentNs = 'default';
         let attachedFiles = [];
         let userScrolledUp = false;
-                let indexPollInterval = null;
+        let indexPollInterval = null;
         let lastScrollTime = 0;
         let manualScrollLock = false;
         let manualScrollLockTimer = null;
@@ -411,7 +410,7 @@
             { open: '<reflect', close: '</reflect', xmlLike: true }, { open: '<scratchpad', close: '</scratchpad', xmlLike: true },
             { open: '<cot', close: '</cot', xmlLike: true }, { open: '<plan', close: '</plan', xmlLike: true },
             { open: '<step', close: '</step', xmlLike: true }, { open: '<think', close: '</think', xmlLike: true },
-            { open: '<think', close: '<answer', xmlLike: true }, { open: '<|thinking|>', close: '<|/thinking|>' },
+            { open: '<|thinking|>', close: '<|/thinking|>' },
             { open: '<|thought|>', close: '<|/thought|>' }, { open: '<|reasoning|>', close: '<|/reasoning|>' },
             { open: '[[Thinking]]', close: '[[/Thinking]]' }, { open: '[[Reasoning]]', close: '[[/Reasoning]]' },
             { open: '### Reasoning', close: '### Answer', lineAnchored: true }, { open: '### Thinking', close: '### Response', lineAnchored: true }
