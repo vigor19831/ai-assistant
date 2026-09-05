@@ -18,6 +18,7 @@ from ai_assistant.core.domain.messages import (
     UserMessage,
 )
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
+from ai_assistant.core.ports.embedder import IEmbedder
 
 # ───────────────────────────────────────────────
 # PipelineData — functional behaviour
@@ -176,7 +177,7 @@ class TestPipelineDataFunctional:
         class FakeEmbedder:
             pass
 
-        embedder = FakeEmbedder()
+        embedder: IEmbedder | None = FakeEmbedder()
         data = PipelineData()
         data2 = replace(data, embedder=embedder)
 

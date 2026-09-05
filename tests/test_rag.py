@@ -2714,8 +2714,10 @@ class TestSourceWatcher:
         watcher = SourceWatcher([src], mock_state, index_fn=mock_index, interval=1.0)
 
         # Simulate a running task by injecting a mock task
-        watcher._index_tasks[str(tmp_path)] = MagicMock()
-        watcher._index_tasks[str(tmp_path)].done.return_value = False
+        # Mock injected into the typed task dict — test-only.
+        watcher._index_tasks[str(tmp_path)] = MagicMock()  # type: ignore[index]
+        # attr-defined: Task type has no .done mock attr — test-only
+        watcher._index_tasks[str(tmp_path)].done.return_value = False  # type: ignore[attr-defined]
         watcher._snapshots[str(tmp_path)] = watcher._scan(tmp_path)
 
         await watcher._check_once()
@@ -3045,6 +3047,7 @@ async def test_indexing_kill_midway_then_resume_completes(tmp_path):
     kill_counts: dict[str, int] = {}
     for _, m in meta_after_kill:
         uri = m.get("source_uri")
+        assert uri is not None
         kill_counts[uri] = kill_counts.get(uri, 0) + 1
     assert all(v == 3 for v in kill_counts.values()), (
         f"clean checkpoints: {kill_counts}"
@@ -3065,6 +3068,7 @@ async def test_indexing_kill_midway_then_resume_completes(tmp_path):
     assert set(uris_final) == {f"doc{i:02d}.md" for i in range(6)}, "full corpus"
     chunk_counts: dict[str, int] = {}
     for uri in uris_final:
+        assert uri is not None
         chunk_counts[uri] = chunk_counts.get(uri, 0) + 1
     assert all(c == 3 for c in chunk_counts.values()), f"no dupes: {chunk_counts}"
 

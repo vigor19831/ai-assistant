@@ -88,36 +88,38 @@ def mock_request():
 
 def _make_minimal_config() -> AppConfig:
     """Return a fresh AppConfig with test-safe defaults."""
-    return AppConfig(
-        llm={
-            "provider": "mock",
-            "max_tokens": 50,
-            "temperature": 0.7,
-            "timeout": 5.0,
-            "stop_sequences": [],
-        },
-        embedder={"provider": "mock", "dim": 384, "timeout": 5.0},
-        vector_store={
-            "provider": "memory",
-            "dim": 384,
-            "metric": "l2",
-            "index_path": "./data/indices/test",
-        },
-        chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
-        storage={"provider": "sqlite", "db_path": ":memory:"},
-        reranker={
-            "provider": "dummy",
-            "model": "test",
-            "api_base": "http://test",
-            "timeout": 5.0,
-        },
-        rag={
-            "steps": ["embed_query", "retrieve", "build_context", "generate"],
-            "prompt_version": "v1",
-            "prompt_name": "rag_default",
-            "top_k": 3,
-            "default_namespace": "test",
-        },
+    return AppConfig.model_validate(
+        {
+            "llm": {
+                "provider": "mock",
+                "max_tokens": 50,
+                "temperature": 0.7,
+                "timeout": 5.0,
+                "stop_sequences": [],
+            },
+            "embedder": {"provider": "mock", "dim": 384, "timeout": 5.0},
+            "vector_store": {
+                "provider": "memory",
+                "dim": 384,
+                "metric": "l2",
+                "index_path": "./data/indices/test",
+            },
+            "chunker": {"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+            "storage": {"provider": "sqlite", "db_path": ":memory:"},
+            "reranker": {
+                "provider": "dummy",
+                "model": "test",
+                "api_base": "http://test",
+                "timeout": 5.0,
+            },
+            "rag": {
+                "steps": ["embed_query", "retrieve", "build_context", "generate"],
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "top_k": 3,
+                "default_namespace": "test",
+            },
+        }
     )
 
 
@@ -876,8 +878,8 @@ class TestAPIDeps:
         from ai_assistant.core.domain.configs import ChunkerConfigData
         from ai_assistant.core.ports.tokenizer import ITokenizer
 
-        cfg = AppConfig(
-            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+        cfg = AppConfig.model_validate(
+            {"chunker": {"provider": "simple", "chunk_size": 512, "chunk_overlap": 50}}
         )
         mock_state = InitializedAppState(
             config=cfg,
@@ -2432,9 +2434,11 @@ class TestInitAdaptersFailureCleanup:
 
         from ai_assistant.core.config import AppConfig
 
-        config = AppConfig(
-            embedder={"dim": 384, "provider": "mock"},
-            vector_store={"dim": 384, "provider": "memory"},
+        config = AppConfig.model_validate(
+            {
+                "embedder": {"dim": 384, "provider": "mock"},
+                "vector_store": {"dim": 384, "provider": "memory"},
+            }
         )
 
         shutdown_calls: list[str] = []
@@ -2471,9 +2475,11 @@ class TestInitAdaptersFailureCleanup:
 
         from ai_assistant.core.config import AppConfig
 
-        config = AppConfig(
-            embedder={"dim": 384, "provider": "mock"},
-            vector_store={"dim": 384, "provider": "memory"},
+        config = AppConfig.model_validate(
+            {
+                "embedder": {"dim": 384, "provider": "mock"},
+                "vector_store": {"dim": 384, "provider": "memory"},
+            }
         )
 
         shutdown_calls: list[str] = []

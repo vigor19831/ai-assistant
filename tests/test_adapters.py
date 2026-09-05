@@ -1194,7 +1194,7 @@ class TestOpenAICompatibleLLM:
                 temperature=0.5,
                 timeout=300.0,
                 connect_timeout=3.0,
-                stop_sequences=["", "end", "stop", ""],
+                stop_sequences=("", "end", "stop", ""),
             )
         )
 
@@ -2798,7 +2798,7 @@ class TestOpenAICompatibleLLMBuildMessages:
         Then: falls back to user role with str representation.
         """
         llm = self._make_llm()
-        messages = ["raw string message"]  # type: ignore[list-item]
+        messages = ["raw string message"]
         result = llm._build_messages(messages)
 
         assert len(result) == 1

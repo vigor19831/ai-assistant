@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,7 +37,7 @@ def mock_llm():
     )
 
     async def _stream(
-        messages: list,
+        messages: list[Any],
         max_tokens: int | None = None,
         temperature: float | None = None,
     ):
@@ -153,7 +154,7 @@ def mock_chunker():
 
 # F821 false positive: the annotation resolves via the
 # function-scoped import below and is never evaluated at runtime.
-def build_mock_state() -> InitializedAppState:  # noqa: F821
+def build_mock_state() -> InitializedAppState:  # type: ignore[name-defined]  # noqa: F821
     """Build a fresh InitializedAppState with isolated defaults.
     Returns a real dataclass instance so that adding a new required field
     to InitializedAppState raises TypeError here immediately, rather than

@@ -147,13 +147,13 @@ def test_setup_logging_oserror_on_file(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _capture(capsys: pytest.CaptureFixture) -> str:
+def _capture(capsys: pytest.CaptureFixture[str]) -> str:
     """Return combined stdout + stderr capture, safe for StreamHandler defaults."""
     captured = capsys.readouterr()
     return captured.out + captured.err
 
 
-def test_text_format_basic(capsys: pytest.CaptureFixture) -> None:
+def test_text_format_basic(capsys: pytest.CaptureFixture[str]) -> None:
     """Text formatter produces expected line without trace_id."""
     logger = setup_logging(level="INFO", log_file=None, fmt="text")
     logger.info("basic message")
@@ -163,7 +163,7 @@ def test_text_format_basic(capsys: pytest.CaptureFixture) -> None:
     assert "trace_id=" not in output
 
 
-def test_text_format_with_trace_id(capsys: pytest.CaptureFixture) -> None:
+def test_text_format_with_trace_id(capsys: pytest.CaptureFixture[str]) -> None:
     """Text formatter includes trace_id when present."""
     logger = setup_logging(level="INFO", log_file=None, fmt="text")
     logger.info("traced", extra={"trace_id": "abc123"})
@@ -177,7 +177,7 @@ def test_text_format_with_trace_id(capsys: pytest.CaptureFixture) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_json_format_basic(capsys: pytest.CaptureFixture) -> None:
+def test_json_format_basic(capsys: pytest.CaptureFixture[str]) -> None:
     """JSON formatter produces valid JSON with required fields."""
     logger = setup_logging(level="INFO", log_file=None, fmt="json")
     logger.info("json test")
@@ -189,7 +189,7 @@ def test_json_format_basic(capsys: pytest.CaptureFixture) -> None:
     assert "timestamp" in parsed
 
 
-def test_json_format_with_trace_id(capsys: pytest.CaptureFixture) -> None:
+def test_json_format_with_trace_id(capsys: pytest.CaptureFixture[str]) -> None:
     """JSON formatter includes trace_id as top-level field."""
     logger = setup_logging(level="INFO", log_file=None, fmt="json")
     logger.info("traced", extra={"trace_id": "xyz789"})
@@ -198,7 +198,7 @@ def test_json_format_with_trace_id(capsys: pytest.CaptureFixture) -> None:
     assert parsed["trace_id"] == "xyz789"
 
 
-def test_json_format_extra_fields(capsys: pytest.CaptureFixture) -> None:
+def test_json_format_extra_fields(capsys: pytest.CaptureFixture[str]) -> None:
     """JSON formatter captures custom extra fields."""
     logger = setup_logging(level="INFO", log_file=None, fmt="json")
     logger.info("extra", extra={"custom_field": "custom_value"})

@@ -35,7 +35,8 @@ def _make_file(tmp_path: Path, name: str, size_lines: int) -> Path:
 def _run_split(tmp_path: Path, src: Path) -> list[Path]:
     dest = tmp_path / "dest"
     dest.mkdir(parents=True, exist_ok=True)
-    return prepare_docs.split_file(src, dest)
+    parts: list[Path] = prepare_docs.split_file(src, dest)
+    return parts
 
 
 # --- Invariant 1: lossless (the core guarantee) ---

@@ -124,7 +124,7 @@ class TestIntegrationAdapters:
             max_tokens=50,
             temperature=0.7,
             timeout=5.0,
-            stop_sequences=[],
+            stop_sequences=(),
         )
         llm = OpenAICompatibleLLM(config)
         with respx.mock:
@@ -444,42 +444,48 @@ class TestIntegrationAPIInit:
         Then: pipeline runs embed_query → retrieve → build_context → generate."""
         db_path = str(tmp_path / "app.db")
 
-        config = AppConfig(
-            llm={
-                "provider": "mock",
-                "max_tokens": 50,
-                "temperature": 0.7,
-                "timeout": 5.0,
-                "connect_timeout": 2.0,
-                "stop_sequences": [],
-            },
-            embedder={
-                "provider": "mock",
-                "dim": 3,
-                "timeout": 5.0,
-                "connect_timeout": 2.0,
-            },
-            vector_store={
-                "provider": "memory",
-                "dim": 3,
-                "metric": "l2",
-                "index_path": str(tmp_path / "indices"),
-            },
-            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
-            storage={"provider": "sqlite", "db_path": db_path},
-            reranker={
-                "provider": "null",
-                "model": "test",
-                "api_base": "http://test",
-                "timeout": 5.0,
-            },
-            rag={
-                "steps": ["embed_query", "retrieve", "build_context", "generate"],
-                "prompt_version": "v1",
-                "prompt_name": "rag_default",
-                "top_k": 3,
-                "default_namespace": "test",
-            },
+        config = AppConfig.model_validate(
+            {
+                "llm": {
+                    "provider": "mock",
+                    "max_tokens": 50,
+                    "temperature": 0.7,
+                    "timeout": 5.0,
+                    "connect_timeout": 2.0,
+                    "stop_sequences": [],
+                },
+                "embedder": {
+                    "provider": "mock",
+                    "dim": 3,
+                    "timeout": 5.0,
+                    "connect_timeout": 2.0,
+                },
+                "vector_store": {
+                    "provider": "memory",
+                    "dim": 3,
+                    "metric": "l2",
+                    "index_path": str(tmp_path / "indices"),
+                },
+                "chunker": {
+                    "provider": "simple",
+                    "chunk_size": 512,
+                    "chunk_overlap": 50
+                },
+                "storage": {"provider": "sqlite", "db_path": db_path},
+                "reranker": {
+                    "provider": "null",
+                    "model": "test",
+                    "api_base": "http://test",
+                    "timeout": 5.0,
+                },
+                "rag": {
+                    "steps": ["embed_query", "retrieve", "build_context", "generate"],
+                    "prompt_version": "v1",
+                    "prompt_name": "rag_default",
+                    "top_k": 3,
+                    "default_namespace": "test",
+                },
+            }
         )
 
         # Act
@@ -546,42 +552,48 @@ class TestIntegrationAPIInit:
         Then: hyde embedding drives retrieval."""
         db_path = str(tmp_path / "hyde_app.db")
 
-        config = AppConfig(
-            llm={
-                "provider": "mock",
-                "max_tokens": 50,
-                "temperature": 0.7,
-                "timeout": 5.0,
-                "connect_timeout": 2.0,
-                "stop_sequences": [],
-            },
-            embedder={
-                "provider": "mock",
-                "dim": 3,
-                "timeout": 5.0,
-                "connect_timeout": 2.0,
-            },
-            vector_store={
-                "provider": "memory",
-                "dim": 3,
-                "metric": "l2",
-                "index_path": str(tmp_path / "indices_hyde"),
-            },
-            chunker={"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
-            storage={"provider": "sqlite", "db_path": db_path},
-            reranker={
-                "provider": "null",
-                "model": "test",
-                "api_base": "http://test",
-                "timeout": 5.0,
-            },
-            rag={
-                "steps": ["hyde_query", "retrieve", "build_context", "generate"],
-                "prompt_version": "v1",
-                "prompt_name": "rag_default",
-                "top_k": 3,
-                "default_namespace": "test",
-            },
+        config = AppConfig.model_validate(
+            {
+                "llm": {
+                    "provider": "mock",
+                    "max_tokens": 50,
+                    "temperature": 0.7,
+                    "timeout": 5.0,
+                    "connect_timeout": 2.0,
+                    "stop_sequences": [],
+                },
+                "embedder": {
+                    "provider": "mock",
+                    "dim": 3,
+                    "timeout": 5.0,
+                    "connect_timeout": 2.0,
+                },
+                "vector_store": {
+                    "provider": "memory",
+                    "dim": 3,
+                    "metric": "l2",
+                    "index_path": str(tmp_path / "indices_hyde"),
+                },
+                "chunker": {
+                    "provider": "simple",
+                    "chunk_size": 512,
+                    "chunk_overlap": 50
+                },
+                "storage": {"provider": "sqlite", "db_path": db_path},
+                "reranker": {
+                    "provider": "null",
+                    "model": "test",
+                    "api_base": "http://test",
+                    "timeout": 5.0,
+                },
+                "rag": {
+                    "steps": ["hyde_query", "retrieve", "build_context", "generate"],
+                    "prompt_version": "v1",
+                    "prompt_name": "rag_default",
+                    "top_k": 3,
+                    "default_namespace": "test",
+                },
+            }
         )
 
         state = await init_adapters(config)

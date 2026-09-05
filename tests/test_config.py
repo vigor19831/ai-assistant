@@ -44,7 +44,7 @@ class TestConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert cfg.security.api_key == "secret"
         assert "rate_limit" not in cfg.security.model_dump()
 
@@ -56,7 +56,7 @@ class TestConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert cfg.config_version == "0"
 
     def test_explicit_config_version_preserved(self):
@@ -68,7 +68,7 @@ class TestConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert cfg.config_version == "2"
 
 
@@ -88,7 +88,7 @@ class TestConfigValidation:
         with pytest.raises(
             ValueError, match=r"embedder\.dim .* must equal vector_store\.dim"
         ):
-            AppConfig(**raw)
+            AppConfig.model_validate(raw)
 
     def test_check_dimensions_passes_on_match(self):
         """Given: embedder.dim == vector_store.dim.
@@ -98,7 +98,7 @@ class TestConfigValidation:
             "embedder": {"dim": 512, "provider": "mock"},
             "vector_store": {"dim": 512, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert cfg.embedder.dim == cfg.vector_store.dim == 512
 
     def test_rag_step_string_to_enum_conversion(self):
@@ -112,7 +112,7 @@ class TestConfigValidation:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert cfg.rag.steps == [
             RAGStep.EMBED_QUERY,
             RAGStep.RETRIEVE,
@@ -130,7 +130,7 @@ class TestConfigValidation:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert all(isinstance(s, RAGStep) for s in cfg.rag.steps)
         assert cfg.rag.steps == [
             RAGStep.EMBED_QUERY,
@@ -490,7 +490,7 @@ class TestLoggingConfig:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         assert cfg.logging.max_bytes == 5_242_880
         assert cfg.logging.backup_count == 5
 
@@ -537,7 +537,7 @@ class TestCORSConfig:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**raw)
+        cfg = AppConfig.model_validate(raw)
         # AppConfig allows 'null' — the fix is in main.py (not using *)
         # and config.yaml (removing it)
         assert "null" in cfg.cors.allow_origins
@@ -639,9 +639,9 @@ class TestConfigMigrationParametrized:
     )
     def test_config_migration(self, old_config, expected_checks):
         """Given: legacy config dict with deprecated keys.
-        When: AppConfig(**old_config) is called.
+        When: AppConfig.model_validate(old_config) is called.
         Then: config loads without error and all migrations are applied correctly."""
-        cfg = AppConfig(**old_config)
+        cfg = AppConfig.model_validate(old_config)
         for check_func, expected in expected_checks:
             actual = check_func(cfg)
             assert actual == expected, f"Expected {expected!r}, got {actual!r}"
@@ -649,7 +649,7 @@ class TestConfigMigrationParametrized:
 
 class TestConfigMigrationParametrizedV2:
     """Given: legacy config dicts with single deprecated keys.
-    When: AppConfig(**old_dict) is called.
+    When: AppConfig.model_validate(old_dict) is called.
     Then: each migration is applied correctly."""
 
     @pytest.mark.parametrize(
@@ -702,9 +702,9 @@ class TestConfigMigrationParametrizedV2:
     )
     def test_config_migration(self, old_config, expected_checks):
         """Given: legacy config dict with a single deprecated key.
-        When: AppConfig(**old_config) is called.
+        When: AppConfig.model_validate(old_config) is called.
         Then: config loads without error and migration is applied."""
-        cfg = AppConfig(**old_config)
+        cfg = AppConfig.model_validate(old_config)
         for check_func, expected in expected_checks:
             actual = check_func(cfg)
             assert actual == expected, f"Expected {expected!r}, got {actual!r}"
@@ -727,7 +727,7 @@ class TestSourceConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**data)
+        cfg = AppConfig.model_validate(data)
         assert len(cfg.rag.sources) == 1
         assert cfg.rag.sources[0].namespace == "default"
         assert cfg.rag.sources[0].path == "my_docs"
@@ -749,7 +749,7 @@ class TestSourceConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**data)
+        cfg = AppConfig.model_validate(data)
         assert len(cfg.rag.sources) == 2
         # documents_root migrated source comes first
         assert cfg.rag.sources[0].namespace == "default"
@@ -813,7 +813,7 @@ class TestSourceConfigMigration:
             "embedder": {"dim": 384, "provider": "mock"},
             "vector_store": {"dim": 384, "provider": "memory"},
         }
-        cfg = AppConfig(**data)
+        cfg = AppConfig.model_validate(data)
         dumped = cfg.model_dump()
         assert "documents_root" not in dumped["rag"]
         assert "sources" in dumped["rag"]
@@ -829,7 +829,7 @@ def test_config_v2_backward_compat():
         "log_file": "./data/old.log",
         "rag": {"max_tool_iterations": 5},
     }
-    cfg = AppConfig(**old)
+    cfg = AppConfig.model_validate(old)
     assert cfg.config_version == "2"
 
 

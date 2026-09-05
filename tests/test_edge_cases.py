@@ -501,7 +501,7 @@ class TestEmptySystemState:
     async def test_upsert_preserves_chunks_without_metadata_source(
         self,
         tmp_path: Path,  # noqa: F821 — annotation-only usage
-    ) -> None:
+    ) -> None:  # type: ignore[name-defined]
         from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
         from ai_assistant.core.domain.configs import VectorStoreConfigData
 

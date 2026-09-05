@@ -7,7 +7,9 @@ Design: Given/When/Then docstrings, one function per test case.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import replace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,7 +43,10 @@ from ai_assistant.core.pipeline_steps import (
     rerank,
     retrieve,
 )
+from ai_assistant.core.ports.embedder import IEmbedder
+from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
+from ai_assistant.core.ports.vector_store import IVectorStore
 from ai_assistant.core.retry import with_retry
 
 logger = logging.getLogger(__name__)
@@ -52,17 +57,24 @@ logger = logging.getLogger(__name__)
 # ———————————————————————————————————————
 
 
-class FakeEmbedder:
+class FakeEmbedder(IEmbedder):
     """Deterministic embedder for tests."""
 
     def __init__(self, dim: int = 384):
-        self.dimension = dim
+        self._dim = dim
+
+    @property
+    def dimension(self) -> int:
+        return self._dim
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.1] * self.dimension for _ in texts]
 
+    async def shutdown(self) -> None:
+        pass
 
-class FakeVectorStore:
+
+class FakeVectorStore(IVectorStore):
     """In-memory vector store with namespace support."""
 
     def __init__(self):
@@ -79,8 +91,39 @@ class FakeVectorStore:
     ) -> list[Chunk]:
         return self._data.get(namespace, [])[:top_k]
 
+    async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
+        self._data[namespace] = [
+            c for c in self._data.get(namespace, []) if c.id not in chunk_ids
+        ]
 
-class FakeLLM:
+    async def save(self, path: str, namespace: str = "default") -> None:
+        pass
+
+    async def load(self, path: str, namespace: str = "default") -> None:
+        return None
+
+    async def list_namespaces(self, path: str) -> list[str]:
+        return list(self._data)
+
+    async def list_by_filter(
+        self,
+        filters: dict[str, str | int | float | bool | None],
+        namespace: str = "default",
+    ) -> list[tuple[str, dict[str, Any]]]:
+        return [
+            (c.id, {"source": c.metadata.source} if c.metadata else {})
+            for c in self._data.get(namespace, [])
+        ]
+
+    async def shutdown(self) -> None:
+        pass
+
+    @property
+    def index_path(self) -> str:
+        return ""
+
+
+class FakeLLM(ILLM):
     """Deterministic LLM for tests."""
 
     def __init__(self, response: str = ""):
@@ -100,6 +143,48 @@ class FakeLLM:
 
     def get_context_limit(self) -> int | None:
         return 4096
+
+    async def stream(
+        self,
+        messages: list,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+    ) -> AsyncIterator[str]:
+        yield self._response
+
+
+class FailingLLM(ILLM):
+    """LLM that raises AdapterError on every complete() call."""
+
+    def __init__(self) -> None:
+        pass
+
+    async def complete(
+        self,
+        messages: list,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+        frequency_penalty: float | None = None,
+        presence_penalty: float | None = None,
+    ) -> AssistantMessage:
+        raise AdapterError("LLM down")
+
+    def get_context_limit(self) -> int | None:
+        return 4096
+
+    async def stream(
+        self,
+        messages: list,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | str | None = None,
+    ) -> AsyncIterator[str]:
+        yield ""
 
 
 # ———————————————————————————————————————
@@ -319,10 +404,10 @@ class TestBuildContext:
         data = PipelineData(
             query=UserMessage(text="hello"),
             pipeline_config=PipelineConfig(),
-            chunks=[
+            chunks=(
                 Chunk(id="c1", text="valid"),
                 Chunk(id="c2", text=""),
-            ],
+            ),
         )
         result = await build_context(data)
         assert result.context == "[Document 1]\nvalid"
@@ -336,10 +421,10 @@ class TestBuildContext:
         data = PipelineData(
             query=UserMessage(text="hello"),
             pipeline_config=PipelineConfig(),
-            chunks=[
+            chunks=(
                 Chunk(id="c1", text=long_text),
                 Chunk(id="c2", text="tail"),
-            ],
+            ),
         )
         result = await build_context(data)
         assert long_text in result.context
@@ -354,7 +439,7 @@ class TestBuildContext:
         data = PipelineData(
             query=UserMessage(text="hello"),
             pipeline_config=PipelineConfig(),
-            chunks=[Chunk(id="c1", text="only")],
+            chunks=(Chunk(id="c1", text="only"),),
         )
         result = await build_context(data)
         assert result.context == "[Document 1]\nonly"
@@ -418,7 +503,7 @@ class TestRerank:
 
         data = PipelineData(
             query=UserMessage(text="hello"),
-            chunks=[Chunk(id="c1", text="test")],
+            chunks=(Chunk(id="c1", text="test"),),
             reranker=FailingReranker(),
             pipeline_config=PipelineConfig(),
         )
@@ -490,7 +575,7 @@ class TestGenerate:
         llm = FakeLLM("answer")
         data = PipelineData(
             query=UserMessage(text="question"),
-            chunks=[Chunk(id="c1", text="context")],
+            chunks=(Chunk(id="c1", text="context"),),
             pipeline_config=PipelineConfig(
                 prompt_version="v1",
                 prompt_name="rag_default",
@@ -513,7 +598,10 @@ class TestGenerate:
         Then: LLM.complete is called successfully; no errors."""
         captured_messages: list = []
 
-        class ValidLimitLLM:
+        class ValidLimitLLM(ILLM):
+            def __init__(self) -> None:
+                pass
+
             async def complete(
                 self,
                 messages,
@@ -529,6 +617,16 @@ class TestGenerate:
 
             def get_context_limit(self) -> int | None:
                 return 4096
+
+            async def stream(
+                self,
+                messages: list,
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+                top_p: float | None = None,
+                stop: list[str] | str | None = None,
+            ) -> AsyncIterator[str]:
+                yield ""
 
         llm = ValidLimitLLM()
         data = PipelineData(
@@ -556,7 +654,10 @@ class TestGenerate:
         Then: messages list contains UserMessage with prompt text."""
         captured_messages: list = []
 
-        class CapturingLLM:
+        class CapturingLLM(ILLM):
+            def __init__(self) -> None:
+                pass
+
             async def complete(
                 self,
                 messages,
@@ -572,6 +673,16 @@ class TestGenerate:
 
             def get_context_limit(self) -> int | None:
                 return 4096
+
+            async def stream(
+                self,
+                messages: list,
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+                top_p: float | None = None,
+                stop: list[str] | str | None = None,
+            ) -> AsyncIterator[str]:
+                yield ""
 
         llm = CapturingLLM()
         data = PipelineData(
@@ -633,7 +744,10 @@ class TestGenerate:
         When: generate is called.
         Then: PipelineData returned with error and fallback response."""
 
-        class FailingLLM:
+        class FailingLLM(ILLM):
+            def __init__(self) -> None:
+                pass
+
             async def complete(
                 self,
                 messages,
@@ -648,6 +762,16 @@ class TestGenerate:
 
             def get_context_limit(self) -> int | None:
                 return 4096
+
+            async def stream(
+                self,
+                messages: list,
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+                top_p: float | None = None,
+                stop: list[str] | str | None = None,
+            ) -> AsyncIterator[str]:
+                yield ""
 
         llm = FailingLLM()
         data = PipelineData(
@@ -673,7 +797,10 @@ class TestGenerate:
         When: generate is called.
         Then: error response without exception; no TypeError."""
 
-        class NoLimitLLM:
+        class NoLimitLLM(ILLM):
+            def __init__(self) -> None:
+                pass
+
             async def complete(
                 self,
                 messages,
@@ -688,6 +815,16 @@ class TestGenerate:
 
             def get_context_limit(self) -> int | None:
                 return None
+
+            async def stream(
+                self,
+                messages: list,
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+                top_p: float | None = None,
+                stop: list[str] | str | None = None,
+            ) -> AsyncIterator[str]:
+                yield ""
 
         llm = NoLimitLLM()
         data = PipelineData(
@@ -714,7 +851,10 @@ class TestGenerate:
         Then: LLM is called to answer from general knowledge; no hardcoded refusal."""
         captured_calls: list = []
 
-        class CapturingLLM:
+        class CapturingLLM(ILLM):
+            def __init__(self) -> None:
+                pass
+
             async def complete(
                 self,
                 messages,
@@ -732,6 +872,16 @@ class TestGenerate:
 
             def get_context_limit(self) -> int | None:
                 return 4096
+
+            async def stream(
+                self,
+                messages: list,
+                max_tokens: int | None = None,
+                temperature: float | None = None,
+                top_p: float | None = None,
+                stop: list[str] | str | None = None,
+            ) -> AsyncIterator[str]:
+                yield ""
 
         llm = CapturingLLM()
         data = PipelineData(
@@ -944,19 +1094,6 @@ class TestCondenseQuestion:
         When: condense_question is called.
         Then: error added; original query preserved as fallback."""
 
-        class FailingLLM:
-            async def complete(
-                self,
-                messages,
-                max_tokens=None,
-                temperature=None,
-                top_p=None,
-                stop=None,
-                frequency_penalty=None,
-                presence_penalty=None,
-            ):
-                raise AdapterError("LLM down")
-
         data = PipelineData(
             query=UserMessage(text="question"),
             chat_history=(("user", "previous"),),
@@ -1008,7 +1145,7 @@ class TestChatManagerStepValidation:
 
         manager = ChatManager(
             llm=FakeLLM(),
-            reranker=MagicMock(),  # type: ignore[arg-type]
+            reranker=MagicMock(),
             embedder=FakeEmbedder(),
             vector_store=FakeVectorStore(),
         )
@@ -1028,7 +1165,7 @@ class TestChatManagerStepValidation:
 
         manager = ChatManager(
             llm=FakeLLM(),
-            reranker=MagicMock(),  # type: ignore[arg-type]
+            reranker=MagicMock(),
             embedder=FakeEmbedder(),
             vector_store=FakeVectorStore(),
         )

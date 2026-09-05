@@ -563,7 +563,8 @@ class TestFrozenVersions:
             pytest.skip("pyproject.toml not found")
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
-        return data.get("project", {}).get("dependencies", [])
+        deps: list[str] = data.get("project", {}).get("dependencies", [])
+        return deps
 
     def _parse_requirement(self, req: str) -> tuple[str, str | None, str | None]:
         """Parse name, lower bound, upper bound from PEP 508 string."""
@@ -765,9 +766,11 @@ class TestConfigLoads:
         Then: embedder.dim equals vector_store.dim."""
         from ai_assistant.core.config import AppConfig
 
-        cfg = AppConfig(
-            embedder={"dim": 768, "provider": "mock"},
-            vector_store={"dim": 768, "provider": "memory"},
+        cfg = AppConfig.model_validate(
+            {
+                "embedder": {"dim": 768, "provider": "mock"},
+                "vector_store": {"dim": 768, "provider": "memory"},
+            }
         )
         assert cfg.embedder.dim == cfg.vector_store.dim
 

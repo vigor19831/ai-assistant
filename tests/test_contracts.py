@@ -1180,7 +1180,8 @@ class TestRAGStateTypedStatus:
         from ai_assistant.core.domain.pipeline import ReindexStatusEntry
 
         assert dataclasses.is_dataclass(ReindexStatusEntry)
-        assert ReindexStatusEntry.__dataclass_params__.frozen is True
+        params = ReindexStatusEntry.__dataclass_params__
+        assert params.frozen is True
         assert hasattr(ReindexStatusEntry, "__slots__")
 
     def test_reindex_status_entry_has_expected_fields(self):

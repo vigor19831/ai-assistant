@@ -79,7 +79,10 @@ ignore = ["TC003", "TC001"]
 [tool.mypy]
 strict = true
 ignore_missing_imports = true
-exclude = ["tests/", "vendor/"]
+# tests/ are checked via explicit CLI call (see check_all.py):
+# the global exclude must NOT list tests/ — mypy >=1.18 applies
+# exclude even to explicit CLI arguments (silent empty run).
+exclude = ["vendor/"]
 
 [tool.pytest.ini_options]
 minversion = "8.2"
