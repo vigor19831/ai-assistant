@@ -36,17 +36,17 @@ Production-grade offline RAG framework for solo maintainers.
 
 ### Quality Assurance
 
-- **57 test cases** via `check_rag.py` — single source of truth for RAG quality.
+- **47 test cases** via `check_rag.py` — single source of truth for RAG quality.
 - **17 contract tests** (must pass on any hardware).
 - **30 future capability tests** (quality depends on LLM size).
-- **9+2 chat e2e tests** (prefix conversation, contract).
+- **Chat e2e tests** (prefix conversation, contract).
 - **Hardware Ceiling Log**: honest documentation of what works on your GPU.
 
 ---
 
 ## Quality Assurance
 
-Every release is validated against `check_rag.py` — a 57-case benchmark covering retrieval, ranking, generation, and edge cases.
+Every release is validated against `check_rag.py` — a 47-case benchmark covering retrieval, ranking, generation, and edge cases.
 
 ### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 20 GPU layers, 4GB VRAM)
 
@@ -190,7 +190,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
 | `llm` | Model, API endpoint, sampling, GPU layers, context size |
 | `embedder` | Embedding model, dimension, GPU layers |
 | `reranker` | Reranker model and provider (`local` or `api`) |
-| `archivist` | Atom-extraction LLM profile for prepare_docs --atoms |
+| `archivist` | Atom-extraction LLM profile for prepare_docs --full |
 | `vector_store` | FAISS or memory, index path, dimension |
 | `rag` | Pipeline steps, top_k, sources, token margin |
 | `namespaces` | Per-namespace prefix, chunk size, prompt template |
@@ -228,7 +228,7 @@ python scripts/check_rag.py
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
 | `check_rag.py` results differ between runs | Environment changed, not noise: benchmark is deterministic (temp 0.0). Check config, model, or index state. |
-| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ≤30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
+| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ~12 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
 | `HTTP request failed` at reindex start | Embedder server not up yet (startup race) or dead. Check `curl http://127.0.0.1:8081/health`; restart the stack. |
 | "GPU indexing" seems slow / crashes | Verify the embedder actually launched on GPU: `ps aux \| grep bge-m3` must show exactly ONE `-ngl` flag, its value from config.yaml (drift #60: dual -ngl flags run the server in an unpredictable mode). |
 
