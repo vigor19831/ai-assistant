@@ -1275,8 +1275,10 @@ def main() -> int:
             ok &= _run_cmd(
                 [py, "-m", "mypy", *MYPY_TARGETS], "MYPY TYPE CHECK"
             )
+            # Same call form as [3]: src must be in the target list,
+            # else port imports resolve as Any (drift #70/#72).
             ok &= _run_cmd(
-                [py, "-m", "mypy", "tests", *MYPY_TEST_FLAGS],
+                [py, "-m", "mypy", "src/ai_assistant", "tests", *MYPY_TEST_FLAGS],
                 "MYPY TYPE CHECK (TESTS)",
             )
             if not ok:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -19,6 +20,8 @@ from ai_assistant.core.domain.messages import (
 )
 from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
 from ai_assistant.core.ports.embedder import IEmbedder
+from ai_assistant.core.ports.llm import ILLM
+from ai_assistant.core.ports.vector_store import IVectorStore
 
 # ───────────────────────────────────────────────
 # PipelineData — functional behaviour
@@ -177,7 +180,7 @@ class TestPipelineDataFunctional:
         class FakeEmbedder:
             pass
 
-        embedder: IEmbedder | None = FakeEmbedder()
+        embedder = cast("IEmbedder", FakeEmbedder())
         data = PipelineData()
         data2 = replace(data, embedder=embedder)
 
@@ -193,7 +196,7 @@ class TestPipelineDataFunctional:
         class FakeVS:
             pass
 
-        vs = FakeVS()
+        vs = cast("IVectorStore", FakeVS())
         data = PipelineData()
         data2 = replace(data, vector_store=vs)
 
@@ -209,7 +212,7 @@ class TestPipelineDataFunctional:
         class FakeLLM:
             pass
 
-        llm = FakeLLM()
+        llm = cast("ILLM", FakeLLM())
         data = PipelineData()
         data2 = replace(data, llm=llm)
 

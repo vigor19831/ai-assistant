@@ -37,7 +37,10 @@ def get_chat_namespace(base_namespace: str) -> str:
     return CHAT_NS_PREFIX + base_namespace
 
 
+# CHAT_NS_PREFIX re-exported from constants for API consumers
+# (mypy: anything outside __all__ is not an explicit export).
 __all__ = [
+    "CHAT_NS_PREFIX",
     "AppConfig",
     "ArchivistConfig",
     "CORSConfig",
