@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-08-31
+> Version: 2026-09-05
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -66,6 +66,24 @@ Every answer should be traceable. The system should always make it possible to u
 ### 2.8. Quality, Evolution, Measurement
 
 Optimize for quality, not features. Improve incrementally — one area per iteration (retrieval, ranking, chunking, context, evaluation). Every improvement must be measurable. The architecture should outlive individual components: embedding models, rerankers, LLMs, or vector databases may change without changing the core philosophy.
+
+### 2.9. Ingestion Pipeline
+
+```
+raw_documents/    chat exports --full
+        │                │
+        ▼                ▼
+   split ~12 KB     split + atoms
+        └───────► documents/ ◄──┘
+                   │ watcher (60 s poll)
+                   ▼
+          faiss index (per namespace)
+```
+
+- **Split**: files >150 KB → ~12 KB parts; small pass as-is. Idempotent by mtime (#66).
+- **Atoms**: explicit, just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65).
+- **Watch**: one document = one checkpoint; a kill loses one doc, the next pass resumes (#64). One reindex path at a time (#62). The 600 s window is a pause, not a reset.
+- Past this boundary only §2.2 RAG applies: the index answers from what ingestion put in — a polluted index is an ingestion defect, not a retrieval one.
 
 ## 3. The AI Cannot Override These
 
