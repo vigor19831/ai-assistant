@@ -293,21 +293,17 @@ class TestHuggingFaceTokenizer:
         ):
             HuggingFaceTokenizer(TokenizerConfigData(model_name=""))
 
-    def test_file_not_found_raises_adapter_error(self) -> None:
+    def test_file_not_found_falls_back(self, tmp_path: Path) -> None:
         """Given: path to non-existent file.
         When: HuggingFaceTokenizer is instantiated.
-        Then: AdapterError is raised."""
-        mock_tok = MagicMock()
-        with (
-            patch("ai_assistant.adapters.huggingface_tokenizer.Tokenizer", mock_tok),
-            pytest.raises(
-                AdapterError,
-                match="Tokenizer file not found",
-            ),
-        ):
-            HuggingFaceTokenizer(
-                TokenizerConfigData(model_name="/nonexistent/tokenizer.json")
-            )
+        Then: degrades to CharFallbackTokenizer instead of raising
+        (drift #73: model switch must not brick startup)."""
+        tok = HuggingFaceTokenizer(
+            TokenizerConfigData(model_name="/nonexistent/tokenizer.json")
+        )
+
+        assert tok.count("hello world") > 0
+        assert "char" in tok.model_name.lower()
 
     def test_load_failure_raises_adapter_error(self, tmp_path: Path) -> None:
         """Given: valid file path but Tokenizer.from_file raises.
@@ -412,3 +408,44 @@ class TestHuggingFaceTokenizer:
             import asyncio
 
             asyncio.run(tok.shutdown())
+
+class TestHuggingFaceFallback:
+    """Missing tokenizer.json file degrades to CharFallback, not crash."""
+
+    def test_missing_file_falls_back(self, tmp_path: Path) -> None:
+        """Given: model_name pointing to a non-existent file.
+        When: HuggingFaceTokenizer is constructed.
+        Then: instance works via CharFallback; warning logged."""
+        from ai_assistant.adapters.huggingface_tokenizer import (
+            HuggingFaceTokenizer,
+        )
+
+        cfg = TokenizerConfigData(
+            provider="huggingface",
+            model_name=str(tmp_path / "missing" / "tokenizer.json"),
+        )
+        tok = HuggingFaceTokenizer(cfg)
+
+        assert tok.count("hello world") > 0
+        assert "char" in tok.model_name.lower()
+
+    def test_missing_file_logs_warning(self, tmp_path, caplog) -> None:
+        """Fallback emits a warning with the recovery instruction."""
+        import logging
+
+        from ai_assistant.adapters.huggingface_tokenizer import (
+            HuggingFaceTokenizer,
+        )
+
+        cfg = TokenizerConfigData(
+            provider="huggingface",
+            model_name=str(tmp_path / "missing" / "tokenizer.json"),
+        )
+        with caplog.at_level(
+            logging.WARNING,
+            logger="ai_assistant.adapters.huggingface_tokenizer",
+        ):
+            HuggingFaceTokenizer(cfg)
+
+        assert "not found" in caplog.text
+        assert "download_tokenizers" in caplog.text

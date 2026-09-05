@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Check LLM, embedder, and reranker servers via real project adapters.
+"""Check LLM, embedder, reranker servers and local tokenizer.
 
-Returns 0 if all configured adapters initialize and respond.
-Returns 1 on internal error or if any server is unreachable.
+Compact output: one line per component when healthy; a failing
+component expands into a full troubleshooting block.
+
+Returns 0 if all adapters are healthy; 1 otherwise.
 """
 
 import asyncio
+import contextlib
+import logging
 import os
 import signal
 import sys
@@ -18,6 +22,7 @@ from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     LLMConfigData,
     RerankerConfigData,
+    TokenizerConfigData,
 )
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import UserMessage
@@ -39,41 +44,18 @@ def _get_config_path() -> Path:
     return Path(env.strip()).expanduser()
 
 
-def _to_tuple(value: list[str] | tuple[str, ...] | str | None) -> tuple[str, ...]:
-    """Safely convert a config sequence to a tuple.
-
-    Guards against:
-      - None → ()
-      - plain str → (str,)      # prevents tuple("abc") → ('a','b','c')
-      - list / tuple → tuple(...)
-    """
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
+def _fmt_health(name: str, detail: str, status: str) -> None:
+    """One compact line: NAME  detail  STATUS."""
+    print(f"  {name:<11} {detail:<44} {status}")
 
 
-# ── LLM check ───────────────────────────────────────────────────────────────
-async def _check_llm(cfg: AppConfig) -> int:
-    """Check LLM connectivity via real project adapter."""
+# ── Component checks ────────────────────────────────────────────────────────
+async def _check_llm(cfg: AppConfig) -> bool:
+    """True if the LLM server answers a completion."""
     llm_cfg = cfg.llm
-    provider: str = llm_cfg.provider
-    api_base: str = llm_cfg.api_base
-    model: str = llm_cfg.model
-
-    print()
-    print(_SEP)
-    print(f"  LLM HEALTH CHECK          {time.strftime('%H:%M:%S')}")
-    print(_SEP)
-    print(f"  Provider: {provider}")
-    print(f"  API base: {api_base}")
-    print(f"  Model:    {model}")
-    print()
-
     llm_data = LLMConfigData(
-        model=model,
-        api_base=api_base,
+        model=llm_cfg.model,
+        api_base=llm_cfg.api_base,
         api_key=llm_cfg.api_key,
         max_tokens=llm_cfg.max_tokens,
         temperature=llm_cfg.temperature,
@@ -89,57 +71,25 @@ async def _check_llm(cfg: AppConfig) -> int:
 
     llm: ILLM | None = None
     try:
-        llm = create_adapter("llm", provider, llm_data)
-        ctx_limit: int | None = llm.get_context_limit()
-        print(f"  Context limit: {ctx_limit}")
-        print()
-
-        print("  Checking chat completion...")
-        response = await llm.complete([UserMessage(text="Hi")])
-    except Exception as exc:
-        _print_troubleshooting("LLM", provider, api_base, exc)
-        return 1
+        llm = create_adapter("llm", llm_cfg.provider, llm_data)
+        await llm.complete([UserMessage(text="Hi")])
+        return True
+    except Exception:
+        return False
     finally:
         if llm is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await llm.shutdown()
-            except Exception as shutdown_exc:
-                print(f"  ! Shutdown warning: {shutdown_exc}")
-
-    text = response.text
-    snippet = (text or "")[:200]
-    print(f"  Response: {snippet!r}")
-    print()
-    print(_SEP)
-    print("  STATUS: LLM server is healthy")
-    print(_SEP)
-    return 0
 
 
-# ── Embedder check ──────────────────────────────────────────────────────────
-async def _check_embedder(cfg: AppConfig) -> int:
-    """Check embedder connectivity."""
+async def _check_embedder(cfg: AppConfig) -> bool:
+    """True if the embedder returns a correct-dimension vector."""
     embedder_cfg = cfg.embedder
-    provider: str = embedder_cfg.provider
-    api_base: str = embedder_cfg.api_base
-    model: str = embedder_cfg.model
-    dim: int = embedder_cfg.dim
-
-    print()
-    print(_SEP)
-    print(f"  EMBEDDER HEALTH CHECK     {time.strftime('%H:%M:%S')}")
-    print(_SEP)
-    print(f"  Provider: {provider}")
-    print(f"  API base: {api_base}")
-    print(f"  Model:    {model}")
-    print(f"  Dim:      {dim}")
-    print()
-
     embedder_data = EmbedderConfigData(
-        model=model,
-        api_base=api_base,
+        model=embedder_cfg.model,
+        api_base=embedder_cfg.api_base,
         api_key=embedder_cfg.api_key,
-        dim=dim,
+        dim=embedder_cfg.dim,
         timeout=embedder_cfg.timeout,
         connect_timeout=embedder_cfg.connect_timeout,
         n_gpu_layers=embedder_cfg.n_gpu_layers,
@@ -147,135 +97,90 @@ async def _check_embedder(cfg: AppConfig) -> int:
 
     embedder = None
     try:
-        embedder = create_adapter("embedder", provider, embedder_data)
-        print("  Checking embedding...")
+        embedder = create_adapter("embedder", embedder_cfg.provider, embedder_data)
         embeddings = await embedder.embed(["Hello world"])
-        if not embeddings or not embeddings[0]:
-            print("  ! Empty embedding response")
-            return 1
-        if len(embeddings[0]) != embedder.dimension:
-            print(
-                f"  ! Dimension mismatch: expected {embedder.dimension}, "
-                f"got {len(embeddings[0])}"
-            )
-            return 1
-        print(f"  Embedding dimension: {len(embeddings[0])}")
-        print()
-        print(_SEP)
-        print("  STATUS: Embedder is healthy")
-        print(_SEP)
-        return 0
-    except Exception as exc:
-        _print_troubleshooting("Embedder", provider, api_base, exc)
-        return 1
+        has_vector = bool(embeddings and embeddings[0])
+        return has_vector and len(embeddings[0]) == embedder.dimension
+    except Exception:
+        return False
     finally:
         if embedder is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await embedder.shutdown()
-            except Exception as shutdown_exc:
-                print(f"  ! Shutdown warning: {shutdown_exc}")
 
 
-# ── Reranker check ──────────────────────────────────────────────────────────
-async def _check_reranker(cfg: AppConfig) -> int:
-    """Check reranker connectivity (skipped if provider is null)."""
+async def _check_reranker(cfg: AppConfig) -> bool:
+    """True if the reranker orders a test chunk."""
     reranker_cfg = cfg.reranker
     if reranker_cfg is None or reranker_cfg.provider is None:
-        print()
-        print(_SEP)
-        print(f"  RERANKER HEALTH CHECK     {time.strftime('%H:%M:%S')}")
-        print(_SEP)
-        print("  Provider: null (disabled)")
-        print()
-        print(_SEP)
-        print("  STATUS: Reranker is disabled")
-        print(_SEP)
-        return 0
-
-    provider: str = reranker_cfg.provider
-    api_base: str = reranker_cfg.api_base
-    model: str = reranker_cfg.model
-
-    print()
-    print(_SEP)
-    print(f"  RERANKER HEALTH CHECK     {time.strftime('%H:%M:%S')}")
-    print(_SEP)
-    print(f"  Provider: {provider}")
-    print(f"  API base: {api_base}")
-    print(f"  Model:    {model}")
-    print()
+        return True  # disabled is a valid state
 
     reranker_data = RerankerConfigData(
-        model=model,
-        api_base=api_base,
+        model=reranker_cfg.model,
+        api_base=reranker_cfg.api_base,
         api_key=reranker_cfg.api_key,
         timeout=reranker_cfg.timeout,
     )
 
     reranker = None
     try:
-        reranker = create_adapter("reranker", provider, reranker_data)
-        print("  Checking rerank...")
+        reranker = create_adapter("reranker", reranker_cfg.provider, reranker_data)
         chunk = Chunk(
             id="test-1",
             text="Hello world",
             metadata=ChunkMetadata(source="test", index=0, total_chunks=1),
         )
         results = await reranker.rerank("test query", [chunk], top_k=1)
-        if not results:
-            print("  ! Empty rerank response")
-            return 1
-        print(f"  Rerank results: {len(results)}")
-        print()
-        print(_SEP)
-        print("  STATUS: Reranker is healthy")
-        print(_SEP)
-        return 0
-    except Exception as exc:
-        _print_troubleshooting("Reranker", provider, api_base, exc)
-        return 1
+        return bool(results)
+    except Exception:
+        return False
     finally:
         if reranker is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await reranker.shutdown()
-            except Exception as shutdown_exc:
-                print(f"  ! Shutdown warning: {shutdown_exc}")
 
 
-# ── Troubleshooting ─────────────────────────────────────────────────────────
-def _print_troubleshooting(
-    label: str, provider: str, api_base: str, exc: Exception
-) -> None:
-    """Print structured troubleshooting block."""
-    print()
-    print(_SEP)
-    print(f"  STATUS: {label} server is not running or not responding")
-    print(_SEP)
-    print(f"  Provider: {provider}")
-    print(f"  API base: {api_base}")
-    print(f"  Error: {exc}")
-    print()
-    print("  To start the server:")
-    if label == "LLM":
-        print("    1. llama-server.exe -m model.gguf --port 8080")
-        print("    2. ollama serve")
-    elif label == "Embedder":
-        print("    1. llama-server.exe -m embed-model.gguf --port 8081 --embedding")
-        print("    2. ollama serve")
-    elif label == "Reranker":
-        print("    1. llama-server.exe -m rerank-model.gguf --port 8082 --rerank")
-    print("    3. Or check config.yaml for the correct api_base")
-    print()
-    print("  Troubleshooting:")
-    print("    - Verify the model name matches what the server expects")
-    print("    - Check server logs for errors")
-    print(_SEP)
-    print()
+def _check_tokenizer(cfg: AppConfig) -> str:
+    """Return 'ok', 'fallback', or 'error' for the local tokenizer.
+
+    The tokenizer is the only file-backed adapter: a missing
+    tokenizer.json degrades silently at server startup. This check
+    makes the LOADED/FALLBACK state visible BEFORE a restart.
+    """
+    tok_cfg = cfg.tokenizer
+    try:
+        tokenizer = create_adapter(
+            "tokenizer",
+            tok_cfg.provider,
+            TokenizerConfigData(
+                provider=tok_cfg.provider,
+                model_name=tok_cfg.model_name,
+            ),
+        )
+    except Exception:
+        return "error"
+
+    if "char" in tokenizer.model_name.lower():
+        return "fallback"
+    return "ok"
+
+
+def _to_tuple(value: list[str] | tuple[str, ...] | str | None) -> tuple[str, ...]:
+    """Safely convert a config sequence to a tuple."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
 async def _check_all() -> int:
-    """Run all adapter health checks."""
+    # Health check verdicts are OK/FAIL lines; adapter tracebacks
+    # (ConnectError stacks on down servers) would bury them. The
+    # application log keeps the full detail.
+    logging.getLogger("ai_assistant").setLevel(logging.CRITICAL)
+
     config_path = _get_config_path()
     if not config_path.exists():
         print(f"Config file not found: {config_path}")
@@ -287,16 +192,64 @@ async def _check_all() -> int:
         print(f"Config error: {exc}")
         return 1
 
-    results = [
-        await _check_llm(cfg),
-        await _check_embedder(cfg),
-        await _check_reranker(cfg),
-    ]
-    return 0 if all(r == 0 for r in results) else 1
+    print()
+    print(_SEP)
+    print(f"  HEALTH CHECK                          {time.strftime('%H:%M:%S')}")
+    print(_SEP)
+
+    failures: list[str] = []
+
+    llm_ok = await _check_llm(cfg)
+    detail = f"{cfg.llm.provider}  {cfg.llm.model}"
+    _fmt_health("LLM", detail, "OK" if llm_ok else "FAIL")
+    if not llm_ok:
+        failures.append("llm")
+
+    embedder_ok = await _check_embedder(cfg)
+    detail = f"{cfg.embedder.provider}  {cfg.embedder.model}  {cfg.embedder.dim}d"
+    _fmt_health("Embedder", detail, "OK" if embedder_ok else "FAIL")
+    if not embedder_ok:
+        failures.append("embedder")
+
+    reranker_ok = await _check_reranker(cfg)
+    reranker_cfg = cfg.reranker
+    if reranker_cfg is None or reranker_cfg.provider is None:
+        detail = "disabled"
+        status = "OK"
+    else:
+        detail = f"{reranker_cfg.provider}  {reranker_cfg.model}"
+        status = "OK" if reranker_ok else "FAIL"
+        if not reranker_ok:
+            failures.append("reranker")
+    _fmt_health("Reranker", detail, status)
+
+    tok_state = _check_tokenizer(cfg)
+    tok_cfg = cfg.tokenizer
+    if tok_state == "ok":
+        detail = f"{tok_cfg.provider}  {Path(tok_cfg.model_name).name}"
+        _fmt_health("Tokenizer", detail, "OK (exact counts)")
+    elif tok_state == "fallback":
+        _fmt_health("Tokenizer", f"{tok_cfg.provider}  (file missing)", "FALLBACK")
+        print()
+        print("    ! tokenizer.json not found — char tokenizer active")
+        print("      (approximate counts). Run scripts/download_tokenizers.py,")
+        print("      then restart the servers.")
+        failures.append("tokenizer-fallback")
+    else:
+        _fmt_health("Tokenizer", f"{tok_cfg.provider}  init failed", "FAIL")
+        failures.append("tokenizer")
+
+    print(_SEP)
+    if failures:
+        print(f"  RESULT: FAIL  ({', '.join(failures)})")
+        return 1
+    print("  RESULT: OK")
+    return 0
 
 
 def main() -> int:
     """Entry point with graceful signal handling."""
+
     def _on_sigint(_signum: int, _frame: object) -> None:
         raise KeyboardInterrupt
 

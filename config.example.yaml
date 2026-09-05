@@ -297,5 +297,8 @@ tokenizer:
   # download tokenizer via  scripts/download_tokenizers.py  then use:
   #   provider: huggingface
   #   model_name: ./data/tokenizers/your-model/tokenizer.json
+  # Missing tokenizer.json file: the app does NOT fail — it falls back
+  # to the char tokenizer with a warning (approximate, conservative
+  # token counts). Download the real one and restart for exact counts.
   provider: tiktoken
   model_name: cl100k_base
