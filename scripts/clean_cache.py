@@ -13,6 +13,7 @@ import errno
 import os
 import shutil
 import stat
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -77,6 +78,23 @@ def _is_safe_to_delete(target: Path, root: Path) -> bool:
     if any(part in NEVER_TOUCH for part in rel_parts):
         return False
     return ".venv" not in rel_parts
+
+
+def _stack_running() -> bool:
+    """True when the AI stack is up (llama-server / uvicorn).
+
+    Live-stack logs are skipped on deletion: on Linux an open file
+    unlinks silently (the process writes into a deleted inode and
+    the log never reappears until restart) — the Windows "locked"
+    behavior must be explicit here, not OS-dependent.
+    """
+    for proc in ("llama-server", "uvicorn"):
+        found = shutil.which("pgrep")
+        if found and subprocess.run(
+            ["pgrep", "-f", proc], capture_output=True
+        ).returncode == 0:
+            return True
+    return False
 
 
 def find_targets(root: Path, patterns: list[str]) -> list[Path]:
@@ -185,7 +203,6 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
     print(f"  Total: {len(dirs)} dirs, {len(files)} files  ({format_size(total)})")
 
 
-
 def _detect_project_root() -> Path:
     """Find project root by looking for pyproject.toml or .git."""
     current = Path(__file__).resolve().parent
@@ -226,7 +243,12 @@ def main() -> int:
     deleted = 0
     skipped = 0
     failed = 0
+    stack_live = _stack_running()
     for target in targets:
+        if stack_live and target.suffix == ".log":
+            skipped += 1
+            print(f"  [SKIP] {target.name} — live stack (restart or stop first)")
+            continue
         ok, reason = delete_target(target)
         rel = (
             str(target.relative_to(root))
