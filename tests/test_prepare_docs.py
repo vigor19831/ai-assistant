@@ -456,3 +456,18 @@ class TestDecisionValidator:
         validated, demoted = prepare_docs._validate_decisions(atoms, src)
         assert demoted == 1
         assert "Status: recommendation" in validated
+
+    def test_stated_form_demoted(self, tmp_path: Path) -> None:
+        """'User stated:' (form drift) without a real quote -> demoted."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nвопрос\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = (
+            '**[Выбор]** -- выбор сделан.\n'
+            'The user stated: "я бы выбрал" (Status: decision)\n'
+        )
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 1
+        assert "Status: decision" not in validated

@@ -68,6 +68,11 @@ If the chat is long, it will be delivered in parts. Each part is
 marked "PART N/M". Process each part by the same rules; in the last
 part (marked "FINAL") merge duplicate atoms from all parts and check
 the Chronology: every topic from any part must be a Chronology line.
+
+SOURCE FORMAT note: chat exports come from different AI services
+with different markup. Do not rely on any specific heading format
+to identify speakers — judge by content ("the user asks", "the
+assistant advises"). Speaker attribution is semantic, not syntactic.
 A part with no significant knowledge is also a result: write
 "PART N: no significant knowledge found". A part that is mostly
 verbatim code or patch text: write "PART N: code/patch content —
@@ -254,7 +259,7 @@ _USER_BLOCK_RE = re.compile(
     r"#### Вы сказали:\n(.*?)(?=#### |\Z)", re.DOTALL
 )
 _DECISION_RE = re.compile(r"Status:\s*decision")
-_QUOTE_RE = re.compile(r'User said:\s*"([^"]+)"')
+_QUOTE_RE = re.compile(r'[Uu]ser (?:said|stated):\s*"([^"]+)"')
 
 
 def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
