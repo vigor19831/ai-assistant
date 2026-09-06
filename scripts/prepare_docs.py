@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,10 @@ Atom format:
 - **[Statement]** -- [reasoning/mechanics/numbers].
   (Context: [date, campaign, conditions]; Status: [fact | decision |
   recommendation | hypothesis])
+  Before writing "decision" into the Status slot, run THE DECISION
+  TEST from the STATUSES section. Default fallback: "recommendation".
+  A decision REQUIRES the exact user quote inside the atom body:
+  (User said: "...") -- no quote in THIS block = not a decision.
 
 === STATUSES (strict) ===
 - fact: confirmed in the chat.
@@ -145,6 +150,22 @@ THE DECISION TEST (apply before writing any Decision atom):
 Most chats contain ZERO real decisions. An empty Decisions section
 with the line "No user decisions with exact quotes in this part."
 is a correct and expected result.
+Speaker check (apply to EVERY atom before choosing a status): whose
+voice is the statement? Rephrased from the ASSISTANT's advice ("I
+would choose", "berite", "the best option is") -> recommendation at
+best. Rephrased from the USER's question ("what about X?", "a chto
+eto za model?") -> interest/fact at best. ONLY the USER's accepting
+words ("I bought", "beru", "dogovorilis", "postav'") make it a
+decision -- and those words must be quoted in the atom.
+
+BODY PHRASING rule (applies to recommendation and fact atoms): never
+write "Vy vybrali", "you chose", "your decision is" in the atom body
+for assistant advice. The body must attribute the voice: "ChatGPT
+predlozhil", "the assistant recommended", "posovetovano". The user's
+REQUIREMENTS (wishes, constraints, budget) are facts with the body
+"The user wants/requires" — never decisions, and never placed under
+## Decisions. ## Decisions stays empty unless a real user acceptance
+was found.
 - recommendation: proposed but not accepted or not resolved.
 - hypothesis: a statement that sounded confident in the chat but was
   NOT verified by a run, a command, or the user's confirmation
@@ -159,9 +180,12 @@ part's text and ask: where is the proof of exactly this status?
 ## Facts
 Statement atoms, definitions, mechanics, observations.
 ## Decisions
-Decision atoms with the exact user quote.
+Decision atoms with the exact user quote. Empty (with the "No user
+decisions" line) unless a real acceptance exists. User requirements
+never go here.
 ## Recommendations (not accepted)
-Proposal atoms; rejection reason if stated.
+Proposal atoms attributed to their source ("ChatGPT predlozhil..."),
+never phrased as the user's choice; rejection reason if stated.
 ## Hypotheses (not verified in chat)
 Assumption atoms with what exactly was not confirmed.
 ## Creative Materials
@@ -224,6 +248,42 @@ def _load_archivist_cfg() -> dict[str, Any]:
         pass
     return cfg
 
+
+
+_USER_BLOCK_RE = re.compile(
+    r"#### Вы сказали:\n(.*?)(?=#### |\Z)", re.DOTALL
+)
+_DECISION_RE = re.compile(r"Status:\s*decision")
+_QUOTE_RE = re.compile(r'User said:\s*"([^"]+)"')
+
+
+def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
+    """Demote fabricated decisions to recommendations.
+
+    A decision atom is trusted ONLY if its quoted user words are
+    found verbatim inside a user block ("#### Вы сказали:") of the
+    source chat. Fabricated quotes (LLM hallucination) and quotes
+    lifted from assistant replies fail the check and are demoted —
+    the safe direction: an under-counted decision is recoverable,
+    a fabricated one poisons the memory.
+    Returns (validated text, number of demoted lines).
+    """
+    source = src.read_text(encoding="utf-8", errors="replace")
+    user_blocks = [m.group(1) for m in _USER_BLOCK_RE.finditer(source)]
+    demoted = 0
+    lines = atoms_text.splitlines()
+    for idx, line in enumerate(lines):
+        if not _DECISION_RE.search(line):
+            continue
+        quote_m = _QUOTE_RE.search(line)
+        quote = quote_m.group(1) if quote_m else ""
+        if quote and len(quote) <= 120 and any(
+            quote in block for block in user_blocks
+        ):
+            continue
+        lines[idx] = _DECISION_RE.sub("Status: recommendation", line)
+        demoted += 1
+    return "\n".join(lines), demoted
 
 
 def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
@@ -292,7 +352,14 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         if answer.strip():
             answers.append(answer.strip())
     target = dest_dir / f"atoms-{src.stem}{src.suffix}"
-    target.write_text("\n\n---\n\n".join(answers), encoding="utf-8")
+    atoms_text = "\n\n---\n\n".join(answers)
+    atoms_text, demoted = _validate_decisions(atoms_text, src)
+    if demoted:
+        print(
+            f"[ATOMS] validator: {demoted} fabricated/assistant-voiced "
+            "decision(s) demoted to recommendation"
+        )
+    target.write_text(atoms_text, encoding="utf-8")
     print(f"[ATOMS] {len(answers)} answer block(s) -> {target.name}")
     return target
 

@@ -384,3 +384,75 @@ def test_make_atoms_payload_contains_prompt(tmp_path, monkeypatch):
     assert "THE DECISION TEST" in content
     assert "is NEVER a decision" in content
     assert "NOT creative materials" in content
+
+
+# --- Decision validator (drift #78) ---
+
+
+class TestDecisionValidator:
+    """Fabricated decisions are demoted; genuine quoted ones survive.
+
+    Russian strings below are test DATA (chat-export fixtures) —
+    the validator's subject is exactly RU quotes; RUF001 suppressed
+    per drift #71 (Cyrillic in tests = data, not code).
+    """
+
+    def test_fabricated_quote_demoted(self, tmp_path: Path) -> None:
+        """Decision with a quote absent from the source -> demoted."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nкакой калибр лучше?\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = (
+            '**[Выбор]** -- выбор сделан.\n'
+            '(User said: "беру"; Status: decision)\n'  # noqa: RUF001
+        )
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 1
+        assert "Status: decision" not in validated
+        assert "Status: recommendation" in validated
+
+    def test_genuine_quote_survives(self, tmp_path: Path) -> None:
+        """Decision quoted verbatim from a user block -> kept."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nберу эту модель\n\n"  # noqa: RUF001
+            "#### ChatGPT сказал:\nок\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = (
+            '**[Покупка]** -- покупка состоялась.\n'
+            '(User said: "беру эту модель"; Status: decision)\n'  # noqa: RUF001
+        )
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 0
+        assert "Status: decision" in validated
+
+    def test_assistant_quote_demoted(self, tmp_path: Path) -> None:
+        """Quote taken from the assistant block -> demoted."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nчто посоветуешь?\n\n"  # noqa: RUF001
+            "#### ChatGPT сказал:\nидеальное сочетание\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = (
+            '**[Выбор]** -- выбор сделан.\n'
+            '(User said: "идеальное сочетание"; Status: decision)\n'
+        )
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 1
+        assert "Status: recommendation" in validated
+
+    def test_no_quote_demoted(self, tmp_path: Path) -> None:
+        """Decision without any quote -> demoted."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nвопрос\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = '**[Выбор]** -- выбор.\n(Status: decision)\n'
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 1
+        assert "Status: recommendation" in validated
