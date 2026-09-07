@@ -609,6 +609,58 @@ TEST_SOURCES: list[SourceDoc] = [
         "personal",
         "Его режиссеры сестры Вачовски. Он вышел в 1999 году.",
     ),
+
+    # ===================== bench_atoms — synthetic atoms, consumption tier (drift #84) =====================
+    # Format mirrors prepare_docs --atoms output. Tests RAG consumption
+    # over atom-shaped chunks: decision/recommendation attribution,
+    # dated facts, undated refusal.
+    SourceDoc(
+        "bench_atoms",
+        "## Facts\n"
+        "**[Пользователь купил ноутбук ThinkPad T480 в 2019 году для работы.]**\n"
+        "(Context: 3 марта 2025; Status: fact)\n"
+        "\n"
+        "## Decisions\n"
+        "**[Пользователь решил перевести домашний сервер на Linux.]**\n"
+        "(Quote: «Я решил — переезжаю на Linux в этом месяце.»; Context: 3 марта 2025; Status: decision)\n"
+        "\n"
+        "## Recommendations (not accepted)\n"
+        "**[ChatGPT рекомендовал настроить dual-boot с Windows на время перехода.]**\n"
+        "(Context: 3 марта 2025; Status: recommendation)\n"
+        "\n"
+        "## Hypotheses (not verified in chat)\n"
+        "No hypotheses found in this part.\n"
+        "\n"
+        "## Creative Materials\n"
+        "No creative materials found in this part.\n"
+        "\n"
+        "## Chronology\n"
+        "[3 марта 2025] - Recorded: ThinkPad T480 purchase (2019), home server Linux decision, dual-boot recommendation.",
+    ),
+    # Undated atoms: 'when' questions must yield 'date not specified',
+    # never an invented year (#80/#81 class).
+    SourceDoc(
+        "bench_atoms_undated",
+        "## Facts\n"
+        "**[Пользователь слушает подкасты по дороге на работу.]**\n"
+        "(Context: дорога на работу; Status: fact)\n"
+        "\n"
+        "## Decisions\n"
+        "**[Пользователь решил начать учить испанский язык.]**\n"
+        "(Quote: «Решено — начинаю учить испанский.»; Status: decision)\n"
+        "\n"
+        "## Recommendations (not accepted)\n"
+        "No recommendations found in this part.\n"
+        "\n"
+        "## Hypotheses (not verified in chat)\n"
+        "No hypotheses found in this part.\n"
+        "\n"
+        "## Creative Materials\n"
+        "No creative materials found in this part.\n"
+        "\n"
+        "## Chronology\n"
+        "No dated events in this part.",
+    ),
 ]
 
 
@@ -1248,6 +1300,80 @@ TEST_CASES: list[TestCase] = [
         expect_sources=True,
         require_faithfulness=False,
         description="Strict formatting constraint. Model must obey negative constraints and output format.",
+        requires_future_capability=True,
+    ),
+
+    # ------------------------------------------------------------
+    # Atoms consumption tier (drift #84)
+    # ------------------------------------------------------------
+    TestCase(
+        test_id="atoms-decision-1",
+        query="Что я решил сделать с домашним сервером?",
+        namespace="bench_atoms",
+        lang="ru",
+        answer_must_contain=("linux",),
+        answer_must_not_contain=("dual", "windows"),
+        expect_sources=True,
+        sources_must_contain=("linux",),
+        require_faithfulness=True,
+        description="Atom decision attribution: user decision answered, assistant advice must not leak as decision (#77 class).",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="atoms-recommendation-1",
+        query="Что советовал ChatGPT по поводу перехода?",
+        namespace="bench_atoms",
+        lang="ru",
+        answer_must_contain=("dual",),
+        expect_sources=True,
+        sources_must_contain=("dual",),
+        require_faithfulness=True,
+        description="Atom recommendation attribution: advice surfaces when asked for advice (mirror of atoms-decision-1).",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="atoms-date-1",
+        query="Когда я купил ThinkPad?",
+        namespace="bench_atoms",
+        lang="ru",
+        answer_must_contain=("2019",),
+        expect_sources=True,
+        sources_must_contain=("2019",),
+        require_faithfulness=True,
+        description="Dated fact extraction from atoms.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="atoms-undated-1",
+        query="Когда я решил учить испанский?",
+        namespace="bench_atoms_undated",
+        lang="ru",
+        answer_must_contain_any=(
+            "не указан",
+            "неизвестн",
+            "не знаю",
+            "нет информации",
+            "нет даты",
+            "don't know",
+            "no information",
+            "not specified",
+        ),
+        answer_must_not_contain=("2019", "2020", "2021", "2022", "2023", "2024", "2025", "2026"),
+        expect_sources=True,
+        require_faithfulness=False,
+        description="Undated atoms: 'when' must yield 'date not specified', never an invented year (#80/#81 class).",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="atoms-ru-1",
+        query="Что я слушаю по дороге на работу?",
+        namespace="bench_atoms_undated",
+        lang="ru",
+        answer_must_contain=("подкаст",),
+        expect_sources=True,
+        sources_must_contain=("подкаст",),
+        require_faithfulness=True,
+        description="RU atoms must answer in Russian: Cyrillic word required (EN leak fails).",
         requires_future_capability=True,
     ),
 ]
