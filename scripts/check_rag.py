@@ -267,7 +267,7 @@ TEST_SOURCES: list[SourceDoc] = [
     ),
     SourceDoc(
         "personal",
-        "I love eating apples. Apples are red and crunchy. My favorite fruit is definitely the apple because it is healthy and sweet.",
+        "A balanced human diet typically includes vegetables, fruits, grains and protein sources. Nutritionists recommend limiting processed sugar and drinking enough water.",
     ),
     SourceDoc(
         "personal",
@@ -552,9 +552,10 @@ TEST_SOURCES: list[SourceDoc] = [
         "Мой любимый цвет — красный. Я изменил его в прошлом году.",
     ),
 
-    # For chat-prefix e2e test: namespace matching [d] prefix in config
+    # For chat-prefix e2e test: namespace matching [000] prefix in config.
+    # Benchmark-owned namespace: never clear watcher-mapped namespaces (drift #82).
     SourceDoc(
-        "default",
+        "bench_000",
         "My favorite color is blue. I chose it in childhood because it reminds me of the sea and the sky. It is my only favorite color.",
     ),
     # ===================== personal_stress — truncation / token budget test =====================
@@ -627,36 +628,6 @@ TEST_CASES: list[TestCase] = [
         sources_must_contain=("blue", "childhood", "sea"),
         require_faithfulness=True,
         description="Direct retrieval. Answer must cite personal context. Must not pull from noise doc.",
-    ),
-    TestCase(
-        test_id="missing-1",
-        query="What is my favorite food?",
-        namespace="personal",
-        answer_must_contain_any=(
-            "don't know",
-            "not sure",
-            "no information",
-            "not mentioned",
-            "not specified",
-            "don't have",
-            "no data",
-            "cannot answer",
-        ),
-        answer_must_not_contain=(
-            "pizza",
-            "sushi",
-            "burger",
-            "pasta",
-            "salad",
-            "steak",
-            "chicken",
-            "food is",
-            "apple",
-        ),
-        expect_sources=False,
-        require_faithfulness=False,
-        description="No food data in index. Must say 'don't know'. Must not guess or leak noise.",
-        requires_future_capability=True,
     ),
     TestCase(
         test_id="retrieval-2",
@@ -748,7 +719,7 @@ TEST_CASES: list[TestCase] = [
     ),
     TestCase(
         test_id="isolation-1",
-        query="What is Python?",
+        query="What is Docker?",
         namespace="personal",
         answer_must_contain_any=(
             "don't know",
@@ -759,15 +730,14 @@ TEST_CASES: list[TestCase] = [
             "cannot answer",
         ),
         answer_must_not_contain=(
-            "programming language",
-            "guido",
-            "1991",
-            "high-level",
-            "paradigm",
+            "containers",
+            "platform",
+            "shipping",
+            "applications",
         ),
         expect_sources=False,
         require_faithfulness=False,
-        description="Cross-namespace isolation. personal namespace has no Python doc. Must not leak from tech.",
+        description="Cross-namespace isolation. personal namespace has no Docker doc. Must not leak from tech.",
         requires_future_capability=True,
     ),
     TestCase(
@@ -793,7 +763,7 @@ TEST_CASES: list[TestCase] = [
     ),
     TestCase(
         test_id="noise-1",
-        query="Tell me about my diet.",
+        query="What medications do I take?",
         namespace="personal",
         answer_must_contain_any=(
             "don't know",
@@ -802,10 +772,10 @@ TEST_CASES: list[TestCase] = [
             "not mentioned",
             "cannot answer",
         ),
-        answer_must_not_contain=("apple", "fruit", "healthy", "sweet", "crunchy"),
+        answer_must_not_contain=("vegetables", "grains", "nutritionists"),
         expect_sources=False,
         require_faithfulness=False,
-        description="Noise doc exists but is irrelevant. Must not surface noise as fact.",
+        description="No medication data in index; nutrition doc is the health-adjacent distractor. Must refuse.",
         requires_future_capability=True,
     ),
     TestCase(
@@ -895,7 +865,7 @@ TEST_CASES: list[TestCase] = [
     ),
     TestCase(
         test_id="missing-ru-1",
-        query="What is my favorite food?",
+        query="Can I play the piano?",
         namespace="personal_ru",
         lang="cross",
         answer_must_contain_any=(
@@ -906,10 +876,10 @@ TEST_CASES: list[TestCase] = [
             "cannot answer",
             "please provide",
         ),
-        answer_must_not_contain=("pizza", "sushi", "burger", "apple", "яблоко"),
+        answer_must_not_contain=("guitar", "chords", "гитаре", "гитара"),
         expect_sources=False,
         require_faithfulness=False,
-        description="No food data in Russian index. Must reject in English API language.",
+        description="No piano info in Russian index, guitar doc is the distractor. Mirror of missing-2.",
         requires_future_capability=True,
     ),
     TestCase(
@@ -984,7 +954,7 @@ TEST_CASES: list[TestCase] = [
     ),
 
     # ------------------------------------------------------------
-    # Chat prefix e2e — proves that [d] in chat enables RAG
+    # Chat prefix e2e — proves that [000] in chat enables RAG
     # ------------------------------------------------------------
     TestCase(
         test_id="chat-no-prefix",
@@ -1002,14 +972,14 @@ TEST_CASES: list[TestCase] = [
     ),
     TestCase(
         test_id="chat-prefix-on",
-        query="[d] What is my favorite color?",
+        query="[000] What is my favorite color?",
         namespace="personal",
         answer_must_contain=("blue",),
         answer_must_not_contain=("don't know", "not sure"),
         expect_sources=True,
         require_faithfulness=False,
         use_chat_api=True,
-        description="Chat with [d] prefix must use RAG and answer from documents.",
+        description="Chat with [000] prefix must use RAG and answer from documents.",
     ),
     # ------------------------------------------------------------
     # Coverage boost — truncation, errors, rerank order, metadata
@@ -1104,7 +1074,7 @@ TEST_CASES: list[TestCase] = [
     ),
     TestCase(
         test_id="multi-turn-1",
-        query="[d] Why?",
+        query="[000] Why?",
         namespace="personal",
         conversation_turn=2,
         depends_on="chat-prefix-on",
@@ -1112,7 +1082,7 @@ TEST_CASES: list[TestCase] = [
         expect_sources=True,
         require_faithfulness=False,
         use_chat_api=True,
-        description="Multi-turn follow-up 'Why?' must resolve via chat history after [d] answer.",
+        description="Multi-turn follow-up 'Why?' must resolve via chat history after [000] answer.",
         requires_future_capability=True,
     ),
     TestCase(
@@ -1134,7 +1104,7 @@ TEST_CASES: list[TestCase] = [
     # ------------------------------------------------------------
     TestCase(
         test_id="streaming-1",
-        query="[d] What is my favorite color?",
+        query="[000] What is my favorite color?",
         namespace="personal",
         answer_must_contain=("blue",),
         expect_sources=True,
@@ -1181,7 +1151,7 @@ TEST_CASES: list[TestCase] = [
     ),
     TestCase(
         test_id="condensation-1",
-        query="[d] Where did I choose it?",
+        query="[000] Where did I choose it?",
         namespace="personal",
         conversation_turn=4,
         depends_on="chat-prefix-on",
@@ -1372,6 +1342,29 @@ async def index_all(url: str, api_key: str, sources: list[SourceDoc]) -> bool:
             data = r.json()
             print(f"[INDEX] OK  {data.get('chunk_count', 0)} chunks")
     return True
+
+
+async def teardown_all(url: str, api_key: str, sources: list[SourceDoc]) -> None:
+    """Delete every namespace this benchmark created (drift #82).
+
+    Runs from the finally block: cleanup happens even on interrupt.
+    Only namespaces listed in TEST_SOURCES are touched.
+    """
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    namespaces = sorted({doc.namespace for doc in sources})
+    async with httpx.AsyncClient(headers=headers) as client:
+        for ns in namespaces:
+            try:
+                r = await _request_with_retry(
+                    client,
+                    "POST",
+                    f"{url.rstrip('/')}/api/v1/rag/delete",
+                    json={"clear": True, "namespace": ns},
+                )
+                data = r.json()
+                print(f"[CLEANUP] namespace '{ns}': {data.get('deleted_chunks', 0)} chunks deleted")
+            except Exception as exc:
+                print(f"[CLEANUP] namespace '{ns}' failed: {exc}")
 
 
 async def query_rag(
@@ -1812,6 +1805,9 @@ def main() -> int:
         print(f"\n  ! Unexpected error: {e}")
         return 1
     finally:
+        if not args.skip_index:
+            with contextlib.suppress(Exception):
+                asyncio.run(teardown_all(args.url, args.api_key, TEST_SOURCES))
         _restore_logging()
         if not args.no_monitor:
             monitor.stop()

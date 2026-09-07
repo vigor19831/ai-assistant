@@ -331,6 +331,7 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
     parts = _split_for_atoms(data, part_bytes=int(cfg["part_bytes"]))
     answers: list[str] = []
     total = len(parts)
+    print(f"[ATOMS] {src.name}: {total} part(s), {len(data)} bytes")
     for idx, part in enumerate(parts, start=1):
         is_final = idx == total
         header = f"PART {idx}/{total}"
