@@ -4,8 +4,8 @@ Production-grade offline RAG framework for solo maintainers.
 
 - **Offline-first**: works without cloud, your data never leaves your machine
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
-- **Measured quality**: 17/17 contract tests + 24/30 capability tests + 8/9 chat e2e on 4GB VRAM hardware
-- **Deterministic**: temperature 0.0 by default — repeated benchmark runs reproduce verdicts byte-identically
+- **Measured quality**: 17/17 contract tests + 30–31/34 capability tests + 8–9/9 chat e2e on 4GB VRAM hardware
+- **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one known 7B chat flake, see docs)
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
 **Solo-maintained. Published as-is.**
@@ -36,9 +36,9 @@ Production-grade offline RAG framework for solo maintainers.
 
 ### Quality Assurance
 
-- **47 test cases** via `check_rag.py` — single source of truth for RAG quality.
+- **51 test cases** via `check_rag.py` — single source of truth for RAG quality.
 - **17 contract tests** (must pass on any hardware).
-- **30 future capability tests** (quality depends on LLM size).
+- **34 future capability tests** (quality depends on LLM size).
 - **Chat e2e tests** (prefix conversation, contract).
 - **Hardware Ceiling Log**: honest documentation of what works on your GPU.
 
@@ -46,7 +46,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 ## Quality Assurance
 
-Every release is validated against `check_rag.py` — a 47-case benchmark covering retrieval, ranking, generation, and edge cases.
+Every release is validated against `check_rag.py` — a 51-case benchmark covering retrieval, ranking, generation, and edge cases.
 
 ### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 20 GPU layers, 4GB VRAM)
 
@@ -57,11 +57,11 @@ on check_rag both 7B and 4B profiles).
 
 ```
 CONTRACT: 17/17 passed
-CHAT PREFIX E2E: 8/9 passed
+CHAT PREFIX E2E: 8–9/9 passed (multi-turn-1 nondeterministic — see docs)
 CHAT CONTRACT: 2/2 passed
-CHAT FUTURE: 6/7 passed
-KNOWN LIMITATIONS TRIGGERED: 6
-FUTURE CAPABILITIES: 24/30 passed
+CHAT FUTURE: 6–7/7 passed
+KNOWN LIMITATIONS TRIGGERED: 3–4
+FUTURE CAPABILITIES: 30–31/34 passed
 ```
 
 ### What Contract Tests Verify
@@ -76,19 +76,22 @@ FUTURE CAPABILITIES: 24/30 passed
 - Token budget truncation.
 - Empty query and invalid namespace handling.
 
-### Known Limitations (class-level; the benchmark counts 6 triggered tests — one class can cover several)
+### Known Limitations (class-level; the benchmark counts 3–4 triggered tests on 7B)
 
-- Nearest-topic leakage: retrieval surfaces semantically close chunks
-  and the model answers them instead of refusing (retrieval ceiling,
-  documented in `docs/drift.md` FUTURE RISKS).
-- Multi-turn "Why?" follow-up resolution: the 7B model refuses to answer
-  when context is borderline-sufficient (proven parametric ceiling —
-  the 4B heir resolves it; see `docs/architecture.md` §14).
-- Strict formatting on open synthesis questions: the 0.10 token
-  margin (config rebalance, drift #68) trims one chunk on
-  "list my hobbies"-class queries — documented trade for long-dialog
-  stability, not a regression.
-- Weak-signal refusal discipline (nearest-topic leakage above).
+- Open-synthesis recall ("What do I like?"-class queries): top_k
+  retrieval cannot surface every expected fact from a large namespace —
+  retrieval-side, model-independent (drift #84).
+- Date honesty on undated atoms: asked "when" over atoms with no date,
+  the 4B answers "what" instead, the 7B merges unrelated facts into a
+  temporal answer (drift #84/#85; cure documented — stronger model or
+  generation-side guard, not another prompt iteration).
+- Strict formatting on open synthesis: the 7B trims the requested list
+  format ("list my hobbies"-class) — model format quirk.
+- 4B-specific: typo bridging ("Pithon") and option prioritization are
+  parameter-bound; the 7B passes both (measured).
+- multi-turn-1 on the benchmark prefix: nondeterministic on 7B — the
+  one known exception to verdict determinism; live multi-turn is green
+  (see `docs/architecture.md` §14).
 
 Question condensation was fixed by a prompt contract (drift #58);
 conversation recall passes. The two-tier fallback documented in
@@ -122,8 +125,8 @@ Phi-4-mini chat-fallback) covers the residual gaps.
 
 | Verdict | Detail |
 |---|---|
-| **King (RAG)** | Qwen2.5-7B IQ4_XS — 17/17 ×6 runs, 8/9 chat, 24/30 capability |
-| **Heir (RAG)** | Qwen3.5-4B IQ4_XS — 17/17 ×4, sole 9/9 chat; two-tier fallback documented |
+| **King (RAG)** | Qwen2.5-7B IQ4_XS — 17/17, 8–9/9 chat, 30–31/34 capability |
+| **Heir (RAG)** | Qwen3.5-4B IQ4_XS — 17/17, 9/9 chat, 29/34; daily driver (drift #79); two-tier fallback documented |
 | **Rejected** | 9B class ×3 (PCIe bottleneck on 4GB); 14B+ requires 12GB+ VRAM |
 
 Full campaign history, per-run details, and the throne decision:
@@ -243,20 +246,20 @@ ai-assistant/
 ├── pyproject.toml ← Dependencies and tooling
 ├── run_servers.py ← Starts LLM, embedder, reranker, API servers
 ├── run_servers.yaml ← Server launch configuration
-├── src/ ← Application source code
+├── run_scripts.py ← Interactive script runner (check_rag, prepare_docs, etc.)
+├── src/ ← Application source code (core: domain, ports, prompts; adapters; features; api; ui)
 ├── tests/ ← ~1000 tests
 ├── scripts/ ← Utility scripts
 ├── docs/ ← Architecture and rules documentation
 ├── data/ ← Runtime data (git-ignored, auto-created)
-├── vendor/ ← External binaries and models (git-ignored)
-└── ui/ ← Static web interface
+└── vendor/ ← External binaries and models (git-ignored)
 ```
 
 ### Directory Descriptions
 
 | Directory | Purpose | Auto-created? |
 |-----------|---------|---------------|
-| `src/ai_assistant/` | Application code: `core/` (domain, ports), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes) | No |
+| `src/ai_assistant/` | Application code: `core/` (domain, ports, prompts, pipeline), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes), `ui/` (static web interface) | No |
 | `tests/` | ~1000 tests covering contracts, edge cases, integration, e2e | No |
 | `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `prepare_docs.py` (split large files; --atoms extracts status-disciplined knowledge atoms) | No |
 | `docs/` | `ai_rules.md` (AI constraints), `architecture.md` (strategy + RAG philosophy), `drift.md` (known compromises) | No |
@@ -266,7 +269,6 @@ ai-assistant/
 | `data/tokenizers/` | Downloaded tokenizer files. Run `scripts/download_tokenizers.py` to populate | Yes (via script) |
 | `vendor/llama/` | `llama-server` binary. Download from [llama.cpp releases](https://github.com/ggerganov/llama.cpp/releases) | You provide it |
 | `vendor/models/` | GGUF model files: LLM (~4.5GB), embedder (~1.2GB), reranker (~0.5GB) | You provide it |
-| `ui/` | Static web interface served at `/ui` (no Python — outside lint/type/AST audits) | No |
 | `config.yaml` | Your personal settings: models, API endpoints, GPU layers. Copy from `config.example.yaml` and edit | You create it |
 
 ### What You Must Provide
