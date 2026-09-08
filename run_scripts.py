@@ -187,18 +187,22 @@ def _prepare_docs_mode() -> list[str]:
     """Ask the user which prepare_docs mode to run.
 
     1 = split only (default: fast, safe); 2 = atoms + split
-    (LLM extraction, minutes to hours on mature chats).
+    (LLM extraction, minutes to hours on mature chats); 3 = validate
+    atoms (--validate: read-only contract check, no LLM calls).
     """
     print()
     print("  prepare_docs mode:")
     print("    [1] split only   (default, instant)")
     print("    [2] atoms + split (LLM extraction, slow)")
+    print("    [3] validate atoms (read-only contract check)")
     try:
         mode = input("  Choice [1]: ").strip() or "1"
     except (EOFError, KeyboardInterrupt):
         raise
     if mode == "2":
         return ["--full"]
+    if mode == "3":
+        return ["--validate"]
     if mode == "1":
         return []
     print("  ? Unknown, defaulting to split only")

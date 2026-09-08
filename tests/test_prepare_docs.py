@@ -6,6 +6,15 @@ cf. drift #5 — disk format must match content exactly). Tests assert
 content-level invariants, not implementation details, so they survive
 the planned --atoms extension.
 
+The static validation section (--validate, V1-V6) covers: the atom
+shapes observed in live files (inline / same-line / continuation
+labels), THE DECISION TEST quote requirement, date grounding against
+the source chat, chronology consistency, Creative Materials filing,
+script dominance (computed over template-stripped atom content — the
+first live run flipped a fully RU file via English Context values,
+2026-09-08), and the documents/-vs-index identity (store
+metadata.source is the file STEM, no extension).
+
 Load path note: prepare_docs is a script, not a package module;
 loaded by file path (same approach as other script-facing checks).
 """
@@ -13,11 +22,19 @@ loaded by file path (same approach as other script-facing checks).
 from __future__ import annotations
 
 import importlib.util
+import json
+import sys
 from pathlib import Path
+from typing import Any
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "prepare_docs.py"
 _SPEC = importlib.util.spec_from_file_location("prepare_docs", _SCRIPT)
 prepare_docs = importlib.util.module_from_spec(_SPEC)
+# Register in sys.modules BEFORE exec_module: the script's dataclasses
+# resolve string annotations (PEP 563, "from __future__ import
+# annotations") via sys.modules[cls.__module__]; without registration
+# the first @dataclass raises AttributeError (2026-09-08).
+sys.modules["prepare_docs"] = prepare_docs
 _SPEC.loader.exec_module(prepare_docs)
 
 
@@ -471,3 +488,701 @@ class TestDecisionValidator:
         validated, demoted = prepare_docs._validate_decisions(atoms, src)
         assert demoted == 1
         assert "Status: decision" not in validated
+
+
+# --- Static validation (--validate): fixtures in the live atom shapes ---
+
+GOOD_RU_ATOMS = (
+    "## Facts\n"
+    "[Установлен ZRAM вместо swap для повышения эффективности"
+    " использования памяти. (Context: 2026-09-01, Pop OS; Status: fact)]\n"
+    "[Включён TRIM для накопителя NVMe."
+    " (Context: 2026-09-01, Pop OS; Status: fact)]\n"
+    "\n"
+    "## Decisions\n"
+    "No user decisions with exact quotes in this part.\n"
+    "\n"
+    "## Recommendations (not accepted)\n"
+    "[ChatGPT предложил LXQt для экономии памяти."
+    " (Context: 2026-09-01; Status: recommendation)]\n"
+    "\n"
+    "## Hypotheses (not verified in chat)\n"
+    "No hypotheses found in this part.\n"
+    "\n"
+    "## Creative Materials\n"
+    "**[Заголовок]** -- готовый заголовок «Молния за 59 секунд».\n"
+    "  (Context: 2026-09-06; Status: creative material)\n"
+    "\n"
+    "## Chronology\n"
+    "2026-09-01 - настройка системы - ZRAM и TRIM настроены\n"
+)
+
+GOOD_SOURCE = (
+    "#### Вы сказали:\n"
+    "как настроить систему? замеры от 2026-09-01\n"
+    "\n"
+    "#### ChatGPT сказал:\n"
+    "черновики заголовков от 2026-09-06\n"
+)
+
+DECISION_NO_QUOTE = (
+    "## Decisions\n"
+    "**[Выбор хранилища]** -- пользователь выбрал Sprinter.\n"
+    "  (Context: 2026-09-02; Status: decision)\n"
+)
+
+DECISION_QUOTE_SAID = (
+    "## Decisions\n"
+    "**[Выбор модели]** -- пользователь выбрал Sprinter.\n"
+    "  (Context: 2026-09-02; User said: \"беру Sprinter\"; "  # noqa: RUF001
+    "Status: decision)\n"
+)
+
+DECISION_QUOTE_STATED = (
+    "## Decisions\n"
+    "**[Выбор модели]** -- выбор сделан.\n"
+    "  The user stated: \"беру Sprinter\" (Status: decision)\n"  # noqa: RUF001
+)
+
+DEMOTED_ATOM = (
+    "## Recommendations (not accepted)\n"
+    "**[Выбор модели]** -- пользователь выбрал Sprinter.\n"
+    "  (Context: 2026-09-02; Status: recommendation)\n"
+)
+
+INLINE_DECISION_NO_QUOTE = (
+    "## Decisions\n"
+    "[Пользователь решил перевести сервер на Linux."
+    " (Context: 2026-09-02; Status: decision)]\n"
+)
+
+DATED_FACT = (
+    "## Facts\n"
+    "**[Дата покупки]** -- покупка состоялась 2026-08-07.\n"
+    "  (Context: 2026-08-07; Status: fact)\n"
+)
+
+SOURCE_NO_DATE = (
+    "#### Вы сказали:\n"
+    "когда была покупка?\n"
+)
+
+ISO_FACT = (
+    "## Facts\n"
+    "**[Релиз]** -- релиз состоялся 2024-05-01.\n"
+    "  (Context: 2024-05-01; Status: fact)\n"
+)
+
+RU_DATED_SOURCE = (
+    "#### Вы сказали:\n"
+    "релиз был 1 мая 2024\n"
+)
+
+YEAR_SOURCE = (
+    "#### Вы сказали:\n"
+    "релиз был в 2024 году\n"
+)
+
+YEAR_FACT = (
+    "## Facts\n"
+    "**[Год замера]** -- замер выполнен в 2024 году.\n"
+    "  (Context: 2024; Status: fact)\n"
+)
+
+FULL_DATED_SOURCE = (
+    "#### Вы сказали:\n"
+    "замер 2024-08-07 прошёл штатно\n"
+)
+
+CHRON_CONFLICT = (
+    "## Chronology\n"
+    "2026-01-01 - выбор роутера - куплен TP-Link\n"
+    "2026-02-01 - выбор роутера - куплен TP-Link\n"
+)
+
+CHRON_ACROSS_BLOCKS = (
+    "## Chronology\n"
+    "2026-01-15 - релиз - версия 1.0\n"
+    "\n---\n\n"
+    "## Chronology\n"
+    "2026-02-15 - релиз - версия 1.0\n"
+)
+
+CHRON_COMPATIBLE = (
+    "## Chronology\n"
+    "2026-01 - релиз - версия 1.0\n"
+    "2026-01-15 - релиз - версия 1.0\n"
+)
+
+CHRON_BRACKETED = (
+    "## Chronology\n"
+    "[Aug 22] - watch criteria - candidates identified\n"
+    "2024-05-22 - watch criteria - candidates identified\n"
+)
+
+CREATIVE_REC = (
+    "## Creative Materials\n"
+    "**[Оффер]** -- ассистент рекомендует оффер «Скидка 20%».\n"
+    "  (Context: 2026-09-06; Status: recommendation)\n"
+)
+
+CREATIVE_FACT = (
+    "## Creative Materials\n"
+    "**[Заголовок]** -- готовый заголовок «Молния за 59 секунд».\n"
+    "  (Context: 2026-09-06; Status: fact)\n"
+)
+
+EN_FILE_WITH_RU_ATOM = (
+    "## Facts\n"
+    "- **[Indexing rate]** -- measured ten chunks per second"
+    " on the embedded GPU.\n"
+    "  (Context: 2026-09-01, live corpus; Status: fact)\n"
+    "\n"
+    "## Facts\n"
+    "- **[Tokenizer fallback]** -- the char fallback tokenizer"
+    " was selected for startup safety.\n"
+    "  (Context: 2026-09-05; Status: fact)\n"
+    "\n"
+    "## Facts\n"
+    "**[Скорость индексации]** -- измерено десять чанков"
+    " в секунду на GPU.\n"
+    "  (Context: 2026-09-01; Status: fact)\n"
+)
+
+RU_FILE_WITH_EN_ATOM = (
+    "## Facts\n"
+    "**[Скорость индексации]** -- измерено десять чанков в секунду"
+    " на встроенном GPU, что в семь раз"
+    " быстрее процессорного варианта.\n"
+    "  (Context: 2026-09-01; Status: fact)\n"
+    "\n"
+    "## Facts\n"
+    "**[Выбор хранилища]** -- выбрано хранилище faiss"
+    " для основного индекса после сравнения потребления"
+    " оперативной памяти на живом корпусе.\n"
+    "  (Context: 2026-09-02; Status: fact)\n"
+    "\n"
+    "## Facts\n"
+    "**[Tokenizer fallback]** -- the char fallback tokenizer"
+    " was selected for startup safety.\n"
+    "  (Context: 2026-09-05; Status: fact)\n"
+)
+
+RU_FILE_WITH_CODE = (
+    "## Facts\n"
+    "**[Контекстное окно]** -- максимальный контекст"
+    " перебалансирован до четырёх тысяч восьмисот токенов.\n"
+    "  (Context: 2026-09-03; Status: fact)\n"
+    "\n"
+    "## Facts\n"
+    "**[Конфигурация]** -- значение зафиксировано в конфиге:\n"
+    "  ```\n"
+    "  max_context_tokens = 4800\n"
+    "  ```\n"
+    "  (Context: 2026-09-03; Status: fact)\n"
+)
+
+# The first live run (2026-09-08) flipped a fully RU file into
+# "EN-dominant" via English Context VALUES ("project: ...",
+# "conditions: ...") -- the regression fixture below.
+RU_FILE_EN_CONTEXTS = (
+    "## Facts\n"
+    "[Установлен ZRAM вместо swap для повышения эффективности"
+    " использования памяти. (Context: 2026-09-01, project: local AI"
+    " assistant with RAG, conditions: sixteen gigabytes of RAM and a"
+    " four gigabyte GPU; Status: fact)]\n"
+    "[Включён TRIM для накопителя NVMe. (Context: 2026-09-01,"
+    " project: local AI assistant with RAG, conditions: Pop OS"
+    " optimization with a long English context value; Status: fact)]\n"
+    "[Ограничены потоки NumPy и OpenBLAS восемью потоками"
+    " для корректной работы на этом процессоре."
+    " (Context: 2026-09-01, project: local AI assistant with RAG,"
+    " conditions: thread limits; Status: fact)]\n"
+)
+
+RU_FILE_EN_CHRONOLOGY = (
+    "## Facts\n"
+    "**[Скорость индексации]** -- измерено десять чанков в секунду"
+    " на встроенном GPU, что в семь раз быстрее"
+    " процессорного варианта при живом корпусе.\n"
+    "  (Context: 2026-09-01; Status: fact)\n"
+    "\n"
+    "## Facts\n"
+    "**[Замер скорости]** -- замер выполнен на живом корпусе.\n"
+    "  (Context: 2026-09-02; Status: fact)\n"
+    "\n"
+    "## Chronology\n"
+    "[Aug 22] - watch criteria - candidates identified\n"
+)
+
+
+def _write_store(
+    index_dir: Path, namespace: str, chunks: list[dict[str, Any]]
+) -> None:
+    """Write a minimal {namespace}.store.json (adapter schema)."""
+    store = {"dim": 8, "metric": "cosine", "chunks": chunks}
+    target = index_dir / f"{namespace}.store.json"
+    target.write_text(json.dumps(store, ensure_ascii=False), encoding="utf-8")
+
+
+def _store_chunk(source: str, total: int, index: int = 0) -> dict[str, Any]:
+    """One store chunk entry: identity is metadata.source (the stem)."""
+    return {
+        "id": f"chunk-{source}-{index}",
+        "text": "chunk text",
+        "embedding": [0.0, 1.0],
+        "metadata": {
+            "source": source,
+            "index": index,
+            "total_chunks": total,
+            "custom": {},
+            "original_path": None,
+            "source_uri": source,
+            "last_modified": None,
+        },
+    }
+
+
+# --- Static validation: atom shapes ---
+
+
+class TestAtomShapes:
+    """The three live atom shapes (2026-09-08) all parse as atoms."""
+
+    def test_all_shapes_parse(self) -> None:
+        """Inline / same-line / continuation / template forms."""
+        text = (
+            "## Facts\n"
+            "[Включён TRIM. (Context: 2026-09-01; Status: fact)]\n"
+            "[Indexing measured] (Context: 2026-09-02; Status: fact)\n"
+            "**[Скорость]** -- десять чанков в секунду.\n"
+            "  (Context: 2026-09-03; Status: fact)\n"
+            "- **[Template]** -- template form still accepted.\n"
+            "  (Context: 2026-09-04; Status: fact)\n"
+        )
+        atoms = list(prepare_docs._iter_atoms(text))
+        assert len(atoms) == 4
+        assert all(section == "facts" for section, _start, _atom in atoms)
+        assert [start for _section, start, _atom in atoms] == [2, 3, 4, 6]
+
+    def test_good_ru_file_is_clean(self) -> None:
+        """All five text checks pass on a live-shaped RU atoms file."""
+        result = prepare_docs.validate_text(
+            GOOD_RU_ATOMS, "atoms-chat.md", GOOD_SOURCE, "chat.md"
+        )
+        assert result == ()
+
+
+class TestDecisionQuote:
+    """V1: THE DECISION TEST (drift #67)."""
+
+    def test_missing_quote_flagged(self) -> None:
+        violations = prepare_docs._check_decisions(
+            DECISION_NO_QUOTE, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].check == "V1"
+        assert violations[0].severity == "error"
+        assert violations[0].line == 2
+
+    def test_inline_shape_flagged(self) -> None:
+        """Shape "everything in one line" is an atom, not a sentinel."""
+        violations = prepare_docs._check_decisions(
+            INLINE_DECISION_NO_QUOTE, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].line == 2
+
+    def test_quote_forms_accepted(self) -> None:
+        """Both prompt-sanctioned forms ("said"/"stated") satisfy V1."""
+        for atoms in (DECISION_QUOTE_SAID, DECISION_QUOTE_STATED):
+            assert prepare_docs._check_decisions(atoms, "atoms-chat.md") == ()
+
+    def test_demoted_recommendation_clean(self) -> None:
+        """V1 is decision-only: demoted atoms are the pipeline's job."""
+        assert prepare_docs._check_decisions(
+            DEMOTED_ATOM, "atoms-chat.md"
+        ) == ()
+
+    def test_sentinel_lines_not_atoms(self) -> None:
+        """PART-sentinels never become atoms; a quoted decision passes."""
+        text = (
+            "PART 1: no significant knowledge found\n"
+            "\n---\n\n"
+            "## Decisions\n"
+            "**[Выбор]** -- выбор сделан.\n"
+            "  (Context: 2026-09-02; User said: \"беру\"; Status: decision)\n"  # noqa: RUF001
+        )
+        assert prepare_docs._check_decisions(text, "atoms-chat.md") == ()
+
+    def test_empty_decisions_sentinel_clean(self) -> None:
+        """The "No user decisions" sentinel line is a correct result."""
+        text = "## Decisions\nNo user decisions with exact quotes in this part.\n"
+        assert prepare_docs._check_decisions(text, "atoms-chat.md") == ()
+
+
+class TestDateGrounding:
+    """V2: dates must be grounded in the source (drift #80/#81)."""
+
+    def test_invented_date_flagged(self) -> None:
+        result = prepare_docs.validate_text(
+            DATED_FACT, "atoms-chat.md", SOURCE_NO_DATE, "chat.md"
+        )
+        assert len(result) == 2  # statement line + Context line
+        assert all(v.check == "V2" and v.severity == "error" for v in result)
+        assert all("2026-08-07" in v.message for v in result)
+
+    def test_grounded_across_formats(self) -> None:
+        """ISO in the atom is grounded by "1 мая 2024" in the source."""
+        result = prepare_docs.validate_text(
+            ISO_FACT, "atoms-chat.md", RU_DATED_SOURCE, "chat.md"
+        )
+        assert result == ()
+
+    def test_precision_escalation_flagged(self) -> None:
+        """A full date is not grounded by a bare year in the source."""
+        result = prepare_docs.validate_text(
+            ISO_FACT, "atoms-chat.md", YEAR_SOURCE, "chat.md"
+        )
+        assert all(v.check == "V2" for v in result)
+        assert len(result) == 2
+
+    def test_bare_year_covered_by_precise_source(self) -> None:
+        result = prepare_docs.validate_text(
+            YEAR_FACT, "atoms-chat.md", FULL_DATED_SOURCE, "chat.md"
+        )
+        assert result == ()
+
+    def test_missing_source_warns(self) -> None:
+        """No source: provenance unchecked is a warning, not an error."""
+        result = prepare_docs.validate_text(
+            DATED_FACT, "atoms-x.md", None, "x.md"
+        )
+        assert len(result) == 1
+        assert result[0].check == "V2"
+        assert result[0].severity == "warn"
+        assert "source not found" in result[0].message
+
+    def test_extraction_forms(self) -> None:
+        """ISO, dotted, RU and EN month names, bare years all extract."""
+        text = "2026-08-07 01.05.2024 1 мая 2024 May 1, 2024 May 2024 2026"
+        tokens = tuple(
+            token for _, token in prepare_docs._parse_date_tokens(text)
+        )
+        assert tokens == (
+            prepare_docs.DateToken(2026, 8, 7),
+            prepare_docs.DateToken(2024, 5, 1),
+            prepare_docs.DateToken(2024, 5, 1),
+            prepare_docs.DateToken(2024, 5, 1),
+            prepare_docs.DateToken(2024, 5, None),
+            prepare_docs.DateToken(2026, None, None),
+        )
+
+    def test_covers_semantics(self) -> None:
+        """Source precision must cover atom precision, not vice versa."""
+        covers = prepare_docs._covers
+        token = prepare_docs.DateToken
+        assert covers(token(2026, 8, 7), token(2026, None, None))
+        assert covers(token(2026, 5, 1), token(2026, 5, 1))
+        assert not covers(token(2026, None, None), token(2026, 8, 7))
+        assert not covers(token(2025, 5, 1), token(2026, 5, 1))
+
+    def test_conflicts_semantics(self) -> None:
+        """Compatible precision is not a conflict; disagreeing parts are."""
+        conflicts = prepare_docs._conflicts
+        token = prepare_docs.DateToken
+        assert not conflicts(token(2026, 8, 7), token(2026, 8, None))
+        assert not conflicts(token(2026, None, None), token(2026, 5, 1))
+        assert conflicts(token(2026, 8, 7), token(2026, 9, 7))
+
+
+class TestChronologyConsistency:
+    """V3: one topic -- one date."""
+
+    def test_conflicting_dates_flagged(self) -> None:
+        violations = prepare_docs._check_chronology(
+            CHRON_CONFLICT, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].check == "V3"
+        assert "2026-01-01" in violations[0].message
+        assert "2026-02-01" in violations[0].message
+
+    def test_conflict_across_blocks_flagged(self) -> None:
+        """The drift #80 shape: different dates for one topic per part."""
+        violations = prepare_docs._check_chronology(
+            CHRON_ACROSS_BLOCKS, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].check == "V3"
+
+    def test_compatible_precisions_clean(self) -> None:
+        """"2026-01" and "2026-01-15" for one topic are the same date."""
+        assert prepare_docs._check_chronology(
+            CHRON_COMPATIBLE, "atoms-chat.md"
+        ) == ()
+
+    def test_distinct_topics_clean(self) -> None:
+        text = (
+            "## Chronology\n"
+            "2025-05-01 - первая кампания - запуск\n"
+            "2026-05-01 - вторая кампания - запуск\n"
+        )
+        assert prepare_docs._check_chronology(text, "atoms-chat.md") == ()
+
+    def test_bracketed_date_conflict_flagged(self) -> None:
+        """Live shape: "[Aug 22] - ..." chronology lines parse."""
+        violations = prepare_docs._check_chronology(
+            CHRON_BRACKETED, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert "Aug 22" in violations[0].message
+        assert "2024-05-22" in violations[0].message
+
+
+class TestCreativeMaterials:
+    """V4: the section holds texts, not recommendations."""
+
+    def test_recommendation_flagged(self) -> None:
+        violations = prepare_docs._check_creative(
+            CREATIVE_REC, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].check == "V4"
+
+    def test_fact_in_creative_clean(self) -> None:
+        assert prepare_docs._check_creative(
+            CREATIVE_FACT, "atoms-chat.md"
+        ) == ()
+
+    def test_recommendation_section_clean(self) -> None:
+        """Recommendations belong in their own section."""
+        assert prepare_docs._check_creative(
+            DEMOTED_ATOM, "atoms-chat.md"
+        ) == ()
+
+
+class TestScriptDominance:
+    """V5: script consistency (drift #67)."""
+
+    def test_ru_atom_in_en_file_flagged(self) -> None:
+        violations = prepare_docs._check_script(
+            EN_FILE_WITH_RU_ATOM, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].check == "V5"
+        assert "Cyrillic" in violations[0].message
+
+    def test_en_atom_in_ru_file_flagged(self) -> None:
+        """Mirror case: an EN atom in an RU file (#67 residual)."""
+        violations = prepare_docs._check_script(
+            RU_FILE_WITH_EN_ATOM, "atoms-chat.md"
+        )
+        assert len(violations) == 1
+        assert violations[0].check == "V5"
+        assert "Latin" in violations[0].message
+
+    def test_english_context_values_do_not_flip_dominance(self) -> None:
+        """Regression (first live run, 2026-09-08): English Context
+        VALUES ("project: ...", "conditions: ...") inside RU atoms must
+        not make the file EN-dominant."""
+        assert prepare_docs._check_script(
+            RU_FILE_EN_CONTEXTS, "atoms-chat.md"
+        ) == ()
+
+    def test_chronology_not_language_checked(self) -> None:
+        """Chronology lines are entries, not atoms: no flags, no votes."""
+        assert prepare_docs._check_script(
+            RU_FILE_EN_CHRONOLOGY, "atoms-chat.md"
+        ) == ()
+
+    def test_template_and_code_ignored(self) -> None:
+        """Label lines and fenced code are skeleton, not language."""
+        assert prepare_docs._check_script(
+            RU_FILE_WITH_CODE, "atoms-chat.md"
+        ) == ()
+
+    def test_small_file_skipped(self) -> None:
+        """Below the letter floor the dominant script is undecidable."""
+        text = "## Facts\n[A] ok.\n(Context: 2026-09-01; Status: fact)\n"
+        assert prepare_docs._check_script(text, "atoms-a.md") == ()
+
+
+class TestIndexCoverage:
+    """V6: documents/ vs store identity and completeness (#82-open)."""
+
+    def _dirs(self, tmp_path: Path) -> tuple[Path, Path]:
+        dest = tmp_path / "documents"
+        index = tmp_path / "indices"
+        dest.mkdir()
+        index.mkdir()
+        return dest, index
+
+    def test_stem_identity_clean(self, tmp_path: Path) -> None:
+        """Regression (live index, 2026-09-08): store ids are STEMS
+        ("chat" covers documents/chat.md), not posix paths."""
+        dest, index = self._dirs(tmp_path)
+        (dest / "chat.md").write_text("doc", encoding="utf-8")
+        (dest / "atoms-chat.md").write_text("atoms", encoding="utf-8")
+        _write_store(index, "default", [
+            _store_chunk("chat", 1),
+            _store_chunk("atoms-chat", 1),
+        ])
+        assert prepare_docs.check_index_coverage(
+            dest, index, "default"
+        ) == ()
+
+    def test_orphan_flagged(self, tmp_path: Path) -> None:
+        dest, index = self._dirs(tmp_path)
+        (dest / "chat.md").write_text("doc", encoding="utf-8")
+        _write_store(index, "default", [
+            _store_chunk("chat", 1),
+            _store_chunk("bench-ae4737db", 1),  # pre-#82 residue shape
+        ])
+        violations = prepare_docs.check_index_coverage(dest, index, "default")
+        assert len(violations) == 1
+        assert violations[0].check == "V6"
+        assert violations[0].severity == "warn"
+        assert "orphan" in violations[0].message
+
+    def test_missing_document_flagged(self, tmp_path: Path) -> None:
+        dest, index = self._dirs(tmp_path)
+        (dest / "chat.md").write_text("doc", encoding="utf-8")
+        (dest / "new.md").write_text("new", encoding="utf-8")
+        _write_store(index, "default", [_store_chunk("chat", 1)])
+        violations = prepare_docs.check_index_coverage(dest, index, "default")
+        assert len(violations) == 1
+        assert "new.md" in violations[0].file
+        assert "no chunks" in violations[0].message
+
+    def test_partial_chunks_flagged(self, tmp_path: Path) -> None:
+        """The drift #82 gap: a partial restore loses chunks."""
+        dest, index = self._dirs(tmp_path)
+        (dest / "chat.md").write_text("doc", encoding="utf-8")
+        _write_store(index, "default", [
+            _store_chunk("chat", 3, index=0),
+            _store_chunk("chat", 3, index=1),
+        ])
+        violations = prepare_docs.check_index_coverage(dest, index, "default")
+        assert len(violations) == 1
+        assert "2 of 3" in violations[0].message
+
+    def test_no_store_warns(self, tmp_path: Path) -> None:
+        dest, index = self._dirs(tmp_path)
+        (dest / "chat.md").write_text("doc", encoding="utf-8")
+        violations = prepare_docs.check_index_coverage(dest, index, "default")
+        assert len(violations) == 1
+        assert "no store" in violations[0].message
+
+
+class TestValidateCli:
+    """--validate mode wiring and exit codes."""
+
+    def test_reports_errors_and_returns_one(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        dest = tmp_path / "documents"
+        src = tmp_path / "raw_documents"
+        index = tmp_path / "indices"
+        for directory in (dest, src, index):
+            directory.mkdir()
+        (dest / "atoms-chat.md").write_text(
+            DECISION_NO_QUOTE, encoding="utf-8"
+        )
+        (src / "chat.md").write_text(SOURCE_NO_DATE, encoding="utf-8")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prepare_docs.py", "--validate",
+                "--dest", str(dest), "--src", str(src), "--index", str(index),
+            ],
+        )
+        assert prepare_docs.main() == 1
+        out = capsys.readouterr().out
+        assert "[V1]" in out
+        assert "[DONE] 1 file(s) checked" in out
+
+    def test_clean_run_returns_zero(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        dest = tmp_path / "documents"
+        src = tmp_path / "raw_documents"
+        index = tmp_path / "indices"
+        for directory in (dest, src, index):
+            directory.mkdir()
+        (dest / "atoms-chat.md").write_text(GOOD_RU_ATOMS, encoding="utf-8")
+        (src / "chat.md").write_text(GOOD_SOURCE, encoding="utf-8")
+        _write_store(index, "default", [_store_chunk("atoms-chat", 1)])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prepare_docs.py", "--validate",
+                "--dest", str(dest), "--src", str(src), "--index", str(index),
+            ],
+        )
+        assert prepare_docs.main() == 0
+        out = capsys.readouterr().out
+        assert "[DONE] 1 file(s) checked: 0 error(s), 0 warning(s)" in out
+
+    def test_mutual_exclusion_rejected(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(
+            sys, "argv", ["prepare_docs.py", "--validate", "--atoms"]
+        )
+        assert prepare_docs.main() == 1
+        assert "[ERROR]" in capsys.readouterr().err
+
+    def test_validate_file_resolves_source(self, tmp_path: Path) -> None:
+        """atoms-<name> maps to <name> in the source dir (make_atoms)."""
+        dest = tmp_path / "documents"
+        src = tmp_path / "raw_documents"
+        dest.mkdir()
+        src.mkdir()
+        (dest / "atoms-chat.md").write_text(DATED_FACT, encoding="utf-8")
+        (src / "chat.md").write_text(SOURCE_NO_DATE, encoding="utf-8")
+        violations = prepare_docs.validate_file(dest / "atoms-chat.md", src)
+        assert any(
+            v.check == "V2" and v.severity == "error" for v in violations
+        )
+
+
+class TestCreationTimeValidation:
+    """make_atoms reports V1-V5 for its own output (report at birth)."""
+
+    def test_invented_date_reported(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """A hallucinated date surfaces in the same run (drift #81)."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nвопрос\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        answer = (
+            "**[Релиз]** -- релиз состоялся 2026-08-07.\n"
+            "  (Context: 2026-08-07; Status: fact)\n"
+        )
+        _fake_llm(monkeypatch, [answer])
+        prepare_docs.make_atoms(src, dest)
+        out = capsys.readouterr().out
+        assert "[V2]" in out
+        assert "2026-08-07" in out
+        assert "[ATOMS] validation: 2 error(s), 0 warning(s)" in out
+
+    def test_clean_atoms_reported_clean(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """A clean extraction ends with a CLEAN summary line."""
+        src = tmp_path / "chat.md"
+        src.write_text(GOOD_SOURCE, encoding="utf-8")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        _fake_llm(monkeypatch, [GOOD_RU_ATOMS])
+        prepare_docs.make_atoms(src, dest)
+        out = capsys.readouterr().out
+        assert "[ATOMS] validation: CLEAN" in out

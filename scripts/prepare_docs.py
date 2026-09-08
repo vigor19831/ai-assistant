@@ -14,6 +14,25 @@ content keeps the chat's language (source-language atoms match
 source-language queries monolingually — the strongest retrieval
 path).
 
+Validation: static read-only checks over atom files — the
+format-agnostic contract layer the pipeline demotion cannot provide
+(it is ChatGPT-format-bound, drift #81). No LLM calls. Two points:
+make_atoms reports V1-V5 for its own output in the same console run
+(creation time — defects surface before the watcher indexes them);
+--validate audits the whole corpus: V1-V5 over all atoms-* files in
+dest plus V6 index coverage:
+  V1 (drift #67, THE DECISION TEST): "Status: decision" atoms must
+      carry a quoted user acceptance (the same quote form the
+      demotion trusts).
+  V2 (drift #80/#81, never invent): every date token must be
+      grounded in the source chat; an atom date more precise than
+      the source is an invention. Missing source -> warning.
+  V3: one Chronology topic -- one date (conflicting dates = error).
+  V4: recommendations do not belong in ## Creative Materials.
+  V5 (drift #67): an atom written in the file's non-dominant script.
+  V6 (drift #82-open, warn-only): documents/ vs index completeness
+      over {namespace}.store.json (coverage / chunk count / orphans).
+
 Usage:
   python scripts/prepare_docs.py              # split everything from
                                               # data/raw_documents/
@@ -22,6 +41,8 @@ Usage:
   python scripts/prepare_docs.py --atoms FILE # extract knowledge atoms
                                               # via the local LLM
   python scripts/prepare_docs.py --full FILE  # atoms + split in one pass
+  python scripts/prepare_docs.py --validate   # check atoms-* (V1-V6),
+                                              # read-only
   python scripts/prepare_docs.py --src DIR --dest DIR FILE
 """
 
@@ -29,8 +50,11 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import re
 import sys
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -367,6 +391,7 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         )
     target.write_text(atoms_text, encoding="utf-8")
     print(f"[ATOMS] {len(answers)} answer block(s) -> {target.name}")
+    _report_validation(target, src.parent)
     return target
 
 
@@ -465,12 +490,733 @@ def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bo
     return False
 
 
+# ============================================================================
+# Static atom validation (--validate): the format-agnostic contract layer.
+#
+# The demotion above is ChatGPT-format-bound (_USER_BLOCK_RE); on
+# ####-less exports it is silent, and drift #81 proved that silence
+# leaves decisions unprotected. The checks below run over the atoms
+# OUTPUT and do not care about the source export format. Read-only.
+# Atom shapes (validated against live atoms files, 2026-09-08): the
+# "(Context: ...; Status: ...)" fragment may sit on the statement
+# line, inside the bracketed statement, or on a continuation line;
+# statements may or may not carry "-"/"**" markers -- all accepted.
+# ============================================================================
+
+_RECOMMENDATION_STATUS_RE = re.compile(r"Status:\s*recommendation\b")
+
+# An atom starts at a statement line in any of the observed shapes:
+# bulleted or plain, bold-bracketed or plain-bracketed. Continuation
+# lines (labels, quotes, fenced code) follow until a blank line, a
+# section header, or the next statement line.
+_ATOM_START_RE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*\s*)?\[")
+
+# Template fragments removed before script counting (V5): the
+# "(Context: ...)" / "(...; Status: ...)" parenthetical may sit on
+# the statement line, inside the bracketed statement, or on its own
+# continuation line. Quotes are NOT removed: they are chat content.
+_LABEL_PAREN_RE = re.compile(r"\([^()]*\b(?:Context|Status)\b[^()]*\)")
+
+# Russian month names, nominative + genitive ("1 мая", "мая 2024").
+# Domain constants: the LANGUAGE rule exempts them from the
+# no-Cyrillic rule (_USER_BLOCK_RE above carries the same kind).
+_RU_MONTHS: dict[str, int] = {
+    "январь": 1, "января": 1,
+    "февраль": 2, "февраля": 2,
+    "март": 3, "марта": 3,
+    "апрель": 4, "апреля": 4,
+    "май": 5, "мая": 5,
+    "июнь": 6, "июня": 6,
+    "июль": 7, "июля": 7,
+    "август": 8, "августа": 8,
+    "сентябрь": 9, "сентября": 9,
+    "октябрь": 10, "октября": 10,
+    "ноябрь": 11, "ноября": 11,
+    "декабрь": 12, "декабря": 12,
+}
+_EN_MONTHS: dict[str, int] = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3,
+    "mar": 3, "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6,
+    "july": 7, "jul": 7, "august": 8, "aug": 8, "september": 9,
+    "sep": 9, "sept": 9, "october": 10, "oct": 10, "november": 11,
+    "nov": 11, "december": 12, "dec": 12,
+}
+_RU_MONTHS_ALT = "|".join(sorted(_RU_MONTHS, key=len, reverse=True))
+# EN months must match CAPITALIZED forms only ("May 1", "Aug 22"):
+# the lowercase "may 12 people" prose stays out. Built via
+# .capitalize() because the dict keys are lowercase (the lookup side
+# lowercases too); building from the raw keys matched nothing
+# (2026-09-08, caught by test_extraction_forms).
+_EN_MONTHS_CAPS = (name.capitalize() for name in _EN_MONTHS)
+_EN_MONTHS_ALT = "|".join(sorted(_EN_MONTHS_CAPS, key=len, reverse=True))
+_YEAR = r"(?:19|20)\d{2}"
+
+# One alternation, most specific first: finditer is left-to-right,
+# so "2026-08-07" matches iso (not the bare year), "May 1, 2024"
+# matches en_md (not en_my). EN months are case-sensitive to keep
+# prose "may 12 people" out; RU months are case-insensitive (a
+# capital "Мая" at a sentence start is legal).
+_DATE_RE = re.compile(
+    rf"""
+    (?P<iso>\b(?P<iso_y>{_YEAR})-(?P<iso_m>\d{{1,2}})-(?P<iso_d>\d{{1,2}})\b)
+   |(?P<isoym>\b(?P<isoym_y>{_YEAR})-(?P<isoym_m>\d{{1,2}})\b)
+   |(?P<dot>\b(?P<dot_d>\d{{1,2}})\.(?P<dot_m>\d{{1,2}})\.(?P<dot_y>{_YEAR})\b)
+   |(?P<ru>(?i:\b(?:(?P<ru_d>\d{{1,2}})\s+)?(?P<ru_m>{_RU_MONTHS_ALT})
+      (?:\s+(?P<ru_y>{_YEAR}))?\b))
+   |(?P<en_md>\b(?P<en_md_m>{_EN_MONTHS_ALT})\s+(?P<en_md_d>\d{{1,2}})\b
+      (?:[,\s]+(?P<en_md_y>{_YEAR})\b)?)
+   |(?P<en_dm>\b(?P<en_dm_d>\d{{1,2}})\s+(?P<en_dm_m>{_EN_MONTHS_ALT})\b
+      (?:[,\s]+(?P<en_dm_y>{_YEAR})\b)?)
+   |(?P<en_my>\b(?P<en_my_m>{_EN_MONTHS_ALT}),?\s+(?P<en_my_y>{_YEAR})\b)
+   |(?P<year>\b(?P<year_y>{_YEAR})\b)
+    """,
+    re.VERBOSE,
+)
+
+# V5 thresholds: below _MIN_FILE_LETTERS the dominant script is
+# undecidable; short atoms are not language-checked (EN terms inside
+# RU atoms are legal -- the archivist prompt asks for EN/RU pairs).
+_MIN_FILE_LETTERS = 100
+_MIN_ATOM_LETTERS = 20
+_FOREIGN_SCRIPT_RATIO = 0.6
+
+# The Cyrillic letters in this class are the very thing being
+# detected: an intentional lookalike, not a homoglyph bug (RUF001).
+_CYR_RE = re.compile(r"[а-яёА-ЯЁ]")  # noqa: RUF001
+_LAT_RE = re.compile(r"[a-zA-Z]")
+# All three dash variants are intentional separator forms seen in
+# live Chronology lines (RUF001: the en dash looks like the hyphen
+# next to it).
+_CHRON_SEP_RE = re.compile(r"\s+[-—–]\s+")  # noqa: RUF001
+
+# Mirrors rag.sources.include in config.yaml (["*.md", "*.txt"]).
+# If the watcher contract changes, this constant follows it.
+_INDEXED_SUFFIXES = (".md", ".txt")
+
+
+@dataclass(frozen=True)
+class DateToken:
+    """A normalized date; None components mean "not stated"."""
+
+    year: int | None
+    month: int | None
+    day: int | None
+
+
+@dataclass(frozen=True)
+class DateHit:
+    """A date token found in text, with its 1-based line number."""
+
+    line: int
+    text: str
+    date: DateToken
+
+
+@dataclass(frozen=True)
+class Violation:
+    """One finding: file, check id, severity, line, message."""
+
+    file: str
+    check: str
+    severity: str
+    line: int | None
+    message: str
+
+
+def _violation_sort_key(v: Violation) -> tuple[str, str, int, str]:
+    return (v.file, v.check, v.line or 0, v.message)
+
+
+def _iter_atoms(text: str) -> Iterator[tuple[str, int, str]]:
+    """Yield (section, 1-based start line, atom text) for every atom.
+
+    An atom starts at a statement line (see _ATOM_START_RE) and
+    continues through plain and indented continuation lines (labels,
+    quotes, fenced code) until a blank line, a "#" header, or the
+    next statement line. Section is the last seen "##" header,
+    lowercased ("" before the first header). Non-atom lines between
+    atoms (sentinels, "---" part separators) are skipped.
+    """
+    section = ""
+    current: list[str] = []
+    start = 0
+    for idx, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if current:
+                yield section, start, "\n".join(current)
+                current = []
+            section = stripped.lstrip("#").strip().lower()
+            continue
+        if _ATOM_START_RE.match(line) is not None:
+            if current:
+                yield section, start, "\n".join(current)
+            current = [line]
+            start = idx
+            continue
+        if not stripped:
+            if current:
+                yield section, start, "\n".join(current)
+                current = []
+            continue
+        if current:
+            current.append(line)
+    if current:
+        yield section, start, "\n".join(current)
+
+
+def _match_to_token(match: re.Match[str]) -> DateToken | None:
+    """Convert one regex match to a DateToken; None if out of range."""
+    year: int | None
+    month: int | None
+    day: int | None
+    if match.group("iso") is not None:
+        year = int(match.group("iso_y"))
+        month = int(match.group("iso_m"))
+        day = int(match.group("iso_d"))
+    elif match.group("isoym") is not None:
+        year = int(match.group("isoym_y"))
+        month = int(match.group("isoym_m"))
+        day = None
+    elif match.group("dot") is not None:
+        year = int(match.group("dot_y"))
+        month = int(match.group("dot_m"))
+        day = int(match.group("dot_d"))
+    elif match.group("ru") is not None:
+        month = _RU_MONTHS[match.group("ru_m").lower()]
+        day = int(match.group("ru_d")) if match.group("ru_d") else None
+        year = int(match.group("ru_y")) if match.group("ru_y") else None
+    elif match.group("en_md") is not None:
+        month = _EN_MONTHS[match.group("en_md_m").lower()]
+        day = int(match.group("en_md_d"))
+        year = int(match.group("en_md_y")) if match.group("en_md_y") else None
+    elif match.group("en_dm") is not None:
+        month = _EN_MONTHS[match.group("en_dm_m").lower()]
+        day = int(match.group("en_dm_d"))
+        year = int(match.group("en_dm_y")) if match.group("en_dm_y") else None
+    elif match.group("en_my") is not None:
+        year = int(match.group("en_my_y"))
+        month = _EN_MONTHS[match.group("en_my_m").lower()]
+        day = None
+    else:
+        year = int(match.group("year_y"))
+        month = None
+        day = None
+    if month is not None and not 1 <= month <= 12:
+        return None
+    if day is not None and not 1 <= day <= 31:
+        return None
+    return DateToken(year=year, month=month, day=day)
+
+
+def _parse_date_tokens(text: str) -> tuple[tuple[str, DateToken], ...]:
+    """Extract (matched text, normalized date) pairs from text."""
+    tokens: list[tuple[str, DateToken]] = []
+    for match in _DATE_RE.finditer(text):
+        token = _match_to_token(match)
+        if token is not None:
+            tokens.append((match.group(0), token))
+    return tuple(tokens)
+
+
+def extract_dates(text: str) -> tuple[DateHit, ...]:
+    """Extract date tokens with 1-based line numbers (for reports)."""
+    hits: list[DateHit] = []
+    for match in _DATE_RE.finditer(text):
+        token = _match_to_token(match)
+        if token is None:
+            continue
+        line = text.count("\n", 0, match.start()) + 1
+        hits.append(DateHit(line=line, text=match.group(0), date=token))
+    return tuple(hits)
+
+
+def _covers(source: DateToken, atom: DateToken) -> bool:
+    """True if the source date grounds the atom date (never invent).
+
+    Every component the atom states must be present in the source
+    and equal; components the atom omits are unconstrained. An atom
+    date more precise than the source is an invention.
+    """
+    for atom_part, source_part in (
+        (atom.year, source.year),
+        (atom.month, source.month),
+        (atom.day, source.day),
+    ):
+        if atom_part is not None and source_part != atom_part:
+            return False
+    return True
+
+
+def _conflicts(first: DateToken, second: DateToken) -> bool:
+    """True if two dates cannot describe the same day.
+
+    Components both dates state must agree; a missing component on
+    either side is compatible (different precision, same date).
+    """
+    for left, right in (
+        (first.year, second.year),
+        (first.month, second.month),
+        (first.day, second.day),
+    ):
+        if left is not None and right is not None and left != right:
+            return True
+    return False
+
+
+def _check_decisions(text: str, fname: str) -> tuple[Violation, ...]:
+    """V1: THE DECISION TEST -- a decision atom needs a user quote.
+
+    Uses the same _DECISION_RE/_QUOTE_RE as the pipeline demotion:
+    one point of truth for the decision contract. Speaker
+    attribution (the quote coming from a USER block) stays in the
+    demotion -- verifying it requires the source export format.
+    """
+    out: list[Violation] = []
+    for _section, start, atom in _iter_atoms(text):
+        if _DECISION_RE.search(atom) is None:
+            continue
+        quote_match = _QUOTE_RE.search(atom)
+        if quote_match is None or not quote_match.group(1).strip():
+            out.append(Violation(
+                file=fname,
+                check="V1",
+                severity="error",
+                line=start,
+                message=(
+                    "decision atom without a quoted user acceptance "
+                    '(User said/stated: "...")'
+                ),
+            ))
+    return tuple(out)
+
+
+def _check_creative(text: str, fname: str) -> tuple[Violation, ...]:
+    """V4: recommendations do not belong in Creative Materials."""
+    out: list[Violation] = []
+    for section, start, atom in _iter_atoms(text):
+        if not section.startswith("creative materials"):
+            continue
+        if _RECOMMENDATION_STATUS_RE.search(atom) is not None:
+            out.append(Violation(
+                file=fname,
+                check="V4",
+                severity="error",
+                line=start,
+                message=(
+                    "recommendation atom inside ## Creative Materials "
+                    "(misfiled: the section holds ready creative texts only)"
+                ),
+            ))
+    return tuple(out)
+
+
+def _strip_template(atom: str) -> str:
+    """Remove the English template skeleton from an atom.
+
+    Parenthesized label fragments ("(Context: ...)", "(...; Status:
+    ...)") are cut from every line, whatever shape the atom takes
+    (label on the statement line, inside the bracket, or on a
+    continuation line); lines left empty are dropped. Fenced code
+    blocks are dropped entirely (verbatim code is content, not
+    language). Quotes stay: they are chat content.
+    """
+    kept: list[str] = []
+    in_fence = False
+    for line in atom.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        remainder = _LABEL_PAREN_RE.sub("", line)
+        if remainder.strip():
+            kept.append(remainder)
+    return "\n".join(kept)
+
+
+def _check_script(text: str, fname: str) -> tuple[Violation, ...]:
+    """V5: atoms in the file's non-dominant script (drift #67).
+
+    The dominant script is computed over template-stripped atom
+    CONTENT, not raw text: label parens carry English values even in
+    RU atoms ("project:", "conditions:") and raw counting flips the
+    file's script (first live run, 2026-09-08: 11 false flags on a
+    fully RU file). Chronology lines are skipped: they are index
+    entries, not atoms.
+    """
+    contents: list[tuple[int, str]] = [
+        (start, _strip_template(atom))
+        for section, start, atom in _iter_atoms(text)
+        if not section.startswith("chronology")
+    ]
+    cyrillic_total = sum(len(_CYR_RE.findall(c)) for _, c in contents)
+    latin_total = sum(len(_LAT_RE.findall(c)) for _, c in contents)
+    if cyrillic_total + latin_total < _MIN_FILE_LETTERS:
+        return ()
+    file_is_ru = cyrillic_total > latin_total
+    out: list[Violation] = []
+    for start, content in contents:
+        cyrillic = len(_CYR_RE.findall(content))
+        latin = len(_LAT_RE.findall(content))
+        total = cyrillic + latin
+        if total < _MIN_ATOM_LETTERS:
+            continue
+        foreign = cyrillic if not file_is_ru else latin
+        script = "Cyrillic" if not file_is_ru else "Latin"
+        if foreign / total >= _FOREIGN_SCRIPT_RATIO:
+            out.append(Violation(
+                file=fname,
+                check="V5",
+                severity="error",
+                line=start,
+                message=(
+                    f"{script} atom in an "
+                    f"{'RU' if file_is_ru else 'EN'}-dominant file "
+                    f"({foreign}/{total} letters)"
+                ),
+            ))
+    return tuple(out)
+
+
+def _norm_topic(topic: str) -> str:
+    return re.sub(r"\s+", " ", topic.strip().lower())
+
+
+def _check_chronology(text: str, fname: str) -> tuple[Violation, ...]:
+    """V3: the same Chronology topic must not carry conflicting dates.
+
+    Monotonicity is deliberately NOT checked: chats legitimately
+    revisit old topics. Only a mutual contradiction on the same
+    normalized topic is an error (drift #80 class).
+    """
+    entries: dict[str, list[tuple[DateToken, str, int]]] = {}
+    section = ""
+    for idx, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            section = stripped.lstrip("#").strip().lower()
+            continue
+        if not stripped or not section.startswith("chronology"):
+            continue
+        tokens = _parse_date_tokens(stripped)
+        if not tokens:
+            continue
+        parts = _CHRON_SEP_RE.split(stripped, maxsplit=2)
+        if len(parts) < 2:
+            continue
+        topic = _norm_topic(parts[1])
+        if not topic:
+            continue
+        date_text, date_token = tokens[0]
+        entries.setdefault(topic, []).append((date_token, date_text, idx))
+    out: list[Violation] = []
+    for topic in sorted(entries):
+        items = entries[topic]
+        reported = False
+        for i in range(len(items) - 1):
+            for j in range(i + 1, len(items)):
+                first, second = items[i], items[j]
+                if _conflicts(first[0], second[0]):
+                    out.append(Violation(
+                        file=fname,
+                        check="V3",
+                        severity="error",
+                        line=first[2],
+                        message=(
+                            f"topic '{topic}': conflicting dates "
+                            f"'{first[1]}' (line {first[2]}) and "
+                            f"'{second[1]}' (line {second[2]})"
+                        ),
+                    ))
+                    reported = True
+                    break
+            if reported:
+                break
+    return tuple(out)
+
+
+def _check_dates(
+    text: str,
+    fname: str,
+    source_text: str | None,
+    source_label: str,
+) -> tuple[Violation, ...]:
+    """V2: every date token in the atoms text must exist in the source.
+
+    A missing source downgrades the check to a single warning:
+    provenance unchecked, not proven absent.
+    """
+    if source_text is None:
+        return (Violation(
+            file=fname,
+            check="V2",
+            severity="warn",
+            line=None,
+            message=(
+                f"source not found: {source_label}; "
+                "date provenance unchecked"
+            ),
+        ),)
+    source_dates = frozenset(
+        token for _, token in _parse_date_tokens(source_text)
+    )
+    out: list[Violation] = []
+    for hit in extract_dates(text):
+        if not any(_covers(source, hit.date) for source in source_dates):
+            out.append(Violation(
+                file=fname,
+                check="V2",
+                severity="error",
+                line=hit.line,
+                message=(
+                    f"date '{hit.text}' not grounded in source "
+                    f"{source_label}"
+                ),
+            ))
+    return tuple(out)
+
+
+def validate_text(
+    text: str,
+    fname: str,
+    source_text: str | None,
+    source_label: str,
+) -> tuple[Violation, ...]:
+    """Run V1-V5 over one atoms file's text.
+
+    source_text is the raw source chat (date provenance); None
+    downgrades V2 to a single warning. source_label names the source
+    in messages.
+    """
+    violations: list[Violation] = []
+    violations.extend(_check_decisions(text, fname))
+    violations.extend(_check_creative(text, fname))
+    violations.extend(_check_script(text, fname))
+    violations.extend(_check_chronology(text, fname))
+    violations.extend(_check_dates(text, fname, source_text, source_label))
+    return tuple(sorted(violations, key=_violation_sort_key))
+
+
+def _relpath_label(path: Path) -> str:
+    """Project-relative label for reports (portable output)."""
+    try:
+        return str(path.relative_to(_PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def check_index_coverage(
+    dest_dir: Path,
+    index_dir: Path,
+    namespace: str,
+) -> tuple[Violation, ...]:
+    """V6: documents/ vs index completeness (drift #82-open). Warn-only.
+
+    Static check over {namespace}.store.json -- no faiss binary, no
+    server. Chunk identity: the store's metadata.source holds the
+    DOCUMENT ID, which indexing.read_sources sets to the file STEM
+    (no extension, no directory; empirically confirmed on the live
+    index 2026-09-08 -- every store entry is a stem). Expected ids
+    therefore cover both the stem and the relative posix uri
+    (future-proof if the identity ever carries the path). Sub-checks:
+    (a) every indexed-type document in dest_dir has chunks; (b) per
+    source, chunk count equals the stored total_chunks -- a partial
+    restore is the drift #82 gap; (c) store sources without a file
+    on disk are orphans. Blind spots (accepted, warn-only): empty
+    and oversized files are skipped by the indexer; total_chunks is
+    trusted as per-document.
+    """
+    if not dest_dir.is_dir():
+        return (Violation(
+            file="<v6>", check="V6", severity="warn", line=None,
+            message=f"dest dir not found: {dest_dir}; V6 skipped",
+        ),)
+    if not index_dir.is_dir():
+        return (Violation(
+            file="<v6>", check="V6", severity="warn", line=None,
+            message=f"index dir not found: {index_dir}; V6 skipped",
+        ),)
+    store_file = index_dir / f"{namespace}.store.json"
+    if not store_file.is_file():
+        return (Violation(
+            file=store_file.name, check="V6", severity="warn", line=None,
+            message=f"no store for namespace '{namespace}'; V6 skipped",
+        ),)
+    try:
+        data: dict[str, Any] = json.loads(
+            store_file.read_text(encoding="utf-8-sig")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        return (Violation(
+            file=store_file.name, check="V6", severity="warn", line=None,
+            message=f"unreadable store: {exc}",
+        ),)
+
+    totals_by_uri: dict[str, list[int]] = {}
+    for chunk in data.get("chunks", []):
+        if not isinstance(chunk, dict):
+            continue
+        meta = chunk.get("metadata")
+        if not isinstance(meta, dict):
+            continue
+        uri = meta.get("source")
+        if not isinstance(uri, str) or not uri:
+            continue
+        total = meta.get("total_chunks")
+        totals_by_uri.setdefault(uri, []).append(
+            total if isinstance(total, int) else -1
+        )
+
+    expected_files = sorted(
+        path for path in dest_dir.rglob("*")
+        if path.is_file() and path.suffix in _INDEXED_SUFFIXES
+    )
+    store_ids = set(totals_by_uri)
+    expected_ids: set[str] = set()
+    missing_files: list[Path] = []
+    for path in expected_files:
+        ids = {path.stem, path.relative_to(dest_dir).as_posix()}
+        expected_ids.update(ids)
+        if not ids & store_ids:
+            missing_files.append(path)
+
+    out: list[Violation] = []
+    for path in missing_files:
+        out.append(Violation(
+            file=path.relative_to(dest_dir).as_posix(),
+            check="V6", severity="warn", line=None,
+            message=(
+                f"document has no chunks in namespace '{namespace}' "
+                "(missing from index -- drift #82 class)"
+            ),
+        ))
+    for uri in sorted(store_ids - expected_ids):
+        out.append(Violation(
+            file=uri, check="V6", severity="warn", line=None,
+            message="orphan chunks: source not on disk (stale index entries)",
+        ))
+    for uri in sorted(totals_by_uri):
+        totals = totals_by_uri[uri]
+        distinct = sorted(set(totals))
+        if len(distinct) > 1:
+            out.append(Violation(
+                file=uri, check="V6", severity="warn", line=None,
+                message=f"inconsistent total_chunks across chunks: {distinct}",
+            ))
+            continue
+        total = distinct[0]
+        if total <= 0:
+            continue
+        if len(totals) != total:
+            out.append(Violation(
+                file=uri, check="V6", severity="warn", line=None,
+                message=(
+                    f"{len(totals)} of {total} chunks in index "
+                    "(partial restore or duplicate upsert)"
+                ),
+            ))
+    return tuple(out)
+
+
+def _source_path(atoms_path: Path, src_dir: Path) -> Path:
+    """Mirror make_atoms naming: atoms-<name> comes from <name>."""
+    name = atoms_path.name
+    if name.startswith("atoms-"):
+        name = name[len("atoms-"):]
+    return src_dir / name
+
+
+def validate_file(path: Path, src_dir: Path) -> tuple[Violation, ...]:
+    """Validate one atoms file against its source chat.
+
+    Sources are read as utf-8-sig with errors replaced: chat exports
+    may carry a BOM (drift #46) and be lossy.
+    """
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    source = _source_path(path, src_dir)
+    source_text: str | None = None
+    if source.is_file():
+        source_text = source.read_text(
+            encoding="utf-8-sig", errors="replace"
+        )
+    return validate_text(text, path.name, source_text, _relpath_label(source))
+
+
+def _report_validation(atoms_path: Path, src_dir: Path) -> None:
+    """V1-V5 report for a freshly written atoms file (make_atoms).
+
+    Creation-time validation: defects surface in the same console run
+    the atoms are born in — before the watcher indexes them, while
+    the owner is still watching (extraction takes minutes). Report
+    only: no mutation, no exit-code change. Red is the norm until the
+    archivist prompt fixes land (plan step 3) — a permanent FAIL mark
+    in the runner would be noise, not signal. Remediation path: delete
+    the atoms file, the watcher's orphan cleanup removes its chunks.
+    """
+    violations = validate_file(atoms_path, src_dir)
+    for violation in violations:
+        line_part = f":{violation.line}" if violation.line is not None else ""
+        print(
+            f"[{violation.check}] {atoms_path.name}{line_part} "
+            f"{violation.severity.upper()}: {violation.message}"
+        )
+    errors = sum(1 for v in violations if v.severity == "error")
+    warnings = sum(1 for v in violations if v.severity == "warn")
+    summary = f"{errors} error(s), {warnings} warning(s)" if violations else "CLEAN"
+    print(f"[ATOMS] validation: {summary}")
+
+
+def _run_validation(
+    files: list[str],
+    src_dir: Path,
+    dest_dir: Path,
+    index_dir: Path,
+    namespace: str,
+) -> int:
+    """CLI body of --validate: check atoms-* files and index coverage."""
+    if files:
+        atoms_files = [Path(name) for name in files]
+    else:
+        if not dest_dir.is_dir():
+            print(f"[ERROR] dest dir not found: {dest_dir}", file=sys.stderr)
+            return 1
+        atoms_files = sorted(dest_dir.glob("atoms-*"))
+        if not atoms_files:
+            print(f"[ERROR] no atoms-* files in {dest_dir}", file=sys.stderr)
+            return 1
+
+    violations: list[Violation] = []
+    for path in atoms_files:
+        if not path.is_file():
+            print(f"[ERROR] not a file: {path}", file=sys.stderr)
+            return 1
+        violations.extend(validate_file(path, src_dir))
+    violations.extend(check_index_coverage(dest_dir, index_dir, namespace))
+
+    for violation in sorted(violations, key=_violation_sort_key):
+        line_part = f":{violation.line}" if violation.line is not None else ""
+        print(
+            f"[{violation.check}] {violation.file}{line_part} "
+            f"{violation.severity.upper()}: {violation.message}"
+        )
+    errors = sum(1 for v in violations if v.severity == "error")
+    warnings = sum(1 for v in violations if v.severity == "warn")
+    print(
+        f"[DONE] {len(atoms_files)} file(s) checked: "
+        f"{errors} error(s), {warnings} warning(s)"
+    )
+    return 1 if errors else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "files",
         nargs="*",
-        help="Files to split (default: everything in the source dir)",
+        help="Files to split (default: everything in the source dir; "
+        "with --validate: atoms files to check)",
     )
     parser.add_argument(
         "--src",
@@ -497,10 +1243,39 @@ def main() -> int:
         action="store_true",
         help="Atoms + split in one pass (explicit, mature chats)",
     )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Check atoms-* files in dest against the atom contract "
+        "(V1-V5) and index coverage (V6); read-only",
+    )
+    parser.add_argument(
+        "--index",
+        default=str(_PROJECT_ROOT / "data" / "indices"),
+        help="Vector store dir for the V6 completeness check",
+    )
+    parser.add_argument(
+        "--namespace",
+        default="default",
+        help="Namespace checked against documents/ (V6)",
+    )
     args = parser.parse_args()
 
     src_dir = Path(args.src)
     dest_dir = Path(args.dest)
+
+    if args.validate:
+        if args.atoms or args.full or args.split:
+            print(
+                "[ERROR] --validate is mutually exclusive with "
+                "--atoms/--split/--full",
+                file=sys.stderr,
+            )
+            return 1
+        return _run_validation(
+            args.files, src_dir, dest_dir, Path(args.index), args.namespace
+        )
+
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     targets: list[Path] = []
