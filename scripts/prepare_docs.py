@@ -141,9 +141,15 @@ In every atom:
   "above", "as discussed") replaced with concrete entities and
   full names. An atom must not require reading other blocks.
 - Date and context -- in the atom text, not in tags or file
-  headers: "(Context: date, project/campaign, conditions)".
+  headers: "(Context: date, project/campaign, conditions)". The
+  date must be ONLY what the part's text explicitly states for
+  THIS fact. No date in the text -> no date in the Context (write
+  the project/conditions and stop). Never infer a date from
+  versions, kernel or model numbers, file names or "recency";
+  never reuse a date the text attaches to a DIFFERENT fact.
 - Current-state numbers (metrics, rates, CTR, prices, versions)
-  marked "(as of [date])".
+  marked "(as of [date])" -- only with a date the text itself
+  gives; otherwise omit the marker.
 - Terms: on first mention give both languages when an EN/RU pair
   exists: "CR (konversiya)" / "offer (оффер)" style.
 - Ready creative materials (headline/text/offer variants): quote
@@ -291,10 +297,15 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
 
     A decision atom is trusted ONLY if its quoted user words are
     found verbatim inside a user block ("#### Вы сказали:") of the
-    source chat. Fabricated quotes (LLM hallucination) and quotes
-    lifted from assistant replies fail the check and are demoted —
-    the safe direction: an under-counted decision is recoverable,
-    a fabricated one poisons the memory.
+    source chat. The quote is searched across the WHOLE ATOM (the
+    statement line plus its continuation lines), not just the line
+    that carries the Status label: the archivist prompt puts the
+    quote in the atom body, which spans lines (component B,
+    2026-09-08: a genuine verbatim quote was demoted because Status
+    and quote sat on different lines). Fabricated quotes (LLM
+    hallucination) and quotes lifted from assistant replies still
+    fail and are demoted — the safe direction: an under-counted
+    decision is recoverable, a fabricated one poisons the memory.
     Returns (validated text, number of demoted lines).
     """
     source = src.read_text(encoding="utf-8", errors="replace")
@@ -304,7 +315,8 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
     for idx, line in enumerate(lines):
         if not _DECISION_RE.search(line):
             continue
-        quote_m = _QUOTE_RE.search(line)
+        start, end = _atom_bounds(lines, idx)
+        quote_m = _QUOTE_RE.search("\n".join(lines[start : end + 1]))
         quote = quote_m.group(1) if quote_m else ""
         if quote and len(quote) <= 120 and any(
             quote in block for block in user_blocks
@@ -313,6 +325,47 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
         lines[idx] = _DECISION_RE.sub("Status: recommendation", line)
         demoted += 1
     return "\n".join(lines), demoted
+
+
+def _atom_bounds(lines: list[str], idx: int) -> tuple[int, int]:
+    """Line range [start, end] of the atom containing lines[idx].
+
+    An atom is a statement line (see _ATOM_START_RE) plus its
+    continuation lines (labels, quotes). Scanning UP, a statement
+    line is the atom's OWN start and belongs to the range; scanning
+    DOWN, a statement line is the NEXT atom's start and bounds it.
+    Blank lines, headers and part separators ("---") bound both
+    directions. Used by the demotion to search a decision's quote
+    in the whole atom body, mirroring the prompt contract ("the
+    quote lives in the atom body") rather than the Status line
+    alone.
+    """
+    start = idx
+    if _ATOM_START_RE.match(lines[idx]) is None:
+        while start > 0:
+            prev = lines[start - 1]
+            if _ATOM_START_RE.match(prev) is not None:
+                start -= 1
+                break
+            if (
+                not prev.strip()
+                or prev.lstrip().startswith("#")
+                or prev.strip().startswith("---")
+            ):
+                break
+            start -= 1
+    end = idx
+    while end < len(lines) - 1:
+        nxt = lines[end + 1]
+        if (
+            not nxt.strip()
+            or nxt.lstrip().startswith("#")
+            or nxt.strip().startswith("---")
+            or _ATOM_START_RE.match(nxt) is not None
+        ):
+            break
+        end += 1
+    return start, end
 
 
 def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:

@@ -27,6 +27,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "prepare_docs.py"
 _SPEC = importlib.util.spec_from_file_location("prepare_docs", _SCRIPT)
 prepare_docs = importlib.util.module_from_spec(_SPEC)
@@ -488,6 +491,49 @@ class TestDecisionValidator:
         validated, demoted = prepare_docs._validate_decisions(atoms, src)
         assert demoted == 1
         assert "Status: decision" not in validated
+
+    def test_two_line_atom_genuine_quote_survives(
+        self, tmp_path: Path
+    ) -> None:
+        """Quote in the atom body, Status on the next line.
+
+        The live component B shape (2026-09-08): a genuine verbatim
+        quote must survive even when it does not share the line with
+        the Status label.
+        """
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nберу эту модель\n\n"  # noqa: RUF001
+            "#### ChatGPT сказал:\nок\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = (
+            "**[Покупка]** -- покупка состоялась."
+            ' (User said: "беру эту модель")\n'  # noqa: RUF001
+            "  (Context: 2026-09-02; Status: decision)\n"
+        )
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 0
+        assert "Status: decision" in validated
+
+    def test_two_line_atom_fabricated_quote_demoted(
+        self, tmp_path: Path
+    ) -> None:
+        """Same multi-line shape, quote absent from the source:
+        still demoted -- the safety direction is unchanged."""
+        src = tmp_path / "chat.md"
+        src.write_text(
+            "#### Вы сказали:\nчто посоветуешь?\n",  # noqa: RUF001
+            encoding="utf-8",
+        )
+        atoms = (
+            "**[Покупка]** -- покупка состоялась."
+            ' (User said: "беру эту модель")\n'  # noqa: RUF001
+            "  (Context: 2026-09-02; Status: decision)\n"
+        )
+        validated, demoted = prepare_docs._validate_decisions(atoms, src)
+        assert demoted == 1
+        assert "Status: recommendation" in validated
 
 
 # --- Static validation (--validate): fixtures in the live atom shapes ---
@@ -1186,3 +1232,103 @@ class TestCreationTimeValidation:
         prepare_docs.make_atoms(src, dest)
         out = capsys.readouterr().out
         assert "[ATOMS] validation: CLEAN" in out
+
+
+# --- Component B: archivist e2e gate (plan step 2) ---
+
+SYNTH_CHAT = (
+    "#### Вы сказали:\n"
+    "Привет! Выбираю домашний роутер, бюджет до десяти тысяч."
+    " Что посоветуешь?\n"
+    "\n"
+    "#### ChatGPT сказал:\n"
+    "Я бы выбрал Keenetic Extra, у него стабильная прошивка"  # noqa: RUF001
+    " и запас на годы. Но сначала глянь Archer C6: он дешевле,"  # noqa: RUF001
+    " для обычной квартиры хватит.\n"
+    "\n"
+    "#### Вы сказали:\n"
+    "Ок, взвесил оба. Беру Keenetic Extra, оформляй заказ.\n"  # noqa: RUF001
+    "\n"
+    "#### ChatGPT сказал:\n"
+    "Принято, оформляю. Когда приедет -- обнови прошивку до"
+    " последней версии.\n"
+    "\n"
+    "#### Вы сказали:\n"
+    "Хорошо, обновлю. И записывай такое: 15 июня 2025 я"
+    " подключил себе интернет 500 мегабит, вношу плату каждый месяц.\n"  # noqa: RUF001
+    "\n"
+    "#### ChatGPT сказал:\n"
+    "Записал: интернет 500 мегабит с 15 июня 2025.\n"  # noqa: RUF001
+    "\n"
+    "#### Вы сказали:\n"
+    "И ещё про меня: слушаю подкасты по дороге на работу,"
+    " обычно по два часа в день.\n"
+    "\n"
+    "#### ChatGPT сказал:\n"
+    "Понял: подкасты в дороге, около двух часов в день.\n"
+)
+
+
+def _archivist_reachable() -> bool:
+    """Cheap liveness probe for the configured archivist server."""
+    cfg = prepare_docs._load_archivist_cfg()
+    try:
+        httpx.get(str(cfg["llm_api_base"]), timeout=3.0)
+    except httpx.HTTPError:
+        return False
+    return True
+
+
+class TestArchivistE2E:
+    """Component B: the archivist on a fixed synthetic chat (plan step 2).
+
+    The safety-net gate for ARCHIVIST_PROMPT edits (plan step 3). The
+    chat has exactly one correct atomization: a genuine user decision
+    (the Keenetic acceptance) that must survive the demotion, an
+    assistant recommendation of the same model that must not become a
+    decision (drift #77 subject inversion), a completed dated fact
+    (the internet plan -- V2 grounds it), and an undated fact
+    (podcasts) that must never grow an invented date (drift #80).
+    The decision is deliberately left PENDING: a completion in the
+    chat would let the archivist legitimately collapse it into a
+    fact and make this gate flaky (2026-09-08).
+    Runs the REAL make_atoms against the REAL server from config.yaml
+    in tmp folders (never documents/ -- drift #82). Skipped when the
+    server is down. Encodes the TARGET contract: a red baseline is a
+    work order for step 3, not a flake -- re-run once per the
+    architecture section 14 jitter rule before classifying.
+    """
+
+    @pytest.mark.online
+    def test_synthetic_chat_full_contract(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        """Fresh atoms pass the full V1-V5 contract and carry the
+        genuine decision."""
+        if not _archivist_reachable():
+            pytest.skip("archivist LLM server not reachable")
+        src = tmp_path / "chat.md"
+        src.write_text(SYNTH_CHAT, encoding="utf-8")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+        prepare_docs.make_atoms(src, dest)
+
+        atoms = dest / "atoms-chat.md"
+        assert atoms.is_file(), "make_atoms produced no atoms file"
+
+        violations = prepare_docs.validate_file(atoms, src.parent)
+        errors = [v for v in violations if v.severity == "error"]
+        assert not errors, f"archivist contract violations: {errors}"
+
+        text = atoms.read_text(encoding="utf-8")
+        # The acceptance survives in either observed form: labeled
+        # ("Status: decision") or quote-only in ## Decisions -- the
+        # model omits the Status label on some runs (2026-09-08).
+        # The verbatim quoted acceptance is the decision test's
+        # essence; the surrounding syntax varies run to run.
+        assert (
+            'User said: "Беру Keenetic Extra' in text
+        ), "the genuine Keenetic acceptance quote did not survive"
+
+        out = capsys.readouterr().out
+        assert "[ATOMS] validation:" in out
