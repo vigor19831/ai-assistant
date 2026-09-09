@@ -121,16 +121,8 @@ Phi-4-mini chat-fallback) covers the residual gaps.
 | LLM | Qwen2.5-14B-Instruct Q4_K_M (~9GB, full GPU offload) |
 | Performance | 20–30 tok/s, 1–2 seconds per query |
 
-### Hardware Ceiling Log (summary)
-
-| Verdict | Detail |
-|---|---|
-| **King (RAG)** | Qwen2.5-7B IQ4_XS — 17/17, 8–9/9 chat, 30–31/34 capability |
-| **Heir (RAG)** | Qwen3.5-4B IQ4_XS — 17/17, 9/9 chat, 29/34; daily driver (drift #79); two-tier fallback documented |
-| **Rejected** | 9B class ×3 (PCIe bottleneck on 4GB); 14B+ requires 12GB+ VRAM |
-
-Full campaign history, per-run details, and the throne decision:
-`docs/architecture.md` §14.
+Full campaign history, verdicts (King / Heir / Rejected), per-run
+details and the throne decision: `docs/architecture.md` §14.
 
 ---
 
