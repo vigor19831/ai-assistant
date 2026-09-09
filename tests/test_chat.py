@@ -27,7 +27,11 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.llm import ILLM
-from ai_assistant.features.chat.manager import ChatManager, strip_rag_sources
+from ai_assistant.features.chat.manager import (
+    ChatManager,
+    _sanitize_history,
+    strip_rag_sources,
+)
 
 logger = get_logger(__name__)
 
@@ -1758,3 +1762,30 @@ async def test_get_chat_manager_returns_cached_instance():
 
     result = get_chat_manager(state)
     assert result is mock_chat_manager
+
+
+def test_strip_rag_sources_removes_all_blocks() -> None:
+    """Model-imitated block before the system one is stripped too (#49/#51)."""
+    text = (
+        "answer\n\nSources:\n[1] echo.md (modified x)\n\n"
+        "Sources:\n[1] real.md (modified y)"
+    )
+    assert strip_rag_sources(text) == "answer"
+
+
+def test_strip_rag_sources_keeps_prose_mention() -> None:
+    """A prose mention of "Sources:" is not a block and stays."""
+    text = "The Sources: section is mentioned in prose.\n\nbody"
+    assert strip_rag_sources(text) == text
+
+
+def test_sanitize_history_strips_assistant_turns_only() -> None:
+    """Assistant turns are cleaned; user turns and input list untouched."""
+    history = [
+        {"role": "user", "content": "Sources:\n[1] keep-me"},
+        {"role": "assistant", "content": "ans\n\nSources:\n[1] f (modified 1)"},
+    ]
+    cleaned = _sanitize_history(history)
+    assert cleaned[1]["content"] == "ans"
+    assert cleaned[0]["content"] == "Sources:\n[1] keep-me"
+    assert history[1]["content"] != "ans"

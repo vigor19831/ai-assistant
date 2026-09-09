@@ -7,7 +7,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.config import NamespaceConfig, RAGStep
-from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT, DEFAULT_RAG_PROMPT
+from ai_assistant.core.constants import (
+    CONDENSE_HISTORY_LIMIT,
+    DEFAULT_RAG_PROMPT,
+    INJECTION_REFUSAL_ANSWER,
+    REFUSAL_ANSWER,
+)
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import AdapterError
 from ai_assistant.core.domain.messages import (
@@ -57,21 +62,54 @@ _STEP_MAP: dict[RAGStep, Callable[[PipelineData], Awaitable[PipelineData]]] = {
 
 
 def strip_rag_sources(text: str) -> str:
-    """Remove the Sources block appended by ChatManager to RAG answers.
+    """Remove Sources blocks from RAG answers (all of them).
 
-    History is LLM context, not display output: the block spends the
-    token budget and pollutes the condense input, so it is stripped
-    before persistence. Only a block matching the generated format
-    (every non-empty line starts with '[') is removed — an answer that
-    merely mentions "Sources:" keeps its text.
+    History is LLM context, not display output: the blocks spend the
+    token budget and pollutes the condense input, so they are stripped
+    before persistence and before history re-enters the model input.
+    ALL matching blocks are removed, last to first: a model-imitated
+    block may sit BEFORE the system-appended one, and the old
+    last-block-only strip let it survive into history (drift #49/#51
+    loop). Only a block matching the generated format (every non-empty
+    line starts with '[') is removed — an answer that merely mentions
+    "Sources:" keeps its text.
     """
-    idx = text.rfind(_SOURCES_MARKER)
-    if idx == -1:
-        return text
-    block_lines = text[idx + len(_SOURCES_MARKER) :].split("\n")
-    if not all(line.startswith("[") for line in block_lines if line):
-        return text
-    return text[:idx]
+    while True:
+        idx = text.rfind(_SOURCES_MARKER)
+        if idx == -1:
+            return text
+        block_lines = text[idx + len(_SOURCES_MARKER) :].split("\n")
+        if not all(line.startswith("[") for line in block_lines if line):
+            return text
+        text = text[:idx]
+
+
+# Drift #50: a refusal is a complete answer with no evidence — the
+# chat path mirrors the rag query path: refusal answers carry no
+# Sources block.
+_REFUSAL_ANSWERS = (REFUSAL_ANSWER, INJECTION_REFUSAL_ANSWER)
+
+
+def _sanitize_history(
+    history: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Strip Sources blocks from assistant turns before the LLM sees them.
+
+    Client-first history (drift #51) feeds assistant answers back as
+    the client received them — including the Sources block the API
+    keeps (drift #49) — so the model sees the block format and starts
+    imitating it (double blocks, cross-topic file names). Storage-
+    loaded and client-provided history both pass through here: one
+    choke point. Returns new dicts; the caller's list is not mutated.
+    """
+    if not history:
+        return []
+    return [
+        {**h, "content": strip_rag_sources(h["content"])}
+        if h.get("role") == "assistant" and isinstance(h.get("content"), str)
+        else h
+        for h in history
+    ]
 
 
 class ChatManager:
@@ -392,8 +430,9 @@ class ChatManager:
                 "msg_len": len(message),
             },
         )
-        # History is prompt data only — persistence lives in the handler layer.
-        history_local: list[dict[str, Any]] = list(history or [])
+        # History is prompt data only — persistence lives in the handler
+        # layer; assistant turns are sanitized on entry (drift #49/#51).
+        history_local: list[dict[str, Any]] = _sanitize_history(history)
         (
             prompt_for_llm,
             _original_query,
@@ -434,19 +473,25 @@ class ChatManager:
             raise AdapterError(f"LLM call failed: {exc}") from exc
 
         duration_ms = int((time.perf_counter() - start) * 1000)
+        answer_text = strip_rag_sources(response.text or "")
+        # Drift #50: a refusal is a complete answer with no evidence —
+        # sources stay empty, as on the rag query path.
+        is_refusal = answer_text.strip() in _REFUSAL_ANSWERS
         logger.info(
             "Chat response",
             extra={
                 "trace_id": trace_id,
                 "conversation_id": conversation_id,
-                "resp_len": len(response.text or ""),
+                "resp_len": len(answer_text),
                 "duration_ms": duration_ms,
                 "namespace": namespace,
-                "chunks_used": len(rag_chunks),
+                "chunks_used": 0 if is_refusal else len(rag_chunks),
             },
         )
+        if not is_refusal:
+            answer_text = self._append_rag_sources(answer_text, rag_chunks)
         return AssistantMessage(
-            text=self._append_rag_sources(response.text or "", rag_chunks),
+            text=answer_text,
             metadata=response.metadata,
         )
 
@@ -476,8 +521,9 @@ class ChatManager:
                 "msg_len": len(message),
             },
         )
-        # History is prompt data only — persistence lives in the handler layer.
-        history_local: list[dict[str, Any]] = list(history or [])
+        # History is prompt data only — persistence lives in the handler
+        # layer; assistant turns are sanitized on entry (drift #49/#51).
+        history_local: list[dict[str, Any]] = _sanitize_history(history)
         (
             prompt_for_llm,
             _original_query,
@@ -532,7 +578,10 @@ class ChatManager:
                 "chunks_used": len(rag_chunks),
             },
         )
-        # Yield sources block so the client sees them in the stream
-        sources_text = self._append_rag_sources(full_response, rag_chunks)
-        if sources_text != full_response:
-            yield sources_text[len(full_response) :]
+        # Drift #50: a refusal is a complete answer with no evidence —
+        # sources stay empty, as on the rag query path.
+        if full_response.strip() not in _REFUSAL_ANSWERS:
+            # Yield sources block so the client sees them in the stream
+            sources_text = self._append_rag_sources(full_response, rag_chunks)
+            if sources_text != full_response:
+                yield sources_text[len(full_response) :]
