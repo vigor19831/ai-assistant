@@ -14,13 +14,14 @@ content keeps the chat's language (source-language atoms match
 source-language queries monolingually — the strongest retrieval
 path).
 
-Validation: static read-only checks over atom files — the
-format-agnostic contract layer the pipeline demotion cannot provide
-(it is ChatGPT-format-bound, drift #81). No LLM calls. Two points:
-make_atoms reports V1-V5 for its own output in the same console run
-(creation time — defects surface before the watcher indexes them);
---validate audits the whole corpus: V1-V5 over all atoms-* files in
-dest plus V6 index coverage:
+Validation (--validate, runner menu mode [3]): static read-only
+checks over atom files — the format-agnostic contract layer the
+pipeline demotion cannot provide (it is ChatGPT-format-bound,
+drift #81). No LLM calls: V1-V5 over all atoms-* files in dest
+plus V6 index coverage. The producer (split/atoms) prints no
+per-atom defect details; at the end of a run it reports only the
+TOTAL error count of the atoms it created, pointing to mode [3]
+for details (owner decision, 2026-09-09):
   V1 (drift #67, THE DECISION TEST): "Status: decision" atoms must
       carry a quoted user acceptance (the same quote form the
       demotion trusts).
@@ -444,7 +445,6 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         )
     target.write_text(atoms_text, encoding="utf-8")
     print(f"[ATOMS] {len(answers)} answer block(s) -> {target.name}")
-    _report_validation(target, src.parent)
     return target
 
 
@@ -616,6 +616,8 @@ _DATE_RE = re.compile(
    |(?P<dot>\b(?P<dot_d>\d{{1,2}})\.(?P<dot_m>\d{{1,2}})\.(?P<dot_y>{_YEAR})\b)
    |(?P<ru>(?i:\b(?:(?P<ru_d>\d{{1,2}})\s+)?(?P<ru_m>{_RU_MONTHS_ALT})
       (?:\s+(?P<ru_y>{_YEAR}))?\b))
+   |(?P<unix>\b(?P<unix_m>{_EN_MONTHS_ALT})\s+(?P<unix_d>\d{{1,2}})\s+
+      \d{{1,2}}:\d{{2}}(?::\d{{2}})?\s+(?P<unix_y>{_YEAR})\b)
    |(?P<en_md>\b(?P<en_md_m>{_EN_MONTHS_ALT})\s+(?P<en_md_d>\d{{1,2}})\b
       (?:[,\s]+(?P<en_md_y>{_YEAR})\b)?)
    |(?P<en_dm>\b(?P<en_dm_d>\d{{1,2}})\s+(?P<en_dm_m>{_EN_MONTHS_ALT})\b
@@ -739,6 +741,10 @@ def _match_to_token(match: re.Match[str]) -> DateToken | None:
         month = _RU_MONTHS[match.group("ru_m").lower()]
         day = int(match.group("ru_d")) if match.group("ru_d") else None
         year = int(match.group("ru_y")) if match.group("ru_y") else None
+    elif match.group("unix") is not None:
+        month = _EN_MONTHS[match.group("unix_m").lower()]
+        day = int(match.group("unix_d"))
+        year = int(match.group("unix_y"))
     elif match.group("en_md") is not None:
         month = _EN_MONTHS[match.group("en_md_m").lower()]
         day = int(match.group("en_md_d"))
@@ -1197,30 +1203,6 @@ def validate_file(path: Path, src_dir: Path) -> tuple[Violation, ...]:
     return validate_text(text, path.name, source_text, _relpath_label(source))
 
 
-def _report_validation(atoms_path: Path, src_dir: Path) -> None:
-    """V1-V5 report for a freshly written atoms file (make_atoms).
-
-    Creation-time validation: defects surface in the same console run
-    the atoms are born in — before the watcher indexes them, while
-    the owner is still watching (extraction takes minutes). Report
-    only: no mutation, no exit-code change. Red is the norm until the
-    archivist prompt fixes land (plan step 3) — a permanent FAIL mark
-    in the runner would be noise, not signal. Remediation path: delete
-    the atoms file, the watcher's orphan cleanup removes its chunks.
-    """
-    violations = validate_file(atoms_path, src_dir)
-    for violation in violations:
-        line_part = f":{violation.line}" if violation.line is not None else ""
-        print(
-            f"[{violation.check}] {atoms_path.name}{line_part} "
-            f"{violation.severity.upper()}: {violation.message}"
-        )
-    errors = sum(1 for v in violations if v.severity == "error")
-    warnings = sum(1 for v in violations if v.severity == "warn")
-    summary = f"{errors} error(s), {warnings} warning(s)" if violations else "CLEAN"
-    print(f"[ATOMS] validation: {summary}")
-
-
 def _run_validation(
     files: list[str],
     src_dir: Path,
@@ -1355,6 +1337,8 @@ def main() -> int:
         return 1
 
     total_parts = 0
+    atoms_errors = 0
+    atoms_warnings = 0
     for src in targets:
         if not src.is_file():
             print(f"[ERROR] not a file: {src}", file=sys.stderr)
@@ -1370,6 +1354,11 @@ def main() -> int:
             continue
         if do_atoms:
             make_atoms(src, dest_dir)
+            violations = validate_file(
+                dest_dir / f"atoms-{src.stem}{src.suffix}", src.parent
+            )
+            atoms_errors += sum(1 for v in violations if v.severity == "error")
+            atoms_warnings += sum(1 for v in violations if v.severity == "warn")
             if not do_split:
                 continue
         parts = split_file(src, dest_dir)
@@ -1380,6 +1369,11 @@ def main() -> int:
     print("       'Documents indexed' lines, one per part.")
     if do_atoms:
         print("       'index.progress' covers the atoms file too.")
+    if atoms_errors:
+        print(
+            f"[ATOMS] {atoms_errors} error(s), {atoms_warnings} warning(s) "
+            "in atoms created this run -- run mode [3] for details"
+        )
     return 0
 
 

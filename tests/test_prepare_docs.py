@@ -924,6 +924,29 @@ class TestDateGrounding:
             prepare_docs.DateToken(2026, None, None),
         )
 
+    def test_unix_date_format_extracted(self) -> None:
+        """Terminal transcripts carry 'Fri Aug 7 08:20:28 2026' -- a
+        complete date (nastroyka corpus, 2026-09-08)."""
+        tokens = tuple(
+            token
+            for _, token in prepare_docs._parse_date_tokens(
+                "Fri Aug 7 08:20:28 2026"
+            )
+        )
+        assert tokens == (prepare_docs.DateToken(2026, 8, 7),)
+
+    def test_unix_format_grounds_atom_date(self) -> None:
+        """A terminal-timestamp source date grounds the atom's date:
+        13 false V2 flags on nastroyka before the fix (2026-09-08)."""
+        result = prepare_docs.validate_text(
+            "**[Факт]** -- факт с датой Aug 7 2026.\n"  # noqa: RUF001
+            "  (Context: Aug 7 2026; Status: fact)\n",
+            "atoms-chat.md",
+            "Fri Aug 7 08:20:28 2026\n#### Вы сказали:\nвопрос\n",  # noqa: RUF001
+            "chat.md",
+        )
+        assert result == ()
+
     def test_covers_semantics(self) -> None:
         """Source precision must cover atom precision, not vice versa."""
         covers = prepare_docs._covers
@@ -1195,15 +1218,16 @@ class TestValidateCli:
         )
 
 
-class TestCreationTimeValidation:
-    """make_atoms reports V1-V5 for its own output (report at birth)."""
+class TestFullRunSummary:
+    """Mode [2]: no per-atom wall, only a run-total error summary."""
 
-    def test_invented_date_reported(
+    def test_error_total_and_check_hint(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        """A hallucinated date surfaces in the same run (drift #81)."""
-        src = tmp_path / "chat.md"
-        src.write_text(
+        """Defective atoms: end-of-run total + pointer to mode [3]."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "chat.md").write_text(
             "#### Вы сказали:\nвопрос\n",  # noqa: RUF001
             encoding="utf-8",
         )
@@ -1214,24 +1238,41 @@ class TestCreationTimeValidation:
             "  (Context: 2026-08-07; Status: fact)\n"
         )
         _fake_llm(monkeypatch, [answer])
-        prepare_docs.make_atoms(src, dest)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prepare_docs.py", "--full",
+                "--src", str(src_dir), "--dest", str(dest),
+            ],
+        )
+        assert prepare_docs.main() == 0
         out = capsys.readouterr().out
-        assert "[V2]" in out
-        assert "2026-08-07" in out
-        assert "[ATOMS] validation: 2 error(s), 0 warning(s)" in out
+        assert "[V2]" not in out  # production stays quiet per atom
+        assert "2 error(s), 0 warning(s) in atoms created this run" in out
+        assert "mode [3] for details" in out
 
-    def test_clean_atoms_reported_clean(
+    def test_clean_run_prints_no_warning(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        """A clean extraction ends with a CLEAN summary line."""
-        src = tmp_path / "chat.md"
-        src.write_text(GOOD_SOURCE, encoding="utf-8")
+        """Clean atoms: no summary line, console stays production-only."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "chat.md").write_text(GOOD_SOURCE, encoding="utf-8")
         dest = tmp_path / "dest"
         dest.mkdir()
         _fake_llm(monkeypatch, [GOOD_RU_ATOMS])
-        prepare_docs.make_atoms(src, dest)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "prepare_docs.py", "--full",
+                "--src", str(src_dir), "--dest", str(dest),
+            ],
+        )
+        assert prepare_docs.main() == 0
         out = capsys.readouterr().out
-        assert "[ATOMS] validation: CLEAN" in out
+        assert "in atoms created this run" not in out
 
 
 # --- Component B: archivist e2e gate (plan step 2) ---
@@ -1300,9 +1341,7 @@ class TestArchivistE2E:
     """
 
     @pytest.mark.online
-    def test_synthetic_chat_full_contract(
-        self, tmp_path: Path, capsys
-    ) -> None:
+    def test_synthetic_chat_full_contract(self, tmp_path: Path) -> None:
         """Fresh atoms pass the full V1-V5 contract and carry the
         genuine decision."""
         if not _archivist_reachable():
@@ -1329,6 +1368,3 @@ class TestArchivistE2E:
         assert (
             'User said: "Беру Keenetic Extra' in text
         ), "the genuine Keenetic acceptance quote did not survive"
-
-        out = capsys.readouterr().out
-        assert "[ATOMS] validation:" in out

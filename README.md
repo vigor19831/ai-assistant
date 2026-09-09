@@ -157,7 +157,11 @@ knowledge atoms via `python scripts/prepare_docs.py --full FILE` —
 the archivist LLM distills status-disciplined atoms (fact / decision
 with exact user quote / recommendation / hypothesis). Atoms guard
 against advice being read as a decision a year later (measured
-cross-model, drift #67).
+cross-model, drift #67). Then audit them: `python
+scripts/prepare_docs.py --validate` — a read-only V1–V6 contract
+check (drift #87); the producer itself prints only a run-total error
+count pointing to the audit. Known 4B residuals: stable invented
+dates and run-to-run language flips (drift #87).
 
 Open http://localhost:8000/ui.
 
@@ -207,8 +211,8 @@ Full reference in `config.example.yaml`.
 ## Running Tests
 
 ```bash
-# Full check (ruff + mypy + tests + coverage + audits) — all 93
-# Python files in the repo (src/, scripts/, tests/, launchers)
+# Full check (ruff + mypy + tests + coverage + audits) — every
+# Python file in the repo (src/, scripts/, tests/, launchers)
 python scripts/check_all.py
 
 # Tests only
@@ -230,7 +234,7 @@ python scripts/check_rag.py
 | Servers not responding | Check `data/llama.log`; ensure `llama-server` is installed |
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
-| `check_rag.py` results differ between runs | Environment changed, not noise: benchmark is deterministic (temp 0.0). Check config, model, or index state. |
+| `check_rag.py` results differ between runs | Usually environment changed: benchmark is deterministic (temp 0.0) — check config, model, or index state. One documented exception: multi-turn-1 on 7B is nondeterministic (see Known Limitations); re-run any other surprising red before classifying it. |
 | Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ~12 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
 | `HTTP request failed` at reindex start | Embedder server not up yet (startup race) or dead. Check `curl http://127.0.0.1:8081/health`; restart the stack. |
 | "GPU indexing" seems slow / crashes | Verify the embedder actually launched on GPU: `ps aux \| grep bge-m3` must show exactly ONE `-ngl` flag, its value from config.yaml (drift #60: dual -ngl flags run the server in an unpredictable mode). |
@@ -261,7 +265,7 @@ ai-assistant/
 |-----------|---------|---------------|
 | `src/ai_assistant/` | Application code: `core/` (domain, ports, prompts, pipeline), `adapters/` (LLM, embedder, reranker, vector store), `features/` (chat, RAG), `api/` (FastAPI routes), `ui/` (static web interface) | No |
 | `tests/` | ~1000 tests covering contracts, edge cases, integration, e2e | No |
-| `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `prepare_docs.py` (split large files; --atoms extracts status-disciplined knowledge atoms) | No |
+| `scripts/` | Utility scripts: `check_all.py` (full check), `check_rag.py` (RAG quality benchmark), `check_llm.py` (LLM connectivity), `download_tokenizers.py` (tokenizer files), `prepare_docs.py` (split large files; --atoms extracts status-disciplined knowledge atoms; --validate audits the atom contract V1–V6) | No |
 | `docs/` | `ai_rules.md` (AI constraints), `architecture.md` (strategy + RAG philosophy), `drift.md` (known compromises) | No |
 | `data/` | Runtime data: `indices/` (FAISS vector indices per namespace), `storage.db` (SQLite chat history), `documents/` (your docs for RAG), `tokenizers/` (downloaded tokenizer files), `app.log` (application log) | Yes (on first run) |
 | `data/documents/` | Your `.md` / `.txt` files for RAG. Auto-indexed every 60s when server is running | You create it |

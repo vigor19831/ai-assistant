@@ -327,14 +327,9 @@ async def index_folder(
                             f"Checkpoint save failed for {namespace}: {exc}"
                         )
                 _logger.info(
-                    "index.progress",
-                    extra={
-                        "namespace": namespace,
-                        "doc": doc_pos,
-                        "total_docs": total_docs,
-                        "progress_pct": round(100 * doc_pos / total_docs),
-                        "chunks": chunk_count,
-                    },
+                    f"index.progress {namespace} {doc_pos}/{total_docs} "
+                    f"({round(100 * doc_pos / total_docs)}%) "
+                    f"chunks={chunk_count}"
                 )
         except Exception as exc:
             _logger.exception(f"Indexing failed for namespace {namespace}")

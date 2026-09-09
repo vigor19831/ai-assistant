@@ -1,6 +1,6 @@
 # AI Rules
 
-> Version: 2026-08-31
+> Version: 2026-09-09
 > Next review: 2026-09-20
 
 # Project Brief
@@ -37,7 +37,7 @@ Never:
 - Import from `api/`, `features/`, `adapters/` into `core/`
 - Pydantic in `core/domain/` -- stdlib dataclass only
 - Lazy initialization (`dict[str, Callable]` AppState)
-- `print()`, `pprint()`, `logging.basicConfig()` -- use `get_logger(name)` only
+- `print()`, `pprint()`, `logging.basicConfig()` -- use `get_logger(name)` only in production code; CLI scripts (check_rag, prepare_docs) print user-facing output by design
 - Orphaned code -- remove callee if last caller removed
 - Add a dependency without immediately updating `pyproject.toml` / `requirements.txt`
 - Python syntax requiring version > 3.11. Forbidden: `type` statements (PEP 695), `typing.TypeAliasType`, `warnings.deprecated`, and any 3.12+ only forms. Project minimum is 3.11.
@@ -204,7 +204,7 @@ These rules themselves change:
 
 ## 15. Test Discipline
 
-`tests/` excluded from mypy, but not from architecture or ruff (2026-09-04, drift #71; per-file-ignores: ASYNC230/240, N806 — fixture IO and inline config constants). Tests must survive `pytest -n auto --random-order` (xdist + random-order plugins).
+`tests/` under ruff AND mypy (ruff: drift #71, 2026-09-04; mypy: drift #72, 2026-09-05, owner decision — explicit tests target in check_all, pyproject overrides dead on mypy 1.20.2; per-file-ignores: ASYNC230/240, N806 — fixture IO and inline config constants). Tests must survive `pytest -n auto --random-order` (xdist + random-order plugins).
 
 - **Isolation**: No hardcoded paths — use `tmp_path`. No mutable shared state between tests.
 - **Async**: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop.

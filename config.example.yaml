@@ -278,6 +278,14 @@ namespaces:
     # [CHANGE] Re-index after changing this.
     chunk_size: 512
     prompt: rag_strict
+  # Required by scripts/check_rag.py: the chat-prefix e2e tests
+  # route the [000] prefix here; the bench owns this namespace and
+  # never clears watcher-mapped ones (drift #82). Harmless when the
+  # bench is not running.
+  bench_000:
+    prefix: "000"
+    chunk_size: 512
+    prompt: rag_strict
 
 # =============================================================================
 # CHUNKER — choose between simple and recursive
