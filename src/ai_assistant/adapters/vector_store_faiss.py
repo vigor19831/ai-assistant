@@ -343,6 +343,95 @@ class FaissVectorStore(IVectorStore):
                 ns.next_id = old_next_id
                 raise
 
+    async def upsert(self, chunks: list[Chunk], namespace: str = "default") -> None:
+        """Atomic replace under one lock (drift #88, overrides the port default).
+
+        The port default (add-then-delete) leaves a coexistence window;
+        interruption inside it = permanent duplicate (drift #88). This
+        override performs the replace as a single rebuild + save. Both
+        port guarantees hold (old state survives until new state is
+        fully constructed; no coexistence window).
+        """
+        if not chunks:
+            return
+        async with self._lock:
+            ns = self._get_ns(namespace)
+            dim = self.config.dim
+
+            valid_chunks: list[Chunk] = []
+            for chunk in chunks:
+                if chunk.embedding is None:
+                    continue
+                if len(chunk.embedding) != dim:
+                    _logger.error(
+                        "Dimension mismatch in FAISS upsert",
+                        extra={
+                            "expected": dim,
+                            "got": len(chunk.embedding),
+                            "chunk_id": chunk.id,
+                        },
+                    )
+                    raise AdapterError(
+                        f"Dimension mismatch in FAISS upsert: expected {dim}, "
+                        f"got {len(chunk.embedding)} ({chunk.id})"
+                    )
+                valid_chunks.append(chunk)
+
+            if not valid_chunks:
+                return
+
+            sources: set[str] = set()
+            for chunk in valid_chunks:
+                if chunk.metadata is not None:
+                    sources.add(chunk.metadata.source)
+
+            keep = [
+                c for c in ns.chunks.values()
+                if c.metadata is None or c.metadata.source not in sources
+            ]
+
+            max_chunks = self.config.max_chunks
+            projected = len(keep) + len(valid_chunks)
+            if projected > max_chunks:
+                _logger.error(
+                    "FAISS upsert would exceed max_chunks",
+                    extra={
+                        "namespace": namespace,
+                        "current": len(ns.chunks),
+                        "projected": projected,
+                        "max_chunks": max_chunks,
+                    },
+                )
+                raise AdapterError(
+                    f"Upsert cannot replace {len(valid_chunks)} chunks in "
+                    f"namespace '{namespace}': would exceed max_chunks "
+                    f"({max_chunks}). Current: {len(ns.chunks)}. "
+                    f"Delete old chunks or increase max_chunks."
+                )
+
+            old_index = ns.index
+            old_chunks = dict(ns.chunks)
+            old_next_id = ns.next_id
+
+            new_index, new_chunks, next_id = self._rebuild_index(
+                keep + valid_chunks
+            )
+            ns.index = new_index
+            ns.chunks = new_chunks
+            ns.next_id = next_id
+
+            try:
+                await self._save_unlocked(self.index_path, namespace)
+            except Exception:
+                _logger.exception(
+                    "upsert save failed, rolling back",
+                    extra={"namespace": namespace},
+                )
+                ns.index = old_index
+                ns.chunks = old_chunks
+                ns.next_id = old_next_id
+                raise
+
     async def _remove_namespace_files(self, namespace: str) -> None:
         """Remove persisted namespace files. Caller must hold self._lock.
 

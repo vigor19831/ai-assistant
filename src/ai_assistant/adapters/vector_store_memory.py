@@ -211,10 +211,111 @@ class MemoryVectorStore(IVectorStore):
                         "delete rollback failed",
                         extra={"namespace": namespace},
                     )
+                    raise
+                raise
+
+    async def upsert(self, chunks: list[Chunk], namespace: str = "default") -> None:
+        """Atomic replace under one lock (drift #88, overrides the port default).
+
+        The port default (add-then-delete) leaves a coexistence window;
+        interruption inside it = permanent duplicate (drift #88). This
+        override closes the window. Insert does NOT delegate to add() — add
+        takes the lock (deadlock); the insert loop mirrors add()'s
+        in-memory logic. Rollback: restore the RAM snapshot.
+        """
+        if not chunks:
+            return
+        async with self._lock:
+            ns = self._get_ns(namespace)
+
+            valid: list[Chunk] = []
+            for chunk in chunks:
+                if chunk.embedding is None:
+                    continue
+                if len(chunk.embedding) != self.dim:
+                    _logger.error(
+                        "Dimension mismatch in memory upsert",
+                        extra={
+                            "expected": self.dim,
+                            "got": len(chunk.embedding),
+                            "chunk_id": chunk.id,
+                        },
+                    )
+                    raise AdapterError(
+                        f"Dimension mismatch in memory upsert: expected {self.dim}, "
+                        f"got {len(chunk.embedding)} ({chunk.id})"
+                    )
+                valid.append(chunk)
+            if not valid:
+                return
+
+            sources: set[str] = set()
+            for chunk in valid:
+                if chunk.metadata is not None:
+                    sources.add(chunk.metadata.source)
+
+            keep_count = sum(
+                1
+                for c in ns.chunks.values()
+                if c.metadata is None or c.metadata.source not in sources
+            )
+            projected = keep_count + len(valid)
+            if projected > self._max_chunks:
+                _logger.error(
+                    "Memory upsert would exceed max_chunks",
+                    extra={
+                        "namespace": namespace,
+                        "projected": projected,
+                        "max_chunks": self._max_chunks,
+                    },
+                )
+                raise AdapterError(
+                    f"Upsert cannot replace {len(valid)} chunks in namespace "
+                    f"'{namespace}': would exceed max_chunks "
+                    f"({self._max_chunks}). Current: {len(ns.chunks)}. "
+                    f"Delete old chunks or increase max_chunks."
+                )
+
+            old_chunks = dict(ns.chunks)
+            old_embeddings = dict(ns.embeddings)
+            old_metadata = dict(ns.metadata)
+
+            for cid in list(ns.chunks.keys()):
+                chunk = ns.chunks[cid]
+                if chunk.metadata is not None and chunk.metadata.source in sources:
+                    ns.chunks.pop(cid)
+                    ns.embeddings.pop(cid)
+                    ns.metadata.pop(cid)
+
+            for chunk in valid:
+                emb = np.array(chunk.embedding, dtype=np.float32)
+                ns.chunks[chunk.id] = chunk
+                ns.embeddings[chunk.id] = self._normalize(emb)
+                meta: dict[str, Any] = {}
+                if chunk.metadata is not None:
+                    meta = chunk.metadata.custom.copy()
+                    meta["source"] = chunk.metadata.source
+                    meta["index"] = chunk.metadata.index
+                    meta["total_chunks"] = chunk.metadata.total_chunks
+                    meta["original_path"] = chunk.metadata.original_path
+                    meta["source_uri"] = chunk.metadata.source_uri
+                    meta["last_modified"] = chunk.metadata.last_modified
+                ns.metadata[chunk.id] = meta
+
+            try:
+                await self._save_unlocked(self.index_path, namespace=namespace)
+            except Exception:
+                _logger.exception(
+                    "upsert save failed, rolling back",
+                    extra={"namespace": namespace},
+                )
+                ns.chunks = old_chunks
+                ns.embeddings = old_embeddings
+                ns.metadata = old_metadata
                 raise
 
     async def _remove_namespace_files(self, namespace: str) -> None:
-        """Remove persisted namespace directory. Caller holds self._lock.
+        """Remove persisted namespace directory. Caller must hold self._lock.
 
         Called when a namespace becomes empty: a stale memory_store.json
         would resurrect deleted chunks on the next load().

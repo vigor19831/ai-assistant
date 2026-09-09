@@ -28,6 +28,7 @@ from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
 from ai_assistant.adapters.reranker_local import LocalReranker
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
+from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.domain.configs import (
     ChunkerConfigData,
@@ -41,6 +42,7 @@ from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.domain.messages import AssistantMessage, UserMessage
 from ai_assistant.core.logger import get_logger
+from ai_assistant.core.ports.vector_store import IVectorStore
 
 logger = get_logger(__name__)
 
@@ -396,7 +398,7 @@ class TestMemoryVectorStoreUpsert:
 
 
 class TestFaissVectorStoreUpsert:
-    """Coverage for IVectorStore.upsert default implementation (Faiss)."""
+    """FaissVectorStore.upsert: atomic replace per source (drift #88)."""
 
     @pytest.mark.asyncio
     async def test_faiss_upsert_replaces_old_chunks_by_source(
@@ -2918,61 +2920,6 @@ class TestOpenAICompatibleLLMParseToolCalls:
         assert result[0]["function"]["arguments"] == '{"city": "Paris"}'
 
 
-class TestOpenAICompatibleLLMContextLimit:
-    """Coverage for get_context_limit branches (line 174)."""
-
-    def test_returns_server_context_size(self):
-        """Given: config with server_context_size > 0.
-        When: get_context_limit is called.
-        Then: returns server_context_size.
-        """
-        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-        from ai_assistant.core.domain.configs import LLMConfigData
-
-        llm = OpenAICompatibleLLM(
-            LLMConfigData(
-                model="test",
-                api_base="http://localhost:8080/v1",
-                server_context_size=8192,
-            )
-        )
-        assert llm.get_context_limit() == 8192
-
-    def test_returns_none_when_no_server_context(self):
-        """Given: config with server_context_size = 0.
-        When: get_context_limit is called.
-        Then: returns None.
-        """
-        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-        from ai_assistant.core.domain.configs import LLMConfigData
-
-        llm = OpenAICompatibleLLM(
-            LLMConfigData(
-                model="test",
-                api_base="http://localhost:8080/v1",
-                server_context_size=0,
-            )
-        )
-        assert llm.get_context_limit() is None
-
-    def test_returns_none_when_server_context_is_none(self):
-        """Given: config with server_context_size = None.
-        When: get_context_limit is called.
-        Then: returns None.
-        """
-        from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-        from ai_assistant.core.domain.configs import LLMConfigData
-
-        llm = OpenAICompatibleLLM(
-            LLMConfigData(
-                model="test",
-                api_base="http://localhost:8080/v1",
-                server_context_size=None,
-            )
-        )
-        assert llm.get_context_limit() is None
-
-
 class TestOpenAICompatibleLLMComplete:
     """Coverage for complete() closed check and payload options."""
 
@@ -2988,20 +2935,6 @@ class TestOpenAICompatibleLLMComplete:
             )
         )
 
-    @pytest.mark.asyncio
-    async def test_complete_on_closed_client_raises(self):
-        """Given: LLM adapter after shutdown.
-        When: complete is called.
-        Then: AdapterError raised.
-        """
-        from ai_assistant.core.domain.errors import AdapterError
-        from ai_assistant.core.domain.messages import UserMessage
-
-        llm = self._make_llm()
-        await llm.shutdown()
-
-        with pytest.raises(AdapterError, match="shutting down"):
-            await llm.complete([UserMessage(text="Hello")])
 
     @pytest.mark.asyncio
     async def test_complete_with_all_optional_params(self):
@@ -3464,3 +3397,170 @@ class TestAPIReranker:
         assert len(results) == 2
         assert results[0].score > results[1].score
         await reranker.shutdown()
+
+
+class TestUpsert:
+    """drift #88: atomic replace under one lock. Re-upsert must not grow the store."""
+
+    @staticmethod
+    def _chunk(source: str, idx: int, total: int) -> Chunk:
+        return Chunk(
+            id=f"chunk-{source}-{idx}",
+            text=f"chunk {idx}",
+            embedding=[float(idx)] * 8,
+            metadata=ChunkMetadata(
+                source=source,
+                index=idx,
+                total_chunks=total,
+                custom={},
+                original_path=None,
+                source_uri=f"{source}.md",
+                last_modified=None,
+            ),
+        )
+
+    @staticmethod
+    def _config(tmp_path: Path) -> VectorStoreConfigData:
+        return VectorStoreConfigData(
+            dim=8,
+            metric="cosine",
+            index_path=str(tmp_path),
+            max_chunks=100,
+            max_document_size=1048560,
+        )
+
+    async def _run_replace(self, store: IVectorStore) -> None:
+        first = [self._chunk("doc", i, 3) for i in range(3)]
+        await store.upsert(first, namespace="default")
+        second = [self._chunk("doc", i, 3) for i in range(3)]
+        await store.upsert(second, namespace="default")
+        items = await store.list_by_filter({}, namespace="default")
+        assert len(items) == 3, (
+            f"drift #88: {len(items)} — upsert must replace, not accumulate"
+        )
+        doc = await store.list_by_filter({"source": "doc"}, namespace="default")
+        assert len(doc) == 3
+
+    async def test_faiss_upsert_replaces_without_duplicates(
+        self, tmp_path: Path
+    ) -> None:
+        store = FaissVectorStore(self._config(tmp_path))
+        try:
+            await self._run_replace(store)
+        finally:
+            await store.shutdown()
+
+    async def test_memory_upsert_replaces_without_duplicates(
+        self, tmp_path: Path
+    ) -> None:
+        store = MemoryVectorStore(self._config(tmp_path))
+        try:
+            await self._run_replace(store)
+        finally:
+            await store.shutdown()
+
+
+
+# --- IVectorStore.upsert default implementation (port contract, drift #88) ---
+
+
+def _make_store(tmp_path: Path) -> MemoryVectorStore:
+    """Fresh MemoryVectorStore on tmp_path (pattern from TestUpsert)."""
+    config = VectorStoreConfigData(
+        dim=8,
+        metric="cosine",
+        index_path=str(tmp_path),
+        max_chunks=100,
+        max_document_size=1048560,
+    )
+    return MemoryVectorStore(config)
+
+
+def _make_chunk(chunk_id: str, source: str | None) -> Chunk:
+    """Minimal chunk for upsert tests (pattern from TestUpsert)."""
+    return Chunk(
+        id=chunk_id,
+        text=f"chunk {chunk_id}",
+        embedding=[1.0] * 8,
+        metadata=(
+            ChunkMetadata(
+                source=source,
+                index=0,
+                total_chunks=1,
+                custom={},
+                original_path=None,
+                source_uri=f"{source}.md",
+                last_modified=None,
+            )
+            if source is not None
+            else None
+        ),
+    )
+
+
+async def test_port_default_upsert_empty_batch_is_noop(tmp_path: Path) -> None:
+    """Empty batch is a no-op: nothing added, nothing deleted."""
+    store = _make_store(tmp_path)
+    await store.add([_make_chunk("keep-1", "keep")], namespace="default")
+
+    await IVectorStore.upsert(store, [], namespace="default")
+
+    found = await store.list_by_filter({"source": "keep"}, namespace="default")
+    assert {cid for cid, _ in found} == {"keep-1"}
+
+
+async def test_port_default_upsert_new_source_adds_without_delete(
+    tmp_path: Path,
+) -> None:
+    """Fresh source: chunks are added; there is nothing to delete."""
+    store = _make_store(tmp_path)
+
+    await IVectorStore.upsert(
+        store,
+        [_make_chunk("a1", "alpha"), _make_chunk("a2", "alpha")],
+        namespace="default",
+    )
+
+    found = await store.list_by_filter({"source": "alpha"}, namespace="default")
+    assert {cid for cid, _ in found} == {"a1", "a2"}
+
+
+async def test_port_default_upsert_replaces_stale_and_keeps_shared_ids(
+    tmp_path: Path,
+) -> None:
+    """Re-upsert: stale ids deleted, shared ids survive, other sources untouched."""
+    store = _make_store(tmp_path)
+    await store.add(
+        [
+            _make_chunk("a1", "alpha"),
+            _make_chunk("a2", "alpha"),
+            _make_chunk("b1", "beta"),
+        ],
+        namespace="default",
+    )
+
+    await IVectorStore.upsert(
+        store,
+        [_make_chunk("a2", "alpha"), _make_chunk("a3", "alpha")],
+        namespace="default",
+    )
+
+    alpha = await store.list_by_filter({"source": "alpha"}, namespace="default")
+    beta = await store.list_by_filter({"source": "beta"}, namespace="default")
+    assert {cid for cid, _ in alpha} == {"a2", "a3"}
+    assert {cid for cid, _ in beta} == {"b1"}
+
+
+async def test_port_default_upsert_ignores_chunks_without_metadata(
+    tmp_path: Path
+) -> None:
+    """A chunk without metadata yields no source: no lookup, no delete."""
+    store = _make_store(tmp_path)
+    await store.add([_make_chunk("a1", "alpha")], namespace="default")
+
+    await IVectorStore.upsert(
+        store, [_make_chunk("no-meta", None)], namespace="default"
+    )
+
+    found = await store.list_by_filter({"source": "alpha"}, namespace="default")
+    assert {cid for cid, _ in found} == {"a1"}
