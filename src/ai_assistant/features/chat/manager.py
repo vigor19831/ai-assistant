@@ -90,6 +90,24 @@ def strip_rag_sources(text: str) -> str:
 _REFUSAL_ANSWERS = (REFUSAL_ANSWER, INJECTION_REFUSAL_ANSWER)
 
 
+def _is_refusal_answer(text: str) -> bool:
+    """True for an exact refusal OR a refusal with a preamble.
+
+    The model sometimes explains WHY it cannot answer before the
+    refusal line ("The context does not contain... I don't know.")
+    — same meaning, different shape; the exact-match-only check let
+    such answers carry sources (live-caught 2026-09-10, drift #50
+    edge). The refusal must be the answer's OWN closing statement:
+    trailing whitespace tolerated, anything AFTER it disqualifies
+    (a text that merely mentions the phrase mid-way is not a refusal).
+    """
+    stripped = text.strip()
+    for refusal in _REFUSAL_ANSWERS:
+        if stripped == refusal or stripped.endswith(refusal):
+            return True
+    return False
+
+
 def _sanitize_history(
     history: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
@@ -475,8 +493,9 @@ class ChatManager:
         duration_ms = int((time.perf_counter() - start) * 1000)
         answer_text = strip_rag_sources(response.text or "")
         # Drift #50: a refusal is a complete answer with no evidence —
-        # sources stay empty, as on the rag query path.
-        is_refusal = answer_text.strip() in _REFUSAL_ANSWERS
+        # sources stay empty, as on the rag query path. Refusals that
+        # close a preamble count too; see _is_refusal_answer.
+        is_refusal = _is_refusal_answer(answer_text)
         logger.info(
             "Chat response",
             extra={
@@ -579,8 +598,9 @@ class ChatManager:
             },
         )
         # Drift #50: a refusal is a complete answer with no evidence —
-        # sources stay empty, as on the rag query path.
-        if full_response.strip() not in _REFUSAL_ANSWERS:
+        # sources stay empty, as on the rag query path. Preamble
+        # refusals count too (see _is_refusal_answer).
+        if not _is_refusal_answer(full_response):
             # Yield sources block so the client sees them in the stream
             sources_text = self._append_rag_sources(full_response, rag_chunks)
             if sources_text != full_response:

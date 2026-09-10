@@ -29,6 +29,7 @@ from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.features.chat.manager import (
     ChatManager,
+    _is_refusal_answer,
     _sanitize_history,
     strip_rag_sources,
 )
@@ -1789,3 +1790,34 @@ def test_sanitize_history_strips_assistant_turns_only() -> None:
     assert cleaned[1]["content"] == "ans"
     assert cleaned[0]["content"] == "Sources:\n[1] keep-me"
     assert history[1]["content"] != "ans"
+
+
+def test_is_refusal_answer_exact() -> None:
+    """Exact refusal matches."""
+    assert _is_refusal_answer("I don't know.") is True
+
+
+def test_is_refusal_answer_preamble() -> None:
+    """A refusal with a preamble is still a refusal (drift #50 edge)."""
+    text = (
+        "The provided context does not contain information about "
+        "that. It discusses other topics.\n\nI don't know."
+    )
+    assert _is_refusal_answer(text) is True
+
+
+def test_is_refusal_answer_phrase_mid_text_is_not_refusal() -> None:
+    """A text that merely MENTIONS the refusal phrase mid-way is not
+    a refusal — the refusal must close the answer."""
+    text = (
+        "The assistant said 'I don't know.' but the documents "
+        "actually answer the question in detail."
+    )
+    assert _is_refusal_answer(text) is False
+
+
+def test_is_refusal_answer_text_after_refusal_disqualifies() -> None:
+    """Anything after the refusal line means it is not the answer's
+    closing statement."""
+    text = "I don't know. But let me add one more thing."
+    assert _is_refusal_answer(text) is False
