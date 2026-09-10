@@ -47,7 +47,10 @@ from ai_assistant.features.rag.handlers import (
     reindex_status,
     save_chat,
 )
-from ai_assistant.features.rag.indexing import index_folder
+from ai_assistant.features.rag.indexing import (
+    _filter_unchanged_docs,
+    index_folder,
+)
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager, SourceWatcher
 from ai_assistant.features.rag.schemas import (
     DeleteRequest,
@@ -3085,3 +3088,73 @@ async def test_indexing_clean_pass_all_docs(tmp_path):
     assert {m.get("source_uri") for _, m in meta} == {
         f"doc{i:02d}.md" for i in range(4)
     }
+
+
+def test_filter_unchanged_docs_partial_store_passes() -> None:
+    """A half-cut store (drift #82): same mtime, stored chunks fewer
+    than the chunks' own total_chunks — not skipped (re-index restores)."""
+    docs = [
+        {
+            "text": "doc body",
+            "metadata": {
+                "source_uri": "doc.md",
+                "last_modified": "2026-09-10 10:00:00",
+            },
+        }
+    ]
+    # store: only 2 of 4 chunks survive, same mtime; the chunks
+    # themselves declare total_chunks=4 (chunker writes it per batch)
+    all_meta = [
+        (
+            "cid-1",
+            {
+                "source_uri": "doc.md",
+                "last_modified": "2026-09-10 10:00:00",
+                "total_chunks": 4,
+            },
+        ),
+        (
+            "cid-2",
+            {
+                "source_uri": "doc.md",
+                "last_modified": "2026-09-10 10:00:00",
+                "total_chunks": 4,
+            },
+        ),
+    ]
+    result = _filter_unchanged_docs(docs, all_meta)
+    assert result == docs  # not skipped: re-indexed, upsert restores
+
+
+def test_filter_unchanged_docs_full_store_skips() -> None:
+    """Complete store, same mtime — the doc is skipped (normal case)."""
+    docs = [
+        {
+            "text": "doc body",
+            "metadata": {
+                "source_uri": "doc.md",
+                "last_modified": "2026-09-10 10:00:00",
+            },
+        }
+    ]
+    # both chunks present; the chunks declare total_chunks=2 — complete
+    all_meta = [
+        (
+            "cid-1",
+            {
+                "source_uri": "doc.md",
+                "last_modified": "2026-09-10 10:00:00",
+                "total_chunks": 2,
+            },
+        ),
+        (
+            "cid-2",
+            {
+                "source_uri": "doc.md",
+                "last_modified": "2026-09-10 10:00:00",
+                "total_chunks": 2,
+            },
+        ),
+    ]
+    result = _filter_unchanged_docs(docs, all_meta)
+    assert result == []

@@ -185,16 +185,26 @@ def _filter_unchanged_docs(
     docs: list[dict[str, Any]],
     all_meta: list[tuple[str, dict[str, Any]]],
 ) -> list[dict[str, Any]]:
-    """Skip docs whose source_uri is already indexed with the same mtime.
+    """Skip docs whose source_uri is already indexed with the same
+    mtime and a complete chunk set.
 
     Changed files pass through (upsert replaces old chunks). Duplicates
     within the current batch are also skipped.
     """
     existing_uri_mtime: dict[str, str | None] = {}
+    existing_uri_count: dict[str, int] = {}
+    existing_uri_total: dict[str, int] = {}
     for _cid, meta in all_meta:
         uri = meta.get("source_uri")
         if uri:
             existing_uri_mtime[uri] = meta.get("last_modified")
+            existing_uri_count[uri] = existing_uri_count.get(uri, 0) + 1
+        # total_chunks lives on CHUNK metadata (set by the chunker for
+        # the whole batch; document metadata from read_sources has no
+        # such field). Every chunk of one uri carries the same value.
+        tc = meta.get("total_chunks")
+        if uri and isinstance(tc, int):
+            existing_uri_total[uri] = tc
 
     seen_uris: set[str] = set()
     new_docs: list[dict[str, Any]] = []
@@ -208,10 +218,24 @@ def _filter_unchanged_docs(
         if uri in existing_uri_mtime:
             old_mtime = existing_uri_mtime[uri]
             new_mtime = d.get("metadata", {}).get("last_modified")
-            # Only skip when both mtimes are known and equal.
-            # None == None would otherwise permanently skip the document.
-            if old_mtime is not None and old_mtime == new_mtime:
-                # Unchanged on disk, skip
+            # Only skip when both mtimes are known and equal AND the
+            # store holds as many chunks for the uri as the stored
+            # chunks themselves declare (total_chunks, chunk-level).
+            # A partial store (external clear, interrupted write — drift
+            # #82, reproduced live 2026-09-10: half-cut chunks, mtime
+            # untouched, watcher skipped all) must re-index; the upsert
+            # then restores the full set. Chunks without total_chunks
+            # fail open (-1 never equals a real count) — re-index,
+            # idempotent, never permanently skipped.
+            complete = existing_uri_count.get(uri, 0) == existing_uri_total.get(
+                uri, -1
+            )
+            if (
+                old_mtime is not None
+                and old_mtime == new_mtime
+                and complete
+            ):
+                # Unchanged on disk and fully stored, skip
                 continue
         seen_uris.add(uri)
         new_docs.append(d)
