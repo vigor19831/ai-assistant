@@ -1249,7 +1249,7 @@ class TestFullRunSummary:
         assert prepare_docs.main() == 0
         out = capsys.readouterr().out
         assert "[V2]" not in out  # production stays quiet per atom
-        assert "2 error(s), 0 warning(s) in atoms created this run" in out
+        assert "1 error(s), 0 warning(s) in atoms created this run" in out
         assert "mode [3] for details" in out
 
     def test_clean_run_prints_no_warning(
@@ -1368,3 +1368,95 @@ class TestArchivistE2E:
         assert (
             'User said: "Беру Keenetic Extra' in text
         ), "the genuine Keenetic acceptance quote did not survive"
+
+
+def test_dedup_atoms_removes_cross_part_duplicates() -> None:
+    atoms = (
+        "## Facts\n"
+        "- **[Fact one]** -- detail.\n"
+        "  (Context: project; Status: fact)\n"
+        "\n"
+        "## Facts\n"
+        "- **[Fact one]** -- detail.\n"
+        "  (Context: project; Status: fact)\n"
+    )
+    deduped, removed = prepare_docs._dedup_atoms(atoms)
+    assert removed == 1
+    assert deduped.count("Fact one") == 1
+
+
+def test_split_for_atoms_never_cuts_multibyte_char() -> None:
+    data = ("x" + "ё" * 400 + "y" * 49).encode("utf-8")
+    parts = prepare_docs._split_for_atoms(data, part_bytes=100)
+    for part in parts:
+        part.decode("utf-8")  # strict: a mid-character cut would raise
+
+
+def test_ground_dates_strips_ungrounded_context_date(tmp_path) -> None:
+    src = tmp_path / "chat.md"
+    src.write_text("Setup finished on 7 Aug.", encoding="utf-8")
+    atoms = (
+        "- **[Setup done]** -- performed.\n"
+        "  (Context: Jul 10 2024, setup; Status: fact)\n"
+    )
+    grounded, removed = prepare_docs._ground_dates(atoms, src)
+    assert removed == 1
+    assert "Jul 10 2024" not in grounded
+    assert "setup" in grounded
+    assert "Status: fact" in grounded
+
+
+def test_ground_dates_keeps_grounded_tokens(tmp_path) -> None:
+    src = tmp_path / "chat.md"
+    src.write_text("We talked about the server on 2024-08-07.", encoding="utf-8")
+    atoms = (
+        "- **[Server]** -- discussed.\n"
+        "  (Context: 2024-08-07, server; Status: fact)\n"
+    )
+    grounded, removed = prepare_docs._ground_dates(atoms, src)
+    assert removed == 0
+    assert "2024-08-07" in grounded
+
+
+def test_ground_dates_drops_ungrounded_as_of_marker(tmp_path) -> None:
+    src = tmp_path / "chat.md"
+    src.write_text("Price unknown.", encoding="utf-8")
+    atoms = "The price is high (as of May 29 2024).\n"
+    grounded, removed = prepare_docs._ground_dates(atoms, src)
+    assert removed == 1
+    assert "as of" not in grounded
+    assert "The price is high." in grounded
+
+
+def test_ground_dates_strips_chronology_date(tmp_path) -> None:
+    src = tmp_path / "chat.md"
+    src.write_text("Topic: server, 2024.", encoding="utf-8")
+    atoms = "## Chronology\nJul 10 2024 - server - tuned\n"
+    grounded, removed = prepare_docs._ground_dates(atoms, src)
+    assert removed == 1
+    assert "server - tuned" in grounded
+    assert "Jul 10" not in grounded
+
+
+def test_validate_decisions_fallback_keeps_verbatim_quote(tmp_path) -> None:
+    src = tmp_path / "chat.md"
+    src.write_text("User: I will take the Sprinter\nAssistant: good choice")
+    atoms = (
+        "- **[Sprinter taken]** -- decided.\n"
+        '  (User said: "I will take the Sprinter"; Status: decision)\n'
+    )
+    validated, demoted = prepare_docs._validate_decisions(atoms, src)
+    assert demoted == 0
+    assert "Status: decision" in validated
+
+
+def test_validate_decisions_fallback_demotes_fabricated_quote(tmp_path) -> None:
+    src = tmp_path / "chat.md"
+    src.write_text("Assistant: consider the Sprinter")
+    atoms = (
+        "- **[Sprinter taken]** -- decided.\n"
+        '  (User said: "taking the Sprinter for sure"; Status: decision)\n'
+    )
+    validated, demoted = prepare_docs._validate_decisions(atoms, src)
+    assert demoted == 1
+    assert "Status: recommendation" in validated

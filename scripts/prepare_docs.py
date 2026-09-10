@@ -298,7 +298,11 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
 
     A decision atom is trusted ONLY if its quoted user words are
     found verbatim inside a user block ("#### Вы сказали:") of the
-    source chat. The quote is searched across the WHOLE ATOM (the
+    source chat; on exports without user-block markers (drift
+    #80/#81) the quote must at least exist verbatim somewhere in the
+    source — speaker attribution then rests on the prompt's DECISION
+    TEST (the format-agnostic fallback). The quote is searched across
+    the WHOLE ATOM (the
     statement line plus its continuation lines), not just the line
     that carries the Status label: the archivist prompt puts the
     quote in the atom body, which spans lines (component B,
@@ -319,10 +323,19 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
         start, end = _atom_bounds(lines, idx)
         quote_m = _QUOTE_RE.search("\n".join(lines[start : end + 1]))
         quote = quote_m.group(1) if quote_m else ""
-        if quote and len(quote) <= 120 and any(
-            quote in block for block in user_blocks
-        ):
-            continue
+        if quote and len(quote) <= 120:
+            if user_blocks:
+                # ChatGPT-format export: speaker attribution is
+                # verified against the user blocks.
+                if any(quote in block for block in user_blocks):
+                    continue
+            elif quote in source:
+                # Export without user-block markers (drift #80/#81):
+                # the quote exists verbatim; attribution rests on the
+                # prompt's DECISION TEST. Recovers genuine decisions on
+                # unknown formats; a misattributed assistant quote
+                # passes only where no markers exist at all.
+                continue
         lines[idx] = _DECISION_RE.sub("Status: recommendation", line)
         demoted += 1
     return "\n".join(lines), demoted
@@ -369,6 +382,39 @@ def _atom_bounds(lines: list[str], idx: int) -> tuple[int, int]:
     return start, end
 
 
+def _dedup_atoms(atoms_text: str) -> tuple[str, int]:
+    """Remove exact duplicate atoms across parts.
+
+    Parts are independent LLM requests: the model never sees the other
+    parts' answers, so the prompt's FINAL instruction to "merge
+    duplicate atoms from all parts" is structurally unfulfillable and
+    cross-part duplicates survive. An atom is identified by its
+    normalized statement line (whitespace collapsed, lowercased); a
+    repeat statement drops the whole atom block (statement plus
+    continuation lines, via _atom_bounds). Only EXACT statement
+    duplicates are removed — semantic near-duplicates stay for the
+    reranker to handle. Returns (deduped text, removed atom count).
+    """
+    seen: set[str] = set()
+    lines = atoms_text.splitlines()
+    out: list[str] = []
+    removed = 0
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        if _ATOM_START_RE.match(line) is not None:
+            key = re.sub(r"\s+", " ", line.strip().lower())
+            if key in seen:
+                _start, end = _atom_bounds(lines, idx)
+                removed += 1
+                idx = end + 1
+                continue
+            seen.add(key)
+        out.append(line)
+        idx += 1
+    return "\n".join(out), removed
+
+
 def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
     """Split raw bytes into ~part_bytes parts at line boundaries.
 
@@ -391,6 +437,13 @@ def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
             newline = data.find(b"\n", end)
             if newline != -1 and newline - end < part_bytes // 4:
                 end = newline + 1
+            else:
+                # Never cut inside a UTF-8 multi-byte character: the
+                # part is decoded with errors="replace" in make_atoms,
+                # and a mid-character cut corrupts one letter at each
+                # seam side. Advance to the next character boundary.
+                while end < total and (data[end] & 0xC0) == 0x80:
+                    end += 1
         parts.append(data[start:end])
         start = end
     return parts
@@ -437,11 +490,20 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
             answers.append(answer.strip())
     target = dest_dir / f"atoms-{src.stem}{src.suffix}"
     atoms_text = "\n\n---\n\n".join(answers)
+    atoms_text, deduped = _dedup_atoms(atoms_text)
     atoms_text, demoted = _validate_decisions(atoms_text, src)
+    atoms_text, ungrounded = _ground_dates(atoms_text, src)
+    if deduped:
+        print(f"[ATOMS] dedup: {deduped} duplicate atom(s) across parts removed")
     if demoted:
         print(
             f"[ATOMS] validator: {demoted} fabricated/assistant-voiced "
             "decision(s) demoted to recommendation"
+        )
+    if ungrounded:
+        print(
+            f"[ATOMS] date-guard: {ungrounded} ungrounded date(s) removed "
+            "from Context/as-of/Chronology (drift #80/#81)"
         )
     target.write_text(atoms_text, encoding="utf-8")
     print(f"[ATOMS] {len(answers)} answer block(s) -> {target.name}")
@@ -565,10 +627,15 @@ _RECOMMENDATION_STATUS_RE = re.compile(r"Status:\s*recommendation\b")
 _ATOM_START_RE = re.compile(r"^\s*(?:[-*]\s+)?(?:\*\*\s*)?\[")
 
 # Template fragments removed before script counting (V5): the
-# "(Context: ...)" / "(...; Status: ...)" parenthetical may sit on
-# the statement line, inside the bracketed statement, or on its own
+# "(Context: ...)" / "(...; Status: ...)" parenthetical may sit on the
+# statement line, inside the bracketed statement, or on its own
 # continuation line. Quotes are NOT removed: they are chat content.
 _LABEL_PAREN_RE = re.compile(r"\([^()]*\b(?:Context|Status)\b[^()]*\)")
+
+# "(as of [date])" markers on current-state numbers (archivist prompt):
+# the whole marker is dropped when its date is ungrounded — without the
+# date the marker is meaningless (date guard, drift #80/#81).
+_AS_OF_PAREN_RE = re.compile(r"\(\s*[Aa]s of\b[^()]*\)")
 
 # Russian month names, nominative + genitive ("1 мая", "мая 2024").
 # Domain constants: the LANGUAGE rule exempts them from the
@@ -805,6 +872,93 @@ def _covers(source: DateToken, atom: DateToken) -> bool:
         if atom_part is not None and source_part != atom_part:
             return False
     return True
+
+
+def _ground_dates(atoms_text: str, src: Path) -> tuple[str, int]:
+    """Strip ungrounded date tokens from template structures at birth.
+
+    Producer-side twin of V2 (the _validate_decisions pattern): the
+    archivist's stable invented dates are parametric beliefs of the
+    model class (#87) — re-atomization re-inserts them, and V2 only
+    reports (repair is a manual owner action, drift #86). Scope is
+    bounded to prompt-defined structures: the "(Context: ...; Status:
+    ...)" parenthetical, "(as of ...)" markers, and Chronology lines.
+    Dates in free prose are left for V2 — removing text from prose is
+    not safe surgery. A token is grounded when it appears verbatim in
+    the source OR is covered by a parsed source date (_covers: an atom
+    date more precise than the source is an invention). Stripping
+    loses precision, never truth: a "when" question gets an evasive
+    answer (atoms-undated-1, known model limitation) instead of a
+    false date. Returns (grounded text, removed token count).
+    """
+    source = src.read_text(encoding="utf-8", errors="replace")
+    source_dates = frozenset(tok for _, tok in _parse_date_tokens(source))
+
+    def _grounded(match: re.Match[str]) -> bool:
+        if match.group(0) in source:
+            return True
+        token = _match_to_token(match)
+        if token is None:
+            return True
+        return any(_covers(src_tok, token) for src_tok in source_dates)
+
+    removed = 0
+
+    def _strip(fragment: str) -> str:
+        def _repl(match: re.Match[str]) -> str:
+            nonlocal removed
+            if _grounded(match):
+                return match.group(0)
+            removed += 1
+            return ""
+
+        return _DATE_RE.sub(_repl, fragment)
+
+    def _fix_label_paren(match: re.Match[str]) -> str:
+        fixed = _strip(match.group(0))
+        # Tidy separators the removal leaves behind:
+        # "(Context: , project; Status: fact)" -> "(Context: project; ...)"
+        fixed = re.sub(r":\s*,\s*", ": ", fixed)
+        fixed = re.sub(r",\s*,\s*", ", ", fixed)
+        return re.sub(r"\s{2,}", " ", fixed)
+
+    def _fix_as_of_paren(match: re.Match[str]) -> str:
+        """Drop the whole "(as of ...)" marker when its date is ungrounded."""
+        nonlocal removed
+        keep = True
+        for m in _DATE_RE.finditer(match.group(0)):
+            if not _grounded(m):
+                removed += 1
+                keep = False
+        return match.group(0) if keep else ""
+
+    lines = atoms_text.splitlines()
+    out: list[str] = []
+    section = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#") or not stripped:
+            if stripped.startswith("#"):
+                section = stripped.lstrip("#").strip().lower()
+            out.append(line)
+            continue
+        if section.startswith("chronology"):
+            fixed = _strip(line)
+            if fixed != line:
+                # A Chronology line leads with its date; drop the
+                # separator the removal leaves: " - topic - outcome".
+                fixed = re.sub(r"^\s*[-—–]\s*", "", fixed)  # noqa: RUF001
+                fixed = re.sub(r"\s{2,}", " ", fixed)
+                fixed = re.sub(r"\s+([.,;])", r"\1", fixed)
+            out.append(fixed)
+            continue
+        fixed = _LABEL_PAREN_RE.sub(_fix_label_paren, line)
+        fixed = _AS_OF_PAREN_RE.sub(_fix_as_of_paren, fixed)
+        if fixed != line:
+            fixed = re.sub(r"\s{2,}", " ", fixed)
+            fixed = re.sub(r"\s+([.,;])", r"\1", fixed)
+        out.append(fixed)
+    return "\n".join(out), removed
 
 
 def _conflicts(first: DateToken, second: DateToken) -> bool:
