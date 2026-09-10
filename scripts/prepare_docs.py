@@ -45,6 +45,14 @@ Usage:
   python scripts/prepare_docs.py --validate   # check atoms-* (V1-V6),
                                               # read-only
   python scripts/prepare_docs.py --src DIR --dest DIR FILE
+
+Atomization basket (drift #92): bare --atoms/--full (no FILE) read
+data/raw_documents_atom/ ONLY — never the whole raw_documents dir.
+Copy (not move) a document there to have it atomized; keep the
+original in raw_documents (splitting and validation need it). An
+empty basket is a quiet skip; an explicit --src is respected; the
+output stays single: atoms-*.md land in data/documents/ beside the
+split parts.
 """
 
 from __future__ import annotations
@@ -63,6 +71,13 @@ import httpx
 import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Atoms-intent basket: documents placed here are atomized by
+# --full/--atoms with no FILES argument (drift #92: atomization is a
+# per-document owner decision — never folder-wide default). The
+# OUTPUT stays single: atoms-*.md files land in data/documents/ next
+# to the split parts, as before. Symlinks are followed.
+_ATOMS_SRC_DIR = _PROJECT_ROOT / "data" / "raw_documents_atom"
 
 # 150 KB ~= 300 chunks ~= 45 s at the measured CPU rate (~7 chunks/s):
 # fits the 600 s watcher window with headroom. On GPU embedding the
@@ -1468,7 +1483,9 @@ def main() -> int:
     parser.add_argument(
         "--src",
         default=str(_PROJECT_ROOT / "data" / "raw_documents"),
-        help="Source directory with original documents",
+        help="Source directory with original documents (atoms modes "
+        "redirect to the raw_documents_atom basket when this is left "
+        "at its default)",
     )
     parser.add_argument(
         "--dest",
@@ -1478,7 +1495,10 @@ def main() -> int:
     parser.add_argument(
         "--atoms",
         action="store_true",
-        help="Only extract knowledge atoms (e.g. after a prompt change)",
+        help="Only extract knowledge atoms. Without FILES this reads "
+        "data/raw_documents_atom/ (the atomization basket, drift #92) — "
+        "NOT the whole source dir; pass a file name to target one "
+        "document explicitly",
     )
     parser.add_argument(
         "--split",
@@ -1533,6 +1553,24 @@ def main() -> int:
                 path = src_dir / name
             targets.append(path)
     else:
+        # Drift #92: bare --atoms/--full must never sweep the whole
+        # raw_documents dir. Without FILES the atoms modes read the
+        # intent basket only; split modes keep raw_documents as-is.
+        # An EXPLICIT --src is respected (owner-directed run); the
+        # runner menu never passes --src, so it stays basket-safe.
+        _default_src = str(_PROJECT_ROOT / "data" / "raw_documents")
+        if (args.atoms or args.full) and args.src == _default_src:
+            src_dir = _ATOMS_SRC_DIR
+            src_dir.mkdir(parents=True, exist_ok=True)
+            basket_targets = [
+                p for p in src_dir.iterdir() if p.is_file()
+            ]
+            if not basket_targets:
+                print(
+                    "[SKIP] atomization basket is empty: "
+                    f"nothing to atomize in {src_dir}"
+                )
+                return 0
         if not src_dir.exists():
             print(f"[ERROR] source dir not found: {src_dir}", file=sys.stderr)
             return 1

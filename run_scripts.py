@@ -195,6 +195,13 @@ def _prepare_docs_mode() -> list[str]:
     print("    [1] split only   (default, instant)")
     print("    [2] atoms + split (LLM extraction, slow)")
     print("    [3] validate atoms (read-only contract check)")
+    print()
+    print("  [1] splits everything new from data/raw_documents/")
+    print("      (cleaned of image noise); skips unchanged files.")
+    print("  [2] same, plus atoms for the files you COPIED into")
+    print("      data/raw_documents_atom/ (keep the originals in")
+    print("      raw_documents — the copy is the atomization list).")
+    print("      Empty basket = nothing to do (quiet skip).")
     try:
         mode = input("  Choice [1]: ").strip() or "1"
     except (EOFError, KeyboardInterrupt):

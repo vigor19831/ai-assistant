@@ -1551,3 +1551,89 @@ def test_strip_markdown_noise_keeps_plain_links() -> None:
     raw = b"Link [text](https://example.com/page) stays.\n"
     out = prepare_docs._strip_markdown_noise(raw)
     assert b"[text](https://example.com/page)" in out
+
+# --- Atoms intent basket (drift #92): bare --atoms reads
+# data/raw_documents_atom/ only, never the whole raw_documents dir.
+
+
+def test_atoms_mode_empty_basket_skips_quietly(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Bare --atoms with an empty basket: a quiet skip, not an error.
+
+    An empty basket is a normal state (drift #92), not a failure.
+    """
+    basket = tmp_path / "raw_documents_atom"
+    monkeypatch.setattr(prepare_docs, "_ATOMS_SRC_DIR", basket)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "prepare_docs.py",
+            "--atoms",
+            "--dest",
+            str(tmp_path / "documents"),
+        ],
+    )
+    rc = prepare_docs.main()
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "atomization basket is empty" in out
+
+
+def test_atoms_mode_atomizes_basket_not_raw_docs(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Bare --atoms atomizes basket files only; raw_documents untouched."""
+    basket = tmp_path / "raw_documents_atom"
+    basket.mkdir()
+    (basket / "two.md").write_text(
+        "User asked about a topic.\nAssistant answered with a fact.\n",
+        encoding="utf-8",
+    )
+    raw = tmp_path / "raw_documents"
+    raw.mkdir()
+    (raw / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(prepare_docs, "_ATOMS_SRC_DIR", basket)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "prepare_docs.py",
+            "--atoms",
+            "--dest",
+            str(dest),
+        ],
+    )
+    calls: list[dict[str, object]] = []
+
+    def _post(url, json=None, timeout=None):
+        calls.append({"url": url, "timeout": timeout, "messages": json})
+
+        class _Resp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": (
+                                    "## Facts\n"
+                                    "- **[Basket fact]** -- detail.\n"
+                                    "(Context: no date; Status: fact)\n"
+                                )
+                            }
+                        }
+                    ]
+                }
+
+        return _Resp()
+
+    monkeypatch.setattr(prepare_docs.httpx, "post", _post)
+    rc = prepare_docs.main()
+    assert rc == 0
+    assert len(calls) == 1, "exactly one LLM call — only the basket file"
+    assert (dest / "atoms-two.md").is_file()
+    assert not (dest / "atoms-one.md").exists()
+
