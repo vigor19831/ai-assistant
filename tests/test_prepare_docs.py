@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -1637,3 +1638,28 @@ def test_atoms_mode_atomizes_basket_not_raw_docs(
     assert (dest / "atoms-two.md").is_file()
     assert not (dest / "atoms-one.md").exists()
 
+
+def test_needs_processing_home_edit_stales_atoms(
+    tmp_path, monkeypatch
+) -> None:
+    """Editing the HOME original stales the atoms even when the
+    basket copy is old (drift #92; freshness watches both homes)."""
+    basket = tmp_path / "raw_documents_atom"
+    basket.mkdir()
+    dest = tmp_path / "documents"
+    dest.mkdir()
+    home_dir = tmp_path / "raw_documents"
+    home_dir.mkdir()
+    monkeypatch.setattr(prepare_docs, "_RAW_DOCS_DIR", home_dir)
+
+    src = basket / "chat.md"
+    src.write_text("# chat\n", encoding="utf-8")
+    home = home_dir / "chat.md"
+    home.write_text("# chat edited\n", encoding="utf-8")
+    atoms_file = dest / "atoms-chat.md"
+    atoms_file.write_text("## Facts\n", encoding="utf-8")
+    os.utime(atoms_file, (1, 1))  # very old atoms
+
+    assert prepare_docs._needs_processing(
+        src, dest, atoms=True, split=False
+    ) is True

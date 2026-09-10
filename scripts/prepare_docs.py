@@ -78,6 +78,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # OUTPUT stays single: atoms-*.md files land in data/documents/ next
 # to the split parts, as before. Symlinks are followed.
 _ATOMS_SRC_DIR = _PROJECT_ROOT / "data" / "raw_documents_atom"
+_RAW_DOCS_DIR = _PROJECT_ROOT / "data" / "raw_documents"
 
 # 150 KB ~= 300 chunks ~= 45 s at the measured CPU rate (~7 chunks/s):
 # fits the 600 s watcher window with headroom. On GPU embedding the
@@ -646,6 +647,13 @@ def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bo
     if atoms:
         atoms_file = dest_dir / f"atoms-{src.stem}{src.suffix}"
         if not atoms_file.exists() or atoms_file.stat().st_mtime < src_mtime:
+            return True
+        # The basket file is a COPY of the home original (drift #92):
+        # editing the home original must stale the atoms even though
+        # the copy's own mtime never moved (#66 class — freshness must
+        # watch the artifact's true source, both of its homes).
+        home = _RAW_DOCS_DIR / src.name
+        if home.is_file() and atoms_file.stat().st_mtime < home.stat().st_mtime:
             return True
     return False
 
