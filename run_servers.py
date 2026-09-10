@@ -279,7 +279,8 @@ def _start_api(cfg: dict[str, Any], root: Path, py: str) -> None:
     (root / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
 
     if wait_port(port):
-        print(f"  + API ready  http://{host}:{port}\n")
+        print(f"  + API ready  http://{host}:{port}")
+        print(f"    PID {proc.pid} — born now; fresh code guaranteed\n")
     else:
         print(f"  ! API did not respond on port {port}\n")
 
@@ -293,8 +294,24 @@ def start(root: Path) -> int:
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
             os.kill(pid, 0)
-            print(f"  ! Server already running (PID {pid})")
-            print("    Use: python run_servers.py stop")
+            print(f"\n  ! Server already running (PID {pid})")
+            print("    Nothing was started or restarted.")
+            print("    To apply code changes: stop, then start.")
+            # When the live server was born — compare with your last
+            # code edit in one glance (the day's trap: a stale process
+            # mistaken for "code not applied").
+            try:
+                out = subprocess.run(
+                    ["ps", "-o", "lstart=", "-p", str(pid)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                ).stdout.strip()
+                if out:
+                    print(f"    Live server started: {out}")
+            except OSError:
+                pass
+            print("    Use: python run_servers.py stop\n")
             return 1
         except (ProcessLookupError, ValueError, OSError):
             print("  > Removed stale PID file")
