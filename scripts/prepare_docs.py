@@ -389,11 +389,13 @@ def _dedup_atoms(atoms_text: str) -> tuple[str, int]:
     parts' answers, so the prompt's FINAL instruction to "merge
     duplicate atoms from all parts" is structurally unfulfillable and
     cross-part duplicates survive. An atom is identified by its
-    normalized statement line (whitespace collapsed, lowercased); a
-    repeat statement drops the whole atom block (statement plus
-    continuation lines, via _atom_bounds). Only EXACT statement
-    duplicates are removed — semantic near-duplicates stay for the
-    reranker to handle. Returns (deduped text, removed atom count).
+    normalized WHOLE block (statement plus continuation lines via
+    _atom_bounds, whitespace collapsed, lowercased): the same statement
+    with a different Context is a DIFFERENT atom and survives —
+    dropping it would lose knowledge (dev-2024-03 vs prod-2024-08
+    configurations). Only exact block duplicates are removed —
+    semantic near-duplicates stay for the reranker to handle.
+    Returns (deduped text, removed atom count).
     """
     seen: set[str] = set()
     lines = atoms_text.splitlines()
@@ -403,9 +405,11 @@ def _dedup_atoms(atoms_text: str) -> tuple[str, int]:
     while idx < len(lines):
         line = lines[idx]
         if _ATOM_START_RE.match(line) is not None:
-            key = re.sub(r"\s+", " ", line.strip().lower())
+            _start, end = _atom_bounds(lines, idx)
+            key = re.sub(
+                r"\s+", " ", "\n".join(lines[idx : end + 1]).strip().lower()
+            )
             if key in seen:
-                _start, end = _atom_bounds(lines, idx)
                 removed += 1
                 idx = end + 1
                 continue
@@ -667,7 +671,7 @@ _RU_MONTHS_ALT = "|".join(sorted(_RU_MONTHS, key=len, reverse=True))
 # .capitalize() because the dict keys are lowercase (the lookup side
 # lowercases too); building from the raw keys matched nothing
 # (2026-09-08, caught by test_extraction_forms).
-_EN_MONTHS_CAPS = (name.capitalize() for name in _EN_MONTHS)
+_EN_MONTHS_CAPS = [name.capitalize() for name in _EN_MONTHS]
 _EN_MONTHS_ALT = "|".join(sorted(_EN_MONTHS_CAPS, key=len, reverse=True))
 _YEAR = r"(?:19|20)\d{2}"
 

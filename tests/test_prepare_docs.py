@@ -1460,3 +1460,18 @@ def test_validate_decisions_fallback_demotes_fabricated_quote(tmp_path) -> None:
     validated, demoted = prepare_docs._validate_decisions(atoms, src)
     assert demoted == 1
     assert "Status: recommendation" in validated
+
+
+def test_dedup_atoms_keeps_same_statement_different_context() -> None:
+    atoms = (
+        "## Facts\n"
+        "- **[Server configured]** -- tuned.\n"
+        "  (Context: dev, 2024-03; Status: fact)\n"
+        "\n"
+        "## Facts\n"
+        "- **[Server configured]** -- tuned.\n"
+        "  (Context: prod, 2024-08; Status: fact)\n"
+    )
+    deduped, removed = prepare_docs._dedup_atoms(atoms)
+    assert removed == 0
+    assert deduped.count("Server configured") == 2
