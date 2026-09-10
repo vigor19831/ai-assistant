@@ -1357,7 +1357,17 @@ class TestArchivistE2E:
 
         violations = prepare_docs.validate_file(atoms, src.parent)
         errors = [v for v in violations if v.severity == "error"]
-        assert not errors, f"archivist contract violations: {errors}"
+        # V5 is EXPECTED here: the fixture's canned atoms are mostly
+        # English while the synthetic chat is RU, and the source-based
+        # V5 (2026-09-10) flags exactly that — the model-class language
+        # limitation the fixture mirrors, not an archivist-contract
+        # violation. V5 has dedicated unit tests; the positive check
+        # below locks the source-based behavior into the e2e path.
+        non_v5 = [v for v in errors if v.check != "V5"]
+        assert not non_v5, f"archivist contract violations: {non_v5}"
+        assert any(v.check == "V5" for v in errors), (
+            "source-based V5 found no script mismatch in the EN fixture"
+        )
 
         text = atoms.read_text(encoding="utf-8")
         # The acceptance survives in either observed form: labeled
@@ -1475,3 +1485,69 @@ def test_dedup_atoms_keeps_same_statement_different_context() -> None:
     deduped, removed = prepare_docs._dedup_atoms(atoms)
     assert removed == 0
     assert deduped.count("Server configured") == 2
+
+
+def test_check_script_source_flips_file_reference() -> None:
+    """A fully-EN atoms file from an RU source: the atom flags (#67)."""
+    text = (
+        "## Facts\n"
+        "- **[Fully latin atom statement long enough for counting]**"
+        " -- supporting detail text follows here.\n"
+    )
+    source = "Полностью русский чат без ссылок и картинок."
+    out = prepare_docs._check_script(text, "a.md", source_text=source)
+    assert len(out) == 1
+    assert out[0].check == "V5"
+
+
+def test_check_script_source_kills_false_flag() -> None:
+    """RU atoms in an EN-flipped file: no flags — the source is RU."""
+    text = (
+        "## Facts\n"
+        "- **[Русский атом с достаточным количеством букв]**"  # noqa: RUF001
+        " -- деталь и подробность текста.\n"
+    )
+    source = "Русский чат."
+    out = prepare_docs._check_script(text, "a.md", source_text=source)
+    assert out == ()
+
+
+def test_check_script_source_urls_do_not_flip_reference() -> None:
+    """Image-link latin in the source must not flip it to EN."""
+    text = (
+        "## Facts\n"
+        "- **[English atom statement long enough for counting]**"
+        " -- detail text follows.\n"
+    )
+    source = "https://images.example.com/a.png" * 30 + " Русский текст."
+    out = prepare_docs._check_script(text, "a.md", source_text=source)
+    assert len(out) == 1
+
+
+def test_strip_markdown_noise_removes_images_not_text() -> None:
+    raw = (
+        b"# Title\n\n"
+        b"Text before.\n\n"
+        b"![Hamilton Khaki Field Quartz](https://images.example.com/a.png)\n\n"
+        b"Text after.\n"
+    )
+    out = prepare_docs._strip_markdown_noise(raw)
+    assert b"images.example.com" not in out
+    assert b"Text before." in out
+    assert b"Text after." in out
+
+
+def test_strip_markdown_noise_removes_favicon_wrappers() -> None:
+    raw = (
+        b"See [![](https://www.google.com/s2/favicons?domain=gq.com&sz=128)"
+        b"GQ](https://www.gq.com/story) source.\n"
+    )
+    out = prepare_docs._strip_markdown_noise(raw)
+    assert b"favicons" not in out
+    assert b"source." in out
+
+
+def test_strip_markdown_noise_keeps_plain_links() -> None:
+    raw = b"Link [text](https://example.com/page) stays.\n"
+    out = prepare_docs._strip_markdown_noise(raw)
+    assert b"[text](https://example.com/page)" in out

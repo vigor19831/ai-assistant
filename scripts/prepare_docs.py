@@ -514,14 +514,40 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
     return target
 
 
+# Markdown image noise from AI-service exports: the full ![alt](url)
+# tag and the favicon-wrapped [![](favicon)](link) variant. Pure
+# export artifacts — no retrieval value, half the bytes of a typical
+# export. Code spans/blocks are NOT touched. Byte pattern: the image
+# URL alphabet is ASCII, and splitting operates on bytes.
+_MD_IMAGE_BYTES_RE = re.compile(
+    rb"!?\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)"
+)
+
+
+def _strip_markdown_noise(raw: bytes) -> bytes:
+    """Remove markdown image noise from raw bytes.
+
+    Idempotent: a second pass finds nothing. Returns the input object
+    unchanged when no match exists (the fast-path guards).
+    """
+    if b"](" not in raw and b"![" not in raw:
+        return raw
+    return _MD_IMAGE_BYTES_RE.sub(b"", raw)
+
+
 def split_file(src: Path, dest_dir: Path) -> list[Path]:
     """Split src into parts of ~PART_BYTES at line boundaries.
 
     Returns the list of created part files. Files under the
-    threshold are copied as-is (single "part").
+    threshold are copied as-is (single "part"). Markdown image noise
+    (![...](url) and their favicon wrappers) is stripped BEFORE
+    splitting, on every path (split-only included): image links are
+    pure embedding-export noise, they burn the token budget and add
+    nothing to retrieval.
     """
-    data = src.read_bytes()
+    raw = src.read_bytes()
     stem = src.stem
+    data = _strip_markdown_noise(raw)
 
     # Reconcile FIRST: remove split outputs impossible for the current
     # source size — the stale as-is copy of a file that grew past the
@@ -1053,9 +1079,19 @@ def _strip_template(atom: str) -> str:
     return "\n".join(kept)
 
 
-def _check_script(text: str, fname: str) -> tuple[Violation, ...]:
-    """V5: atoms in the file's non-dominant script (drift #67).
+def _check_script(
+    text: str,
+    fname: str,
+    source_text: str | None = None,
+) -> tuple[Violation, ...]:
+    """V5: atoms in the source's non-dominant script (drift #67).
 
+    The reference script is the SOURCE chat's, not the atoms file's:
+    a model can flip an entire file's language (proved 2026-09-10:
+    chasov atoms cyr=0 in an RU chat), which the old file-relative
+    check cannot see — and it flagged the surviving CORRECT atoms as
+    foreign. Falls back to the file's own dominant script when no
+    source is available (the chat's language is then unknowable).
     The dominant script is computed over template-stripped atom
     CONTENT, not raw text: label parens carry English values even in
     RU atoms ("project:", "conditions:") and raw counting flips the
@@ -1070,9 +1106,27 @@ def _check_script(text: str, fname: str) -> tuple[Violation, ...]:
     ]
     cyrillic_total = sum(len(_CYR_RE.findall(c)) for _, c in contents)
     latin_total = sum(len(_LAT_RE.findall(c)) for _, c in contents)
-    if cyrillic_total + latin_total < _MIN_FILE_LETTERS:
+    source_is_ru: bool | None = None
+    if source_text is not None:
+        # Strip URLs before counting: chat exports are full of image
+        # links, and their latin hostnames would flip an RU source.
+        # No thresholds on the source side: even a short chat states
+        # its language unambiguously, and a quiet fallback to the
+        # FILE's script would hide a whole-file flip (test-caught).
+        plain = re.sub(r"https?://\S+", " ", source_text)
+        source_is_ru = len(_CYR_RE.findall(plain)) > len(_LAT_RE.findall(plain))
+    if (
+        source_is_ru is None
+        and cyrillic_total + latin_total < _MIN_FILE_LETTERS
+    ):
+        # No source AND the file itself is too short to have a
+        # decidable dominant script — nothing to compare against.
+        # With a source the file-size threshold does not apply: the
+        # reference is external, only the per-atom minimum guards.
         return ()
-    file_is_ru = cyrillic_total > latin_total
+    file_is_ru = source_is_ru if source_is_ru is not None else (
+        cyrillic_total > latin_total
+    )
     out: list[Violation] = []
     for start, content in contents:
         cyrillic = len(_CYR_RE.findall(content))
@@ -1089,8 +1143,8 @@ def _check_script(text: str, fname: str) -> tuple[Violation, ...]:
                 severity="error",
                 line=start,
                 message=(
-                    f"{script} atom in an "
-                    f"{'RU' if file_is_ru else 'EN'}-dominant file "
+                    f"{script} atom while the source chat is "
+                    f"{'RU' if file_is_ru else 'EN'} "
                     f"({foreign}/{total} letters)"
                 ),
             ))
@@ -1210,7 +1264,7 @@ def validate_text(
     violations: list[Violation] = []
     violations.extend(_check_decisions(text, fname))
     violations.extend(_check_creative(text, fname))
-    violations.extend(_check_script(text, fname))
+    violations.extend(_check_script(text, fname, source_text=source_text))
     violations.extend(_check_chronology(text, fname))
     violations.extend(_check_dates(text, fname, source_text, source_label))
     return tuple(sorted(violations, key=_violation_sort_key))
