@@ -2721,7 +2721,9 @@ class TestSourceWatcher:
         watcher._index_tasks[str(tmp_path)] = MagicMock()  # type: ignore[index]
         # attr-defined: Task type has no .done mock attr — test-only
         watcher._index_tasks[str(tmp_path)].done.return_value = False  # type: ignore[attr-defined]
-        watcher._snapshots[str(tmp_path)] = watcher._scan(tmp_path)
+        watcher._snapshots[str(tmp_path)] = watcher._scan(
+            tmp_path, ["*.md", "*.txt"]
+        )
 
         await watcher._check_once()
 

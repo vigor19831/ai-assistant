@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fnmatch
 import os
 import time
 import uuid
@@ -365,11 +366,17 @@ class SourceWatcher:
         self._index_tasks: dict[str, asyncio.Task[None]] = {}
 
     @staticmethod
-    def _scan(path: Path) -> dict[str, tuple[float, int]]:
-        """Return {abspath: (mtime, size)} for all files under path."""
+    def _scan(path: Path, patterns: list[str]) -> dict[str, tuple[float, int]]:
+        """Return {abspath: (mtime, size)} for files matching *patterns*.
+
+        Only matched files: a change in an ignored neighbor (e.g. a
+        .zip dropped into documents/) must not trigger a reindex pass.
+        """
         snapshot: dict[str, tuple[float, int]] = {}
         for root, _, files in os.walk(path):
             for name in files:
+                if not any(fnmatch.fnmatch(name, pat) for pat in patterns):
+                    continue
                 fp = Path(root) / name
                 try:
                     st = fp.stat()
@@ -388,7 +395,7 @@ class SourceWatcher:
             if task is not None and not task.done():
                 _logger.debug("Skipping reindex, still running", extra={"source": key})
                 continue
-            current = await asyncio.to_thread(self._scan, path)
+            current = await asyncio.to_thread(self._scan, path, src.include)
             previous = self._snapshots.get(key, {})
             if current != previous:
                 _logger.info("Source changed, reindexing", extra={"source": src.path})
