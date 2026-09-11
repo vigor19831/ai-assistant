@@ -262,8 +262,14 @@ def download(repo: str, dest: Path, token: str | None, max_retries: int = 3) -> 
                     print(f"  HTTP {resp.status}")
                     return False
                 data = resp.read()
-            with open(out, "wb") as f_out:
+            # Atomic write: a partially downloaded tokenizer.json would
+            # otherwise brick startup (drift #73 fatal path) until
+            # manually deleted. Temp + rename leaves either the old
+            # file or the complete new one — never a half.
+            tmp = out.with_suffix(".tmp")
+            with open(tmp, "wb") as f_out:
                 f_out.write(data)
+            tmp.replace(out)
             size = out.stat().st_size
             print(f"  saved {size} bytes")
             return True

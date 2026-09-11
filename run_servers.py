@@ -171,6 +171,20 @@ def _wait_for_stop() -> None:
     print()
 
 
+def _pid_alive(pid: int) -> bool:
+    """True if *pid* exists. os.kill(pid, 0) kills the process on Windows."""
+    if os.name == "nt":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, check=False
+        ).stdout
+        return str(pid) in out.decode(errors="replace")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 # ── Server lifecycle ─────────────────────────────────────────────────────────
 def _start_llm_server(
     cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
@@ -293,7 +307,8 @@ def start(root: Path) -> int:
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
-            os.kill(pid, 0)
+            if not _pid_alive(pid):
+                raise ProcessLookupError(f"PID {pid} is not running")
             print(f"\n  ! Server already running (PID {pid})")
             print("    Nothing was started or restarted.")
             print("    To apply code changes: stop, then start.")

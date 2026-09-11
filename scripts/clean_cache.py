@@ -12,8 +12,8 @@ import contextlib
 import errno
 import os
 import shutil
+import socket
 import stat
-import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -66,6 +66,10 @@ NEVER_TOUCH: set[str] = {
     ".env",
 }
 
+# Stack ports: LLM 8080, embedder 8081, reranker 8082, API 8000.
+# Mirrors PORTS in run_servers.py — edit both together.
+_STACK_PORTS: tuple[int, ...] = (8080, 8081, 8082, 8000)
+
 
 # ── Logic ──
 
@@ -88,12 +92,10 @@ def _stack_running() -> bool:
     the log never reappears until restart) — the Windows "locked"
     behavior must be explicit here, not OS-dependent.
     """
-    for proc in ("llama-server", "uvicorn"):
-        found = shutil.which("pgrep")
-        if found and subprocess.run(
-            ["pgrep", "-f", proc], capture_output=True
-        ).returncode == 0:
-            return True
+    for port in _STACK_PORTS:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                return True
     return False
 
 

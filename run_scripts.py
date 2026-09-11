@@ -27,7 +27,12 @@ if (
     and Path(sys.executable).resolve() != _venv_py.resolve()
     and "--venv-relaunched" not in sys.argv
 ):
-    os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
+    _script = str(Path(__file__).resolve())
+    if os.name == "nt":
+        # subprocess.call keeps the console window on Windows double-click
+        sys.exit(subprocess.call([str(_venv_py), _script, *sys.argv[1:]]))
+    else:
+        os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

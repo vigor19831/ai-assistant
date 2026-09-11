@@ -3,6 +3,7 @@
 Production-grade offline RAG framework for solo maintainers.
 
 - **Offline-first**: works without cloud, your data never leaves your machine
+- **Language coverage**: multilingual by design (bge-m3 embedder); measured on Russian and English corpora — the atoms validator is not yet measured on other scripts (e.g. CJK, Devanagari)
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
 - **Measured quality**: 17/17 contract tests + 30–31/34 capability tests + 8–9/9 chat e2e on 4GB VRAM hardware
 - **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one known 7B chat flake, see docs)
