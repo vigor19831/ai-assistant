@@ -214,8 +214,6 @@ def _start_llm_server(
         "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
         "-c", str(llm_cfg.get("server_context_size", 4096)),
     ]
-    if llm_cfg.get("flash_attn"):
-        cmd.extend(["--flash-attn", "on"])
     # Low-level arguments now come exclusively from run_servers.yaml
     extra = launch.get("llm", {}).get("extra_args", [])
     if extra:
