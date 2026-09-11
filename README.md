@@ -3,9 +3,9 @@
 Production-grade offline RAG framework for solo maintainers.
 
 - **Offline-first**: works without cloud, your data never leaves your machine
-- **Language coverage**: multilingual by design (bge-m3 embedder); measured on Russian and English corpora — the atoms validator is not yet measured on other scripts (e.g. CJK, Devanagari)
+- **Language coverage**: multilingual by design (bge-m3 embedder); quality measured on Russian and English corpora — other scripts not yet measured
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
-- **Measured quality**: 17/17 contract tests + 30–31/34 capability tests + 8–9/9 chat e2e on 4GB VRAM hardware
+- **Measured quality**: 17/17 contract tests + 30–31/34 capability tests + 8–9/9 chat e2e on 4GB VRAM hardware (Qwen2.5-7B, llama.cpp build of 2026-09-07)
 - **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one known 7B chat flake, see docs)
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
@@ -50,6 +50,11 @@ Production-grade offline RAG framework for solo maintainers.
 Every release is validated against `check_rag.py` — a 51-case benchmark covering retrieval, ranking, generation, and edge cases.
 
 ### Current Results (Qwen2.5-7B-Instruct IQ4_XS, 20 GPU layers, 4GB VRAM)
+
+Measured on the llama.cpp build of 2026-09-07. The engine was updated
+2026-09-10; only the 4B profile is re-baselined on the new build so far
+(16/17 + 7/9 + 28/34, ×2 stable — see `docs/drift.md`). The 7B canon
+moves to the new build after the next re-baseline ×2.
 
 Config: context window 8192, `max_context_tokens` 4800,
 `history_limit` 6, token margin 0.10 (see `docs/drift.md` #68 —
@@ -114,13 +119,13 @@ Phi-4-mini chat-fallback) covers the residual gaps.
 | Reranker | bge-reranker-v2-m3 (CPU) |
 | Performance | 5–10 tok/s, 3–6 seconds per query |
 
-### Recommended (8GB+ VRAM)
+### Recommended (12GB+ VRAM)
 
 | Component | Value |
 |-----------|-------|
-| GPU | RTX 3060 or better (8GB+ VRAM) |
-| LLM | Qwen2.5-14B-Instruct Q4_K_M (~9GB, full GPU offload) |
-| Performance | 20–30 tok/s, 1–2 seconds per query |
+| GPU | 12GB+ VRAM (e.g. RTX 3060 12GB) |
+| LLM | Qwen2.5-14B-Instruct Q4_K_M (~9GB, full GPU offload; the 14B class needs 12GB+ VRAM — measured verdict, see Hardware Ceiling Log) |
+| Performance | 20–30 tok/s, 1–2 seconds per query (estimate; measured on the 4GB minimum: 5–10 tok/s) |
 
 Full campaign history, verdicts (King / Heir / Rejected), per-run
 details and the throne decision: `docs/architecture.md` §14.
@@ -290,6 +295,11 @@ After cloning the repo:
 4. **`data/documents/`** — create this folder and put your `.md` / `.txt` files here. They auto-index when the server starts. Files >150 KB: place originals in `data/raw_documents/` and run `python scripts/prepare_docs.py` — large single files exceed the indexing window and never complete.
 
 Everything else (`data/indices/`, `data/storage.db`, `data/tokenizers/`) is created automatically on first run.
+
+**Backups**: the git repo stores only code. Your data — `data/` (chat
+history, indices, documents) and `config.yaml` — is not in it. Copy
+both regularly; a dead disk is the one failure this project cannot
+recover from.
 
 ---
 
