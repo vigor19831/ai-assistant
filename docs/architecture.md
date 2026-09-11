@@ -70,7 +70,7 @@ Optimize for quality, not features. Improve incrementally — one area per itera
 ### 2.9. Ingestion Pipeline
 
 ```
-raw_documents/    chat exports --full
+raw_documents/    atomize/ (moved, --full)
         │                │
         ▼                ▼
    split ~12 KB     split + atoms
@@ -81,7 +81,7 @@ raw_documents/    chat exports --full
 ```
 
 - **Split**: files >150 KB → ~12 KB parts; small pass as-is. Idempotent by mtime (#66).
-- **Atoms**: explicit, just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65).
+- **Atoms**: explicit (a chat MOVED into raw_documents/atomize/ — location is the intent, drift #108), just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65).
 - **Validate**: static read-only contract check over the atoms output (V1–V6, drift #86/#87) — the enforcement arm of the boundary below: ingestion defects surface as a run-total at creation and in full via `prepare_docs --validate`, never silently. The producer itself stays quiet (owner decision); repair is a separate owner action, never automatic.
 - **Watch**: one document = one checkpoint; a kill loses one doc, the next pass resumes (#64). One reindex path at a time (#62). The 600 s window is a pause, not a reset.
 - Past this boundary only §2.2 RAG applies: the index answers from what ingestion put in — a polluted index is an ingestion defect, not a retrieval one.

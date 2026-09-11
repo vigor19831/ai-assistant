@@ -154,12 +154,15 @@ Large corpus (>150 KB files): split first via scripts/prepare_docs.py
 (data/raw_documents/ -> data/documents/). For faster indexing see the
 GPU embedding profile in config.example.yaml (embedder section).
 
-Chat exports (AI conversations, decision-heavy dialogs): extract
-knowledge atoms via `python scripts/prepare_docs.py --full FILE` —
+Chat exports (AI conversations, decision-heavy dialogs): MOVE the
+file into `data/raw_documents/atomize/` and run mode [2] in the
+script runner (same as `python scripts/prepare_docs.py --full`) —
 the archivist LLM distills status-disciplined atoms (fact / decision
 with exact user quote / recommendation / hypothesis). Atoms guard
 against advice being read as a decision a year later (measured
-cross-model, drift #67). Then audit them: `python
+cross-model, drift #67). Location is the intent: root files are
+split-only, atomize/ files get atoms + split; one home per file, no
+copies (drift #108). Then audit them: `python
 scripts/prepare_docs.py --validate` — a read-only V1–V6 contract
 check (drift #87); the producer itself prints only a run-total error
 count pointing to the audit. Known 4B residuals: stable invented

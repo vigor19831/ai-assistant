@@ -1557,19 +1557,19 @@ def test_strip_markdown_noise_keeps_plain_links() -> None:
     out = prepare_docs._strip_markdown_noise(raw)
     assert b"[text](https://example.com/page)" in out
 
-# --- Atoms intent basket (drift #92): bare --atoms reads
-# data/raw_documents_atom/ only, never the whole raw_documents dir.
+# --- Atomization intent folder (drift #108): bare --atoms/--full read
+# the atomize/ subfolder of the default source tree; root files stay
+# split-only. Location IS the per-document intent — one home, no
+# copies.
 
 
-def test_atoms_mode_empty_basket_skips_quietly(
+def test_atoms_mode_empty_atomize_folder_skips_quietly(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    """Bare --atoms with an empty basket: a quiet skip, not an error.
-
-    An empty basket is a normal state (drift #92), not a failure.
-    """
-    basket = tmp_path / "raw_documents_atom"
-    monkeypatch.setattr(prepare_docs, "_ATOMS_SRC_DIR", basket)
+    """Bare --atoms with an empty atomize folder: a quiet skip, not an error."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -1582,24 +1582,23 @@ def test_atoms_mode_empty_basket_skips_quietly(
     rc = prepare_docs.main()
     assert rc == 0
     out = capsys.readouterr().out
-    assert "atomization basket is empty" in out
+    assert "atomize folder is empty" in out
 
 
-def test_atoms_mode_atomizes_basket_not_raw_docs(
-    tmp_path, monkeypatch, capsys
+def test_atoms_mode_atomizes_atomize_folder_not_root(
+    tmp_path, monkeypatch
 ) -> None:
-    """Bare --atoms atomizes basket files only; raw_documents untouched."""
-    basket = tmp_path / "raw_documents_atom"
-    basket.mkdir()
-    (basket / "two.md").write_text(
+    """Bare --atoms atomizes atomize/ files only; root files untouched."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    atomize = src / "atomize"
+    atomize.mkdir(parents=True)
+    (atomize / "two.md").write_text(
         "User asked about a topic.\nAssistant answered with a fact.\n",
         encoding="utf-8",
     )
-    raw = tmp_path / "raw_documents"
-    raw.mkdir()
-    (raw / "one.md").write_text("# one\n", encoding="utf-8")
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
     dest = tmp_path / "documents"
-    monkeypatch.setattr(prepare_docs, "_ATOMS_SRC_DIR", basket)
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -1609,57 +1608,172 @@ def test_atoms_mode_atomizes_basket_not_raw_docs(
             str(dest),
         ],
     )
-    calls: list[dict[str, object]] = []
-
-    def _post(url, json=None, timeout=None):
-        calls.append({"url": url, "timeout": timeout, "messages": json})
-
-        class _Resp:
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return {
-                    "choices": [
-                        {
-                            "message": {
-                                "content": (
-                                    "## Facts\n"
-                                    "- **[Basket fact]** -- detail.\n"
-                                    "(Context: no date; Status: fact)\n"
-                                )
-                            }
-                        }
-                    ]
-                }
-
-        return _Resp()
-
-    monkeypatch.setattr(prepare_docs.httpx, "post", _post)
+    calls = _fake_llm(monkeypatch, ["## Facts\n- **[F]** -- d.\n"])
     rc = prepare_docs.main()
     assert rc == 0
-    assert len(calls) == 1, "exactly one LLM call — only the basket file"
+    assert len(calls) == 1, "exactly one LLM call — only the atomize/ file"
     assert (dest / "atoms-two.md").is_file()
     assert not (dest / "atoms-one.md").exists()
+    assert not (dest / "one.md").exists()
 
 
-def test_needs_processing_home_edit_stales_atoms(
+def test_full_mode_splits_root_and_atomizes_atomize(
     tmp_path, monkeypatch
 ) -> None:
-    """Editing the HOME original stales the atoms even when the
-    basket copy is old (drift #92; freshness watches both homes)."""
-    basket = tmp_path / "raw_documents_atom"
-    basket.mkdir()
+    """Bare --full: root files split-only; atomize/ files atoms+split."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    atomize = src / "atomize"
+    atomize.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    (atomize / "two.md").write_text(
+        "User asked about a topic.\nAssistant answered with a fact.\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--full", "--dest", str(dest)],
+    )
+    calls = _fake_llm(monkeypatch, ["## Facts\n- **[F]** -- d.\n"])
+    rc = prepare_docs.main()
+    assert rc == 0
+    assert len(calls) == 1
+    assert (dest / "one.md").is_file()
+    assert not (dest / "atoms-one.md").exists()
+    assert (dest / "two.md").is_file()
+    assert (dest / "atoms-two.md").is_file()
+
+
+def test_split_mode_leaves_atomize_folder_alone(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Bare split-only: atomize/ untouched, one info line, no LLM calls."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    atomize = src / "atomize"
+    atomize.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    (atomize / "two.md").write_text("chat content\n", encoding="utf-8")
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    calls = _fake_llm(monkeypatch, ["unused"])
+    rc = prepare_docs.main()
+    assert rc == 0
+    assert calls == []
+    assert (dest / "one.md").is_file()
+    assert not (dest / "two.md").exists()
+    out = capsys.readouterr().out
+    assert "wait in" in out
+
+
+def test_name_collision_root_vs_atomize_warns(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Same name in root and atomize/: warn; the atomize copy wins."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    atomize = src / "atomize"
+    atomize.mkdir(parents=True)
+    (src / "chat.md").write_text("# root copy\n", encoding="utf-8")
+    (atomize / "chat.md").write_text("atomize copy\n", encoding="utf-8")
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--full", "--dest", str(dest)],
+    )
+    calls = _fake_llm(monkeypatch, ["## Facts\n- **[F]** -- d.\n"])
+    rc = prepare_docs.main()
+    assert rc == 0
+    assert len(calls) == 1, "one LLM call — the atomize copy only"
+    out = capsys.readouterr().out
+    assert "keep one home" in out
+    assert (dest / "chat.md").read_text(encoding="utf-8") == "atomize copy\n"
+    assert (dest / "atoms-chat.md").is_file()
+
+
+def test_old_basket_files_print_migration_hint(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Files left in the retired basket produce a migration hint."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    old_basket = tmp_path / "data" / "raw_documents_atom"
+    old_basket.mkdir(parents=True)
+    (old_basket / "old.md").write_text("# old\n", encoding="utf-8")
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    assert prepare_docs.main() == 0
+    out = capsys.readouterr().out
+    assert "old basket" in out
+
+
+def test_other_subfolders_warn_not_processed(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Files in a non-atomize subfolder are skipped with a warning."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    sub = src / "archive"
+    sub.mkdir(parents=True)
+    (sub / "x.md").write_text("# x\n", encoding="utf-8")
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    assert prepare_docs.main() == 0
+    out = capsys.readouterr().out
+    assert "not processed" in out
+    assert "archive" in out
+    assert (dest / "one.md").is_file()
+    assert not (dest / "x.md").exists()
+
+
+def test_explicit_src_scope_atomizes_as_given(
+    tmp_path, monkeypatch
+) -> None:
+    """Explicit --src: owner-directed scope, whole dir atomized
+    (no subfolder convention) — drift #92 wording preserved."""
+    src = tmp_path / "custom_src"
+    src.mkdir()
+    (src / "chat.md").write_text("custom scope chat\n", encoding="utf-8")
+    dest = tmp_path / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "prepare_docs.py",
+            "--full",
+            "--src",
+            str(src),
+            "--dest",
+            str(dest),
+        ],
+    )
+    calls = _fake_llm(monkeypatch, ["## Facts\n- **[F]** -- d.\n"])
+    assert prepare_docs.main() == 0
+    assert len(calls) == 1
+    assert (dest / "atoms-chat.md").is_file()
+    assert (dest / "chat.md").is_file()
+
+
+def test_needs_processing_edit_stales_atoms(tmp_path) -> None:
+    """Editing the source stales its atoms (single home, drift #108)."""
+    src_dir = tmp_path / "raw_documents" / "atomize"
+    src_dir.mkdir(parents=True)
     dest = tmp_path / "documents"
     dest.mkdir()
-    home_dir = tmp_path / "raw_documents"
-    home_dir.mkdir()
-    monkeypatch.setattr(prepare_docs, "_RAW_DOCS_DIR", home_dir)
-
-    src = basket / "chat.md"
+    src = src_dir / "chat.md"
     src.write_text("# chat\n", encoding="utf-8")
-    home = home_dir / "chat.md"
-    home.write_text("# chat edited\n", encoding="utf-8")
     atoms_file = dest / "atoms-chat.md"
     atoms_file.write_text("## Facts\n", encoding="utf-8")
     os.utime(atoms_file, (1, 1))  # very old atoms

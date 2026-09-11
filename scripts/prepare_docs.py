@@ -46,13 +46,16 @@ Usage:
                                               # read-only
   python scripts/prepare_docs.py --src DIR --dest DIR FILE
 
-Atomization basket (drift #92): bare --atoms/--full (no FILE) read
-data/raw_documents_atom/ ONLY — never the whole raw_documents dir.
-Copy (not move) a document there to have it atomized; keep the
-original in raw_documents (splitting and validation need it). An
-empty basket is a quiet skip; an explicit --src is respected; the
-output stays single: atoms-*.md land in data/documents/ beside the
-split parts.
+Atomization intent (drift #108): the atomize/ subfolder of the
+default source tree IS the intent list — a document MOVED into
+data/raw_documents/atomize/ gets atoms + split; root files are
+split-only; one home per file, no copies (retires the
+raw_documents_atom basket; drift #92 policy unchanged: atoms stay
+per-document, never a folder-wide default). An empty atomize/
+folder is a quiet skip for bare --atoms. An explicit --src is an
+owner-directed scope: atoms modes process that directory as given,
+no subfolder convention. The output stays single: atoms-*.md land
+in data/documents/ beside the split parts.
 """
 
 from __future__ import annotations
@@ -72,13 +75,15 @@ import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Atoms-intent basket: documents placed here are atomized by
-# --full/--atoms with no FILES argument (drift #92: atomization is a
-# per-document owner decision — never folder-wide default). The
-# OUTPUT stays single: atoms-*.md files land in data/documents/ next
-# to the split parts, as before. Symlinks are followed.
-_ATOMS_SRC_DIR = _PROJECT_ROOT / "data" / "raw_documents_atom"
-_RAW_DOCS_DIR = _PROJECT_ROOT / "data" / "raw_documents"
+# Atomization intent (drift #108): a document MOVED into
+# raw_documents/atomize/ gets atoms + split; root files are
+# split-only. Location IS the per-document intent — one home per
+# file, no copies (drift #92 policy unchanged: atoms are never a
+# folder-wide default). Applies to the DEFAULT source tree only: an
+# explicit --src is an owner-directed scope with no subfolder
+# convention. The retired raw_documents_atom basket is referenced at
+# call time for the one-time migration hint only.
+_ATOMIZE_SUBDIR = "atomize"
 
 # 150 KB ~= 300 chunks ~= 45 s at the measured CPU rate (~7 chunks/s):
 # fits the 600 s watcher window with headroom. On GPU embedding the
@@ -647,13 +652,6 @@ def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bo
     if atoms:
         atoms_file = dest_dir / f"atoms-{src.stem}{src.suffix}"
         if not atoms_file.exists() or atoms_file.stat().st_mtime < src_mtime:
-            return True
-        # The basket file is a COPY of the home original (drift #92):
-        # editing the home original must stale the atoms even though
-        # the copy's own mtime never moved (#66 class — freshness must
-        # watch the artifact's true source, both of its homes).
-        home = _RAW_DOCS_DIR / src.name
-        if home.is_file() and atoms_file.stat().st_mtime < home.stat().st_mtime:
             return True
     return False
 
@@ -1415,11 +1413,19 @@ def check_index_coverage(
 
 
 def _source_path(atoms_path: Path, src_dir: Path) -> Path:
-    """Mirror make_atoms naming: atoms-<name> comes from <name>."""
+    """Mirror make_atoms naming: atoms-<name> comes from <name>.
+
+    The source may live in the source root or in its atomize/
+    subfolder (drift #108): the root is checked first, the intent
+    folder second.
+    """
     name = atoms_path.name
     if name.startswith("atoms-"):
         name = name[len("atoms-"):]
-    return src_dir / name
+    direct = src_dir / name
+    if direct.is_file():
+        return direct
+    return src_dir / _ATOMIZE_SUBDIR / name
 
 
 def validate_file(path: Path, src_dir: Path) -> tuple[Violation, ...]:
@@ -1491,9 +1497,9 @@ def main() -> int:
     parser.add_argument(
         "--src",
         default=str(_PROJECT_ROOT / "data" / "raw_documents"),
-        help="Source directory with original documents (atoms modes "
-        "redirect to the raw_documents_atom basket when this is left "
-        "at its default)",
+        help="Source directory with original documents (the atomize/ "
+        "intent subfolder applies to the default tree; an explicit "
+        "--src is an owner-directed scope processed as given)",
     )
     parser.add_argument(
         "--dest",
@@ -1504,9 +1510,9 @@ def main() -> int:
         "--atoms",
         action="store_true",
         help="Only extract knowledge atoms. Without FILES this reads "
-        "data/raw_documents_atom/ (the atomization basket, drift #92) — "
-        "NOT the whole source dir; pass a file name to target one "
-        "document explicitly",
+        "the atomize/ subfolder of the default source tree (drift "
+        "#108) — NOT the whole source dir; pass a file name to target "
+        "one document explicitly",
     )
     parser.add_argument(
         "--split",
@@ -1553,37 +1559,98 @@ def main() -> int:
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 
+    # One-time migration hint (drift #108): the external basket is
+    # retired — while it still holds files, point the owner at the
+    # new intent folder. Path is derived at call time so tests can
+    # relocate the project root.
+    _default_src = str(_PROJECT_ROOT / "data" / "raw_documents")
+    default_tree = args.src == _default_src
+    old_basket = _PROJECT_ROOT / "data" / "raw_documents_atom"
+    if old_basket.is_dir() and any(p.is_file() for p in old_basket.iterdir()):
+        print(
+            f"[HINT] old basket {old_basket} still has files — move "
+            "them into data/raw_documents/atomize/ and remove the old "
+            "folder (one-time migration, drift #108)"
+        )
+
+    atomize_dir = src_dir / _ATOMIZE_SUBDIR
+    explicit_files = bool(args.files)
+
     targets: list[Path] = []
-    if args.files:
+    if explicit_files:
         for name in args.files:
             path = Path(name)
             if not path.is_absolute():
                 path = src_dir / name
             targets.append(path)
     else:
-        # Drift #92: bare --atoms/--full must never sweep the whole
-        # raw_documents dir. Without FILES the atoms modes read the
-        # intent basket only; split modes keep raw_documents as-is.
-        # An EXPLICIT --src is respected (owner-directed run); the
-        # runner menu never passes --src, so it stays basket-safe.
-        _default_src = str(_PROJECT_ROOT / "data" / "raw_documents")
-        if (args.atoms or args.full) and args.src == _default_src:
-            src_dir = _ATOMS_SRC_DIR
-            src_dir.mkdir(parents=True, exist_ok=True)
-            basket_targets = [
-                p for p in src_dir.iterdir() if p.is_file()
-            ]
-            if not basket_targets:
-                print(
-                    "[SKIP] atomization basket is empty: "
-                    f"nothing to atomize in {src_dir}"
-                )
-                return 0
         if not src_dir.exists():
             print(f"[ERROR] source dir not found: {src_dir}", file=sys.stderr)
             return 1
-        targets = sorted(p for p in src_dir.iterdir() if p.is_file())
+        root_targets = sorted(p for p in src_dir.iterdir() if p.is_file())
+        atomize_targets: list[Path] = []
+        if default_tree:
+            # Drift #108: the atomize/ subfolder IS the intent list —
+            # bare --atoms/--full never sweep the whole raw_documents
+            # dir (#92 policy). Split-only runs leave it untouched.
+            if atomize_dir.is_dir():
+                atomize_targets = sorted(
+                    p for p in atomize_dir.iterdir() if p.is_file()
+                )
+            # Same name in root and atomize/ means a copy, not a move.
+            # Keep ONE home: the atomize/ copy is the marked one and
+            # wins; the root duplicate is skipped for this run.
+            atomize_names = {p.name for p in atomize_targets}
+            for dup in (p for p in root_targets if p.name in atomize_names):
+                print(
+                    f"[WARN] {dup.name} exists in both {src_dir} and "
+                    f"{atomize_dir} — keep one home (move, not copy); "
+                    "the atomize/ copy is processed"
+                )
+            root_targets = [
+                p for p in root_targets if p.name not in atomize_names
+            ]
+        # Subfolders outside the convention are not processed — say
+        # so instead of silently ignoring (silent-ignore trap).
+        other_subdirs = [
+            d.name
+            for d in src_dir.iterdir()
+            if d.is_dir()
+            and (not default_tree or d.name != _ATOMIZE_SUBDIR)
+            and any(x.is_file() for x in d.iterdir())
+        ]
+        if other_subdirs:
+            scope = "root files + atomize/" if default_tree else "root files only"
+            print(
+                "[WARN] subfolder(s) with files are not processed "
+                f"({scope}): " + ", ".join(sorted(other_subdirs))
+            )
+        if not default_tree:
+            # An EXPLICIT --src is an owner-directed scope (drift #92
+            # wording preserved): atoms modes process it as given,
+            # with no subfolder convention.
+            targets = root_targets
+        elif args.atoms:
+            targets = atomize_targets
+            if not targets:
+                print(f"[SKIP] atomize folder is empty: {atomize_dir}")
+                return 0
+        elif args.full:
+            targets = root_targets + atomize_targets
+        else:
+            targets = root_targets
+            if atomize_targets:
+                print(
+                    f"[INFO] {len(atomize_targets)} file(s) wait in "
+                    f"{atomize_dir} — run mode [2] (--full) to atomize them"
+                )
         if not targets:
+            if atomize_targets:
+                print(
+                    f"[SKIP] nothing to split in {src_dir} — atomize/ "
+                    "files are processed by --full"
+                )
+                return 0
             print(f"[ERROR] no files in {src_dir}", file=sys.stderr)
             return 1
 
@@ -1604,8 +1671,13 @@ def main() -> int:
         _reconcile_outputs(src, dest_dir)
         # Default: split only (fast, safe). Atoms are an explicit,
         # just-in-time step (--atoms / --full) on mature chats:
-        # extraction costs LLM time and is done once per chat.
-        do_atoms = args.atoms or args.full
+        # extraction costs LLM time and is done once per chat. In the
+        # default tree a file earns atoms from the intent folder (or
+        # an explicit name); an explicit --src scope atomizes as
+        # given (drift #108).
+        do_atoms = (args.atoms or args.full) and (
+            explicit_files or not default_tree or src.parent == atomize_dir
+        )
         do_split = not args.atoms
         if not _needs_processing(src, dest_dir, atoms=do_atoms, split=do_split):
             print(f"[SKIP] {src.name}: output is up to date")
