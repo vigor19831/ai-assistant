@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ai_assistant.core.domain.documents import Document
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 
@@ -303,6 +304,69 @@ def _filter_unchanged_docs(
     return new_docs
 
 
+async def _preflight_max_chunks(
+    namespace: str,
+    new_docs: list[dict[str, Any]],
+    stored: dict[str, tuple[str | None, int, int]],
+    inventory: set[str],
+    chunker: IChunker,
+    max_chunks: int,
+) -> str | None:
+    """Predict a max_chunks overflow BEFORE embedding starts (stage 1).
+
+    Chunks every new document (cheap CPU) and replays the per-document
+    upsert sequence against the limit, mirroring the atomic upsert
+    contract (#88): the namespace size AFTER replacement, not the
+    transient peak. The store stays the final guard (#48) — this check
+    only refuses the run up front, in a human-readable form, instead
+    of an AdapterError hours into a long indexing pass.
+
+    Returns the refusal message, or None when the pass fits. A
+    chunking error skips the check: the run then fails on that
+    document exactly as it does today — the pre-flight must not add
+    new failure modes.
+    """
+    try:
+        counts: list[int] = []
+        for doc in new_docs:
+            doc_id = doc.get("id")
+            if not doc_id:
+                counts.append(0)
+                continue
+            chunks = await chunker.chunk(
+                Document(
+                    id=doc_id,
+                    content=doc.get("content", ""),
+                    metadata=doc.get("metadata", {}),
+                )
+            )
+            counts.append(len(chunks))
+    except Exception:
+        _logger.warning(
+            "Pre-flight chunk counting failed, skipping the check",
+            extra={"namespace": namespace},
+        )
+        return None
+
+    existing = sum(entry[1] for uri, entry in stored.items() if uri in inventory)
+    total = existing
+    for doc, new_count in zip(new_docs, counts, strict=True):
+        uri = doc.get("metadata", {}).get("source_uri")
+        old_count = stored.get(uri, (None, 0, -1))[1]
+        projected = total - old_count + new_count
+        if projected > max_chunks:
+            return (
+                "Pre-flight max_chunks check failed for namespace "
+                f"'{namespace}': document '{doc.get('id', 'unknown')}' would "
+                f"push the namespace to {projected} chunks "
+                f"(existing {existing}, max_chunks {max_chunks}). "
+                "No embedding started. Split the source into more "
+                "namespaces or raise vector_store.max_chunks."
+            )
+        total = projected
+    return None
+
+
 async def index_folder(
     target_namespace: str | None,
     clear: bool,
@@ -398,6 +462,23 @@ async def index_folder(
             )
 
         if not new_docs:
+            all_results[namespace] = {"indexed": 0, "chunks": 0}
+            continue
+
+        # Pre-flight max_chunks check (scale stage 1): refuse before the
+        # embedding loop starts — a human-readable error instead of an
+        # AdapterError mid-run. The store still enforces the limit (#48).
+        refusal = await _preflight_max_chunks(
+            namespace,
+            new_docs,
+            skip_by_ns.get(namespace, {}),
+            inventory_by_ns.get(namespace, set()),
+            chunker,
+            vector_store.config.max_chunks,
+        )
+        if refusal is not None:
+            _logger.error(refusal, extra={"namespace": namespace})
+            all_errors.append(refusal)
             all_results[namespace] = {"indexed": 0, "chunks": 0}
             continue
 

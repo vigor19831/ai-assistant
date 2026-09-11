@@ -1,4 +1,4 @@
-"""Incremental read: unchanged files are not re-read from disk (drift #106)."""
+"""Incremental read (drift #106) and pre-flight max_chunks check (stage 1)."""
 
 from __future__ import annotations
 
@@ -128,3 +128,77 @@ class TestIncrementalRead:
         result: dict[str, Any] = await _run_index(docs_dir, store, clear=True)
         assert calls["n"] == 1
         assert result["results"]["scale"]["indexed"] == 1
+
+
+class TestPreflightMaxChunks:
+    """Scale stage 1: refuse BEFORE embedding when max_chunks would overflow."""
+
+    async def test_refused_before_embedding(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        for name in ("a.md", "b.md"):
+            f = docs_dir / name
+            f.write_text("alpha beta gamma delta", encoding="utf-8")
+            os.utime(f, (1_000_000, 1_000_000))
+
+        store = MemoryVectorStore(
+            VectorStoreConfigData(index_path=str(tmp_path / "idx"), max_chunks=1)
+        )
+        result: dict[str, Any] = await _run_index(docs_dir, store)
+
+        assert result["success"] is False
+        assert result["results"]["scale"] == {"indexed": 0, "chunks": 0}
+        assert any("max_chunks" in e for e in result["errors"])
+        listed = await store.list_by_filter({}, namespace="scale")
+        assert listed == []
+
+    async def test_exact_limit_passes(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        f = docs_dir / "a.md"
+        f.write_text("alpha beta gamma delta", encoding="utf-8")
+        os.utime(f, (1_000_000, 1_000_000))
+
+        # Measure the real chunk count with a default store first —
+        # the test must not assume how SimpleChunker splits the text.
+        probe = await _run_index(docs_dir, _make_store(tmp_path))
+        n_chunks = probe["results"]["scale"]["chunks"]
+        assert n_chunks > 0
+
+        store = MemoryVectorStore(
+            VectorStoreConfigData(
+                index_path=str(tmp_path / "idx2"), max_chunks=n_chunks
+            )
+        )
+        result: dict[str, Any] = await _run_index(docs_dir, store)
+        assert result["success"] is True
+        assert result["results"]["scale"]["chunks"] == n_chunks
+
+    async def test_replacement_at_limit_passes(self, tmp_path: Path) -> None:
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        f = docs_dir / "a.md"
+        f.write_text("alpha beta gamma delta", encoding="utf-8")
+        os.utime(f, (1_000_000, 1_000_000))
+
+        probe = await _run_index(docs_dir, _make_store(tmp_path))
+        n_chunks = probe["results"]["scale"]["chunks"]
+        assert n_chunks > 0
+
+        store = MemoryVectorStore(
+            VectorStoreConfigData(
+                index_path=str(tmp_path / "idx2"), max_chunks=n_chunks
+            )
+        )
+        await _run_index(docs_dir, store)
+
+        # Replace the only document with same-size content: the
+        # projected size after replacement equals the limit — must
+        # pass (no false refusal on re-indexing changed files).
+        f.write_text("completely different content epsilon zeta", encoding="utf-8")
+        os.utime(f, (2_000_000, 2_000_000))
+        result: dict[str, Any] = await _run_index(docs_dir, store)
+        assert result["success"] is True
+        assert result["results"]["scale"]["indexed"] == 1
+        listed = await store.list_by_filter({}, namespace="scale")
+        assert len(listed) == n_chunks

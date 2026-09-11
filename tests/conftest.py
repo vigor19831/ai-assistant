@@ -84,6 +84,7 @@ def mock_vector_store():
     """Given: vector store dependency is needed.
     When: test requests mock_vector_store.
     Then: mock with namespace support is returned."""
+    from ai_assistant.core.domain.configs import VectorStoreConfigData
     from ai_assistant.core.ports.vector_store import IVectorStore
 
     m = MagicMock(spec=IVectorStore)
@@ -95,6 +96,10 @@ def mock_vector_store():
     m.list_by_filter = AsyncMock(return_value=[])
     m.list_namespaces = AsyncMock(return_value=["test_default"])
     m.max_chunks = 10000
+    # Spec-mocks see class attributes only, while IVectorStore.config
+    # is an instance attribute set in __init__ (read by the pre-flight
+    # max_chunks check) — the fixture must provide it explicitly.
+    m.config = VectorStoreConfigData(max_chunks=10000)
     return m
 
 
