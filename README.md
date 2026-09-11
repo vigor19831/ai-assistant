@@ -146,6 +146,10 @@ cp config.example.yaml config.yaml
 python scripts/download_tokenizers.py
 python run_servers.py
 ```
+Always start and stop the stack via `run_servers.py`: it pins the
+working directory to the project folder. Launching uvicorn manually
+from another directory silently creates a new empty `data/` there.
+
 Large corpus (>150 KB files): split first via scripts/prepare_docs.py
 (data/raw_documents/ -> data/documents/). For faster indexing see the
 GPU embedding profile in config.example.yaml (embedder section).

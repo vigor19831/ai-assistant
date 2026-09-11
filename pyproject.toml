@@ -76,6 +76,11 @@ ignore = ["TC003", "TC001"]
 # inline config constants in test bodies are idiomatic.
 "tests/*" = ["ASYNC230", "ASYNC240", "N806"]
 
+# clean_cache.py: onerror is deprecated (removal candidate in future
+# Python) but required on 3.11 — the project minimum. B028 silenced
+# until the minimum passes 3.11, then the whole branch is deleted.
+"scripts/clean_cache.py" = ["B028"]
+
 [tool.mypy]
 strict = true
 ignore_missing_imports = true

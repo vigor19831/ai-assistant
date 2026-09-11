@@ -116,11 +116,15 @@ above or already lives in architecture.md. Compacted 2026-09-11
 | 92 | 2026-09-10 | POLICY: atoms OFF until 14B fits VRAM — raw beats 4B atoms; basket exception (rule extracted) |
 | 93 | 2026-09-10 | Watcher skip verifies chunk count vs total_chunks — a partial store self-repairs |
 | 94 | 2026-09-10 | #81 closed as not-reproducible: new engine, raw-only corpus, zero false refusals |
-| 95 | 2026-09-11 | clean_cache live-log guard: pgrep → port check (works on all OSes) |
-| 96 | 2026-09-11 | run_scripts.py venv relaunch made Windows-safe (run_servers pattern) |
+| 95 | 2026-09-11 | `clean_cache` live-log guard: pgrep → port check (works on all OSes) |
+| 96 | 2026-09-11 | `run_scripts.py` venv relaunch made Windows-safe (`run_servers` pattern) |
 | 97 | 2026-09-11 | Required-V5 assert dropped: the 09-10 engine cured the EN flip (rule extracted) |
 | 98 | 2026-09-11 | Quote-survival flake on 7B (3G/1R session): single red → re-run (rule extracted) |
-| 99 | 2026-09-11 | download_tokenizers: atomic write — a network cut can no longer brick startup |
+| 99 | 2026-09-11 | `download_tokenizers`: atomic write — a network cut can no longer brick startup |
+| 100 | 2026-09-11 | `clean_cache` rmtree onerror deprecated (B028, removal candidate) but the replacement onexc needs 3.12+ while the project minimum is 3.11 (verified same day). Runtime version pick + per-file B028 silence; delete the legacy branch and the noqa together when the minimum passes 3.11 |
+| 101 | 2026-09-11 | os.kill(pid, 0) KILLS on Windows — both start() and stop() had it; stop() also sent SIGTERM (= hard TerminateProcess) and SIGKILLed at 0.5 s mid-index-save on both OSes. Rewrite: `_pid_alive` gate; CTRL_BREAK_EVENT → uvicorn graceful lifespan; ≤10 s poll (`STOP_GRACE_SECONDS`) then force — force is safe (atomic index writes). CREATE_NO_WINDOW dropped: hidden-console children cannot receive console events. Windows untested live — verify when back (see #96) |
+| 102 | 2026-09-11 | `run_servers` HOST default 0.0.0.0 → 127.0.0.1: `config.yaml` missing `host` must fail safe (loopback), not silently expose the API to the LAN |
+| 103 | 2026-09-11 | `llama.log` rotation (>10 MB, start) now port-guarded: on Linux unlink under a running server is silent (deleted inode, #74); ports are the behavioral guard |
 
 ## FUTURE RISKS (18)
 | Risk | Trigger | When to fix |

@@ -24,7 +24,9 @@ VENV = ".venv"
 PY = "Scripts/python.exe" if os.name == "nt" else "bin/python"
 _SEP = "─" * 50
 
-HOST = "0.0.0.0"
+# Fail-safe default when config.yaml omits `host`: loopback only —
+# a missing key must not silently expose the API to the LAN.
+HOST = "127.0.0.1"
 API_PORT = 8000
 LLM_PORT = 8080
 EMBED_PORT = 8081
@@ -34,6 +36,10 @@ PORTS = (LLM_PORT, EMBED_PORT, RERANK_PORT, API_PORT)
 LLAMA_SERVER = "llama-server.exe" if os.name == "nt" else "llama-server"
 
 TIMEOUT_START = 30.0
+# SIGTERM/CTRL_BREAK -> force-kill ceiling. The lifespan shutdown
+# persists indices first; a force-kill past this ceiling is safe —
+# index writes are atomic (tmp + rename, core/io_utils).
+STOP_GRACE_SECONDS = 10.0
 LLAMA_LOG_MAX_BYTES = 10_485_760
 
 # ── Auto-activate venv ───────────────────────────────────────────────────────
@@ -91,10 +97,13 @@ def _run(
     else:
         kw["stdout"] = subprocess.DEVNULL
     if os.name == "nt":
-        # Windows-only flags; this branch never runs elsewhere.
+        # CREATE_NEW_PROCESS_GROUP only: stop() addresses the child
+        # alone via CTRL_BREAK_EVENT (graceful shutdown). CREATE_NO_WINDOW
+        # was dropped: a hidden-console child cannot receive console
+        # control events, silently degrading stop() to a hard kill. A
+        # console child inherits ours — no new window, output is in logs.
         kw["creationflags"] = (
             subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-            | subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
         )
     else:
         kw["start_new_session"] = True
@@ -338,7 +347,14 @@ def start(root: Path) -> int:
 
     llama_log = root / "data" / "llama.log"
     if llama_log.exists() and llama_log.stat().st_size > LLAMA_LOG_MAX_BYTES:
-        llama_log.unlink()
+        # Never rotate while a server may still hold the file open:
+        # on Linux the unlink is silent and the process keeps writing
+        # into a deleted inode (drift #74). Ports are the behavioral
+        # guard, not the OS.
+        if any(not port_free(p) for p in (LLM_PORT, EMBED_PORT, RERANK_PORT)):
+            print("  ! llama.log over size — a server still runs; stop first")
+        else:
+            llama_log.unlink()
 
     try:
         _start_llm_server(cfg, launch, root, llama_log)
@@ -364,22 +380,36 @@ def stop(root: Path) -> int:
     if pid_file.exists():
         try:
             pid = int(pid_file.read_text(encoding="utf-8").strip())
-            os.kill(pid, signal.SIGTERM)
-            time.sleep(0.5)
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid, 0)
-                if hasattr(signal, "SIGKILL"):
-                    os.kill(pid, signal.SIGKILL)
-                elif os.name == "nt":
+        except ValueError:
+            pid = 0
+        if pid > 0 and _pid_alive(pid):
+            try:
+                if os.name == "nt":
+                    # CTRL_BREAK_EVENT reaches a child started with
+                    # CREATE_NEW_PROCESS_GROUP in our console; uvicorn
+                    # runs its graceful lifespan shutdown (index save).
+                    os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                else:
+                    os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass  # gone or undeliverable — the force path below
+            deadline = time.time() + STOP_GRACE_SECONDS
+            while _pid_alive(pid) and time.time() < deadline:
+                time.sleep(0.2)
+            if _pid_alive(pid):
+                print("  ! Graceful shutdown timed out — forcing")
+                if os.name == "nt":
                     subprocess.run(
                         ["taskkill", "/F", "/PID", str(pid)],
                         capture_output=True,
                     )
-        except (ValueError, OSError, ProcessLookupError):
-            pass
-        finally:
-            pid_file.unlink(missing_ok=True)
-            print("  + PID file removed")
+                else:
+                    with contextlib.suppress(OSError):
+                        os.kill(pid, signal.SIGKILL)
+        else:
+            print("  > Process already stopped (stale PID file)")
+        pid_file.unlink(missing_ok=True)
+        print("  + PID file removed")
 
     if os.name == "nt":
         subprocess.run(["taskkill", "/F", "/IM", LLAMA_SERVER], capture_output=True)

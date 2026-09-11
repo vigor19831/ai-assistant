@@ -145,7 +145,25 @@ def format_size(path: Path | int) -> str:
 def _rmtree_onerror(
     func: Callable[..., object], path: str, exc_info: tuple[object, object, object]
 ) -> None:
-    """Error handler for shutil.rmtree — handles read-only files on Windows."""
+    """Pre-onexc error handler for shutil.rmtree (Python <= 3.11).
+
+    Same contract as _rmtree_onexc below: read-only files on Windows
+    are made writable and the failed operation is retried once.
+    Kept until the project minimum moves past 3.11.
+    """
+    try:
+        os.chmod(path, stat.S_IWUSR)
+        func(path)
+    except OSError:
+        pass
+
+
+def _rmtree_onexc(func: Callable[..., object], path: str, exc: BaseException) -> None:
+    """onexc error handler for shutil.rmtree (Python >= 3.12).
+
+    Handles read-only files on Windows by making them writable and
+    retrying the failed operation once.
+    """
     try:
         os.chmod(path, stat.S_IWUSR)
         func(path)
@@ -162,7 +180,12 @@ def delete_target(path: Path) -> tuple[bool, str]:
         if path.is_symlink() or path.is_file():
             path.unlink()
         elif path.is_dir():
-            shutil.rmtree(path, onerror=_rmtree_onerror)
+            # onexc exists since Python 3.12; onerror is deprecated.
+            # Until the project minimum passes 3.11, pick at runtime.
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(path, onexc=_rmtree_onexc)
+            else:
+                shutil.rmtree(path, onerror=_rmtree_onerror)
         return True, ""
     except OSError as e:
         if e.errno in (errno.EACCES, errno.EPERM, errno.EBUSY):
