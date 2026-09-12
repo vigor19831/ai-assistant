@@ -1854,6 +1854,127 @@ def test_v6_scopes_to_namespace_subfolder(tmp_path) -> None:
     assert violations == ()
 
 
+# --- Reconcile: vanished sources (drift #111) ---
+
+
+def _make_leftovers(dest: Path) -> None:
+    """Seed dest with leftovers of a vanished source."""
+    (dest / "gone_part01.md").write_text("p1", encoding="utf-8")
+    (dest / "gone_part02.md").write_text("p2", encoding="utf-8")
+    (dest / "gone.md").write_text("as-is", encoding="utf-8")
+    (dest / "atoms-gone.md").write_text("atoms", encoding="utf-8")
+
+
+def test_reconcile_removes_leftovers_on_yes(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Vanished source: list printed, y removes parts + as-is + atoms."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    dest.mkdir(parents=True)
+    _make_leftovers(dest)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert prepare_docs.main() == 0
+    out = capsys.readouterr().out
+    assert "[RECONCILE]" in out
+    assert "gone.md" in out
+    assert not (dest / "gone_part01.md").exists()
+    assert not (dest / "gone_part02.md").exists()
+    assert not (dest / "gone.md").exists()
+    assert not (dest / "atoms-gone.md").exists()
+    assert (dest / "one.md").is_file()
+
+
+def test_reconcile_keeps_leftovers_on_enter(tmp_path, monkeypatch) -> None:
+    """Enter (empty answer) keeps every leftover."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    dest.mkdir(parents=True)
+    _make_leftovers(dest)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "")
+    assert prepare_docs.main() == 0
+    assert (dest / "gone_part01.md").exists()
+    assert (dest / "gone.md").exists()
+    assert (dest / "atoms-gone.md").exists()
+
+
+def test_reconcile_closed_stdin_counts_as_no(tmp_path, monkeypatch) -> None:
+    """EOFError from a non-interactive stdin keeps the leftovers."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    dest.mkdir(parents=True)
+    _make_leftovers(dest)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+
+    def _eof(_prompt: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", _eof)
+    assert prepare_docs.main() == 0
+    assert (dest / "gone_part01.md").exists()
+
+
+def test_reconcile_namespace_leftover_removes_empty_dir(
+    tmp_path, monkeypatch
+) -> None:
+    """A vanished namespace source: files removed, empty dir removed."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    (dest / "work").mkdir(parents=True)
+    (dest / "work" / "gone.md").write_text("leftover", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert prepare_docs.main() == 0
+    assert not (dest / "work" / "gone.md").exists()
+    assert not (dest / "work").exists()
+
+
+def test_reconcile_never_touches_live_sources(tmp_path, monkeypatch) -> None:
+    """Artifacts whose source still exists are never flagged."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    src.mkdir(parents=True)
+    (src / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    dest.mkdir(parents=True)
+    (dest / "one.md").write_text("# one\n", encoding="utf-8")
+    (dest / "atoms-one.md").write_text("atoms", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert prepare_docs.main() == 0
+    assert (dest / "one.md").exists()
+    assert (dest / "atoms-one.md").exists()
+
+
 def test_explicit_src_scope_atomizes_as_given(
     tmp_path, monkeypatch
 ) -> None:

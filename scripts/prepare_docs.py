@@ -1576,6 +1576,102 @@ def _configured_namespaces() -> set[str] | None:
     }
 
 
+_PART_FILE_RE = re.compile(r"^(?P<stem>.+)_part\d+$")
+
+
+def _artifact_source_name(dest_file: Path) -> str:
+    """Source document name a dest artifact derives from (drift #111).
+
+    x.md -> x.md (as-is copy); x_part01.md -> x.md; atoms-x.md -> x.md.
+    Any other shape maps to itself: by the mirror contract every dest
+    file is an artifact of some raw source.
+    """
+    stem, suffix = dest_file.stem, dest_file.suffix
+    part_match = _PART_FILE_RE.match(stem)
+    if part_match:
+        return part_match.group("stem") + suffix
+    if stem.startswith("atoms-"):
+        return stem[len("atoms-"):] + suffix
+    return dest_file.name
+
+
+def _find_vanished(src_dir: Path, dest_dir: Path) -> dict[str, list[Path]]:
+    """Leftover artifacts in dest whose raw source is gone.
+
+    Stateless — the dest tree itself is the history: a file at
+    documents/{ns}/{name} maps to the raw candidates
+    raw_documents/{ns}/{name} and raw_documents/{ns}/_atomize/{name}
+    (parts/atoms prefixes stripped). A file with no existing candidate
+    is a leftover of a vanished (or moved-away) source. Indexed
+    suffixes only — the V6 blind-spot convention.
+    """
+    leftovers: dict[str, list[Path]] = {}
+    if not dest_dir.is_dir():
+        return leftovers
+    for path in sorted(dest_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in _INDEXED_SUFFIXES:
+            continue
+        rel = path.relative_to(dest_dir)
+        dirs = list(rel.parts[:-1])
+        source_name = _artifact_source_name(path)
+        candidates = (
+            src_dir.joinpath(*dirs, source_name),
+            src_dir.joinpath(*dirs, _ATOMIZE_SUBDIR, source_name),
+        )
+        if not any(c.is_file() for c in candidates):
+            key = str(Path(*dirs, source_name)) if dirs else source_name
+            leftovers.setdefault(key, []).append(path)
+    return leftovers
+
+
+def _reconcile_vanished(src_dir: Path, dest_dir: Path) -> None:
+    """Drift #111: list leftovers of vanished sources, ask y/N, remove.
+
+    Nothing is deleted without an explicit confirmation; Enter or N
+    continues silently. A closed stdin (non-interactive run) counts
+    as "no". The index is never touched here — the watcher's orphan
+    cleanup removes the chunks once the files are gone.
+    """
+    leftovers = _find_vanished(src_dir, dest_dir)
+    if not leftovers:
+        return
+    total = sum(len(files) for files in leftovers.values())
+    print(
+        f"[RECONCILE] {len(leftovers)} vanished source(s), "
+        f"{total} leftover file(s) in {dest_dir}:"
+    )
+    for key in sorted(leftovers):
+        print(f"  - {key}: {len(leftovers[key])} file(s)")
+    try:
+        answer = input("[RECONCILE] remove these leftovers? [y/N]: ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in ("y", "yes"):
+        return
+    removed = 0
+    parents: set[Path] = set()
+    for files in leftovers.values():
+        for path in files:
+            try:
+                path.unlink()
+                removed += 1
+                parents.add(path.parent)
+            except OSError as exc:
+                print(f"[WARN] failed to remove {path}: {exc}")
+    for parent in sorted(parents):
+        if parent == dest_dir:
+            continue
+        try:
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError:
+            pass
+    print(
+        f"[RECONCILE] removed {removed} file(s); "
+        "the watcher re-indexes within 60 s"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1662,6 +1758,14 @@ def main() -> int:
             "them into data/raw_documents/_atomize/ and remove the old "
             "folder (one-time migration, drift #108)"
         )
+
+    # Drift #111: reconcile BEFORE the split pass so it also fires
+    # when there is nothing left to split (e.g. every raw source was
+    # deleted). Leftovers of moved sources go first; the pass then
+    # writes the artifacts at the new location. Nothing is deleted
+    # without an explicit y — Enter or a closed stdin counts as no.
+    if default_tree and not args.atoms and src_dir.is_dir():
+        _reconcile_vanished(src_dir, dest_dir)
 
     atomize_dir = src_dir / _ATOMIZE_SUBDIR
     explicit_files = bool(args.files)
