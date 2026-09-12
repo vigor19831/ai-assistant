@@ -22,8 +22,12 @@ __all__ = ["index_folder", "read_sources"]
 _logger = get_logger("rag.indexing")
 
 
-def _read_file_sync(path: Path) -> str:
-    """Read text file with encoding fallback.  SYNC — call via to_thread."""
+def _read_file_sync(path: Path) -> str | None:
+    """Read text file with encoding fallback.  SYNC — call via to_thread.
+
+    Returns None when the OS refuses the read (locked file, permissions).
+    An empty string means the file was read and is genuinely empty.
+    """
     # utf-8-sig first: decodes plain UTF-8 identically and strips the BOM.
     # Plain utf-8 must not precede it — it accepts BOM files "successfully",
     # leaking U+FEFF into chunk text (drift #46).
@@ -31,7 +35,10 @@ def _read_file_sync(path: Path) -> str:
     for enc in encodings:
         try:
             return path.read_text(encoding=enc)
-        except (UnicodeDecodeError, LookupError, OSError):
+        except OSError:
+            # OS refused open/read: unreadable is not empty.
+            return None
+        except (UnicodeDecodeError, LookupError):
             continue
     return ""
 
@@ -51,6 +58,8 @@ def _collect_files_sync(
 
     Returns (docs, uris): docs to index plus every uri present on disk
     (matched, size-ok, non-empty — including skipped-unchanged ones).
+    An unreadable file (locked, permissions) yields no doc but KEEPS
+    its uri in *uris* so orphan cleanup does not treat it as deleted.
     A file in *skip* with the same mtime and a complete stored chunk
     set is NOT read (drift #93 conditions, checked before the read).
     """
@@ -74,6 +83,9 @@ def _collect_files_sync(
         try:
             st = file_path.stat()
         except OSError:
+            # Unreadable is not deleted — preserve the stored chunks.
+            _logger.warning(f"Cannot stat {file_path}, keeping its chunks")
+            uris.add(file_path.relative_to(root).as_posix())
             continue
         if max_file_size is not None and st.st_size > max_file_size:
             _logger.warning(
@@ -100,6 +112,12 @@ def _collect_files_sync(
                 uris.add(source_uri)
                 continue
         content = _read_file_sync(file_path)
+        if content is None:
+            # Unreadable is not deleted: keep the uri so orphan cleanup
+            # preserves the stored chunks (locked file, permissions).
+            _logger.warning(f"Cannot read {file_path}, keeping its chunks")
+            uris.add(source_uri)
+            continue
         if not content.strip():
             continue
         uris.add(source_uri)
@@ -443,7 +461,9 @@ async def index_folder(
         skip_by_ns,
     )
     if not inventory_by_ns:
-        return {"success": True, "results": {}, "errors": ["No documents found"]}
+        # An empty corpus is a failed run, not a silent success: a typo
+        # in source.path or a fully emptied tree must be visible (#113).
+        return {"success": False, "results": {}, "errors": ["No documents found"]}
 
     for namespace in expected_namespaces:
         docs = docs_by_ns.get(namespace, [])
@@ -538,8 +558,11 @@ async def index_folder(
             "errors": all_errors,
         }
 
+    # Success means exactly "no errors" (#113) — the old substring
+    # check ("failed" in error) let "Failed to chunk document ..."
+    # (capital F) pass as a success.
     return {
-        "success": not any("failed" in e for e in all_errors),
+        "success": not all_errors,
         "results": all_results,
         "indexed_uris": all_indexed_uris,
         "errors": all_errors,

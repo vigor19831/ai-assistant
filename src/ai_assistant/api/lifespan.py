@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
+    from ai_assistant.api.deps import InitializedAppState
     from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__ = ["lifespan"]
@@ -99,29 +100,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if config.rag.sources:
 
-        async def _index_source(src: SourceConfig) -> None:
-            ns_cfg = config.namespaces.get(src.namespace)
-            chunker = get_chunker_for_config(
-                state, ns_cfg.chunk_size if ns_cfg else None
-            )
-            try:
-                await index_folder(
-                    target_namespace=None,
-                    clear=False,
-                    chunker=chunker,
-                    embedder=state.embedder,
-                    vector_store=state.vector_store,
-                    max_file_size=state.config.vector_store.max_document_size,
-                    sources=[src],
-                    index_path=state.vector_store.index_path,
-                )
-            finally:
-                await shutdown_chunker_if_temporary(chunker, state.chunker)
+        async def _index(src: SourceConfig) -> None:
+            await _index_source(state, config, src)
 
         watcher = SourceWatcher(
             sources=config.rag.sources,
             state=state,
-            index_fn=_index_source,
+            index_fn=_index,
         )
 
     # Load persisted indices from disk via port contract
@@ -163,6 +148,42 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if watcher is not None:
             await watcher.stop()
         await _async_cleanup(app, config)
+
+
+async def _index_source(
+    state: InitializedAppState, config: AppConfig, src: SourceConfig
+) -> None:
+    """Index one watcher source; ERROR-log any run that reports failure.
+
+    The watcher consumes the snapshot on any non-raising return, so a
+    failed run (pre-flight refusal, chunking error, empty source) must
+    at least be loud. No retry here: deterministic refusals must not be
+    retried, and transient failures are already retried inside the
+    adapters (drift #43 — exactly one retry layer).
+    """
+    ns_cfg = config.namespaces.get(src.namespace)
+    chunker = get_chunker_for_config(state, ns_cfg.chunk_size if ns_cfg else None)
+    try:
+        result = await index_folder(
+            target_namespace=None,
+            clear=False,
+            chunker=chunker,
+            embedder=state.embedder,
+            vector_store=state.vector_store,
+            max_file_size=config.vector_store.max_document_size,
+            sources=[src],
+            index_path=state.vector_store.index_path,
+        )
+        if not result.get("success", False):
+            logger.error(
+                "Watcher reindex failed",
+                extra={
+                    "namespace": src.namespace,
+                    "errors": result.get("errors", []),
+                },
+            )
+    finally:
+        await shutdown_chunker_if_temporary(chunker, state.chunker)
 
 
 async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
