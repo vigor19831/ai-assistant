@@ -203,10 +203,9 @@ def _prepare_docs_mode() -> list[str]:
     print()
     print("  [1] splits everything new from data/raw_documents/")
     print("      (cleaned of image noise); skips unchanged files.")
-    print("  [2] same, plus atoms for the files you MOVED into")
-    print("      data/raw_documents/atomize/ (the file lives there —")
-    print("      one home, no copies; root files stay split-only).")
-    print("      An empty atomize/ folder = no atoms this run.")
+    print("  [2] same, plus atoms for the files you MOVED into an")
+    print("      _atomize/ folder (raw_documents/ root or inside a")
+    print("      namespace folder); one home per file, no copies.")
     try:
         mode = input("  Choice [1]: ").strip() or "1"
     except (EOFError, KeyboardInterrupt):

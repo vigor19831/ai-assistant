@@ -46,16 +46,20 @@ Usage:
                                               # read-only
   python scripts/prepare_docs.py --src DIR --dest DIR FILE
 
-Atomization intent (drift #108): the atomize/ subfolder of the
-default source tree IS the intent list — a document MOVED into
-data/raw_documents/atomize/ gets atoms + split; root files are
-split-only; one home per file, no copies (retires the
-raw_documents_atom basket; drift #92 policy unchanged: atoms stay
-per-document, never a folder-wide default). An empty atomize/
-folder is a quiet skip for bare --atoms. An explicit --src is an
-owner-directed scope: atoms modes process that directory as given,
-no subfolder convention. The output stays single: atoms-*.md land
-in data/documents/ beside the split parts.
+Ingestion tree (drift #108/#109): the raw_documents/ root holds the
+default namespace's sources; every level-1 subfolder is a namespace —
+raw_documents/work/x.md is mirrored to data/documents/work/x.md and
+indexed into the namespace configured for that folder. An _atomize/
+subfolder at any level marks atomization intent: root _atomize/ feeds
+the default namespace, {ns}/_atomize/ feeds that namespace; one home
+per file, no copies (retires the raw_documents_atom basket; drift #92
+policy unchanged: atoms stay per-document, never a folder-wide
+default). documents/ mirrors the tree with _atomize/ segments dropped
+and is never edited by hand. A subfolder without a rag.sources entry
+in config.yaml is mirrored but never indexed — the script warns. An
+explicit --src is an owner-directed flat scope: no subfolder
+convention. The output stays single: atoms-*.md land beside the
+split parts of their namespace.
 """
 
 from __future__ import annotations
@@ -76,14 +80,14 @@ import yaml
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Atomization intent (drift #108): a document MOVED into
-# raw_documents/atomize/ gets atoms + split; root files are
+# raw_documents/_atomize/ gets atoms + split; root files are
 # split-only. Location IS the per-document intent — one home per
 # file, no copies (drift #92 policy unchanged: atoms are never a
 # folder-wide default). Applies to the DEFAULT source tree only: an
 # explicit --src is an owner-directed scope with no subfolder
 # convention. The retired raw_documents_atom basket is referenced at
 # call time for the one-time migration hint only.
-_ATOMIZE_SUBDIR = "atomize"
+_ATOMIZE_SUBDIR = "_atomize"
 
 # 150 KB ~= 300 chunks ~= 45 s at the measured CPU rate (~7 chunks/s):
 # fits the 600 s watcher window with headroom. On GPU embedding the
@@ -1303,8 +1307,14 @@ def check_index_coverage(
     dest_dir: Path,
     index_dir: Path,
     namespace: str,
+    subpath: str = "",
 ) -> tuple[Violation, ...]:
     """V6: documents/ vs index completeness (drift #82-open). Warn-only.
+
+    subpath scopes the check to one namespace subfolder (drift #109):
+    the dest root (default namespace) is scanned non-recursively —
+    level-1 subfolders belong to their own namespaces; a subpath
+    territory is scanned recursively.
 
     Static check over {namespace}.store.json -- no faiss binary, no
     server. Chunk identity: the store's metadata.source holds the
@@ -1361,10 +1371,19 @@ def check_index_coverage(
             total if isinstance(total, int) else -1
         )
 
-    expected_files = sorted(
-        path for path in dest_dir.rglob("*")
-        if path.is_file() and path.suffix in _INDEXED_SUFFIXES
-    )
+    base = dest_dir / subpath if subpath else dest_dir
+    if subpath:
+        expected_files = sorted(
+            path for path in base.rglob("*")
+            if path.is_file() and path.suffix in _INDEXED_SUFFIXES
+        )
+    else:
+        # Root territory is the default namespace's: non-recursive —
+        # level-1 subfolders belong to their own namespaces (#109).
+        expected_files = sorted(
+            path for path in base.iterdir()
+            if path.is_file() and path.suffix in _INDEXED_SUFFIXES
+        )
     store_ids = set(totals_by_uri)
     expected_ids: set[str] = set()
     missing_files: list[Path] = []
@@ -1412,30 +1431,44 @@ def check_index_coverage(
     return tuple(out)
 
 
-def _source_path(atoms_path: Path, src_dir: Path) -> Path:
+def _source_path(
+    atoms_path: Path, src_dir: Path, dest_root: Path | None = None
+) -> Path:
     """Mirror make_atoms naming: atoms-<name> comes from <name>.
 
-    The source may live in the source root or in its atomize/
-    subfolder (drift #108): the root is checked first, the intent
-    folder second.
+    The source may live in the mirrored folder or in its _atomize/
+    subfolder (drift #108/#109): with *dest_root* the atoms file's
+    location gives the namespace path — atoms in documents/work/
+    resolves against raw_documents/work/ and its _atomize/; without
+    it the lookup stays at src_dir itself (root behavior).
     """
     name = atoms_path.name
     if name.startswith("atoms-"):
         name = name[len("atoms-"):]
-    direct = src_dir / name
+    parents: list[str] = []
+    if dest_root is not None:
+        try:
+            parents = list(atoms_path.relative_to(dest_root).parts[:-1])
+        except ValueError:
+            parents = []
+    direct = src_dir.joinpath(*parents, name)
     if direct.is_file():
         return direct
-    return src_dir / _ATOMIZE_SUBDIR / name
+    return src_dir.joinpath(*parents, _ATOMIZE_SUBDIR, name)
 
 
-def validate_file(path: Path, src_dir: Path) -> tuple[Violation, ...]:
+def validate_file(
+    path: Path, src_dir: Path, dest_root: Path | None = None
+) -> tuple[Violation, ...]:
     """Validate one atoms file against its source chat.
 
     Sources are read as utf-8-sig with errors replaced: chat exports
-    may carry a BOM (drift #46) and be lossy.
+    may carry a BOM (drift #46) and be lossy. *dest_root* (the
+    documents/ tree) lets the source resolve through the namespace
+    mirror (drift #109).
     """
     text = path.read_text(encoding="utf-8-sig", errors="replace")
-    source = _source_path(path, src_dir)
+    source = _source_path(path, src_dir, dest_root)
     source_text: str | None = None
     if source.is_file():
         source_text = source.read_text(
@@ -1458,7 +1491,11 @@ def _run_validation(
         if not dest_dir.is_dir():
             print(f"[ERROR] dest dir not found: {dest_dir}", file=sys.stderr)
             return 1
-        atoms_files = sorted(dest_dir.glob("atoms-*"))
+        # Namespaced atoms live beside their namespace's parts
+        # (drift #109) — rglob finds root and subfolder atoms alike.
+        atoms_files = sorted(
+            p for p in dest_dir.rglob("atoms-*") if p.is_file()
+        )
         if not atoms_files:
             print(f"[ERROR] no atoms-* files in {dest_dir}", file=sys.stderr)
             return 1
@@ -1468,8 +1505,18 @@ def _run_validation(
         if not path.is_file():
             print(f"[ERROR] not a file: {path}", file=sys.stderr)
             return 1
-        violations.extend(validate_file(path, src_dir))
+        violations.extend(validate_file(path, src_dir, dest_root=dest_dir))
+    # V6: the dest root is checked against the given namespace (the
+    # convention: root = default); every level-1 subfolder is a
+    # namespace of its own (drift #109) — checked against its store.
     violations.extend(check_index_coverage(dest_dir, index_dir, namespace))
+    if dest_dir.is_dir():
+        for sub in sorted(d for d in dest_dir.iterdir() if d.is_dir()):
+            violations.extend(
+                check_index_coverage(
+                    dest_dir, index_dir, sub.name, subpath=sub.name
+                )
+            )
 
     for violation in sorted(violations, key=_violation_sort_key):
         line_part = f":{violation.line}" if violation.line is not None else ""
@@ -1486,6 +1533,49 @@ def _run_validation(
     return 1 if errors else 0
 
 
+def _mirror_dest(src: Path, src_dir: Path, dest_dir: Path) -> Path:
+    """Destination folder mirroring the source tree minus _atomize/.
+
+    Root files map to the dest root (the default namespace); a file
+    in a namespace subfolder maps to the same subfolder under dest;
+    _atomize/ segments never appear in the destination (drift #109).
+    Files outside src_dir map to the dest root.
+    """
+    try:
+        rel = src.relative_to(src_dir)
+    except ValueError:
+        return dest_dir
+    parts = [p for p in rel.parts[:-1] if p != _ATOMIZE_SUBDIR]
+    return dest_dir.joinpath(*parts) if parts else dest_dir
+
+
+def _configured_namespaces() -> set[str] | None:
+    """Namespace names declared in rag.sources (config.yaml).
+
+    Read-only best effort: an unreadable config returns None — the
+    coverage guard is then skipped (the CLI must work before the app
+    is configured). A readable config without an entry for a
+    subfolder means the folder is mirrored but never indexed.
+    """
+    try:
+        data = yaml.safe_load(
+            (_PROJECT_ROOT / "config.yaml").read_text(encoding="utf-8")
+        )
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    rag = data.get("rag")
+    sources = rag.get("sources") if isinstance(rag, dict) else None
+    if not isinstance(sources, list):
+        return None
+    return {
+        s["namespace"]
+        for s in sources
+        if isinstance(s, dict) and isinstance(s.get("namespace"), str)
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1497,7 +1587,7 @@ def main() -> int:
     parser.add_argument(
         "--src",
         default=str(_PROJECT_ROOT / "data" / "raw_documents"),
-        help="Source directory with original documents (the atomize/ "
+        help="Source directory with original documents (the _atomize/ "
         "intent subfolder applies to the default tree; an explicit "
         "--src is an owner-directed scope processed as given)",
     )
@@ -1510,7 +1600,7 @@ def main() -> int:
         "--atoms",
         action="store_true",
         help="Only extract knowledge atoms. Without FILES this reads "
-        "the atomize/ subfolder of the default source tree (drift "
+        "the _atomize/ subfolder of the default source tree (drift "
         "#108) — NOT the whole source dir; pass a file name to target "
         "one document explicitly",
     )
@@ -1569,85 +1659,164 @@ def main() -> int:
     if old_basket.is_dir() and any(p.is_file() for p in old_basket.iterdir()):
         print(
             f"[HINT] old basket {old_basket} still has files — move "
-            "them into data/raw_documents/atomize/ and remove the old "
+            "them into data/raw_documents/_atomize/ and remove the old "
             "folder (one-time migration, drift #108)"
         )
 
     atomize_dir = src_dir / _ATOMIZE_SUBDIR
     explicit_files = bool(args.files)
 
-    targets: list[Path] = []
+    # (source file, destination folder, lives in an _atomize/ folder).
+    # Destination mirrors the source tree with _atomize/ segments
+    # dropped: root files -> dest root (default namespace),
+    # {ns}/x -> dest/{ns}/x, {ns}/_atomize/x -> dest/{ns}/x + atoms
+    # (drift #109).
+    targets: list[tuple[Path, Path, bool]] = []
     if explicit_files:
         for name in args.files:
             path = Path(name)
             if not path.is_absolute():
                 path = src_dir / name
-            targets.append(path)
+            targets.append(
+                (path, _mirror_dest(path, src_dir, dest_dir),
+                 atomize_dir in path.parents)
+            )
     else:
         if not src_dir.exists():
             print(f"[ERROR] source dir not found: {src_dir}", file=sys.stderr)
             return 1
         root_targets = sorted(p for p in src_dir.iterdir() if p.is_file())
-        atomize_targets: list[Path] = []
+        plain: list[tuple[Path, Path, bool]] = [
+            (f, dest_dir, False) for f in root_targets
+        ]
+        atomize_records: list[tuple[Path, Path, bool]] = []
         if default_tree:
-            # Drift #108: the atomize/ subfolder IS the intent list —
-            # bare --atoms/--full never sweep the whole raw_documents
-            # dir (#92 policy). Split-only runs leave it untouched.
+            # Root _atomize/: default-namespace intent (drift #108).
             if atomize_dir.is_dir():
-                atomize_targets = sorted(
+                for f in sorted(
                     p for p in atomize_dir.iterdir() if p.is_file()
+                ):
+                    atomize_records.append((f, dest_dir, True))
+                deeper = [d.name for d in atomize_dir.iterdir() if d.is_dir()]
+                if deeper:
+                    print(
+                        "[WARN] subfolder(s) inside root _atomize/ are "
+                        "not processed: " + ", ".join(sorted(deeper))
+                    )
+            # Level-1 subfolders are namespaces (drift #109): files
+            # mirror into documents/{ns}/; an _atomize/ inside marks
+            # that namespace's intent.
+            configured = _configured_namespaces()
+            for sub in sorted(
+                d
+                for d in src_dir.iterdir()
+                if d.is_dir() and d.name != _ATOMIZE_SUBDIR
+            ):
+                ns_files = sorted(p for p in sub.iterdir() if p.is_file())
+                ns_atomize = sub / _ATOMIZE_SUBDIR
+                ns_atomize_files = (
+                    sorted(p for p in ns_atomize.iterdir() if p.is_file())
+                    if ns_atomize.is_dir()
+                    else []
                 )
-            # Same name in root and atomize/ means a copy, not a move.
-            # Keep ONE home: the atomize/ copy is the marked one and
-            # wins; the root duplicate is skipped for this run.
-            atomize_names = {p.name for p in atomize_targets}
-            for dup in (p for p in root_targets if p.name in atomize_names):
+                # Same name in the namespace root and its _atomize/
+                # means a copy, not a move: the _atomize/ copy wins.
+                ns_atomize_names = {p.name for p in ns_atomize_files}
+                for dup in (p for p in ns_files if p.name in ns_atomize_names):
+                    print(
+                        f"[WARN] {dup.name} exists in both {sub} and "
+                        f"{ns_atomize} — keep one home (move, not copy); "
+                        "the _atomize/ copy is processed"
+                    )
+                ns_files = [
+                    p for p in ns_files if p.name not in ns_atomize_names
+                ]
+                deeper = [
+                    d.name
+                    for d in sub.iterdir()
+                    if d.is_dir() and d.name != _ATOMIZE_SUBDIR
+                ]
+                if deeper:
+                    print(
+                        f"[WARN] subfolder(s) inside namespace "
+                        f"'{sub.name}' are not processed (files and "
+                        "_atomize/ only): " + ", ".join(sorted(deeper))
+                    )
+                if (
+                    ns_files or ns_atomize_files
+                ) and configured is not None and sub.name not in configured:
+                    print(
+                        f"[WARN] '{sub.name}' has no rag.sources "
+                        "entry in config.yaml — files are mirrored "
+                        f"to documents/{sub.name}/ but never indexed"
+                    )
+                ns_dest = dest_dir / sub.name
+                plain.extend((f, ns_dest, False) for f in ns_files)
+                atomize_records.extend(
+                    (f, ns_dest, True) for f in ns_atomize_files
+                )
+            # Root collision: same name in the raw root and root
+            # _atomize/ — keep one home, the _atomize/ copy wins.
+            root_atomize_names = {
+                r[0].name for r in atomize_records if r[1] == dest_dir
+            }
+            for dup in (p for p in root_targets if p.name in root_atomize_names):
                 print(
                     f"[WARN] {dup.name} exists in both {src_dir} and "
                     f"{atomize_dir} — keep one home (move, not copy); "
-                    "the atomize/ copy is processed"
+                    "the _atomize/ copy is processed"
                 )
-            root_targets = [
-                p for p in root_targets if p.name not in atomize_names
+            plain = [
+                r for r in plain
+                if r[1] != dest_dir or r[0].name not in root_atomize_names
             ]
-        # Subfolders outside the convention are not processed — say
-        # so instead of silently ignoring (silent-ignore trap).
-        other_subdirs = [
-            d.name
-            for d in src_dir.iterdir()
-            if d.is_dir()
-            and (not default_tree or d.name != _ATOMIZE_SUBDIR)
-            and any(x.is_file() for x in d.iterdir())
-        ]
-        if other_subdirs:
-            scope = "root files + atomize/" if default_tree else "root files only"
-            print(
-                "[WARN] subfolder(s) with files are not processed "
-                f"({scope}): " + ", ".join(sorted(other_subdirs))
-            )
-        if not default_tree:
-            # An EXPLICIT --src is an owner-directed scope (drift #92
-            # wording preserved): atoms modes process it as given,
+        else:
+            # An EXPLICIT --src is an owner-directed flat scope (drift
+            # #92 wording preserved): atoms modes process it as given,
             # with no subfolder convention.
-            targets = root_targets
+            subdirs = [
+                d.name
+                for d in src_dir.iterdir()
+                if d.is_dir() and any(x.is_file() for x in d.iterdir())
+            ]
+            if subdirs:
+                print(
+                    "[WARN] subfolder(s) with files are not processed "
+                    "(flat owner-directed scope): "
+                    + ", ".join(sorted(subdirs))
+                )
+        if not default_tree:
+            targets = plain
         elif args.atoms:
-            targets = atomize_targets
+            targets = atomize_records
             if not targets:
-                print(f"[SKIP] atomize folder is empty: {atomize_dir}")
+                print(
+                    f"[SKIP] atomize folder is empty: no files in "
+                    f"any _atomize/ under {src_dir}"
+                )
                 return 0
         elif args.full:
-            targets = root_targets + atomize_targets
+            targets = plain + atomize_records
         else:
-            targets = root_targets
-            if atomize_targets:
+            targets = plain
+            # Freshness-aware: silent while a marked file's atoms and
+            # parts are up to date — the line fires only when mode
+            # [2] would actually do work (drift #110).
+            pending = [
+                r
+                for r in atomize_records
+                if _needs_processing(r[0], r[1], atoms=True, split=True)
+            ]
+            if pending:
                 print(
-                    f"[INFO] {len(atomize_targets)} file(s) wait in "
-                    f"{atomize_dir} — run mode [2] (--full) to atomize them"
+                    f"[INFO] {len(pending)} file(s) wait in "
+                    "_atomize/ folder(s) (new or changed) — run mode "
+                    "[2] (--full) to atomize them"
                 )
         if not targets:
-            if atomize_targets:
+            if atomize_records:
                 print(
-                    f"[SKIP] nothing to split in {src_dir} — atomize/ "
+                    f"[SKIP] nothing to split in {src_dir} — _atomize/ "
                     "files are processed by --full"
                 )
                 return 0
@@ -1664,34 +1833,38 @@ def main() -> int:
     total_parts = 0
     atoms_errors = 0
     atoms_warnings = 0
-    for src in targets:
+    for src, target_dest, wants_atoms in targets:
         if not src.is_file():
             print(f"[ERROR] not a file: {src}", file=sys.stderr)
             return 1
-        _reconcile_outputs(src, dest_dir)
+        target_dest.mkdir(parents=True, exist_ok=True)
+        _reconcile_outputs(src, target_dest)
         # Default: split only (fast, safe). Atoms are an explicit,
         # just-in-time step (--atoms / --full) on mature chats:
-        # extraction costs LLM time and is done once per chat. In the
-        # default tree a file earns atoms from the intent folder (or
-        # an explicit name); an explicit --src scope atomizes as
-        # given (drift #108).
+        # extraction costs LLM time and is done once per chat. A file
+        # earns atoms from its _atomize/ residence (any namespace), an
+        # explicit name, or an explicit --src scope (drift #108/#109).
         do_atoms = (args.atoms or args.full) and (
-            explicit_files or not default_tree or src.parent == atomize_dir
+            explicit_files or not default_tree or wants_atoms
         )
         do_split = not args.atoms
-        if not _needs_processing(src, dest_dir, atoms=do_atoms, split=do_split):
+        if not _needs_processing(
+            src, target_dest, atoms=do_atoms, split=do_split
+        ):
             print(f"[SKIP] {src.name}: output is up to date")
             continue
         if do_atoms:
-            make_atoms(src, dest_dir)
+            make_atoms(src, target_dest)
             violations = validate_file(
-                dest_dir / f"atoms-{src.stem}{src.suffix}", src.parent
+                target_dest / f"atoms-{src.stem}{src.suffix}",
+                src.parent,
+                dest_root=target_dest,
             )
             atoms_errors += sum(1 for v in violations if v.severity == "error")
             atoms_warnings += sum(1 for v in violations if v.severity == "warn")
             if not do_split:
                 continue
-        parts = split_file(src, dest_dir)
+        parts = split_file(src, target_dest)
         total_parts += len(parts)
 
     print(f"[DONE] {total_parts} file(s) in {dest_dir}")

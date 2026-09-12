@@ -1558,7 +1558,7 @@ def test_strip_markdown_noise_keeps_plain_links() -> None:
     assert b"[text](https://example.com/page)" in out
 
 # --- Atomization intent folder (drift #108): bare --atoms/--full read
-# the atomize/ subfolder of the default source tree; root files stay
+# the _atomize/ subfolder of the default source tree; root files stay
 # split-only. Location IS the per-document intent — one home, no
 # copies.
 
@@ -1588,10 +1588,10 @@ def test_atoms_mode_empty_atomize_folder_skips_quietly(
 def test_atoms_mode_atomizes_atomize_folder_not_root(
     tmp_path, monkeypatch
 ) -> None:
-    """Bare --atoms atomizes atomize/ files only; root files untouched."""
+    """Bare --atoms atomizes _atomize/ files only; root files untouched."""
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
     src = tmp_path / "data" / "raw_documents"
-    atomize = src / "atomize"
+    atomize = src / "_atomize"
     atomize.mkdir(parents=True)
     (atomize / "two.md").write_text(
         "User asked about a topic.\nAssistant answered with a fact.\n",
@@ -1611,7 +1611,7 @@ def test_atoms_mode_atomizes_atomize_folder_not_root(
     calls = _fake_llm(monkeypatch, ["## Facts\n- **[F]** -- d.\n"])
     rc = prepare_docs.main()
     assert rc == 0
-    assert len(calls) == 1, "exactly one LLM call — only the atomize/ file"
+    assert len(calls) == 1, "exactly one LLM call — only the _atomize/ file"
     assert (dest / "atoms-two.md").is_file()
     assert not (dest / "atoms-one.md").exists()
     assert not (dest / "one.md").exists()
@@ -1620,10 +1620,10 @@ def test_atoms_mode_atomizes_atomize_folder_not_root(
 def test_full_mode_splits_root_and_atomizes_atomize(
     tmp_path, monkeypatch
 ) -> None:
-    """Bare --full: root files split-only; atomize/ files atoms+split."""
+    """Bare --full: root files split-only; _atomize/ files atoms+split."""
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
     src = tmp_path / "data" / "raw_documents"
-    atomize = src / "atomize"
+    atomize = src / "_atomize"
     atomize.mkdir(parents=True)
     (src / "one.md").write_text("# one\n", encoding="utf-8")
     (atomize / "two.md").write_text(
@@ -1648,10 +1648,10 @@ def test_full_mode_splits_root_and_atomizes_atomize(
 def test_split_mode_leaves_atomize_folder_alone(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    """Bare split-only: atomize/ untouched, one info line, no LLM calls."""
+    """Bare split-only: _atomize/ untouched, one info line, no LLM calls."""
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
     src = tmp_path / "data" / "raw_documents"
-    atomize = src / "atomize"
+    atomize = src / "_atomize"
     atomize.mkdir(parents=True)
     (src / "one.md").write_text("# one\n", encoding="utf-8")
     (atomize / "two.md").write_text("chat content\n", encoding="utf-8")
@@ -1673,10 +1673,10 @@ def test_split_mode_leaves_atomize_folder_alone(
 def test_name_collision_root_vs_atomize_warns(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    """Same name in root and atomize/: warn; the atomize copy wins."""
+    """Same name in root and _atomize/: warn; the atomize copy wins."""
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
     src = tmp_path / "data" / "raw_documents"
-    atomize = src / "atomize"
+    atomize = src / "_atomize"
     atomize.mkdir(parents=True)
     (src / "chat.md").write_text("# root copy\n", encoding="utf-8")
     (atomize / "chat.md").write_text("atomize copy\n", encoding="utf-8")
@@ -1716,27 +1716,142 @@ def test_old_basket_files_print_migration_hint(
     assert "old basket" in out
 
 
-def test_other_subfolders_warn_not_processed(
+def test_nested_subfolder_inside_namespace_warns(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    """Files in a non-atomize subfolder are skipped with a warning."""
+    """A subfolder INSIDE a namespace folder is not processed."""
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
     src = tmp_path / "data" / "raw_documents"
-    sub = src / "archive"
+    sub = src / "work" / "archive"
     sub.mkdir(parents=True)
     (sub / "x.md").write_text("# x\n", encoding="utf-8")
-    (src / "one.md").write_text("# one\n", encoding="utf-8")
-    dest = tmp_path / "documents"
+    (src / "work" / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
     monkeypatch.setattr(
         "sys.argv",
         ["prepare_docs.py", "--dest", str(dest)],
     )
     assert prepare_docs.main() == 0
     out = capsys.readouterr().out
-    assert "not processed" in out
+    assert "inside namespace 'work'" in out
     assert "archive" in out
-    assert (dest / "one.md").is_file()
-    assert not (dest / "x.md").exists()
+    assert (dest / "work" / "one.md").is_file()
+    assert not (dest / "work" / "archive" / "x.md").exists()
+
+
+def test_namespace_folder_mirrors_to_dest_subfolder(
+    tmp_path, monkeypatch
+) -> None:
+    """A level-1 subfolder is a namespace: files mirror into
+    documents/{ns}/ while root files stay in the dest root."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    work = src / "work"
+    work.mkdir(parents=True)
+    (work / "one.md").write_text("# one\n", encoding="utf-8")
+    (src / "root.md").write_text("# root\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    calls = _fake_llm(monkeypatch, ["unused"])
+    assert prepare_docs.main() == 0
+    assert calls == []
+    assert (dest / "root.md").is_file()
+    assert (dest / "work" / "one.md").is_file()
+
+
+def test_namespace_atomize_feeds_that_namespace(
+    tmp_path, monkeypatch
+) -> None:
+    """{ns}/_atomize/x gets atoms + split into documents/{ns}/ only."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    src = tmp_path / "data" / "raw_documents"
+    atomize = src / "work" / "_atomize"
+    atomize.mkdir(parents=True)
+    (atomize / "chat.md").write_text(
+        "User asked about a topic.\nAssistant answered with a fact.\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "data" / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--full", "--dest", str(dest)],
+    )
+    calls = _fake_llm(monkeypatch, ["## Facts\n- **[F]** -- d.\n"])
+    assert prepare_docs.main() == 0
+    assert len(calls) == 1
+    assert (dest / "work" / "chat.md").is_file()
+    assert (dest / "work" / "atoms-chat.md").is_file()
+    assert not (dest / "atoms-chat.md").exists()
+
+
+def test_subfolder_without_source_warns(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A namespace subfolder missing from rag.sources: mirrored but
+    never indexed — the script warns."""
+    monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
+    (tmp_path / "config.yaml").write_text(
+        "rag:\n  sources:\n"
+        "    - namespace: work\n"
+        "      path: ./data/documents/work\n",
+        encoding="utf-8",
+    )
+    src = tmp_path / "data" / "raw_documents"
+    for ns in ("work", "books"):
+        (src / ns).mkdir(parents=True)
+        (src / ns / "one.md").write_text("# one\n", encoding="utf-8")
+    dest = tmp_path / "data" / "documents"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["prepare_docs.py", "--dest", str(dest)],
+    )
+    assert prepare_docs.main() == 0
+    out = capsys.readouterr().out
+    assert "'books' has no rag.sources entry" in out
+    assert "'work' has no" not in out
+
+
+def test_validate_finds_namespaced_source(tmp_path) -> None:
+    """--validate resolves a namespaced atoms file's source: V2
+    checks grounding, not 'source not found'."""
+    src_dir = tmp_path / "raw_documents"
+    dest = tmp_path / "documents"
+    work_src = src_dir / "work"
+    work_src.mkdir(parents=True)
+    (work_src / "chat.md").write_text(
+        "User asked about a topic.\nAssistant answered with a fact.\n",
+        encoding="utf-8",
+    )
+    (dest / "work").mkdir(parents=True)
+    (dest / "work" / "atoms-chat.md").write_text(
+        DATED_FACT, encoding="utf-8"
+    )
+    violations = prepare_docs.validate_file(
+        dest / "work" / "atoms-chat.md", src_dir, dest_root=dest
+    )
+    assert not any(
+        v.check == "V2" and "source not found" in v.message
+        for v in violations
+    )
+    assert any(v.check == "V2" and v.severity == "error" for v in violations)
+
+
+def test_v6_scopes_to_namespace_subfolder(tmp_path) -> None:
+    """check_index_coverage(subpath=...) scans only that namespace."""
+    dest = tmp_path / "documents"
+    index = tmp_path / "indices"
+    index.mkdir()
+    (dest / "work").mkdir(parents=True)
+    (dest / "chat.md").write_text("doc", encoding="utf-8")
+    (dest / "work" / "x.md").write_text("doc", encoding="utf-8")
+    _write_store(index, "work", [_store_chunk("x", 1)])
+    violations = prepare_docs.check_index_coverage(
+        dest, index, "work", subpath="work"
+    )
+    assert violations == ()
 
 
 def test_explicit_src_scope_atomizes_as_given(
@@ -1768,7 +1883,7 @@ def test_explicit_src_scope_atomizes_as_given(
 
 def test_needs_processing_edit_stales_atoms(tmp_path) -> None:
     """Editing the source stales its atoms (single home, drift #108)."""
-    src_dir = tmp_path / "raw_documents" / "atomize"
+    src_dir = tmp_path / "raw_documents" / "_atomize"
     src_dir.mkdir(parents=True)
     dest = tmp_path / "documents"
     dest.mkdir()
