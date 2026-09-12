@@ -265,10 +265,21 @@ rag:
     # NOTE: one source per namespace — multiple sources sharing a namespace
     # is a known limitation (see drift.md FUTURE RISKS).
     - namespace: default
-      # [CHANGE] Your documents folder
+      # [CHANGE] Your documents folder. The raw_documents/ ROOT mirrors
+      # here (the default namespace); level-1 subfolders are namespaces
+      # of their own (drift #109) — keep recursive: false so subfolders
+      # are not indexed twice, and declare one source per namespace.
+      # prepare_docs mode [1] splits, mode [2] also atomizes _atomize/.
       path: ./data/documents
       include: ["*.md", "*.txt"]
-      recursive: true
+      recursive: false
+      # Example second namespace: raw_documents/work/x.md is mirrored
+      # to data/documents/work/x.md and indexed as namespace "work";
+      # declare it in namespaces: below (queries: "[w] your question").
+      # - namespace: work
+      #   path: ./data/documents/work
+      #   include: ["*.md", "*.txt"]
+      #   recursive: true
   chat_exports_root: data/chat_exports
   index_chat_exports: false
 
@@ -278,6 +289,12 @@ namespaces:
     # [CHANGE] Re-index after changing this.
     chunk_size: 512
     prompt: rag_strict
+  # Example namespace (drift #109): raw_documents/work/ -> "work";
+  # query routing: "[w] your question".
+  # work:
+  #   prefix: w
+  #   chunk_size: 512
+  #   prompt: rag_strict
   # Required by scripts/check_rag.py: the chat-prefix e2e tests
   # route the [000] prefix here; the bench owns this namespace and
   # never clears watcher-mapped ones (drift #82). Harmless when the
