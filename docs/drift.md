@@ -8,7 +8,7 @@
 > Compaction rule: when History exceeds ~40 entries — extract surviving
 > rules, commit the full text, then compress to one-liners (2026-09-11: #40–#99).
 
-## ACTIVE (6)
+## ACTIVE
 
 | ID | Since | Location | Constraint | Exit Criteria |
 |----|-------|----------|------------|---------------|
@@ -132,7 +132,7 @@ above or already lives in architecture.md. Compacted 2026-09-11
 | 109 | 2026-09-12 | prepare_docs: namespace mirroring — raw_documents/ root stays the default namespace; every level-1 subfolder is a namespace (raw_documents/{ns}/x -> documents/{ns}/x; atomize/ inside feeds that namespace); documents/ mirrors the tree with atomize/ segments dropped. Guards: subfolder without a rag.sources entry warns (mirrored, never indexed); deeper subfolders inside a namespace warn; per-namespace name collisions keep the atomize copy. V6 scopes per namespace (root = default, non-recursive; subpath arg); --validate rglobs atoms across namespaces, sources resolve through the mirror |
 | 110 | 2026-09-12 | prepare_docs: intent folder renamed atomize -> _atomize — sorts first in file managers, so hundreds of namespaces never bury it; single constant, tests and texts follow, one-time mv of the raw folder. The split-mode INFO line is now freshness-aware: silent while a marked file's atoms and parts are up to date, fires only when mode [2] would actually do work (was: counted every resident as "waiting") |
 
-## FUTURE RISKS (20)
+## FUTURE RISKS
 | Risk | Trigger | When to fix |
 |------|---------|-------------|
 | Split date-grounding criteria: producer (_ground_dates) accepts verbatim-or-covered, V2 checks covered-only — a date present verbatim in the source but yielding no parsed covering token gives a false V2 error | First observed false V2 flag | Unify into one _is_grounded shared by producer and validator |
@@ -158,3 +158,4 @@ above or already lives in architecture.md. Compacted 2026-09-11
 | Watcher path discards index_folder results: lifespan `_index_source` returns None, so every indexing failure — mid-run errors today, pre-flight refusals after #107 — reaches only the indexing.py log; the watcher consumes the snapshot as success and never retries | Any work on watcher/lifespan | `_index_source` inspects the result dict: ERROR-log on success=False, or raise to engage the bounded retry — deterministic refusals must NOT be retried, so the report-vs-retry split is an owner decision |
 | index_folder main loop iterates the raw namespace set while Phase 1 iterates sorted(expected_namespaces) — per-namespace processing order varies across processes (string-hash randomization), against the determinism discipline the file collection is sorted for | Any work on index_folder | One-line fix: `for namespace in sorted(expected_namespaces):` |
 | prepare_docs: a document moved out of _atomize/ back to the root keeps its atoms file — atoms stop refreshing but are never removed; a stale atoms file keeps serving retrieval | first observed stale answer from a demoted document | extend the planned deletion-cascade reconcile to demotions — owner decision |
+| 7B atomizer echoes archivist-prompt template fragments as atoms: deterministic (temp 0.0), same 34/141 Latin-letter atoms on re-extraction; V5 flags them (Latin-in-RU) — a known residual, caught by the validator; atoms stay experimental (#92) | template echo pollutes retrieval answers, or a 14B-class model is adopted | producer-side template-fragment filter (birth-time corrector, #90 family) or manual atom deletion |
