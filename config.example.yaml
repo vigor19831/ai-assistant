@@ -9,8 +9,9 @@
 #    - Documents folder path for RAG
 #    - GPU settings (n_gpu_layers: layer count 0/20/99, server_context_size) for your VRAM
 # 3. Re-index documents after any chunk_size change
-# 4. Large files (>150 KB): split via scripts/prepare_docs.py before
-#    indexing (data/raw_documents/ -> data/documents/)
+# 4. Documents: place originals in data/raw_documents/ and run
+#    scripts/prepare_docs.py (splits >150 KB into ~30 KB parts,
+#    small files pass as-is; documents/ is a mirror — never edit it)
 # 5. After ANY config change: restart the servers — the config is read
 #    once at startup (run_servers.py stop && start)
 # =============================================================================

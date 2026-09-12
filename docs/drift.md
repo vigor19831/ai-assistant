@@ -6,7 +6,8 @@
 > FUTURE RISKS are deferred issues with concrete triggers — they are known, not forgotten.
 > Git history is unreliable (commits often say "fix"). This file is the source of truth.
 > Compaction rule: when History exceeds ~40 entries — extract surviving
-> rules, commit the full text, then compress to one-liners (2026-09-11: #40–#99).
+> rules, commit the full text, then compress to one-liners
+> (2026-09-11: #40–#99; 2026-09-12 round 3: #100–#111).
 
 ## ACTIVE
 
@@ -50,9 +51,12 @@
 | 82 | 2026-09-07 | Bench never clears watcher-mapped namespaces (bench_000, [000]) → `scripts/check_rag.py` |
 | 83 | 2026-09-07 | Test premises verified against the corpus, not intent |
 | 91 | 2026-09-10 | A language check needs an external reference — self-comparison cannot see a uniform flip → V5 in `scripts/prepare_docs.py` |
-| 92 | 2026-09-10 | POLICY: atoms OFF until a 14B-class model fits VRAM (per-doc basket exception); a distillation layer must measurably beat its source |
+| 92 | 2026-09-10 | POLICY: atoms OFF until a 14B-class model fits VRAM; a distillation layer must measurably beat its source |
 | 93 | 2026-09-10 | A skip condition must verify the artifact it vouches for, not just the key it remembers |
 | 97+98 | 2026-09-11 | Never lock a known defect as a required test outcome; flake rule: single red → re-run + find the config delta, two consecutive reds → investigate |
+| 107 | 2026-09-12 | Pre-flight max_chunks: refuse before embedding; the store stays the guard (#48) → `features/rag/indexing.py` |
+| 108-110 | 2026-09-12 | Ingestion tree: root=default, subfolders=namespaces, _atomize/=intent; documents/ is a mirror, never edited by hand → `architecture.md` §2.9, `scripts/prepare_docs.py` |
+| 111 | 2026-09-12 | Reconcile: leftovers of vanished sources removed only on an explicit y/N; the index is the watcher's → `scripts/prepare_docs.py` |
 
 ## FIXED → History (one-liners, self-contained)
 
@@ -60,7 +64,7 @@ Working horizon: 2026-08-27 → now. Entries are one-liners; the full
 text of every entry lives in this file's git history. Every lesson
 with a surviving contract is extracted into the Rule Extracted table
 above or already lives in architecture.md. Compacted 2026-09-11
-(round 2, after the #1–#39 archive).
+(round 2, after the #1–#39 archive); 2026-09-12 (round 3: #100–#111).
 
 | ID | Fixed | Summary |
 |----|-------|---------|
@@ -121,19 +125,20 @@ above or already lives in architecture.md. Compacted 2026-09-11
 | 97 | 2026-09-11 | Required-V5 assert dropped: the 09-10 engine cured the EN flip (rule extracted) |
 | 98 | 2026-09-11 | Quote-survival flake on 7B (3G/1R session): single red → re-run (rule extracted) |
 | 99 | 2026-09-11 | `download_tokenizers`: atomic write — a network cut can no longer brick startup |
-| 100 | 2026-09-11 | `clean_cache` rmtree onerror deprecated (B028, removal candidate) but the replacement onexc needs 3.12+ while the project minimum is 3.11 (verified same day). Runtime version pick + per-file B028 silence; delete the legacy branch and the noqa together when the minimum passes 3.11 |
-| 101 | 2026-09-11 | os.kill(pid, 0) KILLS on Windows — both start() and stop() had it; stop() also sent SIGTERM (= hard TerminateProcess) and SIGKILLed at 0.5 s mid-index-save on both OSes. Rewrite: `_pid_alive` gate; CTRL_BREAK_EVENT → uvicorn graceful lifespan; ≤10 s poll (`STOP_GRACE_SECONDS`) then force — force is safe (atomic index writes). CREATE_NO_WINDOW dropped: hidden-console children cannot receive console events. Windows untested live — verify when back (see #96) |
-| 102 | 2026-09-11 | `run_servers` HOST default 0.0.0.0 → 127.0.0.1: `config.yaml` missing `host` must fail safe (loopback), not silently expose the API to the LAN |
-| 103 | 2026-09-11 | `llama.log` rotation (>10 MB, start) now port-guarded: on Linux unlink under a running server is silent (deleted inode, #74); ports are the behavioral guard |
-| 105 | 2026-09-12 | FlashAttention A/B (7B, 09-10 engine, extra_args — config.yaml key rejected by extra="forbid", live-proven): verdicts byte-identical both ways (17/17 + 9/9 + 31/34 = best 7B result ever, new canon on the new engine — re-baseline done); speed tie (4:01 vs 4:00 — PCIe-bound at ngl=20, fa speeds up on-GPU math, not the bus); RAM peak 5.57 vs 6.04 GB (single-run, unconfirmed). Kept ON for the RAM headroom. run_servers.yaml annotated: pairs toggle together, lone value = startup death (#60 class) |
-| 106 | 2026-09-12 | Scale: pre-read skip — index_folder fetches stored uri stats (mtime+count+total, #93 contract) BEFORE reading disk; unchanged+complete files are not re-read (was: full-content read of every file per change, then post-filter skip). Orphan cleanup keyed on the disk inventory, not the read docs — skipped files keep their chunks; clear wipes before the skip fetch, so clear re-reads all. read_sources public signature unchanged (wrapper). Watcher _scan filters by include — an ignored neighbor no longer triggers a pass. Counter test locks reads: unchanged=0, changed=1, clear=1 |
-| 107 | 2026-09-12 | Scale stage 1: pre-flight max_chunks in index_folder — human-readable refusal BEFORE embedding instead of the mid-run AdapterError; the store stays the guard (#48). Counts mirror the atomic upsert: namespace size AFTER replacement (#88); tests lock refuse-before-embed, exact-limit, replace-at-limit. Docs chunked twice (count + run); counting failure skips the check by design (fail-open, WARNING); refusal text carries "failed" for the success-substring parser (cleanup owed). Conftest mock store now sets config — spec-mocks see class attrs only. indexing.py imports the domain model directly (legal layering) |
-| 108 | 2026-09-12 | prepare_docs: atomization intent folder — a file MOVED into raw_documents/atomize/ gets atoms+split, root files stay split-only; one home per file, no copies (retires the raw_documents_atom basket; #92 mechanism changes, policy does not; the stale-copy trap dies by construction). Guards: root-vs-atomize name collision warns (atomize copy wins); non-atomize subfolders with files warn; old-basket migration hint; explicit --src stays a direct owner scope; menu [2] now truly a full pass (old code touched only the basket) |
-| 109 | 2026-09-12 | prepare_docs: namespace mirroring — raw_documents/ root stays the default namespace; every level-1 subfolder is a namespace (raw_documents/{ns}/x -> documents/{ns}/x; atomize/ inside feeds that namespace); documents/ mirrors the tree with atomize/ segments dropped. Guards: subfolder without a rag.sources entry warns (mirrored, never indexed); deeper subfolders inside a namespace warn; per-namespace name collisions keep the atomize copy. V6 scopes per namespace (root = default, non-recursive; subpath arg); --validate rglobs atoms across namespaces, sources resolve through the mirror |
-| 110 | 2026-09-12 | prepare_docs: intent folder renamed atomize -> _atomize — sorts first in file managers, so hundreds of namespaces never bury it; single constant, tests and texts follow, one-time mv of the raw folder. The split-mode INFO line is now freshness-aware: silent while a marked file's atoms and parts are up to date, fires only when mode [2] would actually do work (was: counted every resident as "waiting") |
-| 111 | 2026-09-12 | prepare_docs reconcile: dest artifacts whose raw source is gone (vanished or moved) are listed (name + file count) and removed only on an explicit y/N (Enter/N = silent continue; closed stdin = no). Stateless — the dest tree is the history; source candidates are the mirrored spot and its _atomize/ sibling; parts/as-is/atoms all map to the source name. Runs before the split pass so it fires even with nothing to split; empty namespace dirs removed; the index is left to the watcher. Rationale: the owner deleted sources live and nothing asked (2026-09-12) |
+| 100 | 2026-09-11 | `clean_cache` rmtree onerror (B028): replacement needs 3.12+ — runtime version pick; legacy branch + noqa die together when the min passes 3.11 |
+| 101 | 2026-09-11 | Windows kill fix: `_pid_alive` gate, CTRL_BREAK graceful, ≤10 s poll then force (safe: atomic writes); CREATE_NO_WINDOW dropped; Windows untested live — verify when back |
+| 102 | 2026-09-11 | `run_servers` HOST default 0.0.0.0 → 127.0.0.1: a missing host fails safe (loopback) |
+| 103 | 2026-09-11 | `llama.log` rotation port-guarded — Linux unlink under a running server is silent (#74 class) |
+| 105 | 2026-09-12 | FlashAttention A/B (7B, new engine): verdicts byte-identical (17/17 + 9/9 + 31/34, new canon); speed tie (PCIe-bound); RAM 5.57 vs 6.04 GB (single run) — kept ON for headroom; run_servers.yaml: fa pairs toggle together |
+| 106 | 2026-09-12 | Pre-read skip: stored uri stats fetched before the disk read — unchanged+complete files not re-read; orphan cleanup keyed on the disk inventory; clear re-reads all; watcher filters by include |
+| 107 | 2026-09-12 | Scale stage 1: pre-flight max_chunks — human-readable refusal before embedding (rule extracted) |
+| 108 | 2026-09-12 | Atomization intent folder, basket retired — the stale-copy trap dies by construction (rule extracted) |
+| 109 | 2026-09-12 | Namespace mirroring — documents/ mirrors the raw tree (rule extracted) |
+| 110 | 2026-09-12 | `_atomize` rename (sorts first); INFO line freshness-aware (rule extracted) |
+| 111 | 2026-09-12 | Reconcile vanished sources: list → y/N → cleanup; the index is the watcher's (rule extracted) |
 
 ## FUTURE RISKS
+
 | Risk | Trigger | When to fix |
 |------|---------|-------------|
 | Split date-grounding criteria: producer (_ground_dates) accepts verbatim-or-covered, V2 checks covered-only — a date present verbatim in the source but yielding no parsed covering token gives a false V2 error | First observed false V2 flag | Unify into one _is_grounded shared by producer and validator |
