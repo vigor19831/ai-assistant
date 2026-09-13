@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ai_assistant.core.constants import INDEX_IO_TIMEOUT
 from ai_assistant.core.domain.documents import Document
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
@@ -526,7 +527,17 @@ async def index_folder(
                     all_errors.extend(result["errors"])
                 if index_path:
                     try:
-                        await vector_store.save(index_path, namespace=namespace)
+                        await asyncio.wait_for(
+                            vector_store.save(index_path, namespace=namespace),
+                            timeout=INDEX_IO_TIMEOUT,
+                        )
+                    except TimeoutError:
+                        _logger.warning(
+                            f"Checkpoint save timed out for {namespace}"
+                        )
+                        all_errors.append(
+                            f"Checkpoint save timed out for {namespace}"
+                        )
                     except Exception as exc:
                         _logger.warning(
                             f"Checkpoint save failed for {namespace}: {exc}"

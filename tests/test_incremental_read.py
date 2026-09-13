@@ -1,8 +1,10 @@
 """Incremental read (drift #106), pre-flight max_chunks (stage 1),
-run success semantics, watcher visibility (#113), namespace order (#114)."""
+run success semantics, watcher visibility (#113), namespace order (#114),
+index save timeouts (#115)."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -410,3 +412,62 @@ class TestNamespaceOrder:
         )
         assert result["success"] is True
         assert list(result["results"]) == ["alpha", "zeta"]
+
+
+class TestSaveTimeouts:
+    """Index saves are bounded by INDEX_IO_TIMEOUT (#115)."""
+
+    async def test_checkpoint_save_timeout_fails_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A hanging checkpoint save must not stall the indexing loop."""
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        (docs_dir / "a.md").write_text("alpha beta gamma delta", encoding="utf-8")
+
+        monkeypatch.setattr(indexing, "INDEX_IO_TIMEOUT", 0.05)
+        store = _make_store(tmp_path)
+
+        async def hanging_save(path: str, namespace: str = "default") -> None:
+            await asyncio.sleep(1.0)  # sleep: intentional — past the timeout
+
+        monkeypatch.setattr(store, "save", hanging_save)
+        result: dict[str, Any] = await _run_index(docs_dir, store)
+        assert result["success"] is False
+        assert any("timed out" in e for e in result["errors"])
+
+    async def test_chat_export_save_timeout_is_reported(
+        self,
+        isolated_app_state: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A hanging chat-export save answers indexed=False with the reason."""
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+        from ai_assistant.features.rag.handlers import save_chat
+        from ai_assistant.features.rag.schemas import SaveChatRequest
+
+        isolated_app_state.config.rag.index_chat_exports = True
+
+        async def hanging_save(path: str, namespace: str = "default") -> None:
+            await asyncio.sleep(1.0)  # sleep: intentional — past the timeout
+
+        isolated_app_state.vector_store.save = AsyncMock(side_effect=hanging_save)
+        isolated_app_state.chunker.chunk = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="hello",
+                    metadata=ChunkMetadata(source="doc", index=0, total_chunks=1),
+                )
+            ]
+        )
+        monkeypatch.setattr(
+            "ai_assistant.features.rag.handlers.INDEX_IO_TIMEOUT", 0.05
+        )
+
+        req = SaveChatRequest(namespace="test", filename="chat.md", content="hello")
+        response: dict[str, Any] = await save_chat(req, isolated_app_state)
+        assert response["saved"] is True
+        assert response["indexed"] is False
+        assert "timed out" in response["error"]

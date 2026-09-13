@@ -403,7 +403,20 @@ async def _index_chat_export(
         )
         index_path = state.config.vector_store.index_path
         if index_path:
-            await state.vector_store.save(index_path, namespace=chat_namespace)
+            try:
+                await asyncio.wait_for(
+                    state.vector_store.save(index_path, namespace=chat_namespace),
+                    timeout=INDEX_IO_TIMEOUT,
+                )
+            except TimeoutError:
+                _logger.warning(
+                    "Chat export index save timed out",
+                    extra={
+                        "trace_id": trace_id,
+                        "chat_namespace": chat_namespace,
+                    },
+                )
+                raise TimeoutError("Index save timed out") from None
         _logger.info(
             "Chat saved and indexed",
             extra={
