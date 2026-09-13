@@ -1,5 +1,5 @@
 """Incremental read (drift #106), pre-flight max_chunks (stage 1),
-run success semantics and watcher visibility (#113)."""
+run success semantics, watcher visibility (#113), namespace order (#114)."""
 
 from __future__ import annotations
 
@@ -371,3 +371,42 @@ class TestWatcherVisibility:
         with caplog.at_level(logging.ERROR, logger="lifespan"):
             await _index_source(mock_state, mock_state.config, src)
         assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+class TestNamespaceOrder:
+    """Cross-process determinism: the main loop processes sorted namespaces (#114)."""
+
+    async def test_namespaces_processed_in_sorted_order(
+        self, tmp_path: Path
+    ) -> None:
+        """The results dict mirrors the main loop order — must be sorted.
+
+        Raw set iteration order varies with string-hash randomization
+        across processes; the file collection is sorted for the same
+        reason.
+        """
+        sources = []
+        for ns in ("zeta", "alpha"):
+            ns_dir = tmp_path / ns
+            ns_dir.mkdir()
+            (ns_dir / "a.md").write_text("alpha beta gamma delta", encoding="utf-8")
+            sources.append(
+                SourceConfig(
+                    namespace=ns,
+                    path=str(ns_dir),
+                    include=["*.md"],
+                    recursive=True,
+                )
+            )
+        store = _make_store(tmp_path)
+        result: dict[str, Any] = await index_folder(
+            target_namespace=None,
+            clear=False,
+            chunker=SimpleChunker(ChunkerConfigData()),
+            embedder=MockEmbedder(EmbedderConfigData()),
+            vector_store=store,
+            sources=sources,
+            index_path=store.index_path,
+        )
+        assert result["success"] is True
+        assert list(result["results"]) == ["alpha", "zeta"]

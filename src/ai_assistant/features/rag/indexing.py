@@ -465,7 +465,9 @@ async def index_folder(
         # in source.path or a fully emptied tree must be visible (#113).
         return {"success": False, "results": {}, "errors": ["No documents found"]}
 
-    for namespace in expected_namespaces:
+    # Sorted for cross-process determinism (#114): raw set iteration
+    # order varies with string-hash randomization.
+    for namespace in sorted(expected_namespaces):
         docs = docs_by_ns.get(namespace, [])
         processed_any = True
 
