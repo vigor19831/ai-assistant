@@ -138,8 +138,9 @@ above or already lives in architecture.md. Compacted 2026-09-11
 | 111 | 2026-09-12 | Reconcile vanished sources: list → y/N → cleanup; the index is the watcher's (rule extracted) |
 | 112 | 2026-09-12 | Unreadable is not deleted: read/stat OSError keeps the file's uri in the disk inventory — orphan cleanup preserves the chunks; WARNING per unreadable file; empty-but-readable keeps old semantics |
 | 113 | 2026-09-12 | Watcher visibility: `_index_source` (module-level in lifespan.py) ERROR-logs runs with success=False; success ⇔ errors empty — the "failed"-substring check is gone (capital-F "Failed to chunk" errors were silent successes); empty corpus ("No documents found") is a failed run, not a silent success |
-| 114 | 2026-09-12 | index_folder main loop iterates sorted(expected_namespaces) — per-namespace processing order no longer varies across processes (string-hash randomization); FUTURE RISK closed as executed |
-| 115 | 2026-09-13 | Index saves bounded by INDEX_IO_TIMEOUT (wait_for): checkpoint save in index_folder and chat-export save in save-chat — a hung store can no longer stall the indexing loop or the HTTP request; checkpoint timeout lands in errors (fails the run per #113), chat-export timeout answers saved=True + indexed=False + reason |
+| 114 | 2026-09-12 | `index_folder` main loop iterates `sorted(expected_namespaces)` — per-namespace processing order no longer varies across processes (string-hash randomization); FUTURE RISK closed as executed |
+| 115 | 2026-09-13 | Index saves bounded by `INDEX_IO_TIMEOUT` (`wait_for`): checkpoint save in `index_folder` and chat-export save in save-chat — a hung store can no longer stall the indexing loop or the HTTP request; checkpoint timeout lands in errors (fails the run per #113), chat-export timeout answers saved=True + indexed=False + reason |
+| 116 | 2026-09-13 | save-chat checks content against `vector_store.max_document_size` before indexing — oversized export: file saved, indexed=False, reason (same contract as POST /rag/index); `_index_chat_export` uses `shutdown_chunker_if_temporary` — the 6th manual copy is gone |
 
 ## FUTURE RISKS
 

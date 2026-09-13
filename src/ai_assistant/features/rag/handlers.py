@@ -436,13 +436,8 @@ async def _index_chat_export(
             "chunk_count": result.get("chunk_count", 0),
         }
     finally:
-        if chunker is not state.chunker:
-            try:
-                await chunker.shutdown()
-            except Exception:
-                _logger.exception(
-                    "Chunker shutdown failed", extra={"trace_id": trace_id}
-                )
+        # Same helper as the five other call sites in this file (#116).
+        await shutdown_chunker_if_temporary(chunker, state.chunker, trace_id)
 
 
 @router.post("/save-chat", response_model=None)
@@ -497,6 +492,31 @@ async def save_chat(
             "namespace": namespace,
             "indexed": False,
             "reason": "index_chat_exports is disabled",
+        }
+
+    # Resource guard, same contract as POST /rag/index: an oversized
+    # export is saved (the file is the user's data) but not indexed.
+    max_doc_size = state.config.vector_store.max_document_size
+    export_size = len(content.encode("utf-8"))
+    if export_size > max_doc_size:
+        _logger.warning(
+            "Chat export exceeds max_document_size, indexing skipped",
+            extra={
+                "trace_id": trace_id,
+                "path": str(file_path),
+                "size": export_size,
+                "max_document_size": max_doc_size,
+            },
+        )
+        return {
+            "saved": True,
+            "path": str(file_path),
+            "namespace": namespace,
+            "indexed": False,
+            "reason": (
+                f"Chat export exceeds max_document_size "
+                f"({export_size} > {max_doc_size})"
+            ),
         }
 
     try:

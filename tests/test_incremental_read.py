@@ -1,6 +1,6 @@
 """Incremental read (drift #106), pre-flight max_chunks (stage 1),
 run success semantics, watcher visibility (#113), namespace order (#114),
-index save timeouts (#115)."""
+index save timeouts (#115), chat export size guard (#116)."""
 
 from __future__ import annotations
 
@@ -471,3 +471,27 @@ class TestSaveTimeouts:
         assert response["saved"] is True
         assert response["indexed"] is False
         assert "timed out" in response["error"]
+
+
+class TestChatExportSizeGuard:
+    """Oversized chat exports are saved but never indexed (#116)."""
+
+    async def test_oversized_export_saved_not_indexed(
+        self, isolated_app_state: Any
+    ) -> None:
+        """Content over max_document_size answers indexed=False with a reason."""
+        from ai_assistant.features.rag.handlers import save_chat
+        from ai_assistant.features.rag.schemas import SaveChatRequest
+
+        isolated_app_state.config.rag.index_chat_exports = True
+        isolated_app_state.config.vector_store.max_document_size = 10
+
+        req = SaveChatRequest(
+            namespace="test", filename="big.md", content="x" * 100
+        )
+        response: dict[str, Any] = await save_chat(req, isolated_app_state)
+        assert response["saved"] is True
+        assert response["indexed"] is False
+        assert "max_document_size" in response["reason"]
+        # The document never reached the store.
+        isolated_app_state.vector_store.upsert.assert_not_awaited()
