@@ -265,6 +265,17 @@ async def delete_chunks(
     trace_id = uuid.uuid4().hex
     namespace = req.namespace or state.config.rag.default_namespace
     deleted = 0
+    # Same contract as POST /rag/reindex without sources (drift #47):
+    # an empty delete request is a client error, not a silent 200.
+    if not (req.clear or req.chunk_ids or req.document_ids):
+        _logger.info(
+            "Delete chunks rejected: no selector provided",
+            extra={"trace_id": trace_id, "namespace": namespace},
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="No chunk_ids, document_ids, or clear flag provided",
+        )
     try:
         if req.clear:
             all_chunks = await state.vector_store.list_by_filter(
@@ -293,11 +304,6 @@ async def delete_chunks(
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
-        else:
-            return DeleteResponse(
-                deleted_chunks=0,
-                errors=["No chunk_ids, document_ids, or clear flag provided"],
-            )
         _logger.info(
             "Delete chunks completed",
             extra={

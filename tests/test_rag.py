@@ -2506,16 +2506,23 @@ class TestDeleteChunksExtended:
     async def test_delete_chunks_no_criteria_returns_error(self, mock_state):
         """Given: no chunk_ids, document_ids, or clear flag.
         When: delete_chunks handler called.
-        Then: returns error and does not touch vector_store."""
+        Then: HTTP 400 (#117), same contract as reindex without
+        sources, and the vector store is not touched."""
+        from fastapi import HTTPException
+
         mock_state.vector_store.delete = AsyncMock()
         mock_state.vector_store.list_by_filter = AsyncMock(return_value=[])
 
         req = DeleteRequest(namespace="test")
-        resp = await delete_chunks(req, mock_state)
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_chunks(req, mock_state)
 
-        assert resp.deleted_chunks == 0
-        assert resp.errors == ["No chunk_ids, document_ids, or clear flag provided"]
+        assert exc_info.value.status_code == 400
+        assert "No chunk_ids, document_ids, or clear flag provided" in (
+            exc_info.value.detail
+        )
         mock_state.vector_store.delete.assert_not_awaited()
+        mock_state.vector_store.list_by_filter.assert_not_awaited()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
