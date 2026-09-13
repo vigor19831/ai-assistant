@@ -425,13 +425,26 @@ async def index_folder(
     all_results: dict[str, Any] = {}
     all_indexed_uris: dict[str, dict[str, list[str]]] = {}
     all_errors: list[str] = []
-    processed_any = False
 
     expected_namespaces = {src.namespace for src in sources}
     if target_namespace:
         expected_namespaces = {
             ns for ns in expected_namespaces if ns == target_namespace
         }
+        if not expected_namespaces:
+            # Fail fast before reading anything: the namespace is not
+            # in the configured sources at all (#8 — no wasted reads).
+            error = (
+                f"Namespace '{target_namespace}' not found in configured sources"
+            )
+            _logger.warning(error)
+            return {"success": False, "results": {}, "errors": [error]}
+    # Read only sources mapped to the namespaces this run processes:
+    # a targeted reindex must not re-read every other namespace's
+    # files (#8) — the full-reindex loop calls this once per namespace.
+    selected_sources = [
+        src for src in sources if src.namespace in expected_namespaces
+    ]
 
     # Phase 1 — fetch stored uri stats BEFORE reading disk: unchanged +
     # complete files then skip the read itself (#93 contract, moved
@@ -457,7 +470,7 @@ async def index_folder(
     # Phase 2 — read only what the store does not vouch for.
     docs_by_ns, inventory_by_ns = await asyncio.to_thread(
         _read_sources_incremental,
-        sources,
+        selected_sources,
         max_file_size,
         skip_by_ns,
     )
@@ -470,7 +483,6 @@ async def index_folder(
     # order varies with string-hash randomization.
     for namespace in sorted(expected_namespaces):
         docs = docs_by_ns.get(namespace, [])
-        processed_any = True
 
         all_meta = await _cleanup_orphan_chunks(
             vector_store, namespace, inventory_by_ns.get(namespace, set())
@@ -559,16 +571,6 @@ async def index_folder(
         all_results[namespace] = {
             "indexed": indexed_count,
             "chunks": chunk_count,
-        }
-
-    if target_namespace and not processed_any:
-        all_errors.append(
-            f"Namespace '{target_namespace}' not found in configured sources"
-        )
-        return {
-            "success": False,
-            "results": all_results,
-            "errors": all_errors,
         }
 
     # Success means exactly "no errors" (#113) — the old substring

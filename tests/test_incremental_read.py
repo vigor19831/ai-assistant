@@ -1,6 +1,7 @@
 """Incremental read (drift #106), pre-flight max_chunks (stage 1),
 run success semantics, watcher visibility (#113), namespace order (#114),
-index save timeouts (#115), chat export size guard (#116)."""
+index save timeouts (#115), chat export size guard (#116),
+targeted read scope (#118)."""
 
 from __future__ import annotations
 
@@ -495,3 +496,121 @@ class TestChatExportSizeGuard:
         assert "max_document_size" in response["reason"]
         # The document never reached the store.
         isolated_app_state.vector_store.upsert.assert_not_awaited()
+
+
+class TestTargetedReadScope:
+    """A targeted reindex reads only the target namespace's files (#8, #118)."""
+
+    async def test_targeted_reindex_skips_other_namespaces(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Files of non-target namespaces are never read from disk."""
+        calls: list[str] = []
+        real_read = indexing._read_file_sync
+
+        def counting_read(path: Path) -> str | None:
+            calls.append(path.name)
+            return real_read(path)
+
+        monkeypatch.setattr(indexing, "_read_file_sync", counting_read)
+
+        sources = []
+        for ns in ("ns1", "ns2"):
+            ns_dir = tmp_path / ns
+            ns_dir.mkdir()
+            (ns_dir / f"{ns}.md").write_text(
+                "alpha beta gamma delta", encoding="utf-8"
+            )
+            sources.append(
+                SourceConfig(
+                    namespace=ns,
+                    path=str(ns_dir),
+                    include=["*.md"],
+                    recursive=True,
+                )
+            )
+        store = _make_store(tmp_path)
+        result: dict[str, Any] = await index_folder(
+            target_namespace="ns1",
+            clear=False,
+            chunker=SimpleChunker(ChunkerConfigData()),
+            embedder=MockEmbedder(EmbedderConfigData()),
+            vector_store=store,
+            sources=sources,
+            index_path=store.index_path,
+        )
+        assert result["success"] is True
+        assert result["results"]["ns1"]["indexed"] == 1
+        assert calls == ["ns1.md"]
+
+    async def test_unknown_target_fails_fast_without_reads(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A namespace absent from sources fails before any file is read."""
+        calls: list[str] = []
+        real_read = indexing._read_file_sync
+
+        def counting_read(path: Path) -> str | None:
+            calls.append(path.name)
+            return real_read(path)
+
+        monkeypatch.setattr(indexing, "_read_file_sync", counting_read)
+
+        ns_dir = tmp_path / "ns1"
+        ns_dir.mkdir()
+        (ns_dir / "a.md").write_text("alpha beta gamma delta", encoding="utf-8")
+        sources = [
+            SourceConfig(
+                namespace="ns1",
+                path=str(ns_dir),
+                include=["*.md"],
+                recursive=True,
+            )
+        ]
+        store = _make_store(tmp_path)
+        result: dict[str, Any] = await index_folder(
+            target_namespace="missing",
+            clear=False,
+            chunker=SimpleChunker(ChunkerConfigData()),
+            embedder=MockEmbedder(EmbedderConfigData()),
+            vector_store=store,
+            sources=sources,
+            index_path=store.index_path,
+        )
+        assert result["success"] is False
+        assert result["errors"] == [
+            "Namespace 'missing' not found in configured sources"
+        ]
+        assert calls == []
+
+    async def test_empty_target_namespace_is_failed_run(
+        self, tmp_path: Path
+    ) -> None:
+        """An emptied target namespace fails like the watcher path (#113 parity)."""
+        ns1 = tmp_path / "ns1"
+        ns1.mkdir()
+        ns2 = tmp_path / "ns2"
+        ns2.mkdir()
+        (ns2 / "b.md").write_text("alpha beta gamma delta", encoding="utf-8")
+        sources = []
+        for ns, ns_dir in (("ns1", ns1), ("ns2", ns2)):
+            sources.append(
+                SourceConfig(
+                    namespace=ns,
+                    path=str(ns_dir),
+                    include=["*.md"],
+                    recursive=True,
+                )
+            )
+        store = _make_store(tmp_path)
+        result: dict[str, Any] = await index_folder(
+            target_namespace="ns1",
+            clear=False,
+            chunker=SimpleChunker(ChunkerConfigData()),
+            embedder=MockEmbedder(EmbedderConfigData()),
+            vector_store=store,
+            sources=sources,
+            index_path=store.index_path,
+        )
+        assert result["success"] is False
+        assert result["errors"] == ["No documents found"]

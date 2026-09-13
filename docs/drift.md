@@ -142,6 +142,7 @@ above or already lives in architecture.md. Compacted 2026-09-11
 | 115 | 2026-09-13 | Index saves bounded by `INDEX_IO_TIMEOUT` (`wait_for`): checkpoint save in `index_folder` and chat-export save in save-chat — a hung store can no longer stall the indexing loop or the HTTP request; checkpoint timeout lands in errors (fails the run per #113), chat-export timeout answers saved=True + indexed=False + reason |
 | 116 | 2026-09-13 | save-chat checks content against `vector_store.max_document_size` before indexing — oversized export: file saved, indexed=False, reason (same contract as POST /rag/index); `_index_chat_export` uses `shutdown_chunker_if_temporary` — the 6th manual copy is gone |
 | 117 | 2026-09-13 | POST /rag/delete with no selector is HTTP 400, same contract as reindex-without-sources (drift #47 family) — was 200 with the error in the body; the check moved before the try block (an in-try raise would surface as 500); the dead else-branch removed |
+| 118 | 2026-09-13 | Targeted reindex reads only mapped sources: `index_folder` filters sources to the namespaces it processes (#8 — the full-reindex loop was N x reads); a nonexistent target fails fast before any disk read (late check + `processed_any` removed as dead); an emptied target namespace now returns "No documents found" (failed run) — watcher-path parity per #113, was a silent `{indexed: 0}` success |
 
 ## FUTURE RISKS
 
