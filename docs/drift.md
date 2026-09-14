@@ -64,6 +64,8 @@
 | 107 | 2026-09-12 | Pre-flight max_chunks: refuse before embedding; the store stays the guard (#48) → `features/rag/indexing.py` |
 | 108-110 | 2026-09-12 | Ingestion tree: root=default, subfolders=namespaces, _atomize/=intent; documents/ is a mirror, never edited by hand → `architecture.md` §2.9, `scripts/prepare_docs.py` |
 | 111 | 2026-09-12 | Reconcile: leftovers of vanished sources removed only on an explicit y/N; the index is the watcher's → `scripts/prepare_docs.py` |
+| 125 | 2026-09-14 | Live probe "overhaul vs new car": a 7B atom with an inverted fact (cheaper→more expensive) outranked its truthful raw source while both were retrieved; atoms demoted, corpus raw-only — POLICY #92 confirmed by measurement || 126 | 2026-09-14 | Live-caught attribution failures on raw chunks (bench green, live red): "which errors did I make" / "which decision did I take" attributed assistant advice as user actions — closed by #124 speaker markers; residual class (advice → inferred non-action) is 7B-bound, prompt word-lists rejected |
+
 
 ## FIXED → History (one-liners, self-contained)
 
@@ -145,6 +147,7 @@ table deduped).
 | 121 | 2026-09-14 | Dead config field `ChatConfig.max_history_messages` removed (audit M2: no reader in src/scripts/tests/run_servers — grep-verified); config_version 3→4, old configs absorbed silently in the version validator |
 | 122 | 2026-09-14 | Refusal contract unified (audit M1): one matcher — `is_refusal_answer` in core.constants — for both entry paths; preamble refusals no longer carry sources via /rag/query (parity with chat, live-caught 2026-09-10 edge). An LLM-unavailable answer keeps the no-evidence shape (error answer, not a refusal) and /rag/query raises 503 for it — chat-path parity; degraded-but-answered runs (errors + real answer) stay 200 |
 | 123 | 2026-09-14 | `NamespaceConfig.prefix` docstring corrected: "Single-character" → "Short" — the live config uses "000" (3 chars) and query_parser handles it (audit L1); schema and behavior unchanged |
+| 125 | 2026-09-14 | Live probe "overhaul vs new car": a 7B atom with an inverted fact (cheaper→more expensive) outranked its truthful raw source while both were retrieved; atoms demoted, corpus raw-only — POLICY #92 confirmed by measurement || 126 | 2026-09-14 | Live-caught attribution failures on raw chunks (bench green, live red): "which errors did I make" / "which decision did I take" attributed assistant advice as user actions — closed by #124 speaker markers; residual class (advice → inferred non-action) is 7B-bound, prompt word-lists rejected |
 
 ## FUTURE RISKS
 
@@ -180,3 +183,4 @@ table deduped).
 | Unreadable file at index time: chunks preserved (#112) and the failure is loud (#113), but the new content is not retried until the next file change or a manual reindex — retrying only transient failures needs a typed error taxonomy to tell them from deterministic refusals | A changed file serves stale content past the next watcher pass (watch the log for "Watcher reindex failed" + unreadable-file warnings) | Typed error taxonomy in the result channel, then a bounded retry for transient-only failures (one layer — drift #43) |
 | Watcher keys snapshots by `str(path)`: two SourceConfigs sharing one path overwrite each other's snapshots every poll — change detection for one of them becomes unreliable | before mapping a second source to the same path | key by (namespace, path) |
 | Chunker-shared `custom` dict aliases across frozen chunks — latent until a chunker returns chunks sharing one dict | a chunker that shares one custom dict between chunks | copy on chunk rebuild in IndexingManager |
+| Attribution diagnostics invisible: condensed/original query logged at DEBUG only (invisible at INFO) — the multi-turn-1 "step unattributed" risk stays live; stream path logs chunks_used=N for refusals where non-stream logs 0 (drift #50 contract) — log-only, responses unaffected | next flaky live answer that cannot be explained from the logs | raise the two log lines to INFO (one-line change each) |

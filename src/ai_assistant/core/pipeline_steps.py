@@ -410,10 +410,23 @@ def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
     """Format chunks into a single context string.
 
     Normalizes whitespace, removes exact duplicates, and assigns
-    sequential [Document N] labels.  Preserves rank order from
-    the reranker.
+    [Document N] labels per SOURCE FILE in first-appearance order:
+    chunks of one file share a label, so an in-text [Document N]
+    citation resolves 1:1 against the Sources block, which numbers
+    files by the same key (source_uri > original_path > source).
+    Preserves rank order from the reranker. Residual edge: a file
+    whose every chunk is an exact duplicate of an earlier chunk
+    keeps its Sources entry but gets no context label.
     """
+
+    def _file_key(chunk: Chunk) -> str:
+        if chunk.metadata is None:
+            return "unknown"
+        md = chunk.metadata
+        return md.source_uri or md.original_path or md.source or "unknown"
+
     seen_texts: set[str] = set()
+    doc_ids: dict[str, int] = {}
     lines: list[str] = []
     for chunk in chunks:
         if not chunk.text:
@@ -424,10 +437,11 @@ def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
         if normalized in seen_texts:
             continue
         seen_texts.add(normalized)
-        lines.append(normalized)
-    return "\n\n".join(
-        f"[Document {i}]\n{text}" for i, text in enumerate(lines, start=1)
-    )
+        key = _file_key(chunk)
+        if key not in doc_ids:
+            doc_ids[key] = len(doc_ids) + 1
+        lines.append(f"[Document {doc_ids[key]}]\n{normalized}")
+    return "\n\n".join(lines)
 
 
 def _build_fallback_prompt(chunks: tuple[Chunk, ...], query_text: str) -> str:
