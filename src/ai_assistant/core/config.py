@@ -325,7 +325,7 @@ class NamespaceConfig(BaseModel):
         default=None,
         min_length=1,
         description=(
-            "Single-character prefix for RAG query routing. "
+            "Short prefix for RAG query routing (e.g. '000'). "
             "Empty string is not allowed."
         ),
     )
