@@ -544,8 +544,6 @@ class FaissVectorStore(IVectorStore):
                     os.close(dir_fd)
             except OSError:
                 pass  # Windows or filesystem without directory fsync support
-        except Exception:
-            raise
         finally:
             # Clean up temp directory recursively
             with contextlib.suppress(OSError):
@@ -755,14 +753,18 @@ class FaissVectorStore(IVectorStore):
             results: list[tuple[str, dict[str, Any]]] = []
             for chunk in ns.chunks.values():
                 meta = chunk.metadata
+                # Typed fields win over same-named custom keys (#120):
+                # list_by_filter feeds orphan cleanup and accounting —
+                # a custom key must not shadow them. Same merge order
+                # as MemoryVectorStore add/upsert (#15 parity).
                 meta_dict = {
+                    **(meta.custom if meta else {}),
                     "source": meta.source if meta else "",
                     "index": meta.index if meta else 0,
                     "total_chunks": meta.total_chunks if meta else 0,
                     "original_path": meta.original_path if meta else None,
                     "source_uri": meta.source_uri if meta else None,
                     "last_modified": meta.last_modified if meta else None,
-                    **(meta.custom if meta else {}),
                 }
                 if all(meta_dict.get(k) == v for k, v in filters.items()):
                     results.append((chunk.id, meta_dict))

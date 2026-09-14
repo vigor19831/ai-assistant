@@ -1,7 +1,8 @@
 """Incremental read (drift #106), pre-flight max_chunks (stage 1),
 run success semantics, watcher visibility (#113), namespace order (#114),
 index save timeouts (#115), chat export size guard (#116),
-targeted read scope (#118), reindex restore symmetry (#119)."""
+targeted read scope (#118), reindex restore symmetry (#119),
+typed-field precedence in list_by_filter (#120)."""
 
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     VectorStoreConfigData,
 )
+from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.features.rag import indexing
 from ai_assistant.features.rag.indexing import index_folder
 
@@ -443,7 +445,6 @@ class TestSaveTimeouts:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A hanging chat-export save answers indexed=False with the reason."""
-        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
         from ai_assistant.features.rag.handlers import save_chat
         from ai_assistant.features.rag.schemas import SaveChatRequest
 
@@ -728,3 +729,65 @@ class TestReindexRestore:
         assert "default" in namespaces
         assert "chat_default" in namespaces
         assert "chat_chat_default" not in namespaces
+
+
+class TestListByFilterPrecedence:
+    """Typed metadata fields win over same-named custom keys (#15, #120)."""
+
+    @staticmethod
+    def _conflicting_chunk() -> Chunk:
+        return Chunk(
+            id="c-custom",
+            text="hello world",
+            embedding=[0.1] * 384,
+            metadata=ChunkMetadata(
+                source="real-source",
+                index=0,
+                total_chunks=1,
+                custom={"source": "fake-source", "source_uri": "fake/uri"},
+                source_uri="real/uri",
+            ),
+        )
+
+    async def test_memory_typed_fields_win(self, tmp_path: Path) -> None:
+        """MemoryVectorStore: a custom 'source' key cannot shadow the typed one."""
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=384, index_path=str(tmp_path / "mem"))
+        )
+        await store.add([self._conflicting_chunk()], namespace="ns")
+        listed = await store.list_by_filter({}, namespace="ns")
+        assert len(listed) == 1
+        _cid, meta = listed[0]
+        assert meta["source"] == "real-source"
+        assert meta["source_uri"] == "real/uri"
+        shadows = await store.list_by_filter(
+            {"source": "fake-source"}, namespace="ns"
+        )
+        assert shadows == []
+        hits = await store.list_by_filter(
+            {"source": "real-source"}, namespace="ns"
+        )
+        assert len(hits) == 1
+
+    async def test_faiss_typed_fields_win(self, tmp_path: Path) -> None:
+        """FaissVectorStore: same contract after the merge-order fix."""
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=384, index_path=str(tmp_path / "faiss"))
+        )
+        await store.add([self._conflicting_chunk()], namespace="ns")
+        listed = await store.list_by_filter({}, namespace="ns")
+        assert len(listed) == 1
+        _cid, meta = listed[0]
+        assert meta["source"] == "real-source"
+        assert meta["source_uri"] == "real/uri"
+        shadows = await store.list_by_filter(
+            {"source": "fake-source"}, namespace="ns"
+        )
+        assert shadows == []
+        hits = await store.list_by_filter(
+            {"source": "real-source"}, namespace="ns"
+        )
+        assert len(hits) == 1
