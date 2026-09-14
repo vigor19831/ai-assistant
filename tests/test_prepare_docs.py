@@ -31,6 +31,8 @@ from typing import Any
 import httpx
 import pytest
 
+from scripts.prepare_docs import split_file
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "prepare_docs.py"
 _SPEC = importlib.util.spec_from_file_location("prepare_docs", _SCRIPT)
 prepare_docs = importlib.util.module_from_spec(_SPEC)
@@ -2017,3 +2019,100 @@ def test_needs_processing_edit_stales_atoms(tmp_path) -> None:
     assert prepare_docs._needs_processing(
         src, dest, atoms=True, split=False
     ) is True
+
+
+# Chat-export cleanup tests: Cyrillic here is fixture DATA (real
+# export markers), not code language -- RUF001 silenced per line.
+
+
+def test_split_file_annotates_speakers_and_dates(tmp_path):
+    src = tmp_path / "chat.md"
+    src.write_text(
+        "# Тема\n\nпт, 10 июл. в 13:14\n\n"
+        "#### Вы сказали:\nдай совет\n\n"  # noqa: RUF001
+        "#### ChatGPT сказал:\nberite Seiko 4R36\n\n"
+        "Copy\nDownload\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    assert "[Пользователь, 10 июл]" in text
+    assert "[ChatGPT, 10 июл]" in text
+    assert "Copy" not in text
+    assert "Download" not in text
+
+
+def test_split_file_annotates_abbreviated_month(tmp_path):
+    src = tmp_path / "router.md"
+    src.write_text(
+        "чт, 27 авг. в 9:12\n\n"
+        "#### Вы сказали:\nвыбери роутер\n\n"  # noqa: RUF001
+        "#### ChatGPT сказал:\nberite Beryl 7\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    assert "[Пользователь, 27 авг]" in text
+
+
+def test_split_file_repeats_markers_in_long_turns(tmp_path):
+    body = "\n".join(f"совет номер {i}" for i in range(40))
+    src = tmp_path / "long.md"
+    src.write_text("#### ChatGPT сказал:\n" + body + "\n", encoding="utf-8")
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    assert text.count("[ChatGPT]") >= 3
+
+
+def test_split_file_cleans_unknown_export_but_never_labels(tmp_path):
+    src = tmp_path / "deepseek.md"
+    src.write_text(
+        "New chat\nYesterday\nИгорь В\n\nСоветую ядро amd-pstate.\n\n"  # noqa: RUF001
+        "bash\nCopy\nDownload\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    assert "Copy" not in text
+    assert "New chat" not in text
+    assert "Советую ядро amd-pstate." in text
+    assert "Пользователь" not in text
+    assert "ChatGPT" not in text
+
+
+def test_split_file_leaves_plain_documents_unchanged(tmp_path):
+    src = tmp_path / "notes.md"
+    src.write_text("Обычный документ без маркеров.\n\nCopy\n",
+                   encoding="utf-8")
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    assert "Copy" in text
+    assert "Пользователь" not in text
+
+
+def test_split_file_keeps_fenced_content_untouched(tmp_path):
+    src = tmp_path / "code.md"
+    src.write_text(
+        "#### ChatGPT сказал:\nпример:\n\n```\nCopy\n"  # noqa: RUF001
+        "#### ChatGPT сказал:\n```\n\nCopy\nDownload\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    # "Copy" and the marker-like line inside the fence survive:
+    assert "Copy" in text
+    assert text.count("#### ChatGPT сказал:") == 2
+    # the real chrome outside the fence is gone:
+    assert "\nCopy\nDownload" not in text

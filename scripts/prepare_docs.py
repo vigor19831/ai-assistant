@@ -560,6 +560,156 @@ def _strip_markdown_noise(raw: bytes) -> bytes:
     return _MD_IMAGE_BYTES_RE.sub(b"", raw)
 
 
+# --- Chat-export cleanup: universal chrome + speaker/date markers ---
+# Safety rule first: a file the script does not confidently recognize
+# passes through byte-identical. Two independent layers:
+#
+# Layer 1 (universal): standalone UI noise lines ("Copy", "Download",
+# "New chat"...) are stripped from any file recognized as an export:
+# a known speaker marker OR >= 2 distinct noise lines (one incidental
+# "Copy" in a plain document is not a signal). Lines inside ```
+# fences are never touched: chrome never sits in fences, and a
+# "Copy" inside a code block is content.
+#
+# Layer 2 (marker table): speaker annotation needs REAL markers. A
+# wrong speaker label is worse than none (the decision-contract
+# doctrine: an under-counted fact is recoverable, a fabricated one
+# poisons the memory). Known formats are explicit table entries --
+# supporting a new AI service is one tuple line, never a heuristic.
+# Unknown exports are cleaned but stay unlabeled, with a [HINT] line
+# naming the file. Cyrillic below is chat-content data, exempt from
+# the English-only rule like _RU_MONTHS.
+
+_SPEAKER_USER_LABEL = "Пользователь"
+_SPEAKER_ASSISTANT_LABEL = "ChatGPT"
+
+# (marker line pattern, label) -- extend per new export format.
+_SPEAKER_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^####\s*Вы сказали:\s*$"), _SPEAKER_USER_LABEL),
+    (re.compile(r"^####\s*You said:\s*$"), _SPEAKER_USER_LABEL),
+    (re.compile(r"^####\s*ChatGPT сказал:\s*$"), _SPEAKER_ASSISTANT_LABEL),
+    (re.compile(r"^####\s*ChatGPT said:\s*$"), _SPEAKER_ASSISTANT_LABEL),
+)
+
+_SPEAKER_MONTHS_ALT = "|".join(sorted(
+    (
+        "января", "февраля", "марта", "апреля", "мая", "июня", "июля",
+        "августа", "сентября", "октября", "ноября", "декабря",
+        "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг",
+        "сен", "сент", "окт", "ноя", "нояб", "дек",
+    ),
+    key=len,
+    reverse=True,
+))
+
+# Session date header ("пт, 10 июл. в 13:14", "чт, 27 авг. в 9:12"):
+# full and abbreviated RU months, optional weekday and time.
+# "вчера 7:39" and EN headers do not match -- no date is better
+# than a wrong one (same rule as _ground_dates).
+_SPEAKER_DATE_RE = re.compile(
+    rf"^(?:[а-яё]{{1,4}},?\s+)?(\d{{1,2}}\s+(?:{_SPEAKER_MONTHS_ALT}))\.?"  # noqa: RUF001
+    rf"(?:\s+в\s+\d{{1,2}}:\d{{2}})?\s*$",
+    re.IGNORECASE,
+)
+
+_NOISE_LINES = frozenset({
+    "Copy",
+    "Download",
+    "Regenerate",
+    "bash",
+    "New chat",
+    "Yesterday",
+    "Размышление",
+    "DeepThink",
+    "AI-generated, for reference only",
+    "One more step before you proceed...",
+    "ChatGPT может допускать ошибки. Рекомендуем проверять важную информацию.",
+})
+
+# A marker every N lines: any ~512-token chunk cut anywhere inside a
+# long turn still carries a speaker/date line.
+_MARKER_EVERY_LINES = 12
+
+
+def _clean_chat_export(data: bytes, src_name: str) -> bytes:
+    """Strip export chrome and annotate speakers/dates in chat exports.
+
+    Returns the input unchanged for plain documents and for files the
+    script does not confidently recognize (see the layer comments
+    above). Only the documents/ mirror is affected: raw sources and
+    the atoms path are untouched.
+    """
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data
+    lines = text.split("\n")
+
+    # Pass 1 -- detection (fence-aware: a marker-looking line inside
+    # a code block is content, not a marker).
+    in_fence = False
+    marker_hits = 0
+    noise_seen: set[str] = set()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if stripped in _NOISE_LINES:
+            noise_seen.add(stripped)
+            continue
+        for pattern, _label in _SPEAKER_MARKERS:
+            if pattern.match(stripped) is not None:
+                marker_hits += 1
+                break
+    if marker_hits == 0 and len(noise_seen) < 2:
+        return data
+    if marker_hits == 0:
+        print(
+            f"[HINT] {src_name}: export chrome removed; no known speaker "
+            "markers -- turns stay unlabeled (normalize headers once or "
+            "extend _SPEAKER_MARKERS)"
+        )
+
+    # Pass 2 -- transform.
+    out: list[str] = []
+    in_fence = False
+    speaker = ""
+    date = ""
+    since_marker = _MARKER_EVERY_LINES
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        if stripped in _NOISE_LINES:
+            continue
+        new_speaker = ""
+        for pattern, label in _SPEAKER_MARKERS:
+            if pattern.match(stripped) is not None:
+                new_speaker = label
+                break
+        if new_speaker:
+            speaker = new_speaker
+            since_marker = _MARKER_EVERY_LINES
+        else:
+            date_match = _SPEAKER_DATE_RE.match(stripped)
+            if date_match is not None:
+                date = date_match.group(1)
+        if speaker and since_marker >= _MARKER_EVERY_LINES:
+            out.append(f"[{speaker}, {date}]" if date else f"[{speaker}]")
+            since_marker = 0
+        out.append(line)
+        since_marker += 1
+    return "\n".join(out).encode("utf-8")
+
+
 def split_file(src: Path, dest_dir: Path) -> list[Path]:
     """Split src into parts of ~PART_BYTES at line boundaries.
 
@@ -573,6 +723,7 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     raw = src.read_bytes()
     stem = src.stem
     data = _strip_markdown_noise(raw)
+    data = _clean_chat_export(data, src.name)
 
     # Reconcile FIRST: remove split outputs impossible for the current
     # source size — the stale as-is copy of a file that grew past the
