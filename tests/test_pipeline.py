@@ -1203,7 +1203,7 @@ class TestBuildFallbackPrompt:
         )
         result = build_fallback_prompt(chunks, "What is the answer?")
         assert "[Document 1]\nFirst piece of context." in result
-        assert "[Document 2]\nSecond piece of context." in result
+        assert "[Document 1]\nSecond piece of context." in result
         assert "Question: What is the answer?" in result
         assert "Answer:" in result
 
@@ -1225,6 +1225,50 @@ class TestBuildFallbackPrompt:
         assert "[Document 1]\nOnly context." in result
         assert "[2]" not in result
 
+
+    def test_same_file_chunks_share_document_number(self) -> None:
+        """Given: three chunks — two from one file, one from another.
+        When: _build_fallback_prompt formats them.
+        Then: chunks of one file share [Document N] by first-appearance
+        order; a second file gets the next number (citation ↔ Sources
+        parity, drift #127)."""
+        chunks = (
+            Chunk(
+                id="c1",
+                text="First piece of file one.",
+                metadata=ChunkMetadata(
+                    source="fileone",
+                    source_uri="documents/fileone.md",
+                    index=0,
+                    total_chunks=2,
+                ),
+            ),
+            Chunk(
+                id="c2",
+                text="Second piece of file one.",
+                metadata=ChunkMetadata(
+                    source="fileone",
+                    source_uri="documents/fileone.md",
+                    index=1,
+                    total_chunks=2,
+                ),
+            ),
+            Chunk(
+                id="c3",
+                text="Piece of file two.",
+                metadata=ChunkMetadata(
+                    source="filetwo",
+                    source_uri="documents/filetwo.md",
+                    index=0,
+                    total_chunks=1,
+                ),
+            ),
+        )
+        result = build_fallback_prompt(chunks, "What is the answer?")
+        assert "[Document 1]\nFirst piece of file one." in result
+        assert "[Document 1]\nSecond piece of file one." in result
+        assert "[Document 2]\nPiece of file two." in result
+        assert "[Document 3]" not in result
 
 # ———————————————————————————————————————
 # TestRetry
