@@ -17,6 +17,24 @@ CHAT_NS_PREFIX = "chat_"
 REFUSAL_ANSWER = "I don't know."
 INJECTION_REFUSAL_ANSWER = "I cannot comply with that request."
 
+
+def is_refusal_answer(text: str) -> bool:
+    """True for an exact refusal OR a refusal with a preamble.
+
+    The model sometimes explains WHY it cannot answer before the
+    refusal line — same meaning, different shape; exact-match-only
+    let such answers carry sources (live-caught 2026-09-10, drift
+    #50 edge; unified for both paths in drift #122). The refusal
+    must be the answer's OWN closing statement: trailing whitespace
+    tolerated, anything AFTER it disqualifies (a text that merely
+    mentions the phrase mid-way is not a refusal).
+    """
+    stripped = text.strip()
+    for refusal in (REFUSAL_ANSWER, INJECTION_REFUSAL_ANSWER):
+        if stripped == refusal or stripped.endswith(refusal):
+            return True
+    return False
+
 # --- Chat history ---
 # Number of recent history messages used for query condensation.
 CONDENSE_HISTORY_LIMIT = 8

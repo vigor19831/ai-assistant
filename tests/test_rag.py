@@ -117,6 +117,59 @@ class TestRAGManager:
         assert result["sources"][0]["id"] == "c1"
 
     @pytest.mark.asyncio
+    async def test_query_preamble_refusal_returns_no_sources(
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+    ):
+        """Given: the model answers a refusal with a preamble.
+        When: RAGManager.query processes it.
+        Then: no sources, chunks_used=0 (drift #122, audit M1) —
+        parity with the chat path (live-caught 2026-09-10 edge)."""
+        mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        mock_vector_store.search = AsyncMock(
+            return_value=[
+                Chunk(
+                    id="c1",
+                    text="test chunk",
+                    embedding=[0.1] * 384,
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                )
+            ]
+        )
+        mock_reranker.rerank = AsyncMock(
+            return_value=[
+                RerankResult(
+                    chunk=Chunk(
+                        id="c1",
+                        text="test chunk",
+                        embedding=[0.1] * 384,
+                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                    ),
+                    score=0.95,
+                )
+            ]
+        )
+        mock_llm.get_context_limit = MagicMock(return_value=8192)
+        preamble_refusal = (
+            "The provided context does not contain information about "
+            "that. It discusses other topics.\n\nI don't know."
+        )
+        mock_llm.complete = AsyncMock(
+            return_value=AssistantMessage(text=preamble_refusal)
+        )
+
+        mgr = RAGManager(
+            llm=mock_llm,
+            vector_store=mock_vector_store,
+            embedder=mock_embedder,
+            reranker=mock_reranker,
+            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        )
+        result = await mgr.query("anything")
+        assert result["answer"] == preamble_refusal
+        assert result["sources"] == []
+        assert result["chunks_used"] == 0
+
+    @pytest.mark.asyncio
     async def test_query_returns_metrics(
         self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
     ):
@@ -354,7 +407,12 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_llm_unavailable_returns_503(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self,
+        mock_llm,
+        mock_embedder,
+        mock_vector_store,
+        mock_reranker,
+        mock_state,
     ):
         """Given: LLM raises AdapterError (simulating LLM_UNAVAILABLE).
         When: RAGManager.query processes through real pipeline.
@@ -398,18 +456,16 @@ class TestRAGManager:
         # generate step catches AdapterError and adds LLM_UNAVAILABLE to data.errors
         assert any(LLM_UNAVAILABLE in e for e in result["errors"])
         assert "LLM service temporarily unavailable" in result["answer"]
+        # An error answer carries no evidence (drift #50 shape).
+        assert result["sources"] == []
+        assert result["chunks_used"] == 0
 
-        # Simulate handler check
+        # The real handler raises 503 for an unavailable-LLM answer
+        # (drift #122, audit M1) — was 200 with the error text in the
+        # answer body. Degraded-but-answered runs stay 200.
+        req = QueryRequest(query="anything")
         with pytest.raises(HTTPException) as exc_info:
-            for err in result.get("errors", []):
-                if err.startswith(LLM_UNAVAILABLE):
-                    raise HTTPException(
-                        status_code=503,
-                        detail=(
-                            "LLM service temporarily unavailable. "
-                            "Please try again later."
-                        ),
-                    )
+            await query_rag(req, MagicMock(), mgr, mock_state)
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio

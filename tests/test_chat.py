@@ -17,6 +17,7 @@ from ai_assistant.adapters.embedder_mock import MockEmbedder
 from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.core.config import NamespaceConfig
+from ai_assistant.core.constants import is_refusal_answer
 from ai_assistant.core.domain.configs import (
     EmbedderConfigData,
     RerankerConfigData,
@@ -29,7 +30,6 @@ from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.features.chat.manager import (
     ChatManager,
-    _is_refusal_answer,
     _sanitize_history,
     strip_rag_sources,
 )
@@ -1794,7 +1794,7 @@ def test_sanitize_history_strips_assistant_turns_only() -> None:
 
 def test_is_refusal_answer_exact() -> None:
     """Exact refusal matches."""
-    assert _is_refusal_answer("I don't know.") is True
+    assert is_refusal_answer("I don't know.") is True
 
 
 def test_is_refusal_answer_preamble() -> None:
@@ -1803,7 +1803,7 @@ def test_is_refusal_answer_preamble() -> None:
         "The provided context does not contain information about "
         "that. It discusses other topics.\n\nI don't know."
     )
-    assert _is_refusal_answer(text) is True
+    assert is_refusal_answer(text) is True
 
 
 def test_is_refusal_answer_phrase_mid_text_is_not_refusal() -> None:
@@ -1813,11 +1813,11 @@ def test_is_refusal_answer_phrase_mid_text_is_not_refusal() -> None:
         "The assistant said 'I don't know.' but the documents "
         "actually answer the question in detail."
     )
-    assert _is_refusal_answer(text) is False
+    assert is_refusal_answer(text) is False
 
 
 def test_is_refusal_answer_text_after_refusal_disqualifies() -> None:
     """Anything after the refusal line means it is not the answer's
     closing statement."""
     text = "I don't know. But let me add one more thing."
-    assert _is_refusal_answer(text) is False
+    assert is_refusal_answer(text) is False

@@ -143,6 +143,7 @@ table deduped).
 | 119 | 2026-09-13 | Interruption symmetry: the 4h timeout branch restores namespaces from disk exactly like cancellation — module-level `_restore_reindex_namespaces` is the single restore path; memory must not stay ahead of the last durable state |
 | 120 | 2026-09-14 | `list_by_filter` typed-wins parity: faiss merges custom keys first, typed overwrite (as memory does) — a custom key can no longer shadow `source`/`source_uri` in one store but not the other; no-op `except Exception: raise` in faiss `_save_unlocked` removed |
 | 121 | 2026-09-14 | Dead config field `ChatConfig.max_history_messages` removed (audit M2: no reader in src/scripts/tests/run_servers — grep-verified); config_version 3→4, old configs absorbed silently in the version validator |
+| 122 | 2026-09-14 | Refusal contract unified (audit M1): one matcher — `is_refusal_answer` in core.constants — for both entry paths; preamble refusals no longer carry sources via /rag/query (parity with chat, live-caught 2026-09-10 edge). An LLM-unavailable answer keeps the no-evidence shape (error answer, not a refusal) and /rag/query raises 503 for it — chat-path parity; degraded-but-answered runs (errors + real answer) stay 200 |
 
 ## FUTURE RISKS
 

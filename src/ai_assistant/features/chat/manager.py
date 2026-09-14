@@ -10,8 +10,7 @@ from ai_assistant.core.config import NamespaceConfig, RAGStep
 from ai_assistant.core.constants import (
     CONDENSE_HISTORY_LIMIT,
     DEFAULT_RAG_PROMPT,
-    INJECTION_REFUSAL_ANSWER,
-    REFUSAL_ANSWER,
+    is_refusal_answer,
 )
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import AdapterError
@@ -86,26 +85,8 @@ def strip_rag_sources(text: str) -> str:
 
 # Drift #50: a refusal is a complete answer with no evidence — the
 # chat path mirrors the rag query path: refusal answers carry no
-# Sources block.
-_REFUSAL_ANSWERS = (REFUSAL_ANSWER, INJECTION_REFUSAL_ANSWER)
-
-
-def _is_refusal_answer(text: str) -> bool:
-    """True for an exact refusal OR a refusal with a preamble.
-
-    The model sometimes explains WHY it cannot answer before the
-    refusal line ("The context does not contain... I don't know.")
-    — same meaning, different shape; the exact-match-only check let
-    such answers carry sources (live-caught 2026-09-10, drift #50
-    edge). The refusal must be the answer's OWN closing statement:
-    trailing whitespace tolerated, anything AFTER it disqualifies
-    (a text that merely mentions the phrase mid-way is not a refusal).
-    """
-    stripped = text.strip()
-    for refusal in _REFUSAL_ANSWERS:
-        if stripped == refusal or stripped.endswith(refusal):
-            return True
-    return False
+# Sources block. The matcher lives in core.constants (drift #122):
+# one definition, both entry paths.
 
 
 def _sanitize_history(
@@ -494,8 +475,8 @@ class ChatManager:
         answer_text = strip_rag_sources(response.text or "")
         # Drift #50: a refusal is a complete answer with no evidence —
         # sources stay empty, as on the rag query path. Refusals that
-        # close a preamble count too; see _is_refusal_answer.
-        is_refusal = _is_refusal_answer(answer_text)
+        # close a preamble count too; see is_refusal_answer.
+        is_refusal = is_refusal_answer(answer_text)
         logger.info(
             "Chat response",
             extra={
@@ -599,8 +580,8 @@ class ChatManager:
         )
         # Drift #50: a refusal is a complete answer with no evidence —
         # sources stay empty, as on the rag query path. Preamble
-        # refusals count too (see _is_refusal_answer).
-        if not _is_refusal_answer(full_response):
+        # refusals count too (see is_refusal_answer).
+        if not is_refusal_answer(full_response):
             # Yield sources block so the client sees them in the stream
             sources_text = self._append_rag_sources(full_response, rag_chunks)
             if sources_text != full_response:

@@ -20,6 +20,7 @@ from ai_assistant.api.deps import (
 )
 from ai_assistant.core.config import get_chat_namespace
 from ai_assistant.core.constants import INDEX_IO_TIMEOUT, REINDEX_TASK_TIMEOUT
+from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -244,7 +245,12 @@ async def query_rag(
     )
 
     errors = result.get("errors", [])
-    if errors and not result.get("answer"):
+    # An LLM-unavailable answer is an error body, not an answer — the
+    # chat path raises 503 for the same AdapterError; parity here
+    # (drift #122). Degraded-but-answered runs (errors + a real
+    # answer) stay 200 as before.
+    answer = result.get("answer", "")
+    if errors and (not answer or answer.strip() == LLM_UNAVAILABLE_MSG):
         _logger.warning(
             "RAG query failed",
             extra={"trace_id": trace_id, "errors": errors},

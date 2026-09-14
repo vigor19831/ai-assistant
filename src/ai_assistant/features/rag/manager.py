@@ -17,9 +17,8 @@ from ai_assistant.api.deps import InitializedAppState
 from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import (
     DEFAULT_RAG_PROMPT,
-    INJECTION_REFUSAL_ANSWER,
-    REFUSAL_ANSWER,
     SOURCE_INDEX_TIMEOUT,
+    is_refusal_answer,
 )
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata, Document
@@ -285,19 +284,19 @@ class RAGManager:
             "duration_ms": duration_ms,
         }
 
-        # Strict RAG contract (drift #50): a refusal is a complete answer
-        # with no evidence. Retrieved chunks the model refused to use are
-        # not sources — returning them would contradict the answer text.
-        # The strings are constants shared with the prompt templates
-        # (see REFUSAL_ANSWER / INJECTION_REFUSAL_ANSWER); the sync test
-        # in tests/test_prompts.py guards against drift.
+        # Strict RAG contract (drift #50): a refusal is a complete
+        # answer with no evidence. Retrieved chunks the model refused
+        # to use are not sources — returning them would contradict the
+        # answer text. One shared refusal check for both entry paths
+        # (drift #122): preamble refusals count too — exact-match-only
+        # let them carry sources via /rag/query.
         answer_text = result.response.text if result.response else ""
-        is_refusal = answer_text.strip() in (
-            REFUSAL_ANSWER,
-            INJECTION_REFUSAL_ANSWER,
-            LLM_UNAVAILABLE_MSG,
-        )
-        if is_refusal:
+        is_refusal = is_refusal_answer(answer_text)
+        # An LLM-unavailable answer is an error, not a refusal — but it
+        # carries no evidence either (drift #50 shape); the handler
+        # converts it into a 503 (drift #122).
+        is_unavailable = answer_text.strip() == LLM_UNAVAILABLE_MSG
+        if is_refusal or is_unavailable:
             return {
                 "answer": answer_text,
                 "sources": [],
