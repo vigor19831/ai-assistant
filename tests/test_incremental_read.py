@@ -1,7 +1,7 @@
 """Incremental read (drift #106), pre-flight max_chunks (stage 1),
 run success semantics, watcher visibility (#113), namespace order (#114),
 index save timeouts (#115), chat export size guard (#116),
-targeted read scope (#118)."""
+targeted read scope (#118), reindex restore symmetry (#119)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import AsyncMock
+
+import pytest
 
 from ai_assistant.adapters.chunker_simple import SimpleChunker
 from ai_assistant.adapters.embedder_mock import MockEmbedder
@@ -23,9 +25,6 @@ from ai_assistant.core.domain.configs import (
 )
 from ai_assistant.features.rag import indexing
 from ai_assistant.features.rag.indexing import index_folder
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _make_source(docs_dir: Path) -> SourceConfig:
@@ -614,3 +613,118 @@ class TestTargetedReadScope:
         )
         assert result["success"] is False
         assert result["errors"] == ["No documents found"]
+
+
+class TestReindexRestore:
+    """Interrupted reindex restores memory from disk (#7, #119)."""
+
+    @staticmethod
+    def _patch_hanging_reindex(
+        isolated_app_state: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> tuple[list[Any], asyncio.Event]:
+        """Patch spawn to capture the coroutine; hang index_folder until cancelled."""
+        spawned: list[Any] = []
+        hang_event = asyncio.Event()
+        hang_started = asyncio.Event()
+
+        def _capture_spawn(fn: Any, trace_id: str, name: str) -> None:
+            spawned.append(fn())
+
+        monkeypatch.setattr(
+            isolated_app_state.task_registry, "spawn", _capture_spawn
+        )
+
+        async def hanging_index_folder(**kwargs: Any) -> dict[str, Any]:
+            hang_started.set()
+            await hang_event.wait()
+            # Unreachable unless the test releases the stand-in —
+            # but it must honor index_folder's return contract.
+            return {"success": True, "results": {}, "errors": []}
+
+        monkeypatch.setattr(
+            "ai_assistant.features.rag.handlers.index_folder",
+            AsyncMock(side_effect=hanging_index_folder),
+        )
+        monkeypatch.setattr(
+            "ai_assistant.features.rag.handlers.REINDEX_TASK_TIMEOUT", 0.05
+        )
+        return spawned, hang_started
+
+    async def test_timeout_restores_namespaces(
+        self,
+        isolated_app_state: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A timed-out reindex reloads the affected namespace from disk."""
+        from ai_assistant.features.rag.handlers import reindex_documents
+        from ai_assistant.features.rag.schemas import ReindexRequest
+
+        spawned, _hang_started = self._patch_hanging_reindex(
+            isolated_app_state, monkeypatch
+        )
+
+        req = ReindexRequest(target_namespace=None, clear=False)
+        started = await reindex_documents(req, isolated_app_state)
+        assert started["status"] == "started"
+
+        result = await spawned[0]
+        assert "timed out" in result["error"]
+
+        # Memory restored: the source namespace reloaded from disk.
+        load_calls = isolated_app_state.vector_store.load.await_args_list
+        assert [c.kwargs["namespace"] for c in load_calls] == ["default"]
+
+        info = await isolated_app_state.rag_state.get_status(started["task_id"])
+        assert info is not None
+        assert info["status"] == "failed"
+
+    async def test_cancel_restores_namespaces(
+        self,
+        isolated_app_state: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cancellation still restores from disk (regression guard)."""
+        from ai_assistant.features.rag.handlers import reindex_documents
+        from ai_assistant.features.rag.schemas import ReindexRequest
+
+        spawned, hang_started = self._patch_hanging_reindex(
+            isolated_app_state, monkeypatch
+        )
+
+        req = ReindexRequest(target_namespace=None, clear=False)
+        started = await reindex_documents(req, isolated_app_state)
+        assert started["status"] == "started"
+
+        task = asyncio.create_task(spawned[0])
+        # Deterministic handoff: wait until the stand-in is inside its
+        # hang, then cancel — no timer races (#119, §15 DETERMINISM).
+        await hang_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        load_calls = isolated_app_state.vector_store.load.await_args_list
+        assert [c.kwargs["namespace"] for c in load_calls] == ["default"]
+
+    async def test_restore_extends_chat_namespaces_on_full_clear(
+        self, isolated_app_state: Any
+    ) -> None:
+        """clear=True without a target also restores chat namespaces."""
+        from ai_assistant.features.rag.handlers import _restore_reindex_namespaces
+
+        isolated_app_state.vector_store.list_namespaces = AsyncMock(
+            return_value=["default", "chat_default"]
+        )
+        await _restore_reindex_namespaces(
+            isolated_app_state, target_namespace=None, clear=True
+        )
+        namespaces = [
+            c.kwargs["namespace"]
+            for c in isolated_app_state.vector_store.load.await_args_list
+        ]
+        assert "default" in namespaces
+        assert "chat_default" in namespaces
+        assert "chat_chat_default" not in namespaces

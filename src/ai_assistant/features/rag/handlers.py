@@ -544,6 +544,48 @@ async def save_chat(
         }
 
 
+async def _restore_reindex_namespaces(
+    state: InitializedAppState,
+    target_namespace: str | None,
+    clear: bool,
+) -> None:
+    """Restore affected namespaces from the last saved state on disk.
+
+    An interrupted run may leave memory ahead of disk: the stores'
+    rollback catches Exception only, and both cancellation and
+    asyncio.timeout cancel the inner await the same way. Disk state
+    is always consistent (atomic writes), so loading from disk
+    restores memory to the last durable state.
+    """
+    affected_ns: list[str] = (
+        [target_namespace]
+        if target_namespace is not None
+        else sorted({s.namespace for s in state.config.rag.sources})
+    )
+    if clear:
+        if target_namespace is not None:
+            affected_ns.append(get_chat_namespace(target_namespace))
+        else:
+            all_ns: list[str] = []
+            with contextlib.suppress(Exception):
+                all_ns = await state.vector_store.list_namespaces(
+                    state.config.vector_store.index_path
+                )
+            affected_ns.extend(
+                get_chat_namespace(ns)
+                for ns in all_ns
+                if not ns.startswith("chat_")
+            )
+    for ns in affected_ns:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await asyncio.shield(
+                state.vector_store.load(
+                    state.config.vector_store.index_path,
+                    namespace=ns,
+                )
+            )
+
+
 @router.post("/reindex", response_model=None)
 async def reindex_documents(
     req: ReindexRequest,
@@ -700,6 +742,10 @@ async def reindex_documents(
                 "Reindex timed out after 4 hours",
                 extra={"trace_id": trace_id, "task_id": task_id},
             )
+            # Same restore as cancellation (#119): memory must not
+            # stay ahead of the last durable state after any
+            # interrupted run.
+            await _restore_reindex_namespaces(state, target_namespace, clear)
             await rag_state.fail_task(task_id, "Reindex timed out after 4 hours")
             return {"error": "Reindex timed out after 4 hours"}
         except asyncio.CancelledError:
@@ -707,36 +753,7 @@ async def reindex_documents(
                 "Reindex cancelled",
                 extra={"trace_id": trace_id, "task_id": task_id},
             )
-            # Restore affected namespaces from last saved state on disk.
-            # Disk state is always consistent (atomic writes), so loading
-            # from disk restores memory to a consistent state.
-            affected_ns: list[str] = (
-                [target_namespace]
-                if target_namespace is not None
-                else sorted({s.namespace for s in state.config.rag.sources})
-            )
-            if clear:
-                if target_namespace is not None:
-                    affected_ns.append(get_chat_namespace(target_namespace))
-                else:
-                    all_ns: list[str] = []
-                    with contextlib.suppress(Exception):
-                        all_ns = await state.vector_store.list_namespaces(
-                            state.config.vector_store.index_path
-                        )
-                    affected_ns.extend(
-                        get_chat_namespace(ns)
-                        for ns in all_ns
-                        if not ns.startswith("chat_")
-                    )
-            for ns in affected_ns:
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await asyncio.shield(
-                        state.vector_store.load(
-                            state.config.vector_store.index_path,
-                            namespace=ns,
-                        )
-                    )
+            await _restore_reindex_namespaces(state, target_namespace, clear)
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await rag_state.fail_task(task_id, "Reindex cancelled")
             raise
