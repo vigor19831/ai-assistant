@@ -243,14 +243,14 @@ rag:
   #   - condense_question adds latency but no quality gain for single-turn.
   #     Skip it if you only use /rag/query API endpoint.
   # -------------------------------------------------------------------
-  steps: [embed_query, retrieve, rerank, build_context, generate]
+  steps: [condense_question, multi_query_retrieve, rerank, build_context, generate]
   prompt_version: v1
   # Default pair: rag_strict + top_k 2 — validated at 17/17 CONTRACT
   # (Hardware Ceiling Log). Switch to rag_simple + top_k 3 only if you
   # need more recall, and re-run scripts/check_rag.py after switching.
   prompt_name: rag_strict
   # 2 = less noise, best with rag_strict. 3 = more recall, use with rag_simple.
-  top_k: 2
+  top_k: 3
   default_namespace: default
   token_margin_min: 384
   token_margin_pct: 0.10
