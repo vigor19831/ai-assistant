@@ -10,7 +10,6 @@ import yaml
 
 from ai_assistant.core.config import (
     AppConfig,
-    ChatConfig,
     ChunkerConfig,
     CORSConfig,
     LLMConfig,
@@ -193,14 +192,6 @@ class TestEnvPrefixOverride:
         monkeypatch.setenv("AI_LLM_MAX_TOKENS", "2048")
         cfg = LLMConfig()
         assert cfg.max_tokens == 2048
-
-    def test_chat_max_history_messages_env_override(self, monkeypatch):
-        """Given: AI_CHAT_MAX_HISTORY_MESSAGES is set.
-        When: ChatConfig is instantiated.
-        Then: max_history_messages reflects the env value."""
-        monkeypatch.setenv("AI_CHAT_MAX_HISTORY_MESSAGES", "500")
-        cfg = ChatConfig()
-        assert cfg.max_history_messages == 500
 
     def test_vector_store_max_chunks_env_override(self, monkeypatch):
         """Given: AI_VECTOR_STORE_MAX_CHUNKS is set.
@@ -424,13 +415,6 @@ class TestResourceLimits:
     """Given: resource limit defaults.
     When: config classes are instantiated.
     Then: sensible defaults are present."""
-
-    def test_chat_config_default_max_history_messages(self):
-        """Given: no env overrides.
-        When: ChatConfig is instantiated.
-        Then: max_history_messages defaults to 10_000."""
-        cfg = ChatConfig()
-        assert cfg.max_history_messages == 10_000
 
     def test_rag_config_default_token_margins(self):
         """Given: no env overrides.

@@ -81,7 +81,6 @@ class ChatConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_CHAT_", extra="forbid")
 
     history_limit: int = 10
-    max_history_messages: int = 10_000
     max_context_tokens: int | None = None
     # Per-process limit. Total = this * uvicorn workers. Tune for VRAM/RAM.
     max_concurrent_chat: int = Field(default=5, ge=1)
@@ -350,7 +349,7 @@ class AppConfig(BaseSettings):
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
-    config_version: str = "3"
+    config_version: str = "4"
     cors: CORSConfig = Field(default_factory=CORSConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     chat: ChatConfig = Field(default_factory=ChatConfig)
@@ -379,6 +378,11 @@ class AppConfig(BaseSettings):
             return v
         if "config_version" not in v:
             v = {**v, "config_version": "0"}
+        # drift #121: max_history_messages removed — dead field, no
+        # reader anywhere (audit M2, grep over src/scripts/tests/run_*).
+        # Absorb old configs silently instead of failing them.
+        if "max_history_messages" in v:
+            del v["max_history_messages"]
         return v
 
     @field_validator("rag", mode="before")

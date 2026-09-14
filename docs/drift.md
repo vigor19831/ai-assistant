@@ -142,6 +142,7 @@ table deduped).
 | 118 | 2026-09-13 | Targeted reindex reads only mapped sources (full loop was N x reads); a nonexistent target fails fast before any disk read (late check + `processed_any` removed as dead); an emptied target returns "No documents found" — #113 parity, was a silent `{indexed: 0}` success |
 | 119 | 2026-09-13 | Interruption symmetry: the 4h timeout branch restores namespaces from disk exactly like cancellation — module-level `_restore_reindex_namespaces` is the single restore path; memory must not stay ahead of the last durable state |
 | 120 | 2026-09-14 | `list_by_filter` typed-wins parity: faiss merges custom keys first, typed overwrite (as memory does) — a custom key can no longer shadow `source`/`source_uri` in one store but not the other; no-op `except Exception: raise` in faiss `_save_unlocked` removed |
+| 121 | 2026-09-14 | Dead config field `ChatConfig.max_history_messages` removed (audit M2: no reader in src/scripts/tests/run_servers — grep-verified); config_version 3→4, old configs absorbed silently in the version validator |
 
 ## FUTURE RISKS
 
