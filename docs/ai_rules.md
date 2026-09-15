@@ -1,6 +1,6 @@
 # AI Rules
 
-> Version: 2026-09-09
+> Version: 2026-09-15
 > Next review: 2026-09-20
 
 # Project Brief
@@ -12,7 +12,7 @@ Layers: core (domain/ports) → adapters → features → api.
 ## 0. Ground Truth & Division of Labor
 
 Only this document, `architecture.md`, `drift.md` and `docs/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.
-`context_build_*.md` is generated and may miss imports (e.g. inside `with`/function scopes) — verify orphan-code conclusions against the source before acting.
+`context_build_*.md` is generated and is a map, not ground truth: it misses imports inside `with`/function scopes (lifespan helpers), sees no `get_prompt()` template names, and its file list is not an import graph. Verify any orphan/dead-code conclusion against the source before acting.
 
 Hierarchy: code in `src/` > this file > README.
 When code and rules conflict, code wins. If code violates a rule, that is known drift (see `docs/drift.md`). Propose fixing it, do not hallucinate stricter architecture.
@@ -104,7 +104,7 @@ Catch library-specific exceptions and wrap into core domain exceptions (`Adapter
 
 ## 7. Resilience
 
-All external network calls require hard timeout and retry with exponential backoff via `@with_retry` in the adapter (`core/retry.py`). Operations must be idempotent.
+External network calls require a hard timeout, always. Retry with exponential backoff via `@with_retry` (`core/retry.py`) is added only for flaky-by-nature hops (remote APIs), never for local processes (llama-server, embedder) — retrying a local server multiplies failure time without fixing anything (drift #43). Operations must be idempotent.
 Retry lives in exactly one layer (usually the adapter) — never stack a second retry wrapper on top of a retried call (drift #43).
 
 ## 8. Graceful Shutdown
@@ -184,7 +184,7 @@ Feature conflicts with Absolute Constraint:
 
 ## 12. Rule Self-Check
 
-Before outputting code, verify: no §2/§2.1/§15 violations, CHECKLIST header present and honest, all changed files listed, tests updated for new functionality, >3 files -> split or confirm, no new features without explicit request. Changes touching `check_rag.py` or benchmark expectations fall under the benchmark edit discipline (`architecture.md` §13.4): instrument defects only, proven independently of current results.
+§9 defines the output protocol; this section adds one rule only: changes touching `check_rag.py` or benchmark expectations fall under the benchmark edit discipline (`architecture.md` §13.4) — instrument defects only, proven independently of current results.
 
 ## 13. Technology Decay
 
@@ -209,7 +209,7 @@ These rules themselves change:
 - **Isolation**: No hardcoded paths — use `tmp_path`. No mutable shared state between tests.
 - **Async**: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop.
 - **Mocks**: Port mocks must use `spec=` or `autospec=`. See Section 6 for mock adapter location.
-- **Encapsulation**: Tests use public API only. No `obj._private_field` in assertions.
+- **Encapsulation**: Tests use public API for behavior; private pure helpers (`_sanitize_history`, prepare_docs correctors) may be unit-tested directly by name. No `obj._private_field` reach-inside on live objects.
 - **Determinism**: No `time.sleep()`. No wall-clock asserts without monkeypatch.
 - **Behavior**: Assert state/result, not just `assert_called_once()`.
 - **Migration**: Config backward-compat loaders must have tests with inline old-format dicts; never depend on real `config.yaml`.

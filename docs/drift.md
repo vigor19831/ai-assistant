@@ -9,7 +9,9 @@
 > rules, commit the full text, then compress to one-liners
 > (2026-09-11: #40–#99; 2026-09-12 round 3: #100–#111; 2026-09-14
 > round 4: rule-extracted History rows deduped — lessons live in
-> the Rule Extracted table and architecture.md).
+> the Rule Extracted table and architecture.md; 2026-09-15 round 5:
+> attribution campaign #124–#131, model-era titles retired to §14
+> compaction).
 >
 > Risk hygiene (2026-09-14): bug-fix campaign closed items #112–#120.
 > FUTURE RISKS entries touched by that campaign are annotated with
@@ -32,8 +34,8 @@
 | ID | Fixed | Rule / Location |
 |----|-------|-----------------|
 | 23 | 2026-06-29 | HTTP client ownership → `architecture.md` §4, §5 |
-| 22 | 2026-06-28 | Port objects own config, PipelineData carries references → `architecture.md` §8, `ai_rules.md` §2.2 |
-| 7 | 2026-06-28 | Shared CODE ok, shared RESOURCE banned → `architecture.md` §4.3, §8 |
+| 22 | 2026-06-28 | Port objects own config, PipelineData carries references → `ai_rules.md` §2.2 |
+| 7 | 2026-06-28 | Shared CODE ok, shared RESOURCE banned → `architecture.md` §4.3 |
 | 14 | 2026-06-26 | Untyped `dict[str, dict]` bags banned → `architecture.md` §9 (antipatterns) |
 | 8 | 2026-06-18 | `PipelineData.metadata: dict[str, Any]` replaced with typed fields → `architecture.md` §9 (antipatterns) |
 | 31 | 2026-07-10 | Unconditional `shutdown()`, no `_closed` flag → `architecture.md` §6 |
@@ -46,7 +48,7 @@
 | 19+25 | 2026-06→07 | Config schema evolves via backward-compat loaders + `config_version` → `core/config.py` pattern |
 | 46 | 2026-08-27 | File reads: utf-8-sig first, cp1251 fallbacks after — BOM must not leak → `features/rag/indexing.py` |
 | 49+89 | 2026-08→09 | History sanitized at one choke point (ChatManager); every door history enters gets the same cleaning — the API response keeps the sources block, stored history does not → `features/chat/manager.py` |
-| 50 | 2026-08-28 | Refusal = empty sources; refusal strings are constants + prompt sync test → `architecture.md` §8 |
+| 50 | 2026-08-28 | Refusal = empty sources; refusal strings are constants + prompt sync test → `architecture.md` §13.6 |
 | 60 | 2026-09-01 | n_gpu_layers lives in config.yaml only; extra_args never carries -ngl → `run_servers.yaml` |
 | 66 | 2026-09-03 | Idempotency marker = the exact artifact the producer writes → `scripts/prepare_docs.py` |
 | 69+76 | 2026-09-03→05 | Audit hygiene: grep-verify imports before orphan conclusions; config liveness by reader-pattern, not word count |
@@ -150,7 +152,8 @@ table deduped).
 | 123 | 2026-09-14 | `NamespaceConfig.prefix` docstring corrected: "Single-character" → "Short" — the live config uses "000" (3 chars) and query_parser handles it (audit L1); schema and behavior unchanged |
 | 125 | 2026-09-14 | Live probe "overhaul vs new car": a 7B atom with an inverted fact (cheaper→more expensive) outranked its truthful raw source while both were retrieved; atoms demoted, corpus raw-only — POLICY #92 confirmed by measurement |
 | 126 | 2026-09-14 | Live-caught attribution failures on raw chunks (bench green, live red): "which errors did I make" / "which decision did I take" attributed assistant advice as user actions — closed by #124 speaker markers; residual class (advice → inferred non-action) is 7B-bound, prompt word-lists rejected |
-| 128 | 2026-09-14 | Archivist e2e gate green-rate ~75%→~25% after the llama.cpp engine update: acceptance quotes come back paraphrased, not verbatim (same family as the 09-10 chat-style shift); atom-pipeline code unchanged, RAG bench canon intact (17/17 + 9/9 + 31/34, 09-14) — engine-side, strict proof needs the old-binary A/B; gate stays honest-red per #97 |
+| 128 | 2026-09-14 | Archivist e2e gate green-rate ~75%→~25% after the llama.cpp engine update: acceptance quotes paraphrased, not verbatim; atom code unchanged, bench canon intact — engine-side. Recovered to 6/7 green on release 0.4.1 (2026-09-15); residual flake stays under the #97 re-run rule |
+| 129 | 2026-09-15 | Closed: 0.4.1 live regression (decision fabrication ×2, EN-on-RU, mangled grammar) was a Qwen2.5-7B × new-engine interaction — Qwen3.5-4B on the same engine+code answered the same probes green; retrieval byte-identical across the flip (rerank 8/3, top 0.0143 both). Engine kept; model-engine pairs must be re-validated together — an older model aging on a newer engine is expected, not a defect || 130 | 2026-09-15 | Engine/model-update gate extended: bench ×2 + canary still misses live-style regressions (bench covers facts/refusals at high retrieval confidence; live style fails at the low-confidence edge). Post-update protocol: bench ×2 + canary ×N + a fixed live mini-session (5-6 attribution probes, fresh chat) || 131 | 2026-09-15 | Qwen3.5-4B × llama.cpp 0.4.1 adopted as the live-serving baseline: 12 live probes — attribution clean (decision → refusal; "my mistakes" → the user's own words only; the best result of the campaign). Native 4B residuals persist: EN-on-RU ~2/12, bench 16/17 + 7/9 + 28/34 (no-prefix verbosity, typo-1, synthesis limits — the documented 4B class). ×2 re-baseline pending |
 
 ## FUTURE RISKS
 
@@ -172,7 +175,7 @@ table deduped).
 | Silent fallback prompt | Invalid prompt_name (API request or config) renders `prompts/v1/fallback.j2` with degraded RAG instructions; only a log entry, no error to the caller | When prompt versioning/registry work begins |
 | Hybrid search (BM25+vector, RRF) | Real corpus shows missed exact-term retrieval (BM25-zero vs vector hits on user queries) | CORE CHANGE: new index format + port extension + index sync design |
 | RAM headroom shrink | Peak RAM (6.5/15 GB at ~140 bench docs) grows past ~10 GB with real corpus | Before adding any RAM-heavy component; measure first |
-| 7B bench multi-turn-1 ('Why?' followup): FLAKY, nondeterministic — 4 red / 2 green incl. one green on cold (2026-09-08 08:33; cold-warm correlation disproven); §14 greedy jitter amplified by chat condensation flips the verdict — first counterexample to 'all verdict-neutral'; [000]-correlated ([d] stable historically), live [d]+'Почему?' green; step unattributed (no condensed-query logging); 4B unaffected | flake rate grows, or numeric prefix used live | log condensed query (§2.7); rule: re-run before classifying a surprising 7B red |
+| multi-turn-1 ('Why?' followup): FLAKY on the 7B-era pair — chat condensation amplifies one-phrasing jitter into a verdict flip; [000]-correlated, live [d] stable. 7B retired from serving 2026-09-15 (#129) — bench-only relevance now. Condensed query IS logged but at DEBUG (invisible at INFO — see the attribution-diagnostics risk) | flake rate grows on the current serving pair, or the prefix is used live | re-run before classifying a surprising red; raise the condensed-query log to INFO (§2.7) |
 | atoms-undated-1 red on both models (4B evades 'when'-answers 'what'; 7B confabulates by merging facts); prompt-level cure leaks into anti-echo rules (drift #85) | 14B-class model adopted, or a generation-side date-phrase guard designed | re-attempt date honesty at that layer |
 | Advanced FAISS indices (IVF/PQ) — flat search cost grows linearly past ~100K chunks per namespace | single namespace exceeds 100K chunks (trigger already in ai_rules §2) | train IVF index, re-verify atomic upsert (#88) on it, config_version bump for the index format (stage 4 — CORE CHANGE, discuss first) |
 | No date/source filters before retrieval — "what did I decide about X in March"-class queries rely on ranking alone | 3 documented live cases of "definitely there, not found" | metadata filter in QueryRequest -> vector store port extension (stage 5 — CORE CHANGE, discuss first) |
@@ -186,4 +189,4 @@ table deduped).
 | Unreadable file at index time: chunks preserved (#112) and the failure is loud (#113), but the new content is not retried until the next file change or a manual reindex — retrying only transient failures needs a typed error taxonomy to tell them from deterministic refusals | A changed file serves stale content past the next watcher pass (watch the log for "Watcher reindex failed" + unreadable-file warnings) | Typed error taxonomy in the result channel, then a bounded retry for transient-only failures (one layer — drift #43) |
 | Watcher keys snapshots by `str(path)`: two SourceConfigs sharing one path overwrite each other's snapshots every poll — change detection for one of them becomes unreliable | before mapping a second source to the same path | key by (namespace, path) |
 | Chunker-shared `custom` dict aliases across frozen chunks — latent until a chunker returns chunks sharing one dict | a chunker that shares one custom dict between chunks | copy on chunk rebuild in IndexingManager |
-| Attribution diagnostics invisible: condensed/original query logged at DEBUG only (invisible at INFO) — the multi-turn-1 "step unattributed" risk stays live; stream path logs chunks_used=N for refusals where non-stream logs 0 (drift #50 contract) — log-only, responses unaffected | next flaky live answer that cannot be explained from the logs | raise the two log lines to INFO (one-line change each) |
+| Attribution diagnostics invisible: condensed/original query logged at DEBUG only (invisible at INFO); stream path logs chunks_used=N for refusals where non-stream logs 0 (drift #50 contract) — log-only, responses unaffected. Triggered twice 2026-09-14/15 (live regressions diagnosed by manual score comparison instead of logs) | immediately — it is the known next small fix, approved in principle | raise the two log lines to INFO (one-line change each) |

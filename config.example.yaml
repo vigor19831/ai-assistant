@@ -7,7 +7,7 @@
 #    - Embedding dimension (must match between embedder and vector_store)
 #    - Stop sequences specific to your LLM model
 #    - Documents folder path for RAG
-#    - GPU settings (n_gpu_layers: layer count 0/20/99, server_context_size) for your VRAM
+#    - GPU settings (n_gpu_layers: 0 = CPU / exact count = partial / 99 = all, server_context_size) for your VRAM
 # 3. Re-index documents after any chunk_size change
 # 4. Documents: place originals in data/raw_documents/ and run
 #    scripts/prepare_docs.py (splits >150 KB into ~30 KB parts,
@@ -78,7 +78,7 @@ embedder:
   timeout: 120.0
   connect_timeout: 10.0
   # [CHANGE] Two profiles, never mixed:
-  #   SERVING: 0 = CPU embedder (with LLM at 20 GPU layers on 4GB VRAM).
+  #   SERVING: 0 = CPU embedder (LLM keeps the GPU layers on 4GB VRAM).
   #   INDEXING: 99 = GPU embedder — ~7x faster (2 min vs never-completes
   #     for 3400 chunks), requires llm.n_gpu_layers lowered to ~10 to
   #     free VRAM; switch back after indexing (drift #61).
@@ -159,17 +159,21 @@ llm:
   #   - another-model
   available_models: []
   # [CHANGE] 2048 = safe for 4GB VRAM with CPU offload.
-  # With partial GPU offload you can raise this:
-  #   6144 @ n_gpu_layers=20 on 4GB VRAM (Qwen2.5-7B)
-  #   8192 @ n_gpu_layers=30 on 6GB VRAM
+  # With partial GPU offload you can raise this (measured on one
+  # 7B model, treat as a starting point — re-validate your own
+  # model x engine pair via scripts/check_rag.py):
+  #   ~6144 @ n_gpu_layers=20 on 4GB VRAM
+  #   ~8192 @ n_gpu_layers=30 on 6GB VRAM
   server_context_size: 2048
 
   # [CHANGE] GPU layer count. 0 = CPU only; exact counts = partial offload;
   # 99 = all layers (8GB+ VRAM).
-  # Measured optimum on 4GB VRAM with Qwen2.5-7B IQ4_XS: 20 (Hardware
-  # Ceiling Log). Partial offload in the 9B class caused a PCIe bottleneck
-  # — same log. During mass indexing lower to ~10 to free VRAM for the
-  # GPU embedder (see embedder.n_gpu_layers), then return to 20.
+  # 20 was the measured optimum for one 7B model on 4GB VRAM — treat
+  # as a starting point and re-validate for your model (Hardware
+  # Ceiling Log, architecture.md §14). The 9B class hit a PCIe
+  # bottleneck on partial offload — same log. During mass indexing
+  # lower to ~10 to free VRAM for the GPU embedder
+  # (see embedder.n_gpu_layers), then restore.
   # Verify your setting with: python scripts/check_rag.py
   n_gpu_layers: 20
 
@@ -182,7 +186,7 @@ llm:
   top_p: 1.0
   # [CHANGE] REQUIRED for local models. Without stop sequences the model
   # may generate forever or emit special tokens. Examples:
-  #   Qwen2.5:  ["<|im_start|>", "用户:", "Human:"]
+  #   Qwen family: ["<|im_start|>", "<|im_end|>"]
   #   Llama 3:  ["<|eot_id|>", "<|end_of_text|>"]
   #   Mistral:  ["</s>"]
   #   Command-R: ["<|END_OF_TURN_TOKEN|>"]
@@ -234,8 +238,6 @@ rag:
   #     [hyde_query, retrieve, rerank, build_context, generate]
   #
   # TUNING TIPS:
-  #   - top_k=2 + prompt_name=rag_strict → less noise, best for factual queries.
-  #   - top_k=3 + prompt_name=rag_simple → more recall, use with multi_query.
   #   - Always verify changes with: python scripts/check_rag.py
   #   - retrieval_multiplier is a property of the reranker port, not a
   #     config field: the base port returns 1; LocalReranker/APIReranker
@@ -245,11 +247,10 @@ rag:
   # -------------------------------------------------------------------
   steps: [condense_question, multi_query_retrieve, rerank, build_context, generate]
   prompt_version: v1
-  # Default pair: rag_strict + top_k 2 — validated at 17/17 CONTRACT
-  # (Hardware Ceiling Log). Switch to rag_simple + top_k 3 only if you
-  # need more recall, and re-run scripts/check_rag.py after switching.
+  # Validated pair: rag_strict + top_k 3 (measured optimum, drift log;
+  # a top_k 6 probe was reverted — noise cost is real). Changing either
+  # knob: re-run scripts/check_rag.py after switching.
   prompt_name: rag_strict
-  # 2 = less noise, best with rag_strict. 3 = more recall, use with rag_simple.
   top_k: 3
   default_namespace: default
   token_margin_min: 384

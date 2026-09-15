@@ -237,17 +237,8 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 
 ## 8. Decision Log (Why These Rules Exist)
 
-**#23** (2026-06-29): Shared `httpx.AsyncClient` + `_own_client` flag → hidden state, conditional shutdown, factory special-casing. **Rule:** §4.1 unconditional ownership, §5 per-adapter client only.
-
-**#22** (2026-06-28): `tokenizer_model` duplicated `ITokenizer.model_name`. **Rule:** Port objects own config; PipelineData carries references, not config duplicates.
-
-**#7** (2026-06-28): Shared CODE extracted correctly; then tried to share CLIENT too. **Rule:** Shared CODE ok, shared RESOURCE forbidden. AI cannot bundle them.
-
-**#43** (2026-08-27): Retry wrapper stacked on a retried adapter — 16 attempts, minutes-long opaque failures. **Rule:** §7 ai_rules — retry lives in exactly one layer.
-
-**#50** (2026-08-28): Refusal answers carried retrieved chunks as sources. **Rule:** refusal = complete answer without evidence; refusal strings are shared constants with a prompt-sync test.
-
-**Benchmark discipline** (2026-08-28): a spec edit was recommended from failure logs alone, before reading the evaluator code — turned out to be both wrong and benchmark-fitting. **Rule:** §13.4 edit discipline; read the instrument before judging it.
+Histories and dates live in `drift.md` (its charter). Maps of the load-bearing ones:
+#23 → §4/§5 (ownership, HTTP); #7 → §4.3 (code vs resource); #43 → ai_rules §7 (one retry layer); #50 → §13.6 (refusal = no evidence); benchmark discipline → §13.4.
 
 ## 9. Antipatterns (AI Must Never Use)
 
@@ -306,8 +297,6 @@ Decision Log #5: `ChunkMetadata` schema drift (`created_at` serialized but not i
 | Config dump prevention | Every field must justify its existence. No "maybe useful" |
 
 Why: Dependencies rot. Config becomes unmaintainable. Solo maintainer cannot track 50 options.
-
-Existing ai_rules.md: Section 2 bans Redis/Celery/etc. Section 2.1 bans config for 1-use values. This section adds the threshold (≥3) and the framing (freeze, not just caution).
 
 ### 11.3. Concurrency & Async Lock
 
@@ -398,30 +387,40 @@ Rules that survive model changes, hardware changes, and adapter swaps.
 
 ## 14. Hardware Ceiling Log
 
-| Date | Hardware | LLM | Result | Verdict |
-|---|---|---|---|---|
-| 2026-07-13 | GTX 1650 4GB / 16GB RAM | gemma-4-e2b-it | 6/13 | First baseline; multihop/noise/open-synthesis need ≥8B params |
-| 2026-08-12 | GTX 1650 4GB / 16GB RAM | Qwen3-4B (Q5_K_M) + multi-query + prompts | 13/17 + 1/2 e2e | Small-class entry; bge-m3 RU-synonym limit noted |
-| 2026-08-12→28 | GTX 1650 4GB / 16GB RAM | Qwen2.5-7B IQ4_XS | 17/17 ×4 + 7-8/9 CHAT | **KING (RAG)** — only 17/17 holder, 4× under temp-0.7 noise; 14B+ needs 12GB+ VRAM |
-| 2026-08-24→28 | GTX 1650 4GB / 16GB RAM | 9B class ×3 (Qwen3.5-9B, Ornith-9B) | 13-14/17 | **REJECTED ×3** — PCIe bottleneck on 4GB, latency ×2-3 |
-| 2026-08-29 | GTX 1650 4GB / 16GB RAM | Phi-4-mini (Q5_K_M) | 14/17 + 9/9 CHAT | Chat champion, kept as fallback; trap/multihop param-bound |
-| 2026-08-29→30 | GTX 1650 4GB / 16GB RAM | Qwen3.5-4B (IQ4_XS) | 16/17 → 17/17 + 9/9 | Strongest small; "VRAM-starved" corrected to sampling noise |
-| 2026-08-31 | GTX 1650 4GB / 16GB RAM | FINAL CAMPAIGN (temp 0.0, ×2): 4B (40 layers) vs 7B (20 layers) | 4B: 17/17+9/9+22/30; 7B: 17/17+8/9+24/30 | **THRONE: 7B king / 4B RAG-heir / Phi chat-fallback**; multi-turn-1 = 7B parametric ceiling (ideal-question control) |
-| 2026-09-01 | GTX 1650 4GB / 16GB RAM | First live corpus (drift #60–62): 3400 chunks | CPU ~4 c/s — never completes; GPU ~2 min | Indexing is a profile switch (LLM 10 + GPU embedder); single-flag config (drift #60) |
-| 2026-09-02 | GTX 1650 4GB / 16GB RAM | faiss migration + incremental (drift #63–64) | 17/17 + 25/30 + 8/9; RAM 5.77 GB; GPU ~10 c/s | Serving on faiss; document = checkpoint — kill resumes, window is a pause (#64) |
-| 2026-09-07 | GTX 1650 4GB / 16GB RAM | Post-#82/#83 bench (isolated, self-cleaning, 46 tests): Qwen3.5-4B (IQ4_XS, 40 layers) | 17/17 + 9/9 + 25/29 ×2 byte-identical | 4 reds classified: edge-2/big-1 retrieval budget (model-independent), typo-1/priority-1 param-bound (4B price; 7B passes both — param delta proven) |
-| 2026-09-07 | GTX 1650 4GB / 16GB RAM | same bench: Qwen2.5-7B (IQ4_XS, 20 layers) | 17/17 + 8/9 + 26/29 ×2 | 3 reds: big-1 (jazz found, cat missing — closer than 4B), format-strict-1 (7B format quirk), multi-turn-1 — NEW deterministic: 7B refuses 'Why'-followups on [000] (4B passes, [d] green historically, live [d]+'Why?' probe green — bench/[000]-specific, see drift FUTURE RISKS) |
-| 2026-09-07 | GTX 1650 4GB / 16GB RAM | Atoms tier added (drift #84, 51 tests): Qwen3.5-4B (IQ4_XS, 40 layers) | 17/17 + 9/9 + 29/34 ×2 byte-identical | reds: edge-2/big-1 retrieval budget, typo-1/priority-1 param-bound, atoms-undated-1 (4B evades 'when' over undated atoms — answers 'what') |
-| 2026-09-07 | GTX 1650 4GB / 16GB RAM | same bench: Qwen2.5-7B (IQ4_XS, 20 layers) | 17/17 + 8–9/9 + 30–31/34 | atoms: 7B confabulates undated (merges facts, stable) vs 4B evades — both red, distinct modes; multi-turn-1 FLAKY: nondeterministic, 4 red / 2 green incl. one green on cold (cold-warm correlation disproven 09-08) — §14 jitter amplified by chat condensation (first verdict-neutral counterexample), [000]-specific, live [d] green |
-| 2026-09-10 | GTX 1650 4GB / 16GB RAM | llama.cpp <new version>, Qwen3.5-4B (IQ4_XS, 40 layers) | 16/17 + 7/9 + 28/34, ×2 stable; live corpus 8/8 facts + 3/3 traps | Engine update shifted chat style only (verbosity, worse dialogue-memory); RAG core held. Chat red: no-prefix style, multi-turn phrasings. Accepting as new canon; old canon 2026-09-07 archived |
-| 2026-09-10 | GTX 1650 4GB / 16GB RAM | top_k 3→6 probe (Qwen3.5-4B, new llama.cpp) | 15/17 + 7/9 + 25/34 vs 16/17+7/9+28/34 | REVERTED: wider pool pulled noise into context/sources (trap-1 echo, missing-ru-1 guitar leak, semantic-close-noise source pollution); edge-2 unhelped — target chunks rank below 6th by embedding. Lesson: the weak-signal problem is not pool size; noise cost is real at top_k=6 |
-| 2026-09-10 | GTX 1650 4GB / 16GB RAM | Retrieval-budget probe (Qwen3.5-4B): top_k 3→6 (15/17, reverted) + multi_query path audit | 16/17 + 7/9 + 28/34 stable across 3 runs; edge-2/big-1 unaffected by either — wide-query embedding ceiling (all candidate scores at floor with multi_query active on BOTH paths) | Verdict: edge-2/big-1 = model-class limitation (LLM query-variations + embedding), documented; no config change warranted; top_k=3 confirmed optimal |
-| 2026-09-12 | GTX 1650 4GB / 16GB RAM | Full-reset verification of the ingestion tree (#108-#111): 5 raw docs + 1 atomized, rebuilt from scratch | 305 chunks — identical to the pre-reset index; bench 17/17 + 9/9 + 31/34 (canon reproduced); atom re-extraction at temp 0.0 reproduces the same template-echo atoms (V5 ×2) | The folder pipeline is lossless and deterministic; the atom residual is a model-class quirk, not pipeline drift |
+> Full per-run history (2026-07-13 → 2026-09-15): git history of this
+> file, compaction commit of 2026-09-15. Model names and scores are
+> dated snapshots of one engine build, never rankings.
 
-**Standing conclusions** (replaces per-run prose):
-- King: Qwen2.5-7B IQ4_XS (20 layers). Heirs: Qwen3.5-4B IQ4_XS (RAG, 40 layers), Phi-4-mini (chat).
-- Small-class re-test each generation; first probes: trap-1, trap-2, multihop-1.
-- Benchmark determinism: temperature 0.0 mandatory (drift #54). Verdicts (Result lines) reproduce byte-identically; rerank scores jitter at the 4th decimal on strong signals and ~0.02 on weak (GGML batching), and greedy generation may vary one phrasing per run (llama.cpp GPU nondeterminism) — all verdict-neutral. Exception (2026-09-07/08): chat condensation can amplify one-phrasing jitter into a verdict flip — multi-turn-1 on 7B, 4 red / 2 green across cold and warm states; re-run a surprising 7B red before classifying it. The canon is tied to the llama.cpp build: an engine update can shift a few verdicts (chat phrasings; the RAG core holds) — re-baseline ×2 after any update before comparing results.
-- Chat e2e numbers valid only from 2026-08-31 onward (D1 conv-id fix; re-baselined post-#58). condensation-1 fixed by the condense prompt contract (#58); multi-turn-1 stays FLAKY on 7B, passes on 4B — see the determinism exception above.
-- Corpus ingestion: originals in `data/raw_documents/` (files >150 KB split by `scripts/prepare_docs.py`). Rates: CPU ~4-7 chunks/s (measured live 09-01/02), GPU ~10 chunks/s. Plain indexing uses no LLM and runs in the serving profile (LLM 20 + CPU embedder); the GPU profile (LLM at 10 layers) was a one-time 3400-chunk backfill (drift #60). Store: faiss, RAM peak 5.77 GB at 3400+ chunks. Incremental: document = checkpoint — crashes resume, never reset (drift #64).
-- Raw run archives: `data/check_rag_*.log` (per-run details live there, not here).
+Hardware (stated once — the single reference for every limit below):
+GTX 1650 4GB VRAM / Ryzen 4800H / 16GB RAM.
+
+Hard constraints (survive any engine or model change):
+
+- 14B-class models do not fit 4GB VRAM (12GB+ needed) — atoms stay OFF
+  (drift #92) until the hardware changes.
+- The 9B class was tested and rejected on this hardware: PCIe bottleneck,
+  latency ×2-3. Do not re-test without new hardware.
+- Peak RAM at ~140 bench docs: 6.5/15 GB; at 3400+ chunks: 5.77 GB.
+  Measure before adding any RAM-heavy component.
+- Indexing rates (measured 2026-09-01/02): CPU ~4-7 chunks/s — never
+  completes a large source; GPU ~10 chunks/s. Large backfills are a
+  one-time GPU profile switch (drift #60).
+
+Method (the surviving lessons of the model era):
+
+- Model and engine form a PAIR. After any model or engine change: bench
+  ×2 + archivist canary + a fixed live mini-session (5-6 attribution
+  probes, drift #130). An engine update can shift chat-style verdicts
+  while the RAG core holds; an older model aging on a newer engine is
+  expected, not a defect (drift #129/#131).
+- Benchmark determinism: temperature 0.0 mandatory (drift #54). Rerank
+  scores jitter at the 4th decimal; greedy generation may vary one
+  phrasing per run — verdict-neutral, except chat condensation can
+  amplify it (multi-turn-1, drift FUTURE RISKS). Re-run a surprising
+  red before classifying it.
+- Chat e2e numbers are valid only within one engine × model pair.
+- Corpus ingestion: originals in `data/raw_documents/`, split by
+  `scripts/prepare_docs.py`; document = checkpoint — crashes resume,
+  never reset (drift #64).
+- Raw run archives: `data/check_rag_*.log` (per-run details live there,
+  not here).
