@@ -39,6 +39,7 @@ from ai_assistant.core.ports import (
     ITokenizer,
     IVectorStore,
 )
+from ai_assistant.core.ports.lexical_index import ILexicalIndex
 
 _logger = get_logger("rag.manager")
 
@@ -53,17 +54,23 @@ _WATCHER_MAX_ATTEMPTS = 3
 
 
 class IndexingManager:
-    """Handles document ingestion: chunk + embed + store per namespace."""
+    """Handles document ingestion: chunk + embed + store per namespace.
+
+    With a lexical_index the write is dual-store: vector first (the
+    capacity gatekeeper), lexical mirrored after (hybrid 4a).
+    """
 
     def __init__(
         self,
         chunker: IChunker,
         embedder: IEmbedder,
         vector_store: IVectorStore,
+        lexical_index: ILexicalIndex | None = None,
     ) -> None:
         self.chunker = chunker
         self.embedder = embedder
         self.vector_store = vector_store
+        self.lexical_index = lexical_index
 
     async def index_documents(
         self,
@@ -139,7 +146,23 @@ class IndexingManager:
         for i, emb in enumerate(embeddings):
             all_chunks[i] = replace(all_chunks[i], embedding=emb)
 
+        # Write order (hybrid 4a): vector store first — the capacity
+        # gatekeeper (max_chunks, drift #48/#107); a refusal stops the
+        # run before the lexical leg ever runs. A lexical failure is
+        # recorded, not raised: the run reports success=False (drift
+        # #113), the watcher retries, and the dual-store skip guard
+        # re-reads the document (the lexical side lacks evidence).
+        # Invariant: lexical contains a uri => vector contains it.
         await self.vector_store.upsert(all_chunks, namespace=namespace)
+        if self.lexical_index is not None:
+            try:
+                await self.lexical_index.upsert(all_chunks, namespace=namespace)
+            except Exception:
+                _logger.exception(
+                    "Lexical index write failed",
+                    extra={"namespace": namespace},
+                )
+                errors.append(f"Lexical index write failed for {namespace}")
 
         indexed_uris: dict[str, list[str]] = {}
         for chunk in all_chunks:

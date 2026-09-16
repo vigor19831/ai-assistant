@@ -247,6 +247,44 @@ class LexicalBm25Index(ILexicalIndex):
         async with self._lock:
             return self._search_locked(query_text, top_k, namespace)
 
+    async def list_by_filter(
+        self,
+        filters: dict[str, str | int | float | bool | None],
+        namespace: str = "default",
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Return (chunk_id, metadata) matching ALL filter key-values.
+
+        Read-only: an unknown namespace returns [] and is never
+        created. Metadata mirrors the IVectorStore shape: custom
+        keys first, typed fields overwrite (drift #120 parity),
+        plus the nested "custom" dict.
+        """
+        async with self._lock:
+            data = self._namespaces.get(namespace)
+            if data is None:
+                return []
+            results: list[tuple[str, dict[str, Any]]] = []
+            for chunk_id, chunk in data.chunks.items():
+                md = chunk.metadata
+                if md is None:
+                    if filters:
+                        continue
+                    results.append((chunk_id, {}))
+                    continue
+                meta: dict[str, Any] = {
+                    **md.custom,
+                    "custom": md.custom,
+                    "source": md.source,
+                    "index": md.index,
+                    "total_chunks": md.total_chunks,
+                    "source_uri": md.source_uri,
+                    "original_path": md.original_path,
+                    "last_modified": md.last_modified,
+                }
+                if all(meta.get(key) == value for key, value in filters.items()):
+                    results.append((chunk_id, meta))
+            return results
+
     async def delete(self, chunk_ids: list[str], namespace: str = "default") -> None:
         if not chunk_ids:
             return

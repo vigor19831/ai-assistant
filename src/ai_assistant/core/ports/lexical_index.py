@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ai_assistant.core.ports.closable import IClosable
 
@@ -66,6 +66,21 @@ class ILexicalIndex(IClosable, ABC):
         Returns chunks ordered by relevance score desc, ties broken
         by chunk id asc (deterministic). No matches (unknown
         namespace, unknown terms, empty query) -> empty list.
+        """
+        ...
+
+    @abstractmethod
+    async def list_by_filter(
+        self,
+        filters: dict[str, str | int | float | bool | None],
+        namespace: str = "default",
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Return (chunk_id, metadata) matching ALL filter key-values.
+
+        Read-only: an unknown namespace returns [] and is never
+        created (the phantom-namespace trap). Metadata mirrors the
+        IVectorStore shape: custom keys first, typed fields overwrite
+        (drift #120 parity), plus the nested "custom" dict.
         """
         ...
 

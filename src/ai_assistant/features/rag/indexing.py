@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.config import SourceConfig
     from ai_assistant.core.ports.chunker import IChunker
     from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.lexical_index import ILexicalIndex
     from ai_assistant.core.ports.vector_store import IVectorStore
 
 __all__ = ["index_folder", "read_sources"]
@@ -218,14 +219,19 @@ def _read_sources_incremental(
 
 
 async def _clear_namespace_chunks(
-    vector_store: IVectorStore, namespace: str
+    store: IVectorStore | ILexicalIndex, namespace: str
 ) -> str | None:
-    """Delete all chunks in namespace. Returns error message or None."""
+    """Delete all chunks in namespace. Returns error message or None.
+
+    Works on either store: each lists and deletes its OWN contents,
+    so a retried clear converges even when one side already emptied
+    (hybrid 4a).
+    """
     try:
-        existing = await vector_store.list_by_filter({}, namespace=namespace)
+        existing = await store.list_by_filter({}, namespace=namespace)
         to_delete = [cid for cid, _meta in existing]
         if to_delete:
-            await vector_store.delete(to_delete, namespace=namespace)
+            await store.delete(to_delete, namespace=namespace)
             _logger.info(f"Cleared {len(to_delete)} chunks from {namespace}")
         return None
     except Exception as exc:
@@ -234,18 +240,19 @@ async def _clear_namespace_chunks(
 
 
 async def _cleanup_orphan_chunks(
-    vector_store: IVectorStore,
+    store: IVectorStore | ILexicalIndex,
     namespace: str,
     current_uris: set[str],
 ) -> list[tuple[str, dict[str, Any]]]:
     """Remove chunks whose source_uri no longer exists on disk.
 
     Safe because original documents are the source of truth; indices
-    are derived. Returns existing chunk metadata for freshness checks.
+    are derived. Works on either store — each cleans its OWN listing
+    (hybrid 4a). Returns existing chunk metadata for freshness checks.
     """
     all_meta: list[tuple[str, dict[str, Any]]] = []
     try:
-        all_meta = await vector_store.list_by_filter({}, namespace=namespace)
+        all_meta = await store.list_by_filter({}, namespace=namespace)
         # A no-files disk with stored chunks means the source directory is
         # temporarily unavailable (sleep, network, unmount) — cleanup is
         # skipped to prevent data loss.
@@ -263,7 +270,7 @@ async def _cleanup_orphan_chunks(
             and meta.get("source_uri") not in current_uris
         ]
         if orphan_ids:
-            await vector_store.delete(orphan_ids, namespace=namespace)
+            await store.delete(orphan_ids, namespace=namespace)
             increment_counter(
                 "ai_assistant_rag_orphans_removed_total",
                 labels={"namespace": namespace},
@@ -278,12 +285,15 @@ async def _cleanup_orphan_chunks(
 def _filter_unchanged_docs(
     docs: list[dict[str, Any]],
     all_meta: list[tuple[str, dict[str, Any]]],
+    lexical_complete: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Skip docs whose source_uri is already indexed with the same
     mtime and a complete chunk set.
 
     Changed files pass through (upsert replaces old chunks). Duplicates
-    within the current batch are also skipped.
+    within the current batch are also skipped. With a lexical mirror
+    (hybrid 4a) a uri is skippable only when the lexical store also
+    holds it complete (None = no lexical constraint).
     """
     existing_uri_mtime, existing_uri_count, existing_uri_total = _uri_stats(all_meta)
 
@@ -315,8 +325,10 @@ def _filter_unchanged_docs(
                 old_mtime is not None
                 and old_mtime == new_mtime
                 and complete
+                and (lexical_complete is None or uri in lexical_complete)
             ):
-                # Unchanged on disk and fully stored, skip
+                # Unchanged on disk, fully stored, and vouched for by
+                # every active store -- skip
                 continue
         seen_uris.add(uri)
         new_docs.append(d)
@@ -395,6 +407,7 @@ async def index_folder(
     max_file_size: int | None = None,
     sources: list[SourceConfig] | None = None,
     index_path: str | None = None,
+    lexical_index: ILexicalIndex | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -406,6 +419,9 @@ async def index_folder(
         vector_store: IVectorStore instance.
         max_file_size: Max file size in bytes before skipping (guard).
         sources: List of SourceConfig — specifies document sources.
+        lexical_index: Optional lexical mirror (hybrid 4a): dual-store
+            writes, dual-store skip guard, mirrored clear/orphan
+            cleanup and checkpoints. None = dense-only, unchanged.
 
     Returns:
         Dict with results per namespace and any errors.
@@ -420,6 +436,7 @@ async def index_folder(
         chunker=chunker,
         embedder=embedder,
         vector_store=vector_store,
+        lexical_index=lexical_index,
     )
 
     all_results: dict[str, Any] = {}
@@ -451,13 +468,43 @@ async def index_folder(
     # before the disk read). clear wipes the store inside this loop,
     # so after a clear nothing is skipped.
     skip_by_ns: dict[str, dict[str, tuple[str | None, int, int]]] = {}
+    lexical_complete_by_ns: dict[str, set[str]] = {}
     for namespace in sorted(expected_namespaces):
         if clear:
+            # Lexical first (hybrid 4a): a crash between the two
+            # clears leaves the data in the PRIMARY (vector) store --
+            # "not yet deleted", never a resurrection from the
+            # secondary. Each store clears its OWN listing, so a
+            # retried clear converges regardless of where it stopped.
+            if lexical_index is not None:
+                clear_error = await _clear_namespace_chunks(
+                    lexical_index, namespace
+                )
+                if clear_error:
+                    all_errors.append(clear_error)
             clear_error = await _clear_namespace_chunks(vector_store, namespace)
             if clear_error:
                 all_errors.append(clear_error)
         stored_meta = await vector_store.list_by_filter({}, namespace=namespace)
         stored_mtime, stored_count, stored_total = _uri_stats(stored_meta)
+        # Hybrid 4a skip guard (drift #93 class: a skip condition
+        # verifies every artifact it vouches for). The write order
+        # guarantees lexical-contains => vector-contains, so the
+        # lexical side is the missing-evidence detector after a crash
+        # between the two writes. A freshly enabled lexical index
+        # vouches for nothing -- a plain reindex backfills it.
+        lexical_complete: set[str] | None = None
+        if lexical_index is not None:
+            lex_meta = await lexical_index.list_by_filter(
+                {}, namespace=namespace
+            )
+            _lex_mtime, lex_count, lex_total = _uri_stats(lex_meta)
+            lexical_complete = {
+                uri
+                for uri in lex_count
+                if lex_count[uri] == lex_total.get(uri, -1)
+            }
+            lexical_complete_by_ns[namespace] = lexical_complete
         skip_by_ns[namespace] = {
             uri: (
                 stored_mtime.get(uri),
@@ -465,6 +512,7 @@ async def index_folder(
                 stored_total.get(uri, -1),
             )
             for uri in stored_mtime
+            if lexical_complete is None or uri in lexical_complete
         }
 
     # Phase 2 — read only what the store does not vouch for.
@@ -484,10 +532,18 @@ async def index_folder(
     for namespace in sorted(expected_namespaces):
         docs = docs_by_ns.get(namespace, [])
 
+        # Lexical first (hybrid 4a): same delete-ordering rationale
+        # as the clear above -- no resurrection window.
+        if lexical_index is not None:
+            await _cleanup_orphan_chunks(
+                lexical_index, namespace, inventory_by_ns.get(namespace, set())
+            )
         all_meta = await _cleanup_orphan_chunks(
             vector_store, namespace, inventory_by_ns.get(namespace, set())
         )
-        new_docs = _filter_unchanged_docs(docs, all_meta)
+        new_docs = _filter_unchanged_docs(
+            docs, all_meta, lexical_complete_by_ns.get(namespace)
+        )
 
         skipped = len(docs) - len(new_docs)
         if skipped:
@@ -556,6 +612,28 @@ async def index_folder(
                         )
                         all_errors.append(
                             f"Checkpoint save failed for {namespace}: {exc}"
+                        )
+                if lexical_index is not None:
+                    try:
+                        await asyncio.wait_for(
+                            lexical_index.save(
+                                lexical_index.index_path, namespace=namespace
+                            ),
+                            timeout=INDEX_IO_TIMEOUT,
+                        )
+                    except TimeoutError:
+                        _logger.warning(
+                            f"Lexical checkpoint save timed out for {namespace}"
+                        )
+                        all_errors.append(
+                            f"Lexical checkpoint save timed out for {namespace}"
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            f"Lexical checkpoint save failed: {exc}"
+                        )
+                        all_errors.append(
+                            f"Lexical checkpoint save failed for {namespace}"
                         )
                 _logger.info(
                     f"index.progress {namespace} {doc_pos}/{total_docs} "

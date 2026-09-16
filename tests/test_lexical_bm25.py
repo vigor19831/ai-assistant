@@ -195,3 +195,43 @@ class TestLexicalBm25Index:
         assert [c.id for c in await index.search("alpha", namespace="ns")] == ["c1"]
         await index.delete(["c1"], namespace="ns")
         assert await index.search("alpha", namespace="ns") == []
+
+    async def test_list_by_filter_empty_filters_returns_all(
+        self, tmp_path: Path
+    ) -> None:
+        index = _make_index(tmp_path)
+        await index.add([_chunk("c1", "alpha")], namespace="ns")
+        listed = await index.list_by_filter({}, namespace="ns")
+        assert [cid for cid, _ in listed] == ["c1"]
+        meta = listed[0][1]
+        assert meta["source"] == "doc.md"
+        assert meta["source_uri"] == "doc.md"
+        assert meta["total_chunks"] == 1
+
+    async def test_list_by_filter_filters_by_key(self, tmp_path: Path) -> None:
+        index = _make_index(tmp_path)
+        await index.add(
+            [
+                _chunk("c1", "alpha", source="one.md"),
+                _chunk("c2", "beta", source="two.md"),
+            ],
+            namespace="ns",
+        )
+        listed = await index.list_by_filter(
+            {"source_uri": "two.md"}, namespace="ns"
+        )
+        assert [cid for cid, _ in listed] == ["c2"]
+        missed = await index.list_by_filter(
+            {"source_uri": "none.md"}, namespace="ns"
+        )
+        assert missed == []
+
+    async def test_list_by_filter_unknown_namespace_creates_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        index = _make_index(tmp_path)
+        assert await index.list_by_filter({}, namespace="ghost") == []
+        # Read-only: no phantom namespace materialized anywhere.
+        await index.save(str(tmp_path), namespace="ghost")
+        assert not (tmp_path / "ghost.json").exists()
+        assert await index.list_namespaces(str(tmp_path)) == []
