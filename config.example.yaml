@@ -8,6 +8,8 @@
 #    - Stop sequences specific to your LLM model
 #    - Documents folder path for RAG
 #    - GPU settings (n_gpu_layers: 0 = CPU / exact count = partial / 99 = all, server_context_size) for your VRAM
+#      These numbers are hardware+model dependent — there is no universal
+#      value; validate your setup with: python scripts/check_rag.py
 # 3. Re-index documents after any chunk_size change
 # 4. Documents: place originals in data/raw_documents/ and run
 #    scripts/prepare_docs.py (splits >150 KB into ~30 KB parts,
@@ -144,6 +146,25 @@ vector_store:
   max_document_size: 10485760
 
 # =============================================================================
+# LEXICAL INDEX — optional exact-term retrieval leg (hybrid search)
+# =============================================================================
+# Absent section = hybrid OFF: dense-only, the pre-hybrid behavior.
+# Uncomment to enable: BM25 searches by exact words alongside the
+# dense (embedding) search; the two result lists are fused by rank
+# (RRF, constant in code — no tuning knobs), and the reranker still
+# orders the final candidates. Applies to ALL namespaces at once.
+# Index files live in their own folder, separate from vector_store
+# files, so neither store lists the other's. Indices are derived
+# data: delete the folder and reindex to rebuild.
+# After enabling on an existing corpus, run POST /rag/reindex once:
+# the skip-guard checks BOTH stores (drift #93 class — a skip
+# condition verifies the artifact it vouches for), so a plain
+# reindex backfills the lexical index for already-indexed documents.
+# lexical_index:
+#   provider: bm25
+#   index_path: ./data/lexical_indices
+
+# =============================================================================
 # LLM — [CHANGE] model name and GPU settings for your setup
 # =============================================================================
 llm:
@@ -158,12 +179,11 @@ llm:
   #   - your-model-name
   #   - another-model
   available_models: []
-  # [CHANGE] 2048 = safe for 4GB VRAM with CPU offload.
-  # With partial GPU offload you can raise this (measured on one
-  # 7B model, treat as a starting point — re-validate your own
-  # model x engine pair via scripts/check_rag.py):
-  #   ~6144 @ n_gpu_layers=20 on 4GB VRAM
-  #   ~8192 @ n_gpu_layers=30 on 6GB VRAM
+  # [CHANGE] Context window of your model x engine pair. Hardware-
+  # dependent: full GPU offload (n_gpu_layers: 99) on 4GB VRAM holds
+  # 8192 for a 4B-class model; partial offload or bigger models may
+  # need less. Start at 2048 if unsure, raise stepwise, and validate
+  # the pair with scripts/check_rag.py after each change.
   server_context_size: 2048
 
   # [CHANGE] GPU layer count. 0 = CPU only; exact counts = partial offload;
@@ -247,11 +267,12 @@ rag:
   # -------------------------------------------------------------------
   steps: [condense_question, multi_query_retrieve, rerank, build_context, generate]
   prompt_version: v1
-  # Validated pair: rag_strict + top_k 3 (measured optimum, drift log;
-  # a top_k 6 probe was reverted — noise cost is real). Changing either
-  # knob: re-run scripts/check_rag.py after switching.
+  # Baseline pair: rag_strict + top_k 5. Depth is NOT a free quality
+  # knob: measured on this project's corpus, 6 was identical to 5 and
+  # 7 lost a test to noise. Re-run scripts/check_rag.py after any
+  # change to prompt_name or top_k.
   prompt_name: rag_strict
-  top_k: 3
+  top_k: 5
   default_namespace: default
   token_margin_min: 384
   token_margin_pct: 0.10

@@ -48,6 +48,7 @@ __all__ = [
     "ChunkerConfig",
     "EmbedderConfig",
     "LLMConfig",
+    "LexicalIndexConfig",
     "LoggingConfig",
     "NamespaceConfig",
     "RAGConfig",
@@ -145,6 +146,21 @@ class StorageConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_STORAGE_", extra="forbid")
     provider: str = "sqlite"
     db_path: str = "./data/storage.db"
+
+
+class LexicalIndexConfig(BaseSettings):
+    """Lexical (exact-term) index configuration — optional.
+
+    Absent section = hybrid retrieval off, dense-only behavior
+    (hybrid stage 3). provider selects the adapter ("bm25");
+    index_path is the directory of the lexical index files, kept
+    separate from the vector index_path so neither store lists the
+    other's files.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="AI_LEXICAL_INDEX_", extra="forbid")
+    provider: str = "bm25"
+    index_path: str = "./data/lexical_indices"
 
 
 class RerankerConfig(BaseSettings):
@@ -358,6 +374,7 @@ class AppConfig(BaseSettings):
     embedder: EmbedderConfig = Field(default_factory=EmbedderConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
+    lexical_index: LexicalIndexConfig | None = Field(default=None)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
