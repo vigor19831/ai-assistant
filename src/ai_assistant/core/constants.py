@@ -39,6 +39,14 @@ def is_refusal_answer(text: str) -> bool:
 # Number of recent history messages used for query condensation.
 CONDENSE_HISTORY_LIMIT = 8
 
+# --- Hybrid retrieval ---
+# Reciprocal Rank Fusion constant (hybrid stage 2).
+# k=60 is the standard value from the original RRF paper (Cormack et
+# al. 2009): high enough to dampen score differences between the
+# dense and lexical legs, low enough to reward top ranks. A knob here
+# would require 3 real cases first (architecture 11.2).
+RRF_K = 60
+
 # --- Operation timeouts (seconds) ---
 # Single vector store index save/load I/O operation (per namespace).
 INDEX_IO_TIMEOUT = 10.0

@@ -10,6 +10,7 @@ from .configs import SamplingConfig
 
 if TYPE_CHECKING:
     from ..ports.embedder import IEmbedder
+    from ..ports.lexical_index import ILexicalIndex
     from ..ports.llm import ILLM
     from ..ports.reranker import IReranker
     from ..ports.tokenizer import ITokenizer
@@ -77,6 +78,9 @@ class PipelineData:
     query_embedding: list[float] | None = None
     tokenizer: ITokenizer | None = None
     rerank_scores: list[float] | None = None
+    # Lexical (exact-term) retrieval leg. None = dense-only, the
+    # pre-hybrid behavior, byte-identical (hybrid stage 2).
+    lexical_index: ILexicalIndex | None = None
 
     # Chat history for query condensation (last N message pairs)
     # Format: tuple of (role, text) pairs. Explicit contract avoids

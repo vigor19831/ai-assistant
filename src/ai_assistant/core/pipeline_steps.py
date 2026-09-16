@@ -10,7 +10,7 @@ import asyncio
 import re
 from typing import TYPE_CHECKING
 
-from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT
+from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT, RRF_K
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.domain.pipeline import PipelineData
     from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.lexical_index import ILexicalIndex
     from ai_assistant.core.ports.llm import ILLM, Message
     from ai_assistant.core.ports.reranker import IReranker, RerankResult
     from ai_assistant.core.ports.vector_store import IVectorStore
@@ -151,6 +152,60 @@ async def _call_rerank(
 ) -> list[RerankResult]:
     """Rerank chunks."""
     return await reranker.rerank(query, list(chunks), top_k=top_k)
+
+
+def _rrf_fuse(
+    dense: list[Chunk],
+    lexical: list[Chunk],
+    limit: int,
+) -> list[Chunk]:
+    """Reciprocal Rank Fusion of the dense and lexical candidate lists.
+
+    Rank-only by design (architecture 13.1): no score normalization,
+    no thresholds -- each leg contributes 1/(RRF_K + rank), so a chunk
+    found by both legs outranks a chunk found by one. Ties break by
+    chunk id ascending (deterministic across runs: benchmark stability,
+    architecture 14).
+    """
+    scores: dict[str, float] = {}
+    by_id: dict[str, Chunk] = {}
+    for legs in (dense, lexical):
+        for rank, chunk in enumerate(legs, start=1):
+            by_id[chunk.id] = chunk  # dense wins ties on id collisions
+            scores[chunk.id] = scores.get(chunk.id, 0.0) + 1.0 / (RRF_K + rank)
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    return [by_id[chunk_id] for chunk_id, _ in ranked[:limit]]
+
+
+async def _hybrid_fetch(
+    vector_store: IVectorStore,
+    lexical_index: ILexicalIndex | None,
+    embedding: list[float],
+    query_text: str,
+    fetch_k: int,
+    namespace: str,
+) -> tuple[list[Chunk], list[Chunk]]:
+    """Fetch candidates from both legs; return (dense, lexical) lists.
+
+    The lexical leg queries the ORIGINAL user wording only once --
+    multi_query variations are paraphrases that would dilute the exact
+    terms hybrid retrieval exists to preserve. A missing/failed
+    lexical leg returns [] and the dense result stands (degrade to
+    dense-only, never an error).
+    """
+    dense = await _call_search(vector_store, embedding, fetch_k, namespace)
+    lexical: list[Chunk] = []
+    if lexical_index is not None and query_text:
+        try:
+            lexical = await lexical_index.search(
+                query_text, top_k=fetch_k, namespace=namespace
+            )
+        except Exception:
+            _logger.exception(
+                "lexical search failed, continuing dense-only",
+                extra={"namespace": namespace},
+            )
+    return dense, lexical
 
 
 @step("condense_question", requires={"llm", "query"})
@@ -297,13 +352,31 @@ async def retrieve(data: PipelineData) -> PipelineData:
         )
         fetch_k = cfg.top_k * multiplier
         namespace = cfg.namespace
-        chunks = await _call_search(
-            vector_store, embedding, fetch_k, namespace
+        query_text = data.query.text if data.query is not None else ""
+        dense, lexical = await _hybrid_fetch(
+            vector_store,
+            data.lexical_index,
+            embedding,
+            query_text,
+            fetch_k,
+            namespace,
         )
+        chunks = _rrf_fuse(dense, lexical, fetch_k)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
         )
+        if data.lexical_index is not None:
+            overlap = len({c.id for c in dense} & {c.id for c in lexical})
+            increment_counter(
+                "ai_assistant_rag_hybrid_legs_total",
+                labels={"namespace": namespace},
+            )
+            _logger.info(
+                f"rag.hybrid trace={data.trace_id} ns={namespace} "
+                f"dense={len(dense)} lexical={len(lexical)} "
+                f"overlap={overlap} fused={len(chunks)}"
+            )
         _logger.debug(
             "retrieve done", extra={"trace_id": data.trace_id, "chunks": len(chunks)}
         )
@@ -724,18 +797,32 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
             else VECTOR_STORE_NOT_PROVIDED
         )
 
+    fetch_k = cfg.top_k * (
+        data.reranker.retrieval_multiplier if data.reranker is not None else 1
+    )
+    # Lexical leg: the ORIGINAL wording only, once -- variations are
+    # paraphrases that would dilute the exact terms hybrid retrieval
+    # exists to preserve.
+    lexical_leg: list[Chunk] = []
+    if data.lexical_index is not None and data.query.text:
+        try:
+            lexical_leg = await data.lexical_index.search(
+                data.query.text, top_k=fetch_k, namespace=cfg.namespace
+            )
+        except Exception:
+            _logger.exception(
+                "lexical search failed, continuing dense-only",
+                extra={"namespace": cfg.namespace},
+            )
     for q in queries:
         try:
             embeddings = await _call_embed(data.embedder, q)
             if not embeddings:
                 continue
-            multiplier = (
-                data.reranker.retrieval_multiplier if data.reranker is not None else 1
-            )
             chunks = await _call_search(
                 data.vector_store,
                 embeddings[0],
-                cfg.top_k * multiplier,
+                fetch_k,
                 cfg.namespace,
             )
             for c in chunks:
@@ -752,6 +839,9 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
         "ai_assistant_rag_multi_query_total",
         labels={"namespace": cfg.namespace, "variations": str(len(queries))},
     )
+
+    if lexical_leg:
+        combined = _rrf_fuse(combined, lexical_leg, fetch_k)
 
     _logger.debug(
         "multi_query_retrieve done",
