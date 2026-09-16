@@ -30,6 +30,7 @@ from ai_assistant.adapters.embedder_openai_compatible import (  # noqa: F401
 from ai_assistant.adapters.huggingface_tokenizer import (  # noqa: F401
     HuggingFaceTokenizer,
 )
+from ai_assistant.adapters.lexical_bm25 import LexicalBm25Index  # noqa: F401
 from ai_assistant.adapters.llm_mock import MockLLM  # noqa: F401
 from ai_assistant.adapters.llm_openai_compatible import (  # noqa: F401
     OpenAICompatibleLLM,

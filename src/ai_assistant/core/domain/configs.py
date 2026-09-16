@@ -103,6 +103,17 @@ class VectorStoreConfigData:
 
 
 @dataclass(frozen=True, slots=True)
+class LexicalIndexConfigData:
+    """Configuration for lexical index adapters.
+
+    Attributes:
+        index_path: Directory path for persistent lexical index files.
+    """
+
+    index_path: str = "./data/lexical_indices"
+
+
+@dataclass(frozen=True, slots=True)
 class StorageConfigData:
     """Configuration for persistent storage adapters.
 
