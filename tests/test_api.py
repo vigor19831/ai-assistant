@@ -1169,6 +1169,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
         mock_state.storage = MagicMock(spec=IChatStorage)
@@ -1209,6 +1210,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
 
         async def mark_llm_shutdown():
             shutdown_called["llm"] = True
@@ -1273,6 +1275,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1", "ns2"])
         mock_state.vector_store.save = AsyncMock(side_effect=track_save)
@@ -1372,6 +1375,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=track_llm)
         mock_state.embedder = AsyncMock()
@@ -1407,6 +1411,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
         mock_state.storage = MagicMock(spec=IChatStorage)
@@ -1447,6 +1452,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
         mock_state.storage = MagicMock(spec=IChatStorage)
@@ -1487,6 +1493,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = MagicMock(spec=ILLM)
         mock_state.embedder = MagicMock(spec=IEmbedder)
         mock_state.storage = MagicMock(spec=IChatStorage)
@@ -1517,6 +1524,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
         mock_state.storage = AsyncMock()
@@ -1557,6 +1565,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = MagicMock(spec=IVectorStore)
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["docs"])
         mock_state.vector_store.load = AsyncMock(side_effect=track_load)
@@ -1602,6 +1611,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=hanging_shutdown)
         mock_state.embedder = AsyncMock()
@@ -1641,6 +1651,7 @@ class TestAPILifespan:
         mock_state.task_registry = AsyncMock()
         mock_state.tokenizer = AsyncMock()
         mock_state.vector_store = None
+        mock_state.lexical_index = None  # hybrid off: the default contract
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=failing_shutdown)
         mock_state.embedder = AsyncMock()
@@ -2285,6 +2296,7 @@ async def test_source_watcher_starts_after_index_load(monkeypatch, tmp_path):
     config.rag.sources = [MagicMock()]
 
     state = MagicMock()
+    state.lexical_index = None  # hybrid off: the default contract
     state.vector_store.index_path = str(tmp_path / "indices")
     state.vector_store.list_namespaces = AsyncMock(return_value=["default"])
 

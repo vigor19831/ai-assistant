@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from ai_assistant.core.ports import (
         ILLM,
         IEmbedder,
+        ILexicalIndex,
         IReranker,
         IVectorStore,
     )
@@ -166,6 +167,7 @@ class ChatManager:
         max_context_tokens: int | None = None,
         embedder: IEmbedder | None = None,
         vector_store: IVectorStore | None = None,
+        lexical_index: ILexicalIndex | None = None,
         namespaces: dict[str, NamespaceConfig] | None = None,
         prompt_version: str = "v1",
         top_k: int = 5,
@@ -182,6 +184,7 @@ class ChatManager:
         self.max_context_tokens = max_context_tokens
         self.embedder = embedder
         self.vector_store = vector_store
+        self.lexical_index = lexical_index
         self.namespaces = namespaces or {}
         self.prompt_version = prompt_version
         self.top_k = top_k
@@ -332,6 +335,7 @@ class ChatManager:
             trace_id=trace_id or "",
             embedder=self.embedder,
             vector_store=self.vector_store,
+            lexical_index=self.lexical_index,
             reranker=self.reranker,
             llm=self.llm,
             pipeline_config=pipeline_config,

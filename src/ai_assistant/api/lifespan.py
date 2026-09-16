@@ -75,11 +75,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     mount_static(app, config)
 
     # Ensure data directories exist before adapters try to write to them.
-    for path in (
+    data_dirs = [
         Path(config.vector_store.index_path),
         Path(config.storage.db_path).parent,
         Path(config.rag.chat_exports_root),
-    ):
+    ]
+    if config.lexical_index is not None:
+        data_dirs.append(Path(config.lexical_index.index_path))
+    for path in data_dirs:
         await asyncio.to_thread(path.mkdir, parents=True, exist_ok=True)
 
     if config.security.api_key and get_expected_api_key() is None:
@@ -139,6 +142,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("Index load failed on startup")
             raise
 
+    # Load persisted lexical indices (hybrid 4b). Missing file = no-op
+    # (degrades loudly-later, not fatally — drift #73); corrupt or
+    # version-mismatched = fatal (drift #73): the message says to
+    # delete the folder and reindex — derived data, rebuildable.
+    if state.lexical_index is not None:
+        lex_path = state.lexical_index.index_path
+        try:
+            lex_namespaces = await state.lexical_index.list_namespaces(lex_path)
+            lex_loaded = 0
+            lex_skipped = 0
+            for ns in lex_namespaces:
+                try:
+                    await state.lexical_index.load(lex_path, namespace=ns)
+                    lex_loaded += 1
+                except (AdapterError, VersionMismatchError) as exc:
+                    logger.error(
+                        "Lexical index load failed, skipping namespace",
+                        extra={"namespace": ns, "error": str(exc)},
+                    )
+                    lex_skipped += 1
+            logger.info(
+                "Loaded lexical indices",
+                extra={
+                    "loaded": lex_loaded,
+                    "skipped": lex_skipped,
+                    "total": len(lex_namespaces),
+                    "path": lex_path,
+                },
+            )
+        except (OSError, RuntimeError, AdapterError, VersionMismatchError):
+            logger.exception("Lexical index load failed on startup")
+            raise
+
     if watcher is not None:
         watcher.start()
 
@@ -173,6 +209,7 @@ async def _index_source(
             max_file_size=config.vector_store.max_document_size,
             sources=[src],
             index_path=state.vector_store.index_path,
+            lexical_index=state.lexical_index,
         )
         if not result.get("success", False):
             logger.error(
@@ -221,6 +258,27 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     except Exception:
         logger.exception("Index save failed")
 
+    # 1b. Persist lexical indices (hybrid 4b) — same section-1 rule:
+    # before the background-tasks wait, so a hung task cannot block
+    # the save. No retry wrapper: the adapter's shutdown() saves again
+    # (idempotent), and stacked retry is banned (drift #43).
+    if state.lexical_index is not None:
+        try:
+            lex_path = state.lexical_index.index_path
+            for ns in await state.lexical_index.list_namespaces(lex_path):
+                try:
+                    await asyncio.wait_for(
+                        state.lexical_index.save(lex_path, namespace=ns),
+                        timeout=INDEX_IO_TIMEOUT,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Lexical index save failed",
+                        extra={"namespace": ns},
+                    )
+        except Exception:
+            logger.exception("Lexical index save failed")
+
     # 2. Wait for background tasks before adapter shutdown
     try:
         await state.task_registry.shutdown(wait_for=BACKGROUND_TASKS_SHUTDOWN_TIMEOUT)
@@ -230,6 +288,7 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
 
     # 3. Graceful adapter shutdown — add new closable adapters here
     adapters = (
+        (state.lexical_index, "lexical_index"),
         (state.llm, "llm"),
         (state.embedder, "embedder"),
         (state.vector_store, "vector_store"),
@@ -240,6 +299,8 @@ async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:
     )
 
     for adapter, name in adapters:
+        if adapter is None:
+            continue
         try:
             await asyncio.wait_for(adapter.shutdown(), timeout=ADAPTER_SHUTDOWN_TIMEOUT)
             logger.info("Adapter shutdown complete", extra={"adapter": name})

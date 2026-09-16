@@ -196,6 +196,7 @@ class RAGManager:
         vector_store: IVectorStore,
         embedder: IEmbedder,
         reranker: IReranker,
+        lexical_index: ILexicalIndex | None = None,
         token_margin_min: int = 256,
         token_margin_pct: float = 0.1,
         tokenizer: ITokenizer | None = None,
@@ -230,6 +231,7 @@ class RAGManager:
         self.vector_store = vector_store
         self.embedder = embedder
         self.reranker = reranker
+        self.lexical_index = lexical_index
         self.token_margin_min = token_margin_min
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
@@ -269,6 +271,7 @@ class RAGManager:
             embedder=self.embedder,
             vector_store=self.vector_store,
             reranker=self.reranker,
+            lexical_index=self.lexical_index,
             pipeline_config=pipeline_config,
             tokenizer=self.tokenizer,
         )

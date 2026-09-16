@@ -55,6 +55,18 @@ def _get_rag_manager(
     return state.rag_manager
 
 
+def _chunk_matches_document(meta: dict[str, Any], doc_ids: set[str]) -> bool:
+    """True when chunk metadata points at one of the document ids.
+
+    Shared by both stores' document_ids listings (hybrid 4b) — one
+    definition of the match, no copy-paste drift between stores.
+    """
+    if meta.get("source") in doc_ids or meta.get("source_uri") in doc_ids:
+        return True
+    custom = meta.get("custom")
+    return isinstance(custom, dict) and custom.get("source") in doc_ids
+
+
 @router.post("/index", response_model=IndexResponse)
 async def index_documents(
     req: IndexRequest,
@@ -72,6 +84,7 @@ async def index_documents(
         chunker=chunker,
         embedder=state.embedder,
         vector_store=state.vector_store,
+        lexical_index=state.lexical_index,
     )
 
     # -- Resource guard: document size and content presence --
@@ -137,6 +150,13 @@ async def index_documents(
                     state.vector_store.save(index_path, namespace=namespace),
                     timeout=INDEX_IO_TIMEOUT,
                 )
+                if state.lexical_index is not None:
+                    await asyncio.wait_for(
+                        state.lexical_index.save(
+                            state.lexical_index.index_path, namespace=namespace
+                        ),
+                        timeout=INDEX_IO_TIMEOUT,
+                    )
             except TimeoutError:
                 _logger.warning(
                     "Auto-save timed out",
@@ -284,6 +304,17 @@ async def delete_chunks(
         )
     try:
         if req.clear:
+            # Lexical first, each store deleting its OWN listing
+            # (hybrid 4b): converges on retry even if one side is
+            # already empty or holds stale ids; a crash between the
+            # two deletes leaves data in the primary store only.
+            if state.lexical_index is not None:
+                lex_chunks = await state.lexical_index.list_by_filter(
+                    {}, namespace=namespace
+                )
+                lex_ids = [chunk_id for chunk_id, _ in lex_chunks]
+                if lex_ids:
+                    await state.lexical_index.delete(lex_ids, namespace=namespace)
             all_chunks = await state.vector_store.list_by_filter(
                 {}, namespace=namespace
             )
@@ -292,21 +323,39 @@ async def delete_chunks(
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
         elif req.chunk_ids:
+            if state.lexical_index is not None:
+                await state.lexical_index.delete(
+                    req.chunk_ids, namespace=namespace
+                )
             await state.vector_store.delete(req.chunk_ids, namespace=namespace)
             deleted += len(req.chunk_ids)
         elif req.document_ids:
+            doc_ids = set(req.document_ids)
+            # Each store matches against its OWN listing (hybrid 4b):
+            # a crash between the 4a writes can leave stale old-id
+            # chunks on the lexical side -- only its own listing sees
+            # them. Lexical deletes first (no resurrection window).
+            if state.lexical_index is not None:
+                lex_chunks = await state.lexical_index.list_by_filter(
+                    {}, namespace=namespace
+                )
+                lex_to_delete = [
+                    chunk_id
+                    for chunk_id, meta in lex_chunks
+                    if _chunk_matches_document(meta, doc_ids)
+                ]
+                if lex_to_delete:
+                    await state.lexical_index.delete(
+                        lex_to_delete, namespace=namespace
+                    )
             all_chunks = await state.vector_store.list_by_filter(
                 {}, namespace=namespace
             )
-            to_delete = []
-            doc_ids = set(req.document_ids)
-            for chunk_id, meta in all_chunks:
-                if meta.get("source") in doc_ids or meta.get("source_uri") in doc_ids:
-                    to_delete.append(chunk_id)
-                    continue
-                custom = meta.get("custom")
-                if isinstance(custom, dict) and custom.get("source") in doc_ids:
-                    to_delete.append(chunk_id)
+            to_delete = [
+                chunk_id
+                for chunk_id, meta in all_chunks
+                if _chunk_matches_document(meta, doc_ids)
+            ]
             if to_delete:
                 await state.vector_store.delete(to_delete, namespace=namespace)
                 deleted += len(to_delete)
@@ -397,6 +446,7 @@ async def _index_chat_export(
             chunker=chunker,
             embedder=state.embedder,
             vector_store=state.vector_store,
+            lexical_index=state.lexical_index,
         )
         result = await manager.index_documents(
             [
@@ -420,6 +470,14 @@ async def _index_chat_export(
                     state.vector_store.save(index_path, namespace=chat_namespace),
                     timeout=INDEX_IO_TIMEOUT,
                 )
+                if state.lexical_index is not None:
+                    await asyncio.wait_for(
+                        state.lexical_index.save(
+                            state.lexical_index.index_path,
+                            namespace=chat_namespace,
+                        ),
+                        timeout=INDEX_IO_TIMEOUT,
+                    )
             except TimeoutError:
                 _logger.warning(
                     "Chat export index save timed out",
@@ -590,6 +648,13 @@ async def _restore_reindex_namespaces(
                     namespace=ns,
                 )
             )
+            if state.lexical_index is not None:
+                await asyncio.shield(
+                    state.lexical_index.load(
+                        state.lexical_index.index_path,
+                        namespace=ns,
+                    )
+                )
 
 
 @router.post("/reindex", response_model=None)
@@ -645,6 +710,17 @@ async def reindex_documents(
                         ]
                     for chat_ns in chat_namespaces:
                         try:
+                            if state.lexical_index is not None:
+                                lex_chat = (
+                                    await state.lexical_index.list_by_filter(
+                                        {}, namespace=chat_ns
+                                    )
+                                )
+                                if lex_chat:
+                                    await state.lexical_index.delete(
+                                        [cid for cid, _ in lex_chat],
+                                        namespace=chat_ns,
+                                    )
                             all_chat_chunks = await state.vector_store.list_by_filter(
                                 {}, namespace=chat_ns
                             )
@@ -687,6 +763,7 @@ async def reindex_documents(
                                 max_file_size=state.config.vector_store.max_document_size,
                                 sources=state.config.rag.sources,
                                 index_path=state.config.vector_store.index_path,
+                                lexical_index=state.lexical_index,
                             )
                         finally:
                             await shutdown_chunker_if_temporary(
@@ -715,6 +792,7 @@ async def reindex_documents(
                                     max_file_size=state.config.vector_store.max_document_size,
                                     sources=state.config.rag.sources,
                                     index_path=state.config.vector_store.index_path,
+                                    lexical_index=state.lexical_index,
                                 )
                                 combined_results.update(
                                     ns_result.get("results", {})

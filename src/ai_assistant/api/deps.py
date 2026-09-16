@@ -14,6 +14,7 @@ from ai_assistant.core.config import AppConfig
 from ai_assistant.core.domain.configs import (
     ChunkerConfigData,
     EmbedderConfigData,
+    LexicalIndexConfigData,
     LLMConfigData,
     RerankerConfigData,
     SamplingConfig,
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         IChatStorage,
         IChunker,
         IEmbedder,
+        ILexicalIndex,
         IReranker,
         IVectorStore,
     )
@@ -178,6 +180,7 @@ class AppState:
     tokenizer: ITokenizer | None = None
     reranker: IReranker | None = None
     storage: IChatStorage | None = None
+    lexical_index: ILexicalIndex | None = None
     rag_state: RAGState | None = None
 
 
@@ -195,6 +198,7 @@ class InitializedAppState:
     tokenizer: ITokenizer
     reranker: IReranker
     rag_state: RAGState
+    lexical_index: ILexicalIndex | None = None
     chat_manager: ChatManager | None = None
     rag_manager: RAGManager | None = None
 
@@ -306,6 +310,13 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
             cfg.vector_store.provider,
             _vector_store_data(cfg),
         )
+        # Hybrid 4b: absent section = None = dense-only (stage-3 rule).
+        if cfg.lexical_index is not None:
+            state.lexical_index = create_adapter(
+                "lexical_index",
+                cfg.lexical_index.provider,
+                LexicalIndexConfigData(index_path=cfg.lexical_index.index_path),
+            )
         reranker_cfg = _reranker_data(cfg)
         if reranker_cfg is not None and cfg.reranker.provider is not None:
             state.reranker = create_adapter(
@@ -329,6 +340,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         # Cleanup adapters already created — who creates, who closes
         for adapter, name in (
             (state.storage, "storage"),
+            (state.lexical_index, "lexical_index"),
             (state.llm, "llm"),
             (state.embedder, "embedder"),
             (state.vector_store, "vector_store"),
@@ -358,6 +370,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         max_context_tokens=cfg.chat.max_context_tokens,
         embedder=state.embedder,
         vector_store=state.vector_store,
+        lexical_index=state.lexical_index,
         namespaces=cfg.namespaces,
         prompt_version=rag_cfg.prompt_version,
         top_k=rag_cfg.top_k,
@@ -380,6 +393,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         vector_store=state.vector_store,
         embedder=state.embedder,
         reranker=state.reranker,
+        lexical_index=state.lexical_index,
         token_margin_min=rag_cfg.token_margin_min,
         token_margin_pct=rag_cfg.token_margin_pct,
         tokenizer=state.tokenizer,
@@ -404,6 +418,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         tokenizer=state.tokenizer,
         reranker=state.reranker,
         rag_state=state.rag_state,
+        lexical_index=state.lexical_index,
         chat_manager=chat_manager,
         rag_manager=rag_manager,
     )
