@@ -340,6 +340,42 @@ class TestLexicalMirrorBackfill:
         )
         assert r2["results"]["ns"]["indexed"] == 0
 
+
+def test_extract_doc_date_marker_forms() -> None:
+    """The digits-only extractor: ISO markers, last-marker-wins,
+    no date -> None. No language knowledge involved."""
+    from ai_assistant.features.rag.indexing import _extract_doc_date
+
+    extract = _extract_doc_date
+    # Russian strings are fixture DATA (real marker forms), not code
+    # language — RUF001 silenced per the project's test-data rule.
+    assert extract("[Пользователь, 2024-07-10]\nтекст", 0, "") == "2024-07"  # noqa: RUF001
+    assert extract("[ChatGPT, 2026-03-01]\nтекст", 0, "") == "2026-03"  # noqa: RUF001
+    # Last marker wins (a chunk spanning two sessions).
+    assert (
+        extract("[Пользователь, 2024-07-10]\nx\n[ChatGPT, 2025-01-02]\ny", 0, "")
+        == "2025-01"
+    )
+    # Marker without a date, no first-line date: honest None.
+    assert extract("[Пользователь]\nтекст", 0, "") is None  # noqa: RUF001
+    assert extract("текст без маркеров", 0, "") is None
+
+
+def test_extract_doc_date_first_line_forms() -> None:
+    """First-line digital dates on chunk 0 only; free-text and
+    number-like noise never parse; non-zero chunks never see the
+    first-line rule."""
+    from ai_assistant.features.rag.indexing import _extract_doc_date
+
+    extract = _extract_doc_date
+    assert extract("текст", 0, "2026-03-12") == "2026-03"
+    assert extract("текст", 0, "12.03.2026") == "2026-03"
+    # Noise: not a date.
+    assert extract("текст", 0, "2.5 миллиона — план") is None
+    assert extract("текст", 0, "300 рублей") is None
+    # The rule applies to chunk 0 only.
+    assert extract("текст", 1, "2026-03-12") is None
+
     async def test_backfill_save_failure_degrades_to_warning(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

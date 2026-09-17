@@ -40,6 +40,7 @@ from ai_assistant.core.ports import (
     IVectorStore,
 )
 from ai_assistant.core.ports.lexical_index import ILexicalIndex
+from ai_assistant.features.rag.indexing import DOC_DATE_KEY, _extract_doc_date
 
 _logger = get_logger("rag.manager")
 
@@ -97,12 +98,23 @@ class IndexingManager:
                 )
                 doc_source_uri = document.metadata.get("source_uri")
                 chunks = await self.chunker.chunk(document)
+                doc_first_line = next(
+                    (line for line in document.content.splitlines() if line.strip()),
+                    "",
+                )
                 for idx, chunk in enumerate(chunks):
                     chunk_source_uri = (
                         chunk.metadata.source_uri
                         if chunk.metadata and chunk.metadata.source_uri
                         else doc_source_uri
                     )
+                    # Date campaign stage 1: an honest date or none --
+                    # never a guess (drift #80/#81 class). Rides the
+                    # existing custom dict: no disk format change.
+                    custom = chunk.metadata.custom.copy() if chunk.metadata else {}
+                    doc_date = _extract_doc_date(chunk.text, idx, doc_first_line)
+                    if doc_date is not None:
+                        custom[DOC_DATE_KEY] = doc_date
                     all_chunks.append(
                         replace(
                             chunk,
@@ -117,7 +129,7 @@ class IndexingManager:
                                 last_modified=chunk.metadata.last_modified
                                 if chunk.metadata and chunk.metadata.last_modified
                                 else document.metadata.get("last_modified"),
-                                custom=chunk.metadata.custom if chunk.metadata else {},
+                                custom=custom,
                             ),
                         )
                     )

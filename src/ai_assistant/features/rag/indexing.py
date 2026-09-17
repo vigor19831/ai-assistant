@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,6 +24,48 @@ if TYPE_CHECKING:
 __all__ = ["backfill_lexical_index", "index_folder", "read_sources"]
 
 _logger = get_logger("rag.indexing")
+
+# --- Document-date extraction (date-filter campaign, stage 1) ---
+# The date is written into the text by prepare_docs at split time as
+# a machine-form marker: "[Speaker, YYYY-MM-DD]" (date campaign
+# stage 1). This parser is DIGITS-ONLY by design: no month tables,
+# no language knowledge in src -- a marker with a full ISO date is
+# the contract, and anything else (no date in the marker, no marker)
+# means no date. A chunk spanning two sessions belongs to the LATER
+# one (last marker wins). Notes dated by their author: a full date
+# as the document's FIRST line, digital formats only ("2026-03-12",
+# "12.03.2026") -- free-text dates are noise-prone and stay unparsed
+# (an honest empty value beats a guessed one, drift #80/#81 class).
+_DOC_DATE_MARKER_RE = re.compile(
+    r"\[[^,\]]+,\s*(\d{4})-(\d{2})-(\d{2})\]"
+)
+_FIRST_LINE_DATE_RE = re.compile(
+    r"^\s*(?:(?P<iy>\d{4})-(?P<im>\d{2})-(?P<id>\d{2})"
+    r"|(?P<dd>\d{2})\.(?P<dm>\d{2})\.(?P<dy>\d{4}))\b"
+)
+# The metadata key inside ChunkMetadata.custom.
+DOC_DATE_KEY = "doc_date"
+
+
+def _extract_doc_date(
+    chunk_text: str, chunk_index: int, doc_first_line: str
+) -> str | None:
+    """Return the chunk's doc_date ("YYYY-MM") or None (no honest date).
+
+    Pure function: no state, no IO, no language tables.
+    """
+    last: re.Match[str] | None = None
+    for match in _DOC_DATE_MARKER_RE.finditer(chunk_text):
+        last = match
+    if last is not None:
+        return f"{last.group(1)}-{last.group(2)}"
+    if chunk_index == 0:
+        m = _FIRST_LINE_DATE_RE.match(doc_first_line)
+        if m is not None:
+            if m.group("iy") is not None:
+                return f"{m.group('iy')}-{m.group('im')}"
+            return f"{m.group('dy')}-{m.group('dm')}"
+    return None
 
 
 def _read_file_sync(path: Path) -> str | None:

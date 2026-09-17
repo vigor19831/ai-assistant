@@ -2053,8 +2053,14 @@ def test_split_file_annotates_speakers_and_dates(tmp_path):
     dest.mkdir()
     parts = split_file(src, dest)
     text = parts[0].read_text(encoding="utf-8")
-    assert "[Пользователь, 10 июл]" in text
-    assert "[ChatGPT, 10 июл]" in text
+    # Date campaign stage 1: machine-form markers, year from the
+    # source file's mtime (the test file is created "now", so the
+    # current year is the grounded one).
+    import time as _time
+
+    year = _time.localtime().tm_year
+    assert f"[Пользователь, {year}-07-10]" in text
+    assert f"[ChatGPT, {year}-07-10]" in text
     assert "Copy" not in text
     assert "Download" not in text
 
@@ -2071,7 +2077,10 @@ def test_split_file_annotates_abbreviated_month(tmp_path):
     dest.mkdir()
     parts = split_file(src, dest)
     text = parts[0].read_text(encoding="utf-8")
-    assert "[Пользователь, 27 авг]" in text
+    import time as _time
+
+    year = _time.localtime().tm_year
+    assert f"[Пользователь, {year}-08-27]" in text
 
 
 def test_split_file_repeats_markers_in_long_turns(tmp_path):
@@ -2113,6 +2122,45 @@ def test_split_file_leaves_plain_documents_unchanged(tmp_path):
     text = parts[0].read_text(encoding="utf-8")
     assert "Copy" in text
     assert "Пользователь" not in text
+
+
+# --- Date campaign stage 1: year grounding + mtime inheritance ---
+
+
+def test_split_file_year_comes_from_source_mtime(tmp_path):
+    """A source saved in 2024 produces 2024 markers even when the
+    export header carries no year (the only honest ground: the file)."""
+    import time as _time
+
+    src = tmp_path / "chat.md"
+    src.write_text(
+        "пт, 10 июл. в 13:14\n\n#### Вы сказали:\nдай совет\n",  # noqa: RUF001
+        encoding="utf-8",
+    )
+    old = _time.mktime((2024, 7, 1, 12, 0, 0, 0, 0, -1))
+    os.utime(src, (old, old))
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = split_file(src, dest)
+    text = parts[0].read_text(encoding="utf-8")
+    assert "[Пользователь, 2024-07-10]" in text
+
+
+def test_split_outputs_inherit_source_mtime(tmp_path):
+    """Parts carry the SOURCE mtime: a re-split neither re-announces
+    unchanged documents to the watcher nor moves the year ground."""
+    import time as _time
+
+    src = tmp_path / "big.md"
+    src.write_text("line\n" * 40_000, encoding="utf-8")  # > threshold
+    old = _time.mktime((2024, 3, 1, 12, 0, 0, 0, 0, -1))
+    os.utime(src, (old, old))
+    dest = tmp_path / "out"
+    dest.mkdir()
+    parts = prepare_docs.split_file(src, dest)
+    assert len(parts) > 1
+    for part in parts:
+        assert part.stat().st_mtime == pytest.approx(old, abs=2.0)
 
 
 def test_split_file_keeps_fenced_content_untouched(tmp_path):

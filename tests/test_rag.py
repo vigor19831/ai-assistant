@@ -2464,6 +2464,91 @@ class TestReadSources:
         assert r2["results"]["test"]["indexed"] == 1
 
     @pytest.mark.asyncio
+    async def test_index_documents_writes_doc_date_from_marker(
+        self, mock_embedder, memory_vector_store
+    ):
+        """Date campaign stage 1: a chunk whose text carries a dated
+        marker gets doc_date. SimpleChunker (not the fixed-text mock):
+        the marker must actually reach the chunk text."""
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        manager = IndexingManager(
+            chunker=SimpleChunker(
+                ChunkerConfigData(chunk_size=64, chunk_overlap=0)
+            ),
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+
+        marker_doc = {
+            "id": "chat-1",
+            "content": "[Пользователь, 2024-07-10]\nдай совет",  # noqa: RUF001
+            "metadata": {"source_uri": "chat.md"},
+        }
+        await manager.index_documents([marker_doc], namespace="test")
+
+        meta = await memory_vector_store.list_by_filter(
+            {"source": "chat-1"}, namespace="test"
+        )
+        assert len(meta) == 1
+        # MemoryVectorStore flattens custom keys into the metadata
+        # dict — no nested "custom" here (that shape is the lexical
+        # index's list_by_filter parity).
+        assert meta[0][1]["doc_date"] == "2024-07"
+
+    @pytest.mark.asyncio
+    async def test_index_documents_no_marker_no_doc_date(
+        self, mock_chunker, mock_embedder, memory_vector_store
+    ):
+        """A plain document without dates: the key is absent — an
+        honest empty, not a fabricated value (drift #80/#81 class)."""
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+        doc = {
+            "id": "note-1",
+            "content": "Обычный текст без дат вообще.",
+            "metadata": {"source_uri": "note.md"},
+        }
+        await manager.index_documents([doc], namespace="test")
+
+        meta = await memory_vector_store.list_by_filter(
+            {"source": "note-1"}, namespace="test"
+        )
+        assert len(meta) == 1
+        assert "doc_date" not in meta[0][1]
+
+    @pytest.mark.asyncio
+    async def test_index_documents_first_line_digital_date(
+        self, mock_chunker, mock_embedder, memory_vector_store
+    ):
+        """A note dated by its author on the first line (digital
+        forms): chunk 0 gets doc_date; later chunks do not."""
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        manager = IndexingManager(
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=memory_vector_store,
+        )
+        doc = {
+            "id": "note-2",
+            "content": "2026-03-12\nзаметка про решение",  # noqa: RUF001
+            "metadata": {"source_uri": "note2.md"},
+        }
+        await manager.index_documents([doc], namespace="test")
+
+        meta = await memory_vector_store.list_by_filter(
+            {"source": "note-2"}, namespace="test"
+        )
+        assert len(meta) == 1
+        assert meta[0][1]["doc_date"] == "2026-03"
+
+    @pytest.mark.asyncio
     async def test_index_documents_copies_last_modified_from_document_metadata(
         self, mock_chunker, mock_embedder, memory_vector_store
     ):

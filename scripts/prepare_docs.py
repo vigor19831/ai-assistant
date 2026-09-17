@@ -69,8 +69,10 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import re
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -593,13 +595,26 @@ _SPEAKER_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^####\s*ChatGPT said:\s*$"), _SPEAKER_ASSISTANT_LABEL),
 )
 
+# Date campaign stage 1: ONE table feeds BOTH the header regex and
+# the month-number lookup — the accepted forms and their numbers
+# cannot drift apart. Abbreviated forms live ONLY here; _RU_MONTHS
+# belongs to the atom validators (full forms).
+_SPEAKER_MONTH_NUMBERS: dict[str, int] = {
+    "января": 1, "янв": 1,
+    "февраля": 2, "фев": 2,
+    "марта": 3, "мар": 3,
+    "апреля": 4, "апр": 4,
+    "мая": 5, "май": 5,
+    "июня": 6, "июн": 6,
+    "июля": 7, "июл": 7,
+    "августа": 8, "авг": 8,
+    "сентября": 9, "сен": 9, "сент": 9,
+    "октября": 10, "окт": 10,
+    "ноября": 11, "ноя": 11, "нояб": 11,
+    "декабря": 12, "дек": 12,
+}
 _SPEAKER_MONTHS_ALT = "|".join(sorted(
-    (
-        "января", "февраля", "марта", "апреля", "мая", "июня", "июля",
-        "августа", "сентября", "октября", "ноября", "декабря",
-        "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг",
-        "сен", "сент", "окт", "ноя", "нояб", "дек",
-    ),
+    _SPEAKER_MONTH_NUMBERS,
     key=len,
     reverse=True,
 ))
@@ -633,13 +648,13 @@ _NOISE_LINES = frozenset({
 _MARKER_EVERY_LINES = 12
 
 
-def _clean_chat_export(data: bytes, src_name: str) -> bytes:
+def _clean_chat_export(data: bytes, src_name: str, source_year: int | None) -> bytes:
     """Strip export chrome and annotate speakers/dates in chat exports.
 
-    Returns the input unchanged for plain documents and for files the
-    script does not confidently recognize (see the layer comments
-    above). Only the documents/ mirror is affected: raw sources and
-    the atoms path are untouched.
+    source_year grounds year-less session headers (the SOURCE file's
+    year, passed by the caller — split_file owns the path). Only the
+    documents/ mirror is affected: raw sources and the atoms path are
+    untouched.
     """
     try:
         text = data.decode("utf-8-sig")
@@ -675,7 +690,9 @@ def _clean_chat_export(data: bytes, src_name: str) -> bytes:
             "extend _SPEAKER_MARKERS)"
         )
 
-    # Pass 2 -- transform.
+    # Pass 2 -- transform. Date campaign stage 1: session dates are
+    # normalized to the machine form YYYY-MM-DD, the year grounded by
+    # source_year (the SOURCE mtime, passed by split_file).
     out: list[str] = []
     in_fence = False
     speaker = ""
@@ -703,7 +720,13 @@ def _clean_chat_export(data: bytes, src_name: str) -> bytes:
         else:
             date_match = _SPEAKER_DATE_RE.match(stripped)
             if date_match is not None:
-                date = date_match.group(1)
+                month_name = date_match.group(1).split()[-1]
+                month = _SPEAKER_MONTH_NUMBERS.get(month_name.lower())
+                day = int(date_match.group(1).split()[0])
+                if month is not None and source_year is not None:
+                    date = f"{source_year:04d}-{month:02d}-{day:02d}"
+                # Unparsed month or no source year: keep the previous
+                # date (a wrong date is worse than a stale one).
         if speaker and since_marker >= _MARKER_EVERY_LINES:
             out.append(f"[{speaker}, {date}]" if date else f"[{speaker}]")
             since_marker = 0
@@ -724,8 +747,15 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     """
     raw = src.read_bytes()
     stem = src.stem
+    # Date campaign stage 1: the year ground for year-less session
+    # headers is the SOURCE's mtime — computed here (split_file owns
+    # the path) and passed into the cleaner.
+    try:
+        source_year: int | None = time.localtime(src.stat().st_mtime).tm_year
+    except OSError:
+        source_year = None  # unstatable source: no year -> no date
     data = _strip_markdown_noise(raw)
-    data = _clean_chat_export(data, src.name)
+    data = _clean_chat_export(data, src.name, source_year)
 
     # Reconcile FIRST: remove split outputs impossible for the current
     # source size — the stale as-is copy of a file that grew past the
@@ -740,9 +770,16 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     for stale in dest_dir.glob(glob.escape(stem) + "_part*" + src.suffix):
         stale.unlink()
 
+    # Split outputs inherit the SOURCE's mtime (date campaign stage 1):
+    # the year-grounding above reads it, and the watcher's freshness
+    # check compares mtimes -- a re-split must not re-announce every
+    # unchanged document nor move their years.
+    src_mtime = src.stat().st_mtime
+
     if len(data) <= THRESHOLD_BYTES:
         target = dest_dir / f"{stem}{src.suffix}"
         target.write_bytes(data)
+        os.utime(target, (src_mtime, src_mtime))
         print(f"[SKIP] {src.name}: {len(data)} bytes <= threshold, copied as-is")
         return [target]
 
@@ -760,6 +797,7 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
         chunk = data[start:end]
         target = dest_dir / f"{stem}_part{idx:02d}{src.suffix}"
         target.write_bytes(chunk)
+        os.utime(target, (src_mtime, src_mtime))
         parts.append(target)
         print(f"[PART] {target.name}: {len(chunk)} bytes")
         start = end
