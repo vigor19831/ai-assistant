@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-09-09
+> Version: 2026-09-17
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -77,7 +77,7 @@ raw_documents/{ns}/   _atomize/ = intent (--full)
         └───────► documents/ ◄──┘
                    │ watcher (60 s poll)
                    ▼
-          faiss index (per namespace)
+     faiss + lexical index (per namespace)
 ```
 
 - **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66). raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109).
@@ -238,7 +238,7 @@ If refactoring touches >3 files, split into steps or get explicit confirmation.
 ## 8. Decision Log (Why These Rules Exist)
 
 Histories and dates live in `drift.md` (its charter). Maps of the load-bearing ones:
-#23 → §4/§5 (ownership, HTTP); #7 → §4.3 (code vs resource); #43 → ai_rules §7 (one retry layer); #50 → §13.6 (refusal = no evidence); benchmark discipline → §13.4.
+#23 → §4/§5 (ownership, HTTP); #7 → §4.3 (code vs resource); #43 → ai_rules §7 (one retry layer); #50 → §13.6 (refusal = no evidence); benchmark discipline → §13.4; #136–#141 → §13.7 (hybrid retrieval).
 
 ## 9. Antipatterns (AI Must Never Use)
 
@@ -281,7 +281,7 @@ Disk formats (SQLite schemas, JSON structures, FAISS metadata, YAML configs) are
 | `ChunkMetadata`, `ReindexStatusEntry`, stored JSON | NEVER change fields without backward-compat loader |
 | New field in stored dataclass | MUST provide migration code (see `core/config.py` `config_version` pattern) |
 | No migration provided | NO CHANGE ALLOWED |
-| Config schema change | MUST bump `config_version` + backward-compat loader |
+| Config schema change | Breaking change (field removal/rename, semantic shift) — MUST bump `config_version` + backward compat loader; a pure addition of an optional section needs no bump (drift #121 vs #138) |
 
 Why: Solo maintainer cannot manually recover corrupted indices or lost chat history. Data loss is permanent.
 
@@ -314,6 +314,7 @@ Documented exceptions (do not add more without Decision Log entry):
 - `RAGState.chat_semaphore` — caps concurrent chat/LLM requests (chat.max_concurrent_chat)
 - `MemoryVectorStore._lock` — concurrent add/search/delete on shared in-memory index
 - `FaissVectorStore._lock` — same contract as MemoryVectorStore
+- `LexicalBm25Index._lock` — same contract as the vector stores (drift #136)
 
 Why: Concurrency bugs are the hardest to debug solo. Locks add complexity that compounds over 10 years.
 
@@ -385,6 +386,13 @@ Rules that survive model changes, hardware changes, and adapter swaps.
    evidence: sources are empty, chunks_used is 0 (drift #50).
    Retrieval diagnostics still reach the caller via metrics and logs.
 
+7. **Hybrid retrieval fuses by rank only.** Dense and lexical legs
+   merge via RRF: no score normalization, no weights, no thresholds,
+   no config knobs (`RRF_K` is a constant). The lexical leg queries the
+   ORIGINAL user wording exactly once — never multi-query paraphrases.
+   The vector store stays the inventory authority; the reranker
+   remains the final judge over the fused list (drift #137, #141).
+
 ## 14. Hardware Ceiling Log
 
 > Full per-run history (2026-07-13 → 2026-09-15): git history of this
@@ -402,6 +410,9 @@ Hard constraints (survive any engine or model change):
   latency ×2-3. Do not re-test without new hardware.
 - Peak RAM at ~140 bench docs: 6.5/15 GB; at 3400+ chunks: 5.77 GB.
   Measure before adding any RAM-heavy component.
+- Hybrid lexical leg (BM25): peak RAM 5.86 GB vs 5.39 GB dense-only
+  (2026-09-17, drift #141) — the in-memory text copy costs ~0.5 GB at
+  3400+ chunks; scales with corpus text size, not embedding dim.
 - Indexing rates (measured 2026-09-01/02): CPU ~4-7 chunks/s — never
   completes a large source; GPU ~10 chunks/s. Large backfills are a
   one-time GPU profile switch (drift #60).

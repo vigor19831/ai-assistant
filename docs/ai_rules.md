@@ -1,11 +1,11 @@
 # AI Rules
 
-> Version: 2026-09-15
+> Version: 2026-09-17
 > Next review: 2026-09-20
 
 # Project Brief
 
-Local AI assistant framework. FastAPI + RAG with namespaces.
+Local AI assistant framework. FastAPI + RAG with namespaces (hybrid retrieval: dense + lexical BM25, fused by RRF).
 Offline-first, OpenAI-compatible LLM/embedder adapters.
 Layers: core (domain/ports) → adapters → features → api.
 
@@ -76,7 +76,7 @@ Cross-feature data flows through `AppState` via `api.deps`, never direct import.
 
 Allowed without discussion: new adapter in `adapters/`, new feature in `features/` (flat until 10+ features).
 
-Requires `CORE CHANGE REQUIRED` + user confirmation: new port method/field, PipelineData schema change, config schema change (needs `config_version` bump + backward compat loader).
+Requires `CORE CHANGE REQUIRED` + user confirmation: new port method/field, PipelineData schema change, config schema change. Breaking config changes (field removal/rename, semantic shift) need `config_version` bump + backward compat loader; a pure addition of an optional section does not (drift #121 vs #138).
 Docstring and constant changes in `core/` are not core changes, but require a drift.md entry documenting the new contract.
 
 If core changes:
@@ -208,7 +208,7 @@ These rules themselves change:
 
 - **Isolation**: No hardcoded paths — use `tmp_path`. No mutable shared state between tests.
 - **Async**: No `asyncio.run()` or `new_event_loop()` when pytest-asyncio manages the loop.
-- **Mocks**: Port mocks must use `spec=` or `autospec=`. See Section 6 for mock adapter location.
+- **Mocks**: Port mocks must use `spec=` or `autospec=`. A mock standing in for AppState or AppConfig must name every field the code under test reads — MagicMock fabricates unknown fields and unknown config sections as non-None (drift #140/#141: a fabricated section made mkdir create `./MagicMock` in the repo root). See Section 6 for mock adapter location.
 - **Encapsulation**: Tests use public API for behavior; private pure helpers (`_sanitize_history`, prepare_docs correctors) may be unit-tested directly by name. No `obj._private_field` reach-inside on live objects.
 - **Determinism**: No `time.sleep()`. No wall-clock asserts without monkeypatch.
 - **Behavior**: Assert state/result, not just `assert_called_once()`.

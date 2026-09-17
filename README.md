@@ -16,7 +16,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 ## Pipeline & Quality
 
-Pipeline: retrieve (multi-query — the LLM generates 2 query variations; optional HyDE) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: `[Document N]` citations, conflict reporting, "I don't know" when evidence is absent). Chunking is recursive (paragraphs → sentences → words); question condensation handles multi-turn.
+Pipeline: retrieve (hybrid: dense embeddings + exact-term BM25, fused by RRF rank-fusion; multi-query — the LLM generates 2 query variations; optional HyDE) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: `[Document N]` citations, conflict reporting, "I don't know" when evidence is absent). Chunking is recursive (paragraphs → sentences → words); question condensation handles multi-turn.
 
 Quality is measured, not assumed: `scripts/check_rag.py` — 51 cases (17 contract tests that must pass on any hardware, 34 capability tests whose quality depends on LLM size, chat e2e). The benchmark is the single source of truth for RAG quality; results, canon and the full hardware campaign live in `docs/architecture.md` §14; known limitations (open-synthesis recall, date honesty on undated atoms, the chat-condensation flake) in `docs/drift.md`.
 
@@ -87,6 +87,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
 | `reranker` | Reranker model and provider (`local` or `api`) |
 | `archivist` | Atom-extraction LLM profile for prepare_docs --full |
 | `vector_store` | FAISS or memory, index path, dimension |
+| `lexical_index` | Optional exact-term (BM25) retrieval leg — absent section = dense-only |
 | `rag` | Pipeline steps, top_k, sources, token margin |
 | `namespaces` | Per-namespace prefix, chunk size, prompt template |
 | `security` | API key, admin endpoints, body size limits |
@@ -143,7 +144,7 @@ ai-assistant/
 ├── tests/                 ← ~1000 tests (contracts, edge cases, integration, e2e)
 ├── scripts/               ← check_all, check_rag, check_llm, prepare_docs, download_tokenizers, …
 ├── docs/                  ← ai_rules.md, architecture.md, drift.md
-├── data/                  ← runtime, git-ignored: raw_documents/, documents/ (mirror), indices/, storage.db, tokenizers/, app.log
+├── data/                  ← runtime, git-ignored: raw_documents/, documents/ (mirror), indices/, lexical_indices/, storage.db, tokenizers/, app.log
 └── vendor/                ← llama-server binary + GGUF models (git-ignored)
 ```
 
