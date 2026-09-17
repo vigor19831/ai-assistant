@@ -339,3 +339,58 @@ class TestLexicalMirrorBackfill:
             lexical_index=fresh,
         )
         assert r2["results"]["ns"]["indexed"] == 0
+
+    async def test_backfill_save_failure_degrades_to_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed post-copy save is a WARNING, not an error: the
+        chunks are already mirrored in memory and serve queries; the
+        next startup re-syncs (drift #146). The copy result is still
+        reported."""
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        manager = IndexingManager(
+            chunker=_chunker(),
+            embedder=_embedder(),
+            vector_store=store,
+        )
+        await manager.index_documents(
+            [_doc("d1", "Keenetic router notes")], namespace="ns"
+        )
+        expected = len(await store.list_by_filter({}, namespace="ns"))
+
+        async def _fail(*args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(lexical, "save", _fail)
+        copied = await backfill_lexical_index(store, lexical)
+
+        assert copied == {"ns": expected}
+        # The in-memory mirror serves queries despite the save failure.
+        assert await lexical.search("keenetic", namespace="ns")
+        assert not (tmp_path / "lex" / "ns.json").exists()
+
+    async def test_backfill_save_timeout_degrades_to_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A timed-out save has the same WARNING contract (drift #146):
+        the sync result is reported and the startup never dies here."""
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        manager = IndexingManager(
+            chunker=_chunker(),
+            embedder=_embedder(),
+            vector_store=store,
+        )
+        await manager.index_documents(
+            [_doc("d1", "Keenetic router notes")], namespace="ns"
+        )
+        expected = len(await store.list_by_filter({}, namespace="ns"))
+
+        async def _hang(*args: object, **kwargs: object) -> None:
+            raise TimeoutError()
+
+        monkeypatch.setattr(lexical, "save", _hang)
+        copied = await backfill_lexical_index(store, lexical)
+
+        assert copied == {"ns": expected}

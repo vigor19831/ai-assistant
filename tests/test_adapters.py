@@ -545,6 +545,126 @@ class TestMemoryStorePersistenceGuards:
         assert len(results) == 1
         assert results[0].id == "c1"
 
+    @pytest.mark.asyncio
+    async def test_delete_save_failure_rolls_back_from_disk(self, tmp_path):
+        """A failed save during delete reloads the last durable disk
+        state — memory must not stay ahead of disk (drift #119 class):
+        the deleted chunk is back after the error."""
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+                Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="ns",
+        )
+        await store.save(str(tmp_path), namespace="ns")
+
+        async def failing_save(path: str, namespace: str = "default") -> None:
+            raise AdapterError("disk full")
+
+        store._save_unlocked = failing_save
+
+        with pytest.raises(AdapterError, match="disk full"):
+            await store.delete(["c1"], namespace="ns")
+
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert {c.id for c in results} == {"c1", "c2"}
+
+    @pytest.mark.asyncio
+    async def test_upsert_save_failure_rolls_back(self, tmp_path):
+        """A failed save during upsert restores the RAM snapshot: the
+        replaced OLD chunk survives, the new one is not half-written."""
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(
+                    id="c1",
+                    text="a",
+                    embedding=[1.0, 0.0, 0.0],
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                )
+            ],
+            namespace="ns",
+        )
+
+        async def failing_save(path: str, namespace: str = "default") -> None:
+            raise AdapterError("disk full")
+
+        store._save_unlocked = failing_save
+
+        with pytest.raises(AdapterError, match="disk full"):
+            await store.upsert(
+                [
+                    Chunk(
+                        id="c2",
+                        text="b",
+                        embedding=[0.0, 1.0, 0.0],
+                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                    )
+                ],
+                namespace="ns",
+            )
+
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert [c.id for c in results] == ["c1"]
+
+    @pytest.mark.asyncio
+    async def test_upsert_rejects_max_chunks_overflow(self, tmp_path):
+        """Upsert replacement accounting must respect max_chunks: a
+        batch that would overflow is rejected, originals survive
+        (drift #48/#107 contract on the replace path)."""
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, max_chunks=2, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+                Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="ns",
+        )
+        with pytest.raises(AdapterError, match="max_chunks"):
+            await store.upsert(
+                [
+                    Chunk(id="c3", text="c", embedding=[0.0, 0.0, 1.0]),
+                    Chunk(id="c4", text="d", embedding=[1.0, 1.0, 0.0]),
+                ],
+                namespace="ns",
+            )
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert {c.id for c in results} == {"c1", "c2"}
+
+    @pytest.mark.asyncio
+    async def test_search_dimension_mismatch_raises(self, tmp_path):
+        """A wrong-length query must fail loudly, not return garbage."""
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])], namespace="ns"
+        )
+        with pytest.raises(AdapterError, match="Dimension mismatch in memory search"):
+            await store.search([1.0, 0.0], top_k=5, namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_list_namespaces_survives_unlistable_path(self, tmp_path):
+        """An OSError while listing the index dir (here: the path is a
+        regular file) degrades to the in-memory namespace list — the
+        health endpoint must never crash on a bad path."""
+        store = MemoryVectorStore(VectorStoreConfigData(dim=3))
+        await store.add(
+            [Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0])],
+            namespace="mem_ns",
+        )
+        not_a_dir = tmp_path / "file.txt"
+        not_a_dir.write_text("x", encoding="utf-8")
+        assert await store.list_namespaces(str(not_a_dir)) == ["mem_ns"]
+
 
 # ── TestFaissStorePersistenceGuards ──
 
@@ -575,6 +695,237 @@ class TestFaissStorePersistenceGuards:
         results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
         assert len(results) == 1
         assert results[0].id == "c1"
+
+    @pytest.mark.asyncio
+    async def test_add_rejects_max_chunks_overflow(self, tmp_path):
+        """Same contract as the memory store (F36): the batch is
+        rejected, nothing is evicted, nothing partially added."""
+        pytest.importorskip("faiss")
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, max_chunks=2, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+                Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="ns",
+        )
+        with pytest.raises(AdapterError, match="max_chunks"):
+            await store.add(
+                [Chunk(id="c3", text="c", embedding=[0.0, 0.0, 1.0])],
+                namespace="ns",
+            )
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert {c.id for c in results} == {"c1", "c2"}
+
+    @pytest.mark.asyncio
+    async def test_delete_save_failure_rolls_back(self, tmp_path):
+        """A failed save during delete restores the pre-delete snapshot
+        (index + chunk map): the deleted chunk survives in memory."""
+        pytest.importorskip("faiss")
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+                Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="ns",
+        )
+
+        async def failing_save(path: str, namespace: str = "default") -> None:
+            raise AdapterError("disk full")
+
+        store._save_unlocked = failing_save
+
+        with pytest.raises(AdapterError, match="disk full"):
+            await store.delete(["c1"], namespace="ns")
+
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert {c.id for c in results} == {"c1", "c2"}
+
+    @pytest.mark.asyncio
+    async def test_upsert_save_failure_rolls_back(self, tmp_path):
+        """A failed save during upsert restores the pre-upsert snapshot:
+        the old chunk of the same source survives."""
+        pytest.importorskip("faiss")
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(
+                    id="c1",
+                    text="a",
+                    embedding=[1.0, 0.0, 0.0],
+                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                )
+            ],
+            namespace="ns",
+        )
+
+        async def failing_save(path: str, namespace: str = "default") -> None:
+            raise AdapterError("disk full")
+
+        store._save_unlocked = failing_save
+
+        with pytest.raises(AdapterError, match="disk full"):
+            await store.upsert(
+                [
+                    Chunk(
+                        id="c2",
+                        text="b",
+                        embedding=[0.0, 1.0, 0.0],
+                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                    )
+                ],
+                namespace="ns",
+            )
+
+        results = await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ns")
+        assert [c.id for c in results] == ["c1"]
+
+
+class TestFaissLoadGuards:
+    """Load-path integrity: a corrupt or inconsistent persisted pair
+    must fail LOUDLY (AdapterError / VersionMismatchError) — never
+    load as a silently empty index (the adapter's docstring contract)."""
+
+    @staticmethod
+    def _store(tmp_path: Path) -> FaissVectorStore:
+        return FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+
+    @staticmethod
+    async def _save_valid_index(
+        tmp_path: Path, dim: int = 3, metric: str = "l2"
+    ) -> None:
+        """Persist one valid namespace (two chunks) on disk."""
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=dim, metric=metric, index_path=str(tmp_path))
+        )
+        await store.add(
+            [
+                Chunk(id="c1", text="a", embedding=[1.0, 0.0, 0.0]),
+                Chunk(id="c2", text="b", embedding=[0.0, 1.0, 0.0]),
+            ],
+            namespace="ns",
+        )
+        await store.save(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_missing_store_json_raises(self, tmp_path):
+        """A .faiss file without store.json is corruption, not an empty
+        index: load refuses instead of returning silent empty searches."""
+        pytest.importorskip("faiss")
+        (tmp_path / "ns.faiss").write_bytes(b"stale faiss bytes")
+        with pytest.raises(AdapterError, match="metadata missing"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_missing_faiss_raises(self, tmp_path):
+        """store.json without the index file is equally fatal."""
+        pytest.importorskip("faiss")
+        (tmp_path / "ns.store.json").write_text(
+            json.dumps({"dim": 3, "metric": "l2", "chunks": []}), encoding="utf-8"
+        )
+        with pytest.raises(AdapterError, match="Index file missing"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_neither_file_is_clean(self, tmp_path):
+        """No files at all: a never-indexed namespace loads as empty
+        without error (the normal first-run path)."""
+        pytest.importorskip("faiss")
+        store = self._store(tmp_path)
+        await store.load(str(tmp_path), namespace="ghost")
+        assert await store.search([1.0, 0.0, 0.0], top_k=5, namespace="ghost") == []
+
+    @pytest.mark.asyncio
+    async def test_load_invalid_json_raises(self, tmp_path):
+        pytest.importorskip("faiss")
+        (tmp_path / "ns.faiss").write_bytes(b"x")
+        (tmp_path / "ns.store.json").write_text("{not json", encoding="utf-8")
+        with pytest.raises(AdapterError, match="Invalid store\\.json"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_store_json_not_dict_raises(self, tmp_path):
+        pytest.importorskip("faiss")
+        (tmp_path / "ns.faiss").write_bytes(b"x")
+        (tmp_path / "ns.store.json").write_text("[1, 2, 3]", encoding="utf-8")
+        with pytest.raises(AdapterError, match="expected dict"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_dim_mismatch_raises(self, tmp_path):
+        """Stored dim vs config dim: reindex is required, never a
+        half-working index."""
+        pytest.importorskip("faiss")
+        await self._save_valid_index(tmp_path)  # dim 3
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=5, index_path=str(tmp_path))
+        )
+        with pytest.raises(VersionMismatchError, match="stored dim"):
+            await store.load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_metric_mismatch_raises(self, tmp_path):
+        pytest.importorskip("faiss")
+        await self._save_valid_index(tmp_path, metric="cosine")
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, metric="l2", index_path=str(tmp_path))
+        )
+        with pytest.raises(VersionMismatchError, match="metric"):
+            await store.load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_vector_count_mismatch_raises(self, tmp_path):
+        """store.json edited to fewer chunks than the faiss file holds:
+        the integrity check catches the inconsistent pair."""
+        pytest.importorskip("faiss")
+        await self._save_valid_index(tmp_path)  # 2 vectors, 2 records
+        store_file = tmp_path / "ns.store.json"
+        data = json.loads(store_file.read_text(encoding="utf-8"))
+        data["chunks"] = data["chunks"][:1]
+        store_file.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(AdapterError, match="integrity check failed"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_corrupt_faiss_file_raises(self, tmp_path):
+        pytest.importorskip("faiss")
+        await self._save_valid_index(tmp_path)
+        (tmp_path / "ns.faiss").write_bytes(b"not a faiss index")
+        with pytest.raises(AdapterError, match="Failed to read index"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_load_malformed_chunk_record_raises(self, tmp_path):
+        pytest.importorskip("faiss")
+        await self._save_valid_index(tmp_path)
+        store_file = tmp_path / "ns.store.json"
+        data = json.loads(store_file.read_text(encoding="utf-8"))
+        data["chunks"][0] = {"text": "record without id"}
+        store_file.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(AdapterError, match="Failed to deserialize"):
+            await self._store(tmp_path).load(str(tmp_path), namespace="ns")
+
+    @pytest.mark.asyncio
+    async def test_list_namespaces_ignores_orphaned_files(self, tmp_path):
+        """Half-pairs on disk (store.json without .faiss and vice
+        versa) are warned about, never listed as loadable namespaces.
+
+        Two DIFFERENT namespaces, one half each — both warning
+        branches (metadata-only and index-only) are exercised; a
+        complete pair would legitimately be listed."""
+        pytest.importorskip("faiss")
+        (tmp_path / "meta_only.store.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "index_only.faiss").write_bytes(b"x")
+        assert await self._store(tmp_path).list_namespaces(str(tmp_path)) == []
 
 
 # ── TestNullReranker ──
