@@ -1,4 +1,3 @@
-# src/ai_assistant/core/pipeline_steps.py
 """
 RAG pipeline steps with namespace and rerank support.
 All steps return new PipelineData instances via dataclasses.replace().

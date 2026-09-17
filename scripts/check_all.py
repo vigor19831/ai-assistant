@@ -130,9 +130,6 @@ RUFF_TARGETS: tuple[str, ...] = (
     "src/ai_assistant", "scripts", "tests",
     "run_scripts.py", "run_servers.py",
 )
-# tests need two error codes disabled (untyped defs are the norm
-# for fixtures) — pyproject cannot do it per-module on mypy 1.20.2,
-# so they run as a separate strict call with CLI flags.
 # tests run as a separate strict call: untyped defs are the norm
 # for fixtures, and method-assign is the mock idiom (m.method =
 # AsyncMock(...)) — neither is a defect. CLI flags only; pyproject

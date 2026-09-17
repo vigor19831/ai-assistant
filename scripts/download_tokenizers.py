@@ -222,12 +222,9 @@ def _resolve_preset(model_name: str) -> str | None:
     if parts:
         vendor = _guess_vendor(parts[0])
         if vendor:
-            # Build repo: vendor/model_part
-            # But we want vendor/restOfName? Just use vendor + '/' + original?
-            # Simpler: return vendor prefix + original name without vendor prefix
-            # e.g. "qwen2.5-7b" with vendor "Qwen/" ->
-            # "Qwen/Qwen2.5-7B-Instruct"? Not necessarily.
-            # Better to return vendor + name
+            # Vendor prefix + the original name: the vendor map is
+            # keyed by first segment only, the rest of the name is
+            # preserved as-is.
             return vendor + "/" + name
 
     # 8. Last resort: unsloth/name

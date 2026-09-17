@@ -1,4 +1,3 @@
-# src/ai_assistant/adapters/huggingface_tokenizer.py
 from __future__ import annotations
 
 import os

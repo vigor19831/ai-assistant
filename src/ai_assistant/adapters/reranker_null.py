@@ -19,7 +19,8 @@ class NullReranker(IReranker):
     """No-op reranker that returns chunks unchanged."""
 
     def __init__(self, config: RerankerConfigData | None = None) -> None:
-        # config may be None when created implicitly in old tests
+        # config is None when a test fabricates the adapter without
+        # a config (test_api.py fake_create) — tolerate it.
         super().__init__(config or RerankerConfigData())
 
     async def rerank(
