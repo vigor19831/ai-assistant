@@ -23,7 +23,7 @@ from ai_assistant.core.constants import (
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
 from ai_assistant.core.logger import get_logger, setup_logging
 from ai_assistant.core.retry import with_retry
-from ai_assistant.features.rag.indexing import index_folder
+from ai_assistant.features.rag.indexing import backfill_lexical_index, index_folder
 from ai_assistant.features.rag.manager import SourceWatcher
 
 if TYPE_CHECKING:
@@ -175,6 +175,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.exception("Lexical index load failed on startup")
             raise
 
+    # Fill lexical mirror holes from the vector inventory (drift #146)
+    # before the watcher starts — no reindex pass can race it.
+    await _backfill_lexical_mirror(state)
+
     if watcher is not None:
         watcher.start()
 
@@ -221,6 +225,32 @@ async def _index_source(
             )
     finally:
         await shutdown_chunker_if_temporary(chunker, state.chunker)
+
+
+async def _backfill_lexical_mirror(state: InitializedAppState) -> None:
+    """Fill lexical mirror holes from the vector inventory (drift #146).
+
+    Copies stored texts — the embedder is never involved. Module-level
+    for direct testing (same precedent as _index_source, drift #113).
+    A failure degrades to the old behavior (the watcher re-indexes the
+    holes through the embedder) and stays loud: startup never dies here.
+    """
+    if state.lexical_index is None or state.vector_store is None:
+        return
+    try:
+        copied = await backfill_lexical_index(
+            state.vector_store, state.lexical_index
+        )
+        if copied:
+            logger.info(
+                "Lexical mirror backfilled",
+                extra={
+                    "namespaces": len(copied),
+                    "chunks": sum(copied.values()),
+                },
+            )
+    except Exception:
+        logger.exception("Lexical mirror backfill failed")
 
 
 async def _async_cleanup(app: FastAPI, config: AppConfig) -> None:

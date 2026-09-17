@@ -94,6 +94,9 @@ def mock_vector_store():
     m.save = AsyncMock(return_value=None)
     m.load = AsyncMock(return_value=None)
     m.list_by_filter = AsyncMock(return_value=[])
+    # Drift #146: lifespan's mirror backfill reads the inventory through
+    # the port — name it explicitly (#140/#141 discipline).
+    m.list_chunks = AsyncMock(return_value=[])
     m.list_namespaces = AsyncMock(return_value=["test_default"])
     m.max_chunks = 10000
     # Spec-mocks see class attributes only, while IVectorStore.config
@@ -220,6 +223,7 @@ def build_mock_state() -> InitializedAppState:  # type: ignore[name-defined]  # 
     vector_store.delete = AsyncMock(return_value=None)
     vector_store.list_namespaces = AsyncMock(return_value=[])
     vector_store.list_by_filter = AsyncMock(return_value=[])
+    vector_store.list_chunks = AsyncMock(return_value=[])
     vector_store.save = AsyncMock(return_value=None)
     vector_store.load = AsyncMock(return_value=None)
 

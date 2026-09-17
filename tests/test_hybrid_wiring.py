@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ai_assistant.adapters.char_fallback_tokenizer import CharFallbackTokenizer
 from ai_assistant.adapters.chunker_simple import SimpleChunker
@@ -20,6 +21,7 @@ from ai_assistant.adapters.reranker_null import NullReranker
 from ai_assistant.adapters.storage_sqlite import SQLiteStorage
 from ai_assistant.adapters.vector_store_memory import MemoryVectorStore
 from ai_assistant.api.deps import InitializedAppState, RAGState, init_adapters
+from ai_assistant.api.lifespan import _backfill_lexical_mirror
 from ai_assistant.core.config import (
     AppConfig,
     LexicalIndexConfig,
@@ -44,6 +46,11 @@ from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.rag.handlers import delete_chunks
 from ai_assistant.features.rag.manager import RAGManager
 from ai_assistant.features.rag.schemas import DeleteRequest
+
+if TYPE_CHECKING:
+    # pytest is typing-only in this file: the monkeypatch fixture is
+    # injected by name at runtime; the import serves the annotation.
+    import pytest
 
 
 def _chunk(chunk_id: str, text: str, source: str) -> Chunk:
@@ -300,3 +307,74 @@ class TestDeleteHandlerMirror:
         assert await lexical.search("beta", namespace="ns")
         remaining = await store.list_by_filter({}, namespace="ns")
         assert [cid for cid, _ in remaining] == ["c3"]
+
+
+class TestLifespanMirrorBackfill:
+    """Given: app state with a populated vector store. When: the
+    startup mirror sync (_backfill_lexical_mirror) runs. Then: the
+    lexical mirror is filled from stored texts; a missing lexical
+    adapter is a no-op; a sync failure never kills startup; and the
+    call sits before watcher.start() in the lifespan body (drift #146).
+    Direct helper call: the documented private-helper exception
+    (same as _sanitize_history / _retrieve_context tests).
+    """
+
+    async def test_sync_fills_fresh_mirror(self, tmp_path: Path) -> None:
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        await _add_to_store(store, [_chunk("c1", "alpha keenetic", "a.md")], "ns")
+        state = _handler_state(tmp_path, lexical, store)
+
+        await _backfill_lexical_mirror(state)
+
+        lex = await lexical.list_by_filter({}, namespace="ns")
+        assert [cid for cid, _ in lex] == ["c1"]
+        found = await lexical.search("keenetic", namespace="ns")
+        assert found and "keenetic" in found[0].text
+
+    async def test_sync_without_lexical_adapter_is_noop(
+        self, tmp_path: Path
+    ) -> None:
+        store = _vector_store(tmp_path)
+        await _add_to_store(store, [_chunk("c1", "alpha", "a.md")], "ns")
+        state = _handler_state(tmp_path, None, store)
+
+        # Dense-only mode: nothing to mirror, the store is untouched.
+        await _backfill_lexical_mirror(state)
+        remaining = await store.list_by_filter({}, namespace="ns")
+        assert [cid for cid, _ in remaining] == ["c1"]
+
+    async def test_sync_failure_does_not_kill_startup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        await _add_to_store(store, [_chunk("c1", "alpha", "a.md")], "ns")
+
+        async def _boom(*args: object, **kwargs: object) -> dict[str, int]:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(
+            "ai_assistant.api.lifespan.backfill_lexical_index", _boom
+        )
+        state = _handler_state(tmp_path, lexical, store)
+
+        # Degraded, loud (logger.exception inside), but alive.
+        await _backfill_lexical_mirror(state)
+
+    def test_sync_runs_before_watcher_start(self) -> None:
+        """Structural contract: the sync call must precede
+        watcher.start() in the lifespan body — after it, the watcher's
+        first pass would re-embed the holes (the drift #146 defect)."""
+        import inspect
+
+        from ai_assistant.api import lifespan as lifespan_module
+
+        source = inspect.getsource(lifespan_module)
+        sync_pos = source.find("_backfill_lexical_mirror(state)")
+        start_pos = source.find("watcher.start()")
+        assert sync_pos != -1, "lifespan must call _backfill_lexical_mirror(state)"
+        assert start_pos != -1, "lifespan must start the watcher"
+        assert sync_pos < start_pos, (
+            "mirror sync must run before watcher.start() (drift #146)"
+        )

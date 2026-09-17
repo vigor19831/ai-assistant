@@ -14,12 +14,13 @@ from ai_assistant.core.metrics import increment_counter
 
 if TYPE_CHECKING:
     from ai_assistant.core.config import SourceConfig
+    from ai_assistant.core.domain.documents import Chunk
     from ai_assistant.core.ports.chunker import IChunker
     from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.lexical_index import ILexicalIndex
     from ai_assistant.core.ports.vector_store import IVectorStore
 
-__all__ = ["index_folder", "read_sources"]
+__all__ = ["backfill_lexical_index", "index_folder", "read_sources"]
 
 _logger = get_logger("rag.indexing")
 
@@ -660,3 +661,67 @@ async def index_folder(
         "indexed_uris": all_indexed_uris,
         "errors": all_errors,
     }
+
+
+async def backfill_lexical_index(
+    vector_store: IVectorStore,
+    lexical_index: ILexicalIndex,
+) -> dict[str, int]:
+    """Copy vector-store chunks missing from the lexical mirror.
+
+    Startup sync (drift #146): for every namespace the vector store
+    holds, chunks absent from the lexical index — or present with a
+    different last_modified (a re-indexed document whose lexical
+    write was lost) — are re-fed to it from the stored texts. The
+    embedder is never called: the function takes no embedder by
+    design. Upsert is source-granular (drift #88): one stale chunk
+    replaces the document's whole lexical copy, dropping stale
+    same-source siblings, so a partial mirror converges to the
+    inventory state. Chunks without last_modified fall back to
+    id-only comparison. Lexical-only orphans are not touched here —
+    deletes and the watcher's orphan cleanup own them. Returns
+    per-namespace copied-chunk counts; an empty dict means the
+    mirror was already complete.
+    """
+    copied: dict[str, int] = {}
+    namespaces = await vector_store.list_namespaces(vector_store.index_path)
+    for namespace in sorted(namespaces):
+        inventory = await vector_store.list_chunks(namespace)
+        if not inventory:
+            continue
+        lexical_state: dict[str, Any] = {
+            chunk_id: meta.get("last_modified")
+            for chunk_id, meta in await lexical_index.list_by_filter(
+                {}, namespace=namespace
+            )
+        }
+        by_source: dict[str, list[Chunk]] = {}
+        for chunk in inventory:
+            chunk_mtime = chunk.metadata.last_modified if chunk.metadata else None
+            if chunk.id in lexical_state and lexical_state[chunk.id] == chunk_mtime:
+                continue
+            source = chunk.metadata.source if chunk.metadata else chunk.id
+            by_source.setdefault(source, []).append(chunk)
+        if not by_source:
+            continue
+        count = 0
+        for chunks in by_source.values():
+            await lexical_index.upsert(chunks, namespace=namespace)
+            count += len(chunks)
+        try:
+            await asyncio.wait_for(
+                lexical_index.save(lexical_index.index_path, namespace=namespace),
+                timeout=INDEX_IO_TIMEOUT,
+            )
+        except TimeoutError:
+            _logger.warning(f"Lexical backfill save timed out for {namespace}")
+        except Exception as exc:
+            # The adapter already logged the traceback; the in-memory
+            # copy still serves queries and the next startup re-syncs.
+            _logger.warning(f"Lexical backfill save failed for {namespace}: {exc}")
+        copied[namespace] = count
+        _logger.info(
+            f"Lexical mirror backfill: {namespace} copied {count} chunks "
+            f"in {len(by_source)} document(s)"
+        )
+    return copied

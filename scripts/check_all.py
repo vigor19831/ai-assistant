@@ -70,6 +70,22 @@ FRAMEWORK_BASES: frozenset[str] = frozenset({
 })
 FRAMEWORK_CALLBACKS: frozenset[str] = frozenset({"dispatch", "lifespan"})
 
+# Adjudicated duplicate blocks: exact copies kept deliberately, each
+# entry citing its drift decision. Keyed by (sorted relative paths,
+# def name) — the name scope keeps the audit honest: a NEW duplicate
+# between the same two files is still flagged, and a rename of an
+# exempted def re-flags it, prompting a fresh review. Same pattern
+# as MYPY_TEST_FLAGS (drift #72): documented, centralized exceptions.
+ADJUDICATED_DUPLICATES: frozenset[tuple[str, str, str]] = frozenset({
+    # drift #146: list_chunks — one port method, both store adapters;
+    # sharing would cost a Protocol + a new file for 8 lines (2.1/2.6).
+    (
+        "src/ai_assistant/adapters/vector_store_faiss.py",
+        "src/ai_assistant/adapters/vector_store_memory.py",
+        "list_chunks",
+    ),
+})
+
 # ── ANSI Colors ──────────────────────────────────────────────────────────────
 _USE_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
 
@@ -716,6 +732,13 @@ def _find_dead_constants(
     return dead
 
 
+def _is_adjudicated_duplicate(f1: Path, f2: Path, name: str) -> bool:
+    """True when this duplicated def is an adjudicated copy."""
+    a = f1.relative_to(ROOT).as_posix()
+    b = f2.relative_to(ROOT).as_posix()
+    return (*sorted((a, b)), name) in ADJUDICATED_DUPLICATES
+
+
 def _find_duplicate_blocks(
     registry: dict[str, _ModuleInfo],
     extra_paths: list[Path] | None = None,
@@ -724,7 +747,7 @@ def _find_duplicate_blocks(
     if not hasattr(ast, "unparse"):
         return []
 
-    blocks: dict[str, list[tuple[Path, int]]] = {}
+    blocks: dict[str, list[tuple[Path, int, str]]] = {}
     for _mod, info in registry.items():
         f = info["file"]
         tree = info["tree"]
@@ -739,7 +762,7 @@ def _find_duplicate_blocks(
                 lines = [ln.strip() for ln in source.splitlines() if ln.strip()]
                 if len(lines) >= min_lines:
                     h = hashlib.md5("\n".join(lines).encode()).hexdigest()[:16]
-                    blocks.setdefault(h, []).append((f, node.lineno))
+                    blocks.setdefault(h, []).append((f, node.lineno, node.name))
 
     # tests/ and scripts/ are outside the src registry — scan them
     # directly: duplicated fakes/helpers rot silently there otherwise.
@@ -756,15 +779,21 @@ def _find_duplicate_blocks(
                 lines = [ln.strip() for ln in source.splitlines() if ln.strip()]
                 if len(lines) >= min_lines:
                     h = hashlib.md5("\n".join(lines).encode()).hexdigest()[:16]
-                    blocks.setdefault(h, []).append((p, node.lineno))
+                    blocks.setdefault(h, []).append((p, node.lineno, node.name))
 
     duplicates: list[tuple[Path, Path, int, int]] = []
     seen: set[tuple[str, ...]] = set()
     for _h, locations in blocks.items():
         if len(locations) > 1:
-            for i, (f1, line1) in enumerate(locations):
-                for f2, line2 in locations[i + 1:]:
+            for i, (f1, line1, name1) in enumerate(locations):
+                for f2, line2, _name2 in locations[i + 1:]:
                     if f1 == f2:
+                        continue
+                    # Identical bodies share the def name, so name1
+                    # vouches for both sides. A skipped pair is NOT
+                    # marked seen: a second, non-adjudicated duplicate
+                    # between the same files still gets reported.
+                    if _is_adjudicated_duplicate(f1, f2, name1):
                         continue
                     key = tuple(sorted([str(f1), str(f2)]))
                     if key not in seen:

@@ -25,7 +25,7 @@ from ai_assistant.core.domain.configs import (
     VectorStoreConfigData,
 )
 from ai_assistant.core.domain.errors import AdapterError
-from ai_assistant.features.rag.indexing import index_folder
+from ai_assistant.features.rag.indexing import backfill_lexical_index, index_folder
 from ai_assistant.features.rag.manager import IndexingManager
 
 
@@ -214,3 +214,128 @@ class TestIndexFolderHybridGuard:
         )
         assert r["success"] is True
         assert (tmp_path / "lex" / "ns.json").is_file()
+
+
+class TestLexicalMirrorBackfill:
+    """Given: a vector store holding chunks and a lexical mirror with
+    holes. When: backfill_lexical_index runs. Then: holes are filled
+    from the stored texts — the function takes no chunker and no
+    embedder, so re-embedding is structurally impossible (drift #146).
+    """
+
+    async def test_fresh_mirror_copied_verbatim(self, tmp_path: Path) -> None:
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        manager = IndexingManager(
+            chunker=_chunker(),
+            embedder=_embedder(),
+            vector_store=store,
+        )
+        await manager.index_documents(
+            [_doc("d1", "Keenetic router notes")], namespace="ns"
+        )
+        await manager.index_documents(
+            [_doc("d2", "Zennström voip notes")], namespace="chat_ns"
+        )
+
+        copied = await backfill_lexical_index(store, lexical)
+
+        vec = await store.list_by_filter({}, namespace="ns")
+        chat_vec = await store.list_by_filter({}, namespace="chat_ns")
+        lex = await lexical.list_by_filter({}, namespace="ns")
+        assert copied == {"ns": len(vec), "chat_ns": len(chat_vec)}
+        assert {cid for cid, _ in vec} == {cid for cid, _ in lex}
+        found = await lexical.search("keenetic", top_k=5, namespace="ns")
+        assert found and "Keenetic" in found[0].text
+        assert (tmp_path / "lex" / "ns.json").is_file()
+        assert (tmp_path / "lex" / "chat_ns.json").is_file()
+
+    async def test_backfill_is_idempotent(self, tmp_path: Path) -> None:
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        manager = IndexingManager(
+            chunker=_chunker(),
+            embedder=_embedder(),
+            vector_store=store,
+            lexical_index=lexical,
+        )
+        await manager.index_documents(
+            [_doc("d1", "Keenetic router notes")], namespace="ns"
+        )
+        expected = len(await store.list_by_filter({}, namespace="ns"))
+
+        # A synced mirror: nothing to copy.
+        assert await backfill_lexical_index(store, lexical) == {}
+        # A fresh mirror: filled once, the second run copies nothing.
+        fresh = _lexical(tmp_path)
+        assert await backfill_lexical_index(store, fresh) == {"ns": expected}
+        assert await backfill_lexical_index(store, fresh) == {}
+
+    async def test_backfill_converges_stale_sibling(self, tmp_path: Path) -> None:
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        dual = IndexingManager(
+            chunker=_chunker(),
+            embedder=_embedder(),
+            vector_store=store,
+            lexical_index=lexical,
+        )
+        await dual.index_documents(
+            [_doc("d1", "alpha rembrandt notes")], namespace="ns"
+        )
+        # Re-index new content through the vector store ONLY — the
+        # lexical write was lost (a crash inside the drift #139
+        # window between the two writes).
+        vec_only = IndexingManager(
+            chunker=_chunker(),
+            embedder=_embedder(),
+            vector_store=store,
+        )
+        updated = _doc("d1", "alpha vermeer notes")
+        updated["metadata"]["last_modified"] = "2026-09-17 12:00:00"
+        await vec_only.index_documents([updated], namespace="ns")
+
+        copied = await backfill_lexical_index(store, lexical)
+
+        vec = await store.list_by_filter({}, namespace="ns")
+        lex = await lexical.list_by_filter({}, namespace="ns")
+        assert copied == {"ns": len(vec)}
+        assert {cid for cid, _ in vec} == {cid for cid, _ in lex}
+        assert await lexical.search("rembrandt", namespace="ns") == []
+        found = await lexical.search("vermeer", namespace="ns")
+        assert found and "vermeer" in found[0].text
+
+    async def test_backfill_stops_watcher_reembed(self, tmp_path: Path) -> None:
+        """The main effect (drift #146): after a backfill the skip
+        guard vouches for BOTH stores, so an index_folder pass reads
+        nothing from disk and the embedder is not re-run. Without the
+        backfill the same pass re-indexes the document (the guard
+        test above, run 3 — indexed == 1).
+        """
+        root = tmp_path / "src"
+        root.mkdir()
+        (root / "a.md").write_text("Keenetic router notes", encoding="utf-8")
+        source = SourceConfig(
+            namespace="ns", path=str(root), include=["*.md"], recursive=False
+        )
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        chunker = _chunker()
+        embedder = _embedder()
+        r1 = await index_folder(
+            target_namespace=None, clear=False, chunker=chunker,
+            embedder=embedder, vector_store=store, sources=[source],
+            lexical_index=lexical,
+        )
+        assert r1["success"] is True
+        expected = len(await store.list_by_filter({}, namespace="ns"))
+
+        fresh = _lexical(tmp_path)
+        assert await backfill_lexical_index(store, fresh) == {"ns": expected}
+
+        r2 = await index_folder(
+            target_namespace=None, clear=False, chunker=chunker,
+            embedder=embedder, vector_store=store, sources=[source],
+            lexical_index=fresh,
+        )
+        assert r2["results"]["ns"]["indexed"] == 0

@@ -460,6 +460,24 @@ class TestPortAbstractMethods:
         ]
         assert "search" in abstract_methods, "IVectorStore.search must be abstract"
 
+    def test_ivectorstore_has_list_chunks_abstract(self):
+        """Given: IVectorStore port.
+        When: abstract methods are inspected.
+        Then: list_chunks() is abstract — the inventory listing the
+        lexical mirror backfill reads (drift #146)."""
+        from ai_assistant.core.ports.vector_store import IVectorStore
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(
+                IVectorStore, predicate=inspect.isfunction
+            )
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "list_chunks" in abstract_methods, (
+            "IVectorStore.list_chunks must be abstract"
+        )
+
     def test_ilexicalindex_has_search_abstract(self):
         """Given: ILexicalIndex port.
         When: abstract methods are inspected.
@@ -1080,6 +1098,62 @@ class TestAdapterRegistry:
             assert hasattr(cls, "upsert"), f"{name} missing upsert"
             # upsert is not an abstractmethod (default impl in IVectorStore),
             # adapters may inherit it -- that is fine.
+
+    def test_vector_store_adapters_implement_list_chunks(self) -> None:
+        """All registered IVectorStore adapters must expose list_chunks
+        (drift #146 — the backfill reads the inventory through the port)."""
+        registry = get_registry()
+        for name, cls in registry.get("vector_store", {}).items():
+            assert hasattr(cls, "list_chunks"), f"{name} missing list_chunks"
+
+    @pytest.mark.asyncio
+    async def test_vector_store_list_chunks_parity(
+        self, vector_store_adapter
+    ) -> None:
+        """Drift #146: both adapters answer list_chunks identically.
+
+        The method body is byte-identical in memory and faiss — an
+        adjudicated duplicate (drift #146). This test pins the behavior
+        the two copies could silently drift apart on (the #120
+        list_by_filter divergence class).
+        """
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        store = vector_store_adapter
+        await store.add(
+            [
+                Chunk(
+                    id="c1",
+                    text="alpha keenetic",
+                    embedding=[0.1] * 384,
+                    metadata=ChunkMetadata(
+                        source="a.md", index=0, total_chunks=2, source_uri="a.md"
+                    ),
+                ),
+                Chunk(
+                    id="c2",
+                    text="beta notes",
+                    embedding=[0.1] * 384,
+                    metadata=ChunkMetadata(
+                        source="a.md", index=1, total_chunks=2, source_uri="a.md"
+                    ),
+                ),
+            ],
+            namespace="ns",
+        )
+
+        listed = await store.list_chunks(namespace="ns")
+        assert sorted(c.id for c in listed) == ["c1", "c2"]
+        first = next(c for c in listed if c.id == "c1")
+        assert first.text == "alpha keenetic"
+        assert first.metadata is not None
+        assert first.metadata.source_uri == "a.md"
+
+        # Read-only contract: an unknown namespace answers [] and is
+        # never created (the phantom-namespace trap). The memory
+        # adapter exposes accidental creation via list_namespaces.
+        assert await store.list_chunks(namespace="ghost") == []
+        assert "ghost" not in await store.list_namespaces(store.index_path)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

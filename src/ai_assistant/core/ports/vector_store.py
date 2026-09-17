@@ -114,6 +114,18 @@ class IVectorStore(IClosable, ABC):
         ...
 
     @abstractmethod
+    async def list_chunks(self, namespace: str = "default") -> list[Chunk]:
+        """Return all chunks stored in a namespace, as stored.
+
+        Inventory listing for the lexical mirror backfill (drift #146):
+        id, text and metadata straight from the store — no search, no
+        embedding. Read-only: an unknown namespace returns [] and is
+        never created (the phantom-namespace trap). Chunk order is
+        unspecified.
+        """
+        ...
+
+    @abstractmethod
     async def list_namespaces(self, path: str) -> list[str]:
         """Return list of available namespace names."""
         ...

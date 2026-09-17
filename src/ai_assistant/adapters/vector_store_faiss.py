@@ -770,6 +770,15 @@ class FaissVectorStore(IVectorStore):
                     results.append((chunk.id, meta_dict))
             return results
 
+    async def list_chunks(self, namespace: str = "default") -> list[Chunk]:
+        """Return all chunks as stored. Read-only: an unknown namespace
+        returns [] and is never created (drift #146)."""
+        async with self._lock:
+            ns = self._namespaces.get(namespace)
+            if ns is None:
+                return []
+            return list(ns.chunks.values())
+
     async def list_namespaces(self, path: str) -> list[str]:
         """Return list of available namespace names from store.json files."""
         base = anyio.Path(path)

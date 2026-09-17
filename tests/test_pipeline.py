@@ -115,6 +115,11 @@ class FakeVectorStore(IVectorStore):
             for c in self._data.get(namespace, [])
         ]
 
+    async def list_chunks(self, namespace: str = "default") -> list[Chunk]:
+        # Drift #146: inventory listing — a copy (read-only); an
+        # unknown namespace returns [] and is never created.
+        return list(self._data.get(namespace, []))
+
     async def shutdown(self) -> None:
         pass
 
