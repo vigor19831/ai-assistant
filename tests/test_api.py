@@ -2293,6 +2293,7 @@ async def test_source_watcher_starts_after_index_load(monkeypatch, tmp_path):
     config.vector_store.index_path = str(tmp_path / "indices")
     config.storage.db_path = str(tmp_path / "storage.db")
     config.rag.chat_exports_root = str(tmp_path / "chat_exports")
+    config.lexical_index = None  # hybrid off: the default contract
     config.rag.sources = [MagicMock()]
 
     state = MagicMock()
