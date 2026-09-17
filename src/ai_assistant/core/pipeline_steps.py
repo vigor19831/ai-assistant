@@ -266,13 +266,12 @@ async def condense_question(data: PipelineData) -> PipelineData:
         _logger.exception("condense_question failed", extra={"trace_id": data.trace_id})
         return data.add_error("condense_question failed", detail=str(exc))
 
-    _logger.debug(
-        "condense_question done",
-        extra={
-            "trace_id": data.trace_id,
-            "original": original_question,
-            "condensed": condensed,
-        },
+    # INFO (drift #143): condensed-question visibility — two live
+    # condensation regressions were diagnosed by manual score
+    # comparison because this line sat at DEBUG.
+    _logger.info(
+        f"rag.condense trace={data.trace_id} "
+        f"original='{original_question}' condensed='{condensed}'"
     )
 
     return data.with_original_query(data.query).with_query(

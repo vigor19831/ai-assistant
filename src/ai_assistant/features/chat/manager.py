@@ -571,6 +571,11 @@ class ChatManager:
             raise AdapterError(f"LLM stream failed: {exc}") from exc
 
         duration_ms = int((time.perf_counter() - start) * 1000)
+        # Drift #50: a refusal is a complete answer with no evidence —
+        # sources stay empty, as on the rag query path. Preamble
+        # refusals count too (see is_refusal_answer). Log parity with
+        # the non-stream path: a refusal logs chunks_used=0 (drift #143).
+        is_refusal = is_refusal_answer(full_response)
         logger.info(
             "Stream response",
             extra={
@@ -579,13 +584,10 @@ class ChatManager:
                 "resp_len": len(full_response),
                 "duration_ms": duration_ms,
                 "namespace": namespace,
-                "chunks_used": len(rag_chunks),
+                "chunks_used": 0 if is_refusal else len(rag_chunks),
             },
         )
-        # Drift #50: a refusal is a complete answer with no evidence —
-        # sources stay empty, as on the rag query path. Preamble
-        # refusals count too (see is_refusal_answer).
-        if not is_refusal_answer(full_response):
+        if not is_refusal:
             # Yield sources block so the client sees them in the stream
             sources_text = self._append_rag_sources(full_response, rag_chunks)
             if sources_text != full_response:
