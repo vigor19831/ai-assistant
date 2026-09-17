@@ -2,10 +2,12 @@
 
 Splitting: the watcher's reindex window is SOURCE_INDEX_TIMEOUT
 (600 s). On the CPU embedder (bge-m3) the measured rate is ~7
-chunks/s (3397 chunks in ~500 s, 2026-09-02), so a file larger
-than ~150 KB risks the timeout loop (drift #42 pattern). This
-script splits oversized files into ~30 KB parts at line boundaries
-before they enter data/documents/.
+chunks/s (3397 chunks in ~500 s, 2026-09-02; re-measured live
+2026-09-17: ~8.7 avg on engine 0.4.1, single session -- see the
+Hardware Ceiling Log), so a file larger than ~150 KB risks the
+timeout loop (drift #42 pattern). This script splits oversized
+files into ~30 KB parts at line boundaries before they enter
+data/documents/.
 
 Atoms: extracts self-sufficient knowledge atoms (facts / decisions /
 recommendations / hypotheses with status discipline) from a chat

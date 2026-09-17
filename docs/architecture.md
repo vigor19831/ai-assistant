@@ -413,9 +413,15 @@ Hard constraints (survive any engine or model change):
 - Hybrid lexical leg (BM25): peak RAM 5.86 GB vs 5.39 GB dense-only
   (2026-09-17, drift #141) — the in-memory text copy costs ~0.5 GB at
   3400+ chunks; scales with corpus text size, not embedding dim.
-- Indexing rates (measured 2026-09-01/02): CPU ~4-7 chunks/s — never
-  completes a large source; GPU ~10 chunks/s. Large backfills are a
-  one-time GPU profile switch (drift #60).
+- Indexing rates: CPU ~4-7 chunks/s (measured 2026-09-01/02, engine
+  pre-0.4.1) — "never completes a large source" was the caution then;
+  re-measured live 2026-09-17 on engine 0.4.1: ~8.7 avg / 7.6-10 per
+  doc (bge-m3, 271 chunks in 6 single-batch documents, chunk size 512;
+  gain unattributed, single session — plan bulk loads with a 1.5x
+  margin). GPU ~10 chunks/s (2026-09-01/02). Consequence: the one-time
+  GPU profile switch for large backfills (drift #60) buys little at
+  these rates — ~135K chunks (a few thousand documents) projects to
+  ~4-5 h on CPU alone.
 
 Method (the surviving lessons of the model era):
 
