@@ -385,6 +385,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
             stop_sequences=tuple(llm_cfg.stop_sequences),
         ),
         rag_steps=list(cfg.rag.steps),
+        date_month_names=dict(rag_cfg.date_month_names),
+        date_prepositions=list(rag_cfg.date_prepositions),
     )
 
     from ai_assistant.features.rag.manager import RAGManager
@@ -405,6 +407,8 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
             stop_sequences=tuple(llm_cfg.stop_sequences),
         ),
         rag_steps=list(cfg.rag.steps),
+        date_month_names=dict(rag_cfg.date_month_names),
+        date_prepositions=list(rag_cfg.date_prepositions),
     )
 
     return InitializedAppState(

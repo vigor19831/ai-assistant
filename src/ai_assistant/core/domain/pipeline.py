@@ -18,7 +18,41 @@ if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
 
-__all__ = ["PipelineConfig", "PipelineData", "ReindexStatusEntry"]
+__all__ = ["DateFilter", "PipelineConfig", "PipelineData", "ReindexStatusEntry"]
+
+
+@dataclass(frozen=True, slots=True)
+class DateFilter:
+    """Search frame by document date (date campaign stage 2).
+
+    month is always set (1-12); year is None for "in March" of any
+    year. matches() compares against a chunk's doc_date ("YYYY-MM"
+    or None). Undated chunks never match an active filter — "unknown
+    when" is not "in March". Frozen: the filter travels through
+    PipelineConfig unchanged.
+    """
+
+    month: int
+    year: int | None = None
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.month <= 12:
+            raise ValueError(f"month must be 1-12, got {self.month}")
+        if self.year is not None and not 1900 <= self.year <= 2200:
+            raise ValueError(f"year out of range: {self.year}")
+
+    def matches(self, doc_date: str | None) -> bool:
+        """True when the chunk's doc_date falls inside the frame."""
+        if doc_date is None or len(doc_date) < 7:
+            return False
+        try:
+            chunk_year = int(doc_date[:4])
+            chunk_month = int(doc_date[5:7])
+        except ValueError:
+            return False
+        if chunk_month != self.month:
+            return False
+        return self.year is None or chunk_year == self.year
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +87,9 @@ class PipelineConfig:
     token_margin_pct: float = 0.1
     system_message: str | None = None
     sampling: SamplingConfig = field(default_factory=SamplingConfig)
+    # Date search frame (stage 2): None = unfiltered, the pre-stage-2
+    # behavior. Set by the entry points from parse_date_phrase.
+    date_filter: DateFilter | None = None
 
     def __post_init__(self) -> None:
         if self.top_k < 1:

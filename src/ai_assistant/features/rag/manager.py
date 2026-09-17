@@ -17,6 +17,7 @@ from ai_assistant.api.deps import InitializedAppState
 from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import (
     DEFAULT_RAG_PROMPT,
+    DOC_DATE_KEY,
     SOURCE_INDEX_TIMEOUT,
     is_refusal_answer,
 )
@@ -40,7 +41,8 @@ from ai_assistant.core.ports import (
     IVectorStore,
 )
 from ai_assistant.core.ports.lexical_index import ILexicalIndex
-from ai_assistant.features.rag.indexing import DOC_DATE_KEY, _extract_doc_date
+from ai_assistant.core.query_parser import parse_date_phrase
+from ai_assistant.features.rag.indexing import _extract_doc_date
 
 _logger = get_logger("rag.manager")
 
@@ -215,6 +217,8 @@ class RAGManager:
         rag_steps: list[RAGStep] | None = None,
         system_message: str | None = None,
         sampling: SamplingConfig | None = None,
+        date_month_names: dict[str, int] | None = None,
+        date_prepositions: list[str] | None = None,
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
@@ -249,6 +253,8 @@ class RAGManager:
         self.tokenizer = tokenizer
         self.system_message = system_message
         self.sampling = sampling
+        self.date_month_names = date_month_names or {}
+        self.date_prepositions = list(date_prepositions or [])
 
     async def query(
         self,
@@ -264,6 +270,13 @@ class RAGManager:
         start = time.perf_counter()
         from ai_assistant.core.domain.pipeline import PipelineConfig
 
+        # Date campaign stage 2: a date phrase in the query sets the
+        # search frame. The phrase STAYS in the text (the model must
+        # see the full question). No phrase / no dictionary = the
+        # pre-stage-2 path, byte-identical.
+        date_filter = parse_date_phrase(
+            query_text, self.date_month_names, self.date_prepositions
+        )
         pipeline_config = PipelineConfig(
             top_k=top_k,
             namespace=namespace,
@@ -273,6 +286,7 @@ class RAGManager:
             token_margin_pct=self.token_margin_pct,
             system_message=self.system_message,
             sampling=self.sampling or SamplingConfig(),
+            date_filter=date_filter,
         )
         data = PipelineData(
             query=UserMessage(text=query_text),

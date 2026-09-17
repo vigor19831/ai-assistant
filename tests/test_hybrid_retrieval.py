@@ -32,9 +32,25 @@ class _StubStore:
         self.calls: list[dict[str, Any]] = []
 
     async def search(
-        self, embedding: list[float], top_k: int = 5, namespace: str = "default"
+        self,
+        embedding: list[float],
+        top_k: int = 5,
+        namespace: str = "default",
+        date_filter=None,
     ) -> list[Chunk]:
-        self.calls.append({"top_k": top_k, "namespace": namespace})
+        self.calls.append(
+            {"top_k": top_k, "namespace": namespace, "date_filter": date_filter}
+        )
+        # A date filter narrows the stub ranking too: the undated and
+        # foreign-month chunks drop, mirroring the real adapters.
+        if date_filter is not None:
+            ranking = [
+                c
+                for c in self._ranking
+                if c.metadata is not None
+                and date_filter.matches(c.metadata.custom.get("doc_date"))
+            ]
+            return ranking[:top_k]
         return self._ranking[:top_k]
 
     async def shutdown(self) -> None:
@@ -49,7 +65,11 @@ class _StubLexical:
         self.calls: list[dict[str, Any]] = []
 
     async def search(
-        self, query_text: str, top_k: int = 5, namespace: str = "default"
+        self,
+        query_text: str,
+        top_k: int = 5,
+        namespace: str = "default",
+        date_filter=None,
     ) -> list[Chunk]:
         self.calls.append({"query": query_text, "top_k": top_k})
         return self._ranking[:top_k]
@@ -111,7 +131,11 @@ class TestHybridRetrieval:
 
         class _Broken(_StubLexical):
             async def search(
-                self, query_text: str, top_k: int = 5, namespace: str = "default"
+                self,
+                query_text: str,
+                top_k: int = 5,
+                namespace: str = "default",
+                date_filter=None,
             ) -> list[Chunk]:
                 raise RuntimeError("boom")
 
@@ -124,3 +148,47 @@ class TestHybridRetrieval:
         # shifts every fused ranking and needs a re-baseline.
         assert isinstance(RRF_K, int)
         assert 0 < RRF_K < 1000
+
+
+
+def _dated_chunk(chunk_id: str, text: str, doc_date: str | None) -> Chunk:
+    if doc_date is None:
+        metadata = ChunkMetadata(source="s.md", index=0, total_chunks=1)
+    else:
+        metadata = ChunkMetadata(
+            source="s.md",
+            index=0,
+            total_chunks=1,
+            custom={"doc_date": doc_date},
+        )
+    return Chunk(id=chunk_id, text=text, metadata=metadata)
+
+
+class TestDateFilteredRetrieval:
+    """Date campaign stage 2: an active filter narrows the retrieve
+    step's candidates to matching doc_date; None = the old path."""
+
+    async def test_filter_narrows_the_retrieve_step(self) -> None:
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        store = _StubStore(
+            [
+                _dated_chunk("july", "Keenetic July", "2026-07"),
+                _dated_chunk("march", "Keenetic March", "2026-03"),
+                _dated_chunk("undated", "Keenetic no date", None),
+            ]
+        )
+        data = PipelineData(
+            query=UserMessage(text="Keenetic"),
+            query_embedding=[0.1, 0.2],
+            vector_store=store,  # type: ignore[arg-type]
+            pipeline_config=PipelineConfig(
+                top_k=5,
+                namespace="ns",
+                date_filter=DateFilter(month=7, year=2026),
+            ),
+        )
+        result = await retrieve(data)
+        assert [c.id for c in result.chunks] == ["july"]
+        # The filter reached the store: the stub records the kwarg.
+        assert store.calls[0].get("date_filter") is not None

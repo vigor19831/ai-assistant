@@ -305,6 +305,24 @@ rag:
       #   recursive: true
   chat_exports_root: data/chat_exports
   index_chat_exports: false
+  # Date-phrase dictionary (date campaign stage 2): month name ->
+  # number. Enables "what did I decide in March"-style query frames.
+  # The dictionary is OWNER LANGUAGE DATA: ship your own month names
+  # in the live config.yaml (Russian forms, etc.). Absent = digital
+  # date forms only ("2026-03"). English example below.
+  date_month_names:
+    January: 1
+    February: 2
+    March: 3
+    April: 4
+    May: 5
+    June: 6
+    July: 7
+    August: 8
+    September: 9
+    October: 10
+    November: 11
+    December: 12
 
 namespaces:
   default:

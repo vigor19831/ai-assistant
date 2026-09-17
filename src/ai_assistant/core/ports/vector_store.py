@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ai_assistant.core.domain.configs import VectorStoreConfigData
     from ai_assistant.core.domain.documents import Chunk
+    from ai_assistant.core.domain.pipeline import DateFilter
 
 from ai_assistant.core.ports.closable import IClosable
 
@@ -78,8 +79,15 @@ class IVectorStore(IClosable, ABC):
         query_embedding: list[float],
         top_k: int = 5,
         namespace: str = "default",
+        date_filter: DateFilter | None = None,
     ) -> list[Chunk]:
-        """Search by embedding in a namespace."""
+        """Search by embedding in a namespace.
+
+        date_filter (date campaign stage 2): when set, only chunks
+        whose metadata doc_date matches the filter are returned;
+        chunks without doc_date are excluded. None (default) = the
+        pre-stage-2 behavior, byte-identical.
+        """
         ...
 
     @abstractmethod

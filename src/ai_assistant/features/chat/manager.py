@@ -26,7 +26,11 @@ from ai_assistant.core.pipeline_steps import STEP_REGISTRY
 from ai_assistant.core.ports.llm import Message
 from ai_assistant.core.ports.tokenizer import ITokenizer
 from ai_assistant.core.prompts import get_prompt
-from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
+from ai_assistant.core.query_parser import (
+    build_prefix_map,
+    parse_date_phrase,
+    parse_rag_query,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -177,6 +181,8 @@ class ChatManager:
         rag_steps: list[RAGStep] | None = None,
         system_message: str | None = None,
         sampling: SamplingConfig | None = None,
+        date_month_names: dict[str, int] | None = None,
+        date_prepositions: list[str] | None = None,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
@@ -192,6 +198,8 @@ class ChatManager:
         self.token_margin_pct = token_margin_pct
         self.tokenizer = tokenizer
         self.sampling = sampling
+        self.date_month_names = date_month_names or {}
+        self.date_prepositions = list(date_prepositions or [])
         self._prefix_map = build_prefix_map(self.namespaces)
         # Build pipeline internally — ChatManager owns its pipeline.
         # Factory in handlers.py passes cfg.rag.steps; GENERATE is
@@ -318,6 +326,11 @@ class ChatManager:
 
         original_query_text = query_text  # preserve before pipeline mutation
         ns_cfg = self.namespaces.get(namespace)
+        # Date campaign stage 2: the phrase stays in the text; only
+        # the search frame narrows (see RAGManager.query).
+        date_filter = parse_date_phrase(
+            query_text, self.date_month_names, self.date_prepositions
+        )
         pipeline_config = PipelineConfig(
             top_k=self.top_k,
             namespace=namespace,
@@ -327,6 +340,7 @@ class ChatManager:
             token_margin_pct=self.token_margin_pct,
             system_message=self.system_message,
             sampling=self.sampling or SamplingConfig(),
+            date_filter=date_filter,
         )
         data = PipelineData(
             query=UserMessage(text=query_text),

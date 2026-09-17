@@ -396,6 +396,54 @@ class TestMemoryVectorStoreUpsert:
         ids = {cid for cid, _ in all_chunks}
         assert ids == {"c2"}
 
+    @pytest.mark.asyncio
+    async def test_memory_search_date_filter_excludes_foreign_and_undated(
+        self, tmp_path
+    ):
+        """Stage 2: an active filter keeps matching doc_date only."""
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        store = MemoryVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        july = Chunk(
+            id="july",
+            text="j",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(
+                source="d", index=0, total_chunks=1, custom={"doc_date": "2026-07"}
+            ),
+        )
+        march = Chunk(
+            id="march",
+            text="m",
+            embedding=[0.0, 1.0, 0.0],
+            metadata=ChunkMetadata(
+                source="d", index=1, total_chunks=1, custom={"doc_date": "2026-03"}
+            ),
+        )
+        undated = Chunk(
+            id="undated",
+            text="u",
+            embedding=[0.0, 0.0, 1.0],
+            metadata=ChunkMetadata(source="d", index=2, total_chunks=1),
+        )
+        await store.add([july, march, undated], namespace="ns")
+
+        results = await store.search(
+            [1.0, 1.0, 1.0],
+            top_k=10,
+            namespace="ns",
+            date_filter=DateFilter(month=7, year=2026),
+        )
+        assert [c.id for c in results] == ["july"]
+
+        # Filter off: the old full path.
+        results_all = await store.search(
+            [1.0, 1.0, 1.0], top_k=10, namespace="ns"
+        )
+        assert {c.id for c in results_all} == {"july", "march", "undated"}
+
 
 class TestFaissVectorStoreUpsert:
     """FaissVectorStore.upsert: atomic replace per source (drift #88)."""
@@ -457,6 +505,41 @@ class TestFaissVectorStoreUpsert:
         await store.upsert([], namespace="empty")
         ns = await store.list_namespaces(str(tmp_path))
         assert "empty" not in ns
+
+    @pytest.mark.asyncio
+    async def test_faiss_search_date_filter_excludes_foreign(self, tmp_path):
+        """Same contract as the memory store: matching doc_date only."""
+        pytest.importorskip("faiss")
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path))
+        )
+        july = Chunk(
+            id="july",
+            text="j",
+            embedding=[1.0, 0.0, 0.0],
+            metadata=ChunkMetadata(
+                source="d", index=0, total_chunks=1, custom={"doc_date": "2026-07"}
+            ),
+        )
+        march = Chunk(
+            id="march",
+            text="m",
+            embedding=[0.0, 1.0, 0.0],
+            metadata=ChunkMetadata(
+                source="d", index=1, total_chunks=1, custom={"doc_date": "2026-03"}
+            ),
+        )
+        await store.add([july, march], namespace="ns")
+
+        results = await store.search(
+            [1.0, 1.0, 1.0],
+            top_k=10,
+            namespace="ns",
+            date_filter=DateFilter(month=7, year=2026),
+        )
+        assert [c.id for c in results] == ["july"]
 
 
 # ── TestVectorStoreDeleteAllPersistence ──

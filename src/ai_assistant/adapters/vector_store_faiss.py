@@ -23,9 +23,11 @@ import anyio
 import numpy as np
 
 from ai_assistant.adapters._registry import register
+from ai_assistant.core.constants import DOC_DATE_KEY
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
+from ai_assistant.core.domain.pipeline import DateFilter
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
@@ -40,6 +42,11 @@ except ImportError:
 __all__ = ["FaissVectorStore"]
 
 _logger = get_logger("adapters.vector_store_faiss")
+
+# A date filter discards candidates after the vector search, so the
+# fetch widens by this factor to keep top_k filled. A knob needs 3
+# real cases first (architecture 11.2).
+_DATE_FILTER_FETCH_MULTIPLIER = 4
 
 
 class _NamespaceData:
@@ -205,8 +212,14 @@ class FaissVectorStore(IVectorStore):
         query_embedding: list[float],
         top_k: int = 5,
         namespace: str = "default",
+        date_filter: DateFilter | None = None,
     ) -> list[Chunk]:
-        """Search by embedding in a namespace."""
+        """Search by embedding in a namespace.
+
+        date_filter: doc_date match required (stage 2) — None = off.
+        With an active filter the fetch widens (top_k x4) before
+        filtering, so a date-scoped query still fills its top_k.
+        """
         async with self._lock:
             ns = self._get_ns(namespace)
             if ns.index is None or ns.index.ntotal == 0:
@@ -229,14 +242,28 @@ class FaissVectorStore(IVectorStore):
                 norm = np.linalg.norm(q)
                 if norm > 0:
                     q = q / norm
-            _, indices = ns.index.search(q, top_k)
+            fetch = (
+                top_k * _DATE_FILTER_FETCH_MULTIPLIER
+                if date_filter is not None
+                else top_k
+            )
+            _, indices = ns.index.search(q, fetch)
             results: list[Chunk] = []
             for idx in indices[0]:
                 if idx == -1:
                     continue
                 chunk = ns.chunks.get(int(idx))
-                if chunk is not None:
-                    results.append(chunk)
+                if chunk is None:
+                    continue
+                if date_filter is not None and not date_filter.matches(
+                    chunk.metadata.custom.get(DOC_DATE_KEY)
+                    if chunk.metadata is not None
+                    else None
+                ):
+                    continue
+                if len(results) >= top_k:
+                    break
+                results.append(chunk)
             return results
 
     def _rebuild_index(self, chunks: list[Chunk]) -> tuple[Any, dict[int, Chunk], int]:

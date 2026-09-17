@@ -47,6 +47,12 @@ CONDENSE_HISTORY_LIMIT = 8
 # would require 3 real cases first (architecture 11.2).
 RRF_K = 60
 
+# --- Date filter (campaign stage 2) ---
+# The metadata key the date extractor writes (stage 1) and the store
+# filters read (stage 2). One constant, core-owned: features and
+# adapters both import it.
+DOC_DATE_KEY = "doc_date"
+
 # --- Operation timeouts (seconds) ---
 # Single vector store index save/load I/O operation (per namespace).
 INDEX_IO_TIMEOUT = 10.0

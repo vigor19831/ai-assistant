@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from ai_assistant.adapters._registry import register
+from ai_assistant.core.constants import DOC_DATE_KEY
 from ai_assistant.core.domain.configs import LexicalIndexConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
+from ai_assistant.core.domain.pipeline import DateFilter
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.lexical_index import ILexicalIndex
@@ -155,7 +157,11 @@ class LexicalBm25Index(ILexicalIndex):
         return chunk
 
     def _search_locked(
-        self, query_text: str, top_k: int, namespace: str
+        self,
+        query_text: str,
+        top_k: int,
+        namespace: str,
+        date_filter: DateFilter | None = None,
     ) -> list[Chunk]:
         if top_k < 1:
             return []
@@ -177,6 +183,10 @@ class LexicalBm25Index(ILexicalIndex):
                 tf = tf_map.get(token)
                 if not tf:
                     continue
+                if date_filter is not None and not date_filter.matches(
+                    self._doc_date_of(data.chunks[chunk_id])
+                ):
+                    continue
                 norm = 1.0 - _BM25_B + _BM25_B * data.lengths[chunk_id] / avg_len
                 denom = tf + _BM25_K1 * norm
                 scores[chunk_id] = scores.get(chunk_id, 0.0) + (
@@ -186,6 +196,12 @@ class LexicalBm25Index(ILexicalIndex):
             return []
         ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
         return [data.chunks[chunk_id] for chunk_id, _ in ranked[:top_k]]
+
+    @staticmethod
+    def _doc_date_of(chunk: Chunk) -> str | None:
+        if chunk.metadata is None:
+            return None
+        return chunk.metadata.custom.get(DOC_DATE_KEY)
 
     async def _save_locked(
         self, namespace: str, data: _NamespaceData, path: str | None = None
@@ -243,9 +259,10 @@ class LexicalBm25Index(ILexicalIndex):
         query_text: str,
         top_k: int = 5,
         namespace: str = "default",
+        date_filter: DateFilter | None = None,
     ) -> list[Chunk]:
         async with self._lock:
-            return self._search_locked(query_text, top_k, namespace)
+            return self._search_locked(query_text, top_k, namespace, date_filter)
 
     async def list_by_filter(
         self,

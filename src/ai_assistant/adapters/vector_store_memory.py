@@ -11,14 +11,24 @@ from typing import Any, cast
 import numpy as np
 
 from ai_assistant.adapters._registry import register
+from ai_assistant.core.constants import DOC_DATE_KEY
 from ai_assistant.core.domain.configs import VectorStoreConfigData
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import AdapterError, VersionMismatchError
+from ai_assistant.core.domain.pipeline import DateFilter
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.vector_store import IVectorStore
 
 _logger = get_logger("adapters.vector_store_memory")
+
+
+def _doc_date_of(chunk: Chunk) -> str | None:
+    """doc_date from chunk metadata; None when metadata or key absent."""
+    if chunk.metadata is None:
+        return None
+    value = chunk.metadata.custom.get(DOC_DATE_KEY)
+    return value if isinstance(value, str) else None
 
 __all__ = ["MemoryVectorStore"]
 
@@ -121,11 +131,13 @@ class MemoryVectorStore(IVectorStore):
         query_embedding: list[float],
         top_k: int = 5,
         namespace: str = "default",
+        date_filter: DateFilter | None = None,
     ) -> list[Chunk]:
         """Search for nearest neighbors by cosine similarity.
 
         Returns top_k closest chunks without applying a relevance cutoff.
         Quality filtering is the responsibility of the rerank pipeline step.
+        date_filter: doc_date match required (stage 2) — None = off.
         """
         async with self._lock:
             if namespace not in self._namespaces:
@@ -143,7 +155,14 @@ class MemoryVectorStore(IVectorStore):
             if np.all(q == 0):
                 return []
 
-            ids = list(ns.embeddings.keys())
+            ids = [
+                cid
+                for cid in ns.embeddings
+                if date_filter is None
+                or date_filter.matches(_doc_date_of(ns.chunks[cid]))
+            ]
+            if not ids:
+                return []
             matrix = np.stack([ns.embeddings[i] for i in ids])
             scores = matrix @ q
 

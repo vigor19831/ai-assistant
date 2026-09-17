@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -3308,3 +3308,95 @@ def test_filter_unchanged_docs_full_store_skips() -> None:
     ]
     result = _filter_unchanged_docs(docs, all_meta)
     assert result == []
+
+
+
+class TestDatePhraseParsing:
+    """Date campaign stage 2: parse_date_phrase (mechanical, no LLM).
+
+    Month names and prepositions arrive from config (variant 4b):
+    src is language-agnostic — the dictionary below is TEST DATA.
+    """
+
+    MONTHS: ClassVar[dict[str, int]] = {
+        "марте": 3,
+        "март": 3,
+        "марта": 3,
+        "июле": 7,
+        "июль": 7,
+    }
+    PREPS: ClassVar[list[str]] = ["в", "за"]
+
+    def test_month_any_year(self):
+        from ai_assistant.core.query_parser import parse_date_phrase
+
+        f = parse_date_phrase("что я решал в марте", self.MONTHS, self.PREPS)
+        assert f is not None and f.month == 3 and f.year is None
+
+    def test_month_with_year(self):
+        from ai_assistant.core.query_parser import parse_date_phrase
+
+        f = parse_date_phrase("что я решал за март 2026", self.MONTHS, self.PREPS)
+        assert f is not None and f.month == 3 and f.year == 2026
+
+    def test_digital_form(self):
+        from ai_assistant.core.query_parser import parse_date_phrase
+
+        f = parse_date_phrase("что было в 2026-07", {}, None)
+        assert f is not None and f.month == 7 and f.year == 2026
+
+    def test_no_phrase_returns_none(self):
+        from ai_assistant.core.query_parser import parse_date_phrase
+
+        assert (
+            parse_date_phrase("что я решал про роутер", self.MONTHS, self.PREPS)
+            is None
+        )
+
+    def test_no_dictionary_no_phrase_parsing(self):
+        """No config dictionary = digital forms only: the pre-stage-2
+        path, byte-identical."""
+        from ai_assistant.core.query_parser import parse_date_phrase
+
+        assert parse_date_phrase("что я решал в марте", {}, None) is None
+
+    def test_number_noise_is_not_a_date(self):
+        from ai_assistant.core.query_parser import parse_date_phrase
+
+        assert (
+            parse_date_phrase("увеличить в 3 раза", self.MONTHS, self.PREPS) is None
+        )
+
+
+class TestDateFilter:
+    """Date campaign stage 2: the DateFilter frame itself."""
+
+    def test_matches_month_any_year(self):
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        assert DateFilter(month=7).matches("2024-07") is True
+        assert DateFilter(month=7).matches("2026-07") is True
+        assert DateFilter(month=7).matches("2026-03") is False
+
+    def test_matches_month_and_year(self):
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        assert DateFilter(month=7, year=2026).matches("2026-07") is True
+        assert DateFilter(month=7, year=2025).matches("2026-07") is False
+
+    def test_undated_never_matches(self):
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        assert DateFilter(month=7).matches(None) is False
+        assert DateFilter(month=7).matches("") is False
+
+    def test_garbage_never_matches(self):
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        assert DateFilter(month=7).matches("не дата") is False
+
+    def test_month_bounds_validated(self):
+        from ai_assistant.core.domain.pipeline import DateFilter
+
+        with pytest.raises(ValueError):
+            DateFilter(month=13)

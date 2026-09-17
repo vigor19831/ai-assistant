@@ -43,8 +43,9 @@ _FIRST_LINE_DATE_RE = re.compile(
     r"^\s*(?:(?P<iy>\d{4})-(?P<im>\d{2})-(?P<id>\d{2})"
     r"|(?P<dd>\d{2})\.(?P<dm>\d{2})\.(?P<dy>\d{4}))\b"
 )
-# The metadata key inside ChunkMetadata.custom.
-DOC_DATE_KEY = "doc_date"
+# The metadata key lives in core.constants (stage 2: adapters filter
+# on it — features/ must not be imported from adapters); the top
+# import block already carries it.
 
 
 def _extract_doc_date(

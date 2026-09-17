@@ -88,6 +88,7 @@ class FakeVectorStore(IVectorStore):
         query_embedding: list[float],
         top_k: int = 5,
         namespace: str = "default",
+        date_filter=None,
     ) -> list[Chunk]:
         return self._data.get(namespace, [])[:top_k]
 
@@ -376,7 +377,9 @@ class TestRetrieve:
         Then: error_details contains original exception; errors stays clean."""
 
         class FailingVectorStore:
-            async def search(self, query_embedding, top_k=5, namespace="default"):
+            async def search(
+                self, query_embedding, top_k=5, namespace="default", date_filter=None
+            ):
                 raise RuntimeError("disk I/O error")
 
         data = PipelineData(

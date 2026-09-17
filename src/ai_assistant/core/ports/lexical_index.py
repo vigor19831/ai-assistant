@@ -10,6 +10,7 @@ from ai_assistant.core.ports.closable import IClosable
 if TYPE_CHECKING:
     from ai_assistant.core.domain.configs import LexicalIndexConfigData
     from ai_assistant.core.domain.documents import Chunk
+    from ai_assistant.core.domain.pipeline import DateFilter
 
 __all__ = ["ILexicalIndex"]
 
@@ -60,8 +61,13 @@ class ILexicalIndex(IClosable, ABC):
         query_text: str,
         top_k: int = 5,
         namespace: str = "default",
+        date_filter: DateFilter | None = None,
     ) -> list[Chunk]:
         """Search by raw text in a namespace.
+
+        date_filter (date campaign stage 2): same contract as
+        IVectorStore.search — matching doc_date only, undated chunks
+        excluded when the filter is active; None = old behavior.
 
         Returns chunks ordered by relevance score desc, ties broken
         by chunk id asc (deterministic). No matches (unknown

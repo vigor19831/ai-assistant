@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from ai_assistant.core.domain.documents import Chunk
-    from ai_assistant.core.domain.pipeline import PipelineData
+    from ai_assistant.core.domain.pipeline import DateFilter, PipelineData
     from ai_assistant.core.ports.embedder import IEmbedder
     from ai_assistant.core.ports.lexical_index import ILexicalIndex
     from ai_assistant.core.ports.llm import ILLM, Message
@@ -120,9 +120,12 @@ async def _call_search(
     embedding: list[float],
     top_k: int,
     namespace: str,
+    date_filter: DateFilter | None = None,
 ) -> list[Chunk]:
     """Search vector store."""
-    return await vector_store.search(embedding, top_k=top_k, namespace=namespace)
+    return await vector_store.search(
+        embedding, top_k=top_k, namespace=namespace, date_filter=date_filter
+    )
 
 
 async def _call_llm(
@@ -183,6 +186,7 @@ async def _hybrid_fetch(
     query_text: str,
     fetch_k: int,
     namespace: str,
+    date_filter: DateFilter | None = None,
 ) -> tuple[list[Chunk], list[Chunk]]:
     """Fetch candidates from both legs; return (dense, lexical) lists.
 
@@ -190,14 +194,21 @@ async def _hybrid_fetch(
     multi_query variations are paraphrases that would dilute the exact
     terms hybrid retrieval exists to preserve. A missing/failed
     lexical leg returns [] and the dense result stands (degrade to
-    dense-only, never an error).
+    dense-only, never an error). date_filter (stage 2) applies to BOTH
+    legs — one leg unfiltered would leak foreign months through the
+    RRF fusion.
     """
-    dense = await _call_search(vector_store, embedding, fetch_k, namespace)
+    dense = await _call_search(
+        vector_store, embedding, fetch_k, namespace, date_filter
+    )
     lexical: list[Chunk] = []
     if lexical_index is not None and query_text:
         try:
             lexical = await lexical_index.search(
-                query_text, top_k=fetch_k, namespace=namespace
+                query_text,
+                top_k=fetch_k,
+                namespace=namespace,
+                date_filter=date_filter,
             )
         except Exception:
             _logger.exception(
@@ -358,6 +369,7 @@ async def retrieve(data: PipelineData) -> PipelineData:
             query_text,
             fetch_k,
             namespace,
+            cfg.date_filter,
         )
         chunks = _rrf_fuse(dense, lexical, fetch_k)
         increment_counter(
@@ -805,7 +817,10 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
     if data.lexical_index is not None and data.query.text:
         try:
             lexical_leg = await data.lexical_index.search(
-                data.query.text, top_k=fetch_k, namespace=cfg.namespace
+                data.query.text,
+                top_k=fetch_k,
+                namespace=cfg.namespace,
+                date_filter=cfg.date_filter,
             )
         except Exception:
             _logger.exception(
@@ -822,6 +837,7 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
                 embeddings[0],
                 fetch_k,
                 cfg.namespace,
+                cfg.date_filter,
             )
             for c in chunks:
                 if c.id not in seen:

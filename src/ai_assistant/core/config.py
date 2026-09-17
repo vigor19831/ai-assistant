@@ -252,6 +252,27 @@ class RAGConfig(BaseSettings):
     sources: list[SourceConfig] = Field(default_factory=list)
     chat_exports_root: str = "data/chat_exports"
     index_chat_exports: bool = False
+    # Date campaign stage 2 (variant 4b): month-name dictionary for
+    # date-phrase parsing ("what did I decide in March"). Lives in
+    # config — data, not code: src stays language-agnostic. Absent
+    # section = digital date forms only ("2026-03", "03.2026");
+    # pure optional addition, no config_version bump (drift #138).
+    date_month_names: dict[str, int] = Field(default_factory=dict)
+    # Prepositions are language data too ("in March", "za mart"):
+    # which words may precede a month name in a query. Absent = no
+    # phrase parsing (digital forms still work).
+    date_prepositions: list[str] = Field(default_factory=list)
+
+    @field_validator("date_month_names")
+    @classmethod
+    def _validate_month_numbers(cls, v: dict[str, int]) -> dict[str, int]:
+        for name, month in v.items():
+            if not 1 <= month <= 12:
+                raise ValueError(
+                    f"date_month_names: month for {name!r} must be "
+                    f"1-12, got {month}"
+                )
+        return v
 
     @model_validator(mode="before")
     @classmethod
