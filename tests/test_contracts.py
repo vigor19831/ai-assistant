@@ -224,6 +224,13 @@ class TestIsinstanceBan:
         hits = self._check_file("core/io_utils.py")
         assert not hits, f"isinstance() banned in core/: {hits}"
 
+    def test_lexical_index_no_isinstance(self):
+        """Given: lexical_index.py in core/.
+        When: AST is scanned for isinstance().
+        Then: no isinstance() calls are found."""
+        hits = self._check_file("core/ports/lexical_index.py")
+        assert not hits, f"isinstance() banned in core/: {hits}"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestPrintBan
@@ -378,6 +385,7 @@ class TestPortAbstractMethods:
             IChunker,
             IClosable,
             IEmbedder,
+            ILexicalIndex,
             IReranker,
             ITokenizer,
             IVectorStore,
@@ -391,6 +399,7 @@ class TestPortAbstractMethods:
             "IChatStorage": IChatStorage,
             "IChunker": IChunker,
             "IClosable": IClosable,
+            "ILexicalIndex": ILexicalIndex,
             "ITokenizer": ITokenizer,
         }
 
@@ -450,6 +459,23 @@ class TestPortAbstractMethods:
             if getattr(method, "__isabstractmethod__", False)
         ]
         assert "search" in abstract_methods, "IVectorStore.search must be abstract"
+
+    def test_ilexicalindex_has_search_abstract(self):
+        """Given: ILexicalIndex port.
+        When: abstract methods are inspected.
+        Then: search() is abstract (the lexical twin of IVectorStore)."""
+        from ai_assistant.core.ports.lexical_index import ILexicalIndex
+
+        abstract_methods = [
+            name
+            for name, method in inspect.getmembers(
+                ILexicalIndex, predicate=inspect.isfunction
+            )
+            if getattr(method, "__isabstractmethod__", False)
+        ]
+        assert "search" in abstract_methods, (
+            "ILexicalIndex.search must be abstract"
+        )
 
     def test_ireranker_has_rerank_abstract(self):
         """Given: IReranker port.
@@ -913,12 +939,13 @@ class TestAdapterRegistry:
     def test_all_ports_registered(self):
         """Given: factory.py loaded (eager imports triggered).
         When: registry is inspected.
-        Then: all 6 expected ports have registered adapters."""
+        Then: all expected ports have registered adapters."""
         registry = self._get_registry()
         expected_ports = {
             "llm",
             "embedder",
             "vector_store",
+            "lexical_index",
             "chunker",
             "storage",
             "reranker",
@@ -982,6 +1009,15 @@ class TestAdapterRegistry:
 
         registry = self._get_registry()
         assert registry["vector_store"]["faiss"] is FaissVectorStore
+
+    def test_lexical_bm25_registered(self):
+        """Given: registry loaded.
+        When: lexical_index port is inspected.
+        Then: LexicalBm25Index is registered under 'bm25'."""
+        from ai_assistant.adapters.lexical_bm25 import LexicalBm25Index
+
+        registry = self._get_registry()
+        assert registry["lexical_index"]["bm25"] is LexicalBm25Index
 
     def test_chunker_simple_registered(self):
         """Given: registry loaded.
@@ -1063,6 +1099,7 @@ class TestPortKwargsBan:
             IChatStorage,
             IChunker,
             IEmbedder,
+            ILexicalIndex,
             IReranker,
             ITokenizer,
             IVectorStore,
@@ -1075,6 +1112,7 @@ class TestPortKwargsBan:
             "IReranker": IReranker,
             "IChatStorage": IChatStorage,
             "IChunker": IChunker,
+            "ILexicalIndex": ILexicalIndex,
             "ITokenizer": ITokenizer,
         }
         methods: list[tuple[str, str, inspect.Signature]] = []
@@ -1128,6 +1166,17 @@ class TestPortReturnTypes:
         from ai_assistant.core.ports.vector_store import IVectorStore
 
         sig = inspect.signature(IVectorStore.search)
+        assert "list[Chunk]" in str(sig.return_annotation)
+
+    def test_lexical_index_search_returns_list_of_chunks(self):
+        """Given: ILexicalIndex.search signature.
+        When: return annotation inspected.
+        Then: returns list[Chunk] — the same evidence shape as the
+        vector leg.
+        """
+        from ai_assistant.core.ports.lexical_index import ILexicalIndex
+
+        sig = inspect.signature(ILexicalIndex.search)
         assert "list[Chunk]" in str(sig.return_annotation)
 
     def test_llm_complete_returns_assistant_message(self):
