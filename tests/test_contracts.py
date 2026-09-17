@@ -661,7 +661,7 @@ class TestHasattrBan:
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
-                and node.func.id in ("print", "pprint")
+                and node.func.id == "hasattr"
             ):
                 hits.append((node.lineno, ast.unparse(node)))
         return hits

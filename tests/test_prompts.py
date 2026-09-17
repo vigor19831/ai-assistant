@@ -171,4 +171,9 @@ class TestRefusalConstantsSync:
         rendered = get_prompt(
             "rag_simple", version="v1", query="q", context="[Document 1] x"
         )
-        assert REFUSAL_ANSWER not in rendered or REFUSAL_ANSWER in rendered
+        # The lenient template must NOT teach the strict refusal phrase:
+        # a refusal phrase without strict evidence rules would make
+        # rag_simple answers refuse where evidence exists (#50 class).
+        assert REFUSAL_ANSWER not in rendered, (
+            "rag_simple accidentally teaches the strict refusal phrase"
+        )
