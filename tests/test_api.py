@@ -57,6 +57,15 @@ from ai_assistant.core.task_registry import TaskRegistry
 logger = get_logger(__name__)
 
 
+def _make_admin_state(enabled: bool) -> MagicMock:
+    """Create an AppState mock with nested security config (admin tests)."""
+    state = MagicMock(spec=AppState)
+    state.config = MagicMock()
+    state.config.security = MagicMock()
+    state.config.security.admin_enabled = enabled
+    return state
+
+
 # ── Fixtures ──
 
 
@@ -300,20 +309,12 @@ class TestAPISecurity:
 
     # ── Admin endpoint integration ──
 
-    def _make_admin_state(self, enabled: bool) -> MagicMock:
-        """Helper: create AppState mock with nested security config."""
-        state = MagicMock(spec=AppState)
-        state.config = MagicMock()
-        state.config.security = MagicMock()
-        state.config.security.admin_enabled = enabled
-        return state
-
     async def test_admin_disabled_returns_404(self):
         """Given: admin_enabled is False (default).
         When: any admin endpoint is called.
         Then: HTTPException 404 is raised.
         """
-        state = self._make_admin_state(enabled=False)
+        state = _make_admin_state(enabled=False)
         req = UpdateApiKeyRequest(api_key="new-key")
         with pytest.raises(HTTPException) as exc_info:
             await update_api_key(req, state)
@@ -325,7 +326,7 @@ class TestAPISecurity:
         Then: set_api_key stores the new key.
         """
         set_api_key(None)
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         req = UpdateApiKeyRequest(api_key="new-key")
         resp = await update_api_key(req, state)
         assert resp.updated is True
@@ -337,7 +338,7 @@ class TestAPISecurity:
         Then: override is cleared.
         """
         set_api_key("old-key")
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         req = UpdateApiKeyRequest(api_key=None)
         resp = await update_api_key(req, state)
         assert resp.updated is True
@@ -349,7 +350,7 @@ class TestAPISecurity:
         Then: HTTPException 400 is raised.
         """
         set_api_key(None)
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         req = UpdateApiKeyRequest(api_key="")
         with pytest.raises(HTTPException) as exc_info:
             await update_api_key(req, state)
@@ -360,7 +361,7 @@ class TestAPISecurity:
         When: update_api_key returns.
         Then: response conforms to UpdateApiKeyResponse schema.
         """
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         req = UpdateApiKeyRequest(api_key="k")
         resp = await update_api_key(req, state)
         assert isinstance(resp, UpdateApiKeyResponse)
@@ -372,7 +373,7 @@ class TestAPISecurity:
         When: get_current_model is called.
         Then: HTTPException 404 is raised.
         """
-        state = self._make_admin_state(enabled=False)
+        state = _make_admin_state(enabled=False)
         with pytest.raises(HTTPException) as exc_info:
             await admin.get_current_model(state)
         assert exc_info.value.status_code == 404
@@ -1158,23 +1159,14 @@ class TestAPILifespan:
     """Contract tests for api/lifespan.py — startup, shutdown, cleanup."""
 
     @pytest.mark.asyncio
-    async def test_lifespan_startup_sets_app_state(self):
+    async def test_lifespan_startup_sets_app_state(self, make_shell_state):
         """Given: a FastAPI app with lifespan.
         When: startup runs.
         Then: app.state.app_state is populated.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
-        mock_state.llm = MagicMock(spec=ILLM)
-        mock_state.embedder = MagicMock(spec=IEmbedder)
-        mock_state.storage = MagicMock(spec=IChatStorage)
-        mock_state.reranker = MagicMock(spec=IReranker)
-        mock_state.chunker = MagicMock(spec=IChunker)
+        mock_state = make_shell_state()
 
         with (
             patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
@@ -1189,7 +1181,7 @@ class TestAPILifespan:
                 assert app.state.app_state is mock_state
 
     @pytest.mark.asyncio
-    async def test_lifespan_shutdown_calls_cleanup(self):
+    async def test_lifespan_shutdown_calls_cleanup(self, make_shell_state):
         """Given: lifespan context manager.
         When: shutdown runs (exit from context).
         Then: all adapters are shut down and app state is cleaned.
@@ -1206,11 +1198,7 @@ class TestAPILifespan:
             "chunker": False,
         }
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state()
 
         async def mark_llm_shutdown():
             shutdown_called["llm"] = True
@@ -1257,7 +1245,7 @@ class TestAPILifespan:
         assert shutdown_called["chunker"] is True
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save(self):
+    async def test_async_cleanup_index_save(self, make_shell_state):
         """Given: vector_store has namespaces.
         When: async_cleanup runs.
         Then: all namespaces are saved and state reflects completion.
@@ -1271,11 +1259,7 @@ class TestAPILifespan:
         async def track_save(path: str, namespace: str) -> None:
             saved_namespaces.append(namespace)
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = MagicMock(spec=IVectorStore)
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state(vector_store=MagicMock(spec=IVectorStore))
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1", "ns2"])
         mock_state.vector_store.save = AsyncMock(side_effect=track_save)
@@ -1295,7 +1279,7 @@ class TestAPILifespan:
         assert len(saved_namespaces) == 2
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_index_save_timeout(self):
+    async def test_async_cleanup_index_save_timeout(self, make_shell_state):
         """Given: vector_store.save times out on first 3 attempts.
         When: async_cleanup runs.
         Then: @with_retry retries 3 times; 4th attempt succeeds; cleanup continues.
@@ -1312,10 +1296,7 @@ class TestAPILifespan:
                 raise TimeoutError()
             return
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = MagicMock(spec=IVectorStore)
+        mock_state = make_shell_state(vector_store=MagicMock(spec=IVectorStore))
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
         mock_state.vector_store.save = AsyncMock(side_effect=save_with_retry)
@@ -1345,7 +1326,7 @@ class TestAPILifespan:
         await async_cleanup(app, minimal_config)
 
     @pytest.mark.asyncio
-    async def test_async_cleanup_adapter_shutdown_order(self):
+    async def test_async_cleanup_adapter_shutdown_order(self, make_shell_state):
         """Given: all adapters are present.
         When: async_cleanup runs.
         Then: shutdown is called on each adapter in defined order.
@@ -1371,11 +1352,7 @@ class TestAPILifespan:
         async def track_chunker():
             shutdown_order.append("chunker")
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state()
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=track_llm)
         mock_state.embedder = AsyncMock()
@@ -1400,23 +1377,14 @@ class TestAPILifespan:
         assert len(shutdown_order) == 5
 
     @pytest.mark.asyncio
-    async def test_lifespan_mount_static_called(self):
+    async def test_lifespan_mount_static_called(self, make_shell_state):
         """Given: lifespan startup.
         When: it runs.
         Then: mount_static is called with app and config.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
-        mock_state.llm = MagicMock(spec=ILLM)
-        mock_state.embedder = MagicMock(spec=IEmbedder)
-        mock_state.storage = MagicMock(spec=IChatStorage)
-        mock_state.reranker = MagicMock(spec=IReranker)
-        mock_state.chunker = MagicMock(spec=IChunker)
+        mock_state = make_shell_state()
 
         mount_calls: list[tuple[Any, ...]] = []
 
@@ -1441,23 +1409,14 @@ class TestAPILifespan:
         assert mount_calls[0][1] is minimal_config
 
     @pytest.mark.asyncio
-    async def test_lifespan_setup_logging_called(self):
+    async def test_lifespan_setup_logging_called(self, make_shell_state):
         """Given: lifespan startup.
         When: it runs.
         Then: setup_logging is called with correct level.
         """
         minimal_config = _make_minimal_config()
         app = FastAPI()
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
-        mock_state.llm = MagicMock(spec=ILLM)
-        mock_state.embedder = MagicMock(spec=IEmbedder)
-        mock_state.storage = MagicMock(spec=IChatStorage)
-        mock_state.reranker = MagicMock(spec=IReranker)
-        mock_state.chunker = MagicMock(spec=IChunker)
+        mock_state = make_shell_state()
 
         setup_calls: list[dict[str, Any]] = []
 
@@ -1481,7 +1440,7 @@ class TestAPILifespan:
         assert setup_calls[0]["level"] == "INFO"  # minimal_config.debug is False
 
     @pytest.mark.asyncio
-    async def test_lifespan_sets_api_key_from_config(self):
+    async def test_lifespan_sets_api_key_from_config(self, make_shell_state):
         """Given: config has api_key and env has none.
         When: lifespan startup runs.
         Then: API key is set to config value and security state reflects it.
@@ -1489,16 +1448,7 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
-        mock_state.llm = MagicMock(spec=ILLM)
-        mock_state.embedder = MagicMock(spec=IEmbedder)
-        mock_state.storage = MagicMock(spec=IChatStorage)
-        mock_state.reranker = MagicMock(spec=IReranker)
-        mock_state.chunker = MagicMock(spec=IChunker)
+        mock_state = make_shell_state()
 
         with (
             patch("ai_assistant.api.lifespan.load_config", return_value=minimal_config),
@@ -1512,7 +1462,9 @@ class TestAPILifespan:
                 assert get_expected_api_key() == "cfg-secret"
 
     @pytest.mark.asyncio
-    async def test_lifespan_skips_set_api_key_when_env_present(self):
+    async def test_lifespan_skips_set_api_key_when_env_present(
+        self, make_shell_state
+    ):
         """Given: env var already has API key.
         When: lifespan startup runs.
         Then: set_api_key is NOT called because env var takes precedence.
@@ -1520,11 +1472,7 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         minimal_config.security.api_key = "cfg-secret"
         app = FastAPI()
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state()
         mock_state.llm = AsyncMock()
         mock_state.embedder = AsyncMock()
         mock_state.storage = AsyncMock()
@@ -1548,7 +1496,7 @@ class TestAPILifespan:
         mock_set_key.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_lifespan_index_load_on_startup(self):
+    async def test_lifespan_index_load_on_startup(self, make_shell_state):
         """Given: vector_store has persisted namespaces.
         When: lifespan startup runs.
         Then: namespaces are loaded and state reflects loaded indices.
@@ -1561,11 +1509,7 @@ class TestAPILifespan:
         async def track_load(path: str, namespace: str) -> None:
             loaded_namespaces.append(namespace)
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = MagicMock(spec=IVectorStore)
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state(vector_store=MagicMock(spec=IVectorStore))
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["docs"])
         mock_state.vector_store.load = AsyncMock(side_effect=track_load)
@@ -1590,7 +1534,7 @@ class TestAPILifespan:
         assert loaded_namespaces == ["docs"]
 
     @pytest.mark.asyncio
-    async def test_lifespan_graceful_shutdown_timeout(self):
+    async def test_lifespan_graceful_shutdown_timeout(self, make_shell_state):
         """Given: adapter shutdown hangs.
         When: async_cleanup runs.
         Then: other adapters still shutdown; timeout is handled gracefully.
@@ -1607,11 +1551,7 @@ class TestAPILifespan:
         async def embedder_shutdown():
             shutdown_completed["embedder"] = True
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state()
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=hanging_shutdown)
         mock_state.embedder = AsyncMock()
@@ -1631,7 +1571,9 @@ class TestAPILifespan:
     # ── FAULT-INJECTION TESTS ──
 
     @pytest.mark.asyncio
-    async def testasync_cleanup_adapter_shutdown_exception(self):
+    async def testasync_cleanup_adapter_shutdown_exception(
+        self, make_shell_state
+    ):
         """Given: adapter shutdown raises Exception.
         When: async_cleanup runs.
         Then: other adapters still shutdown; exception is caught and logged.
@@ -1647,11 +1589,7 @@ class TestAPILifespan:
         async def embedder_shutdown():
             shutdown_completed["embedder"] = True
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = None
-        mock_state.lexical_index = None  # hybrid off: the default contract
+        mock_state = make_shell_state()
         mock_state.llm = AsyncMock()
         mock_state.llm.shutdown = AsyncMock(side_effect=failing_shutdown)
         mock_state.embedder = AsyncMock()
@@ -1667,7 +1605,9 @@ class TestAPILifespan:
         assert shutdown_completed["embedder"] is True
 
     @pytest.mark.asyncio
-    async def testasync_cleanup_index_save_exception_logged(self):
+    async def testasync_cleanup_index_save_exception_logged(
+        self, make_shell_state
+    ):
         """Given: vector_store.save raises Exception.
         When: async_cleanup runs.
         Then: exception is logged and cleanup continues.
@@ -1675,10 +1615,7 @@ class TestAPILifespan:
         minimal_config = _make_minimal_config()
         app = FastAPI()
 
-        mock_state = MagicMock()
-        mock_state.task_registry = AsyncMock()
-        mock_state.tokenizer = AsyncMock()
-        mock_state.vector_store = MagicMock(spec=IVectorStore)
+        mock_state = make_shell_state(vector_store=MagicMock(spec=IVectorStore))
         mock_state.vector_store.index_path = "./data/indices"
         mock_state.vector_store.list_namespaces = AsyncMock(return_value=["ns1"])
         mock_state.vector_store.save = AsyncMock(side_effect=RuntimeError("disk full"))
@@ -1898,14 +1835,6 @@ class TestAPIMiddleware:
 class TestAPIAdmin:
     """Contract tests for api/admin.py endpoints."""
 
-    def _make_admin_state(self, enabled: bool) -> MagicMock:
-        """Helper: create AppState mock with nested security config."""
-        state = MagicMock(spec=AppState)
-        state.config = MagicMock()
-        state.config.security = MagicMock()
-        state.config.security.admin_enabled = enabled
-        return state
-
     async def test_current_model_response(self):
         """Given: AppState with LLM config.
         When: get_current_model is called.
@@ -1976,7 +1905,7 @@ class TestAPIAdmin:
 
         caplog.set_level(logging.WARNING, logger="ai_assistant.api.admin")
         set_api_key(None)
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         req = UpdateApiKeyRequest(api_key="new-key")
 
         await update_api_key(req, state)
@@ -1996,7 +1925,7 @@ class TestAPIAdmin:
         When: reload_indices is called.
         Then: HTTPException 404 is raised.
         """
-        state = self._make_admin_state(enabled=False)
+        state = _make_admin_state(enabled=False)
         with pytest.raises(HTTPException) as exc_info:
             await admin.reload_indices(state)
         assert exc_info.value.status_code == 404
@@ -2006,7 +1935,7 @@ class TestAPIAdmin:
         When: reload_indices is called.
         Then: all namespaces are reloaded, response shows counts.
         """
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         mock_vs = AsyncMock(spec=IVectorStore)
         mock_vs.index_path = "./data/indices"
         mock_vs.list_namespaces = AsyncMock(return_value=["default", "test"])
@@ -2024,7 +1953,7 @@ class TestAPIAdmin:
         When: reload_indices is called.
         Then: successful and failed counts are reported separately.
         """
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         mock_vs = AsyncMock(spec=IVectorStore)
         mock_vs.index_path = "./data/indices"
         mock_vs.list_namespaces = AsyncMock(return_value=["default", "test"])
@@ -2042,7 +1971,7 @@ class TestAPIAdmin:
         When: reload_indices is called.
         Then: HTTPException 503 is raised.
         """
-        state = self._make_admin_state(enabled=True)
+        state = _make_admin_state(enabled=True)
         state.vector_store = None
         with pytest.raises(HTTPException) as exc_info:
             await admin.reload_indices(state)

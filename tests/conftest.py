@@ -470,7 +470,7 @@ def make_chunk(
 # ---------------------------------------------------------------------------
 
 
-def make_shell_state(vector_store: MagicMock | None = None) -> MagicMock:
+def build_shell_state(vector_store: MagicMock | None = None) -> MagicMock:
     """Family-C mannequin: lifespan unit tests patch init_adapters, so
     the state is the mock's return value — path A cannot reach here.
 
@@ -497,6 +497,12 @@ def make_shell_state(vector_store: MagicMock | None = None) -> MagicMock:
     state.reranker = MagicMock(spec=IReranker)
     state.chunker = MagicMock(spec=IChunker)
     return state
+
+
+@pytest.fixture
+def make_shell_state():
+    """Factory fixture — returns build_shell_state (family-C mannequins)."""
+    return build_shell_state
 
 
 # ---------------------------------------------------------------------------
