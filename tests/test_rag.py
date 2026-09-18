@@ -694,7 +694,7 @@ class TestRAGIndexing:
 
         from ai_assistant.core.config import SourceConfig
 
-        def _slow_read(path: Path) -> str:
+        def _slow_read(path: Path, encodings: list[str] | None = None) -> str:
             time.sleep(0.05)  # sleep: intentional — blocking sync I/O simulation
             return "test content"
 

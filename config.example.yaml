@@ -277,9 +277,11 @@ rag:
   token_margin_min: 384
   token_margin_pct: 0.10
   sources:
-    # Documents are auto-indexed every 60s when the server is running.
-    # A changed file gets 3 indexing attempts; after 3 failures the watcher
-    # stops retrying it until it changes again or POST /rag/reindex runs.
+    # Documents are auto-indexed by the watcher: a fixed 60 s poll
+    # interval and 3 retry attempts per change (code constants —
+    # raise a config request with a real case first). After 3
+    # failures the watcher stops retrying until the file changes
+    # again or POST /rag/reindex runs.
     # Files >150 KB: the CPU embedder (~4 chunks/s) cannot finish within
     # the 600 s indexing window — split first: put originals into
     # data/raw_documents/ and run scripts/prepare_docs.py (writes ~12 KB
@@ -328,6 +330,11 @@ rag:
   # own forms in the live config.yaml. Absent = no phrase parsing
   # (digital date forms like "2026-03" still work).
   date_prepositions: ["in", "for"]
+  # File-reading encodings, tried in order. Owner LANGUAGE DATA:
+  # ship your own chain (e.g. add koi8-r). The LAST entry must be
+  # permissive (latin-1) or foreign files fail loudly instead of
+  # decoding to mojibake.
+  file_encodings: ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
 
 namespaces:
   default:

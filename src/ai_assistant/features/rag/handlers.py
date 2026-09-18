@@ -19,7 +19,11 @@ from ai_assistant.api.deps import (
     shutdown_chunker_if_temporary,
 )
 from ai_assistant.core.config import get_chat_namespace
-from ai_assistant.core.constants import INDEX_IO_TIMEOUT, REINDEX_TASK_TIMEOUT
+from ai_assistant.core.constants import (
+    HEALTH_ENDPOINT_TIMEOUT,
+    INDEX_IO_TIMEOUT,
+    REINDEX_TASK_TIMEOUT,
+)
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
@@ -383,7 +387,10 @@ async def rag_health(
 ) -> HealthResponse:
     trace_id = uuid.uuid4().hex
     try:
-        health = await asyncio.wait_for(manager.health(), timeout=10.0)
+        health = await asyncio.wait_for(
+            manager.health(),
+            timeout=HEALTH_ENDPOINT_TIMEOUT,
+        )
     except TimeoutError:
         _logger.warning("RAG health check timed out", extra={"trace_id": trace_id})
         raise HTTPException(status_code=503, detail="Health check timed out") from None
@@ -764,6 +771,7 @@ async def reindex_documents(
                                 sources=state.config.rag.sources,
                                 index_path=state.config.vector_store.index_path,
                                 lexical_index=state.lexical_index,
+                                encodings=list(state.config.rag.file_encodings),
                             )
                         finally:
                             await shutdown_chunker_if_temporary(
@@ -793,6 +801,7 @@ async def reindex_documents(
                                     sources=state.config.rag.sources,
                                     index_path=state.config.vector_store.index_path,
                                     lexical_index=state.lexical_index,
+                                    encodings=list(state.config.rag.file_encodings),
                                 )
                                 combined_results.update(
                                     ns_result.get("results", {})

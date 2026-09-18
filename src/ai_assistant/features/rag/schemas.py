@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ai_assistant.core.constants import TOP_K_MAX
+
 __all__ = [
     "DeleteRequest",
     "DeleteResponse",
@@ -62,7 +64,7 @@ class QueryRequest(BaseModel):
     """RAG query request."""
 
     query: str
-    top_k: int | None = Field(default=None, ge=1, le=50)
+    top_k: int | None = Field(default=None, ge=1, le=TOP_K_MAX)
     prompt_name: str | None = None
     prompt_version: str | None = None
     namespace: str | None = Field(

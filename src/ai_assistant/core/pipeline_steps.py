@@ -9,7 +9,13 @@ import asyncio
 import re
 from typing import TYPE_CHECKING
 
-from ai_assistant.core.constants import CONDENSE_HISTORY_LIMIT, RRF_K
+from ai_assistant.core.constants import (
+    CONDENSE_HISTORY_LIMIT,
+    LARGE_CONTEXT_THRESHOLD,
+    MULTI_QUERY_VARIATIONS,
+    RRF_K,
+    TOKEN_MARGIN_CAP,
+)
 from ai_assistant.core.domain.configs import SamplingConfig
 from ai_assistant.core.domain.errors import (
     EMBEDDER_NOT_PROVIDED,
@@ -671,8 +677,8 @@ async def generate(data: PipelineData) -> PipelineData:
     # Small models (<32K) keep the full percentage margin.
     # Large models (>32K) cap at 8K to preserve context for chunks.
     calculated_margin = int(max_ctx * cfg.token_margin_pct)
-    if max_ctx > 32 * 1024:
-        calculated_margin = min(calculated_margin, 8 * 1024)
+    if max_ctx > LARGE_CONTEXT_THRESHOLD:
+        calculated_margin = min(calculated_margin, TOKEN_MARGIN_CAP)
     margin = max(cfg.token_margin_min, calculated_margin)
     limit = max_ctx - margin - system_tokens
 
@@ -790,7 +796,7 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
                 if cleaned:
                     variations.append(cleaned)
 
-    queries = [data.query.text, *variations[:2]]
+    queries = [data.query.text, *variations[:MULTI_QUERY_VARIATIONS]]
     _logger.debug(
         "multi_query variations",
         extra={"trace_id": data.trace_id, "count": len(queries), "queries": queries},

@@ -937,3 +937,26 @@ class TestExplicitModelGuard:
             vector_store=VectorStoreConfig(dim=1024),
         )
         assert cfg.embedder.api_base == "http://127.0.0.1:8081/v1"
+
+
+
+
+def test_file_encodings_empty_rejected() -> None:
+    """Drift #155: an empty encoding chain is a config error — the
+    reader would fail every file with LookupError-wrapped empty reads."""
+    import pytest
+    from pydantic import ValidationError
+
+    from ai_assistant.core.config import RAGConfig
+
+    with pytest.raises(ValidationError):
+        RAGConfig(file_encodings=[])
+
+
+def test_file_encodings_default_chain() -> None:
+    """The default chain preserves pre-#155 behavior (drift #46:
+    utf-8-sig first, latin-1 tail)."""
+    from ai_assistant.core.config import RAGConfig
+
+    cfg = RAGConfig()
+    assert cfg.file_encodings == ["utf-8-sig", "cp1251", "cp1252", "latin-1"]

@@ -53,12 +53,43 @@ RRF_K = 60
 # adapters both import it.
 DOC_DATE_KEY = "doc_date"
 
+# --- Adaptive token margin (generate step) ---
+# Above this context size the percentage margin is capped: a fixed
+# 8K reserve keeps most of a large context for chunks instead of
+# spending 10% of a 128K window on headroom. Threshold/cap pair —
+# a heuristic, not a measured constant; revisit on a >32K model.
+LARGE_CONTEXT_THRESHOLD = 32 * 1024
+TOKEN_MARGIN_CAP = 8 * 1024
+# How many query variations multi_query_retrieve keeps (the prompt
+# asks for the same count — multi_query.j2 says "2 different ways";
+# keep them in sync or the extra variations are generated and
+# silently dropped).
+MULTI_QUERY_VARIATIONS = 2
+# Request-schema ceiling for top_k: guards runaway API values; the
+# pipeline's own default is rag.top_k.
+TOP_K_MAX = 50
+# Sanity bounds for a parsed year in DateFilter: rejects garbage
+# from malformed tokens, not a policy about historical ranges.
+YEAR_MIN = 1900
+YEAR_MAX = 2200
+# Health-check budgets (drift #155): the manager's health() lists
+# every namespace — 5 s per namespace bounds a hung store; the
+# /rag/health endpoint wraps the WHOLE call in a flat 10 s.
+HEALTH_CHECK_TIMEOUT = 5.0
+HEALTH_ENDPOINT_TIMEOUT = 10.0
+
 # --- Operation timeouts (seconds) ---
 # Single vector store index save/load I/O operation (per namespace).
+# Writes are atomic temp-file renames (milliseconds at ~3.5K chunks,
+# measured): 10 s covers a 10x corpus growth before it needs raising.
 INDEX_IO_TIMEOUT = 10.0
-# Graceful adapter shutdown during lifespan cleanup.
+# Graceful adapter shutdown during lifespan cleanup. Adapters close
+# HTTP clients / flush state — seconds, not minutes; the timeout only
+# bounds a hung close from blocking the whole shutdown loop.
 ADAPTER_SHUTDOWN_TIMEOUT = 5.0
-# Background reindex task hard limit (4 hours).
+# Background reindex task hard limit. 4 hours covers the projected
+# full-corpus CPU indexing (~135K chunks at ~8.7 chunks/s ≈ 4.3 h,
+# drift #147) — raise together with corpus growth, not before.
 REINDEX_TASK_TIMEOUT = 14400.0
 # Source watcher single auto-index operation limit.
 # Measured 2026-09-01 (embed.progress logging): GPU embedder at

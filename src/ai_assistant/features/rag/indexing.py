@@ -69,16 +69,17 @@ def _extract_doc_date(
     return None
 
 
-def _read_file_sync(path: Path) -> str | None:
+def _read_file_sync(path: Path, encodings: list[str]) -> str | None:
     """Read text file with encoding fallback.  SYNC — call via to_thread.
 
     Returns None when the OS refuses the read (locked file, permissions).
     An empty string means the file was read and is genuinely empty.
+    encodings come from config (rag.file_encodings — owner language
+    data, drift #155); the first entry should be utf-8-sig: it decodes
+    plain UTF-8 identically and strips the BOM, and plain utf-8 must
+    not precede it — it accepts BOM files "successfully", leaking
+    U+FEFF into chunk text (drift #46).
     """
-    # utf-8-sig first: decodes plain UTF-8 identically and strips the BOM.
-    # Plain utf-8 must not precede it — it accepts BOM files "successfully",
-    # leaking U+FEFF into chunk text (drift #46).
-    encodings = ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
     for enc in encodings:
         try:
             return path.read_text(encoding=enc)
@@ -100,6 +101,7 @@ def _collect_files_sync(
     source: SourceConfig,
     max_file_size: int | None = None,
     skip: dict[str, tuple[str | None, int, int]] | None = None,
+    encodings: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], set[str]]:
     """Collect documents from a single source configuration.
 
@@ -158,7 +160,12 @@ def _collect_files_sync(
                 skipped_files += 1
                 uris.add(source_uri)
                 continue
-        content = _read_file_sync(file_path)
+        # Default = the full built-in chain (config default), so
+        # paths that do not pass encodings keep pre-#155 behavior.
+        content = _read_file_sync(
+            file_path,
+            encodings or ["utf-8-sig", "cp1251", "cp1252", "latin-1"],
+        )
         if content is None:
             # Unreadable is not deleted: keep the uri so orphan cleanup
             # preserves the stored chunks (locked file, permissions).
@@ -219,23 +226,30 @@ def _uri_stats(
 def read_sources(
     sources: list[SourceConfig],
     max_file_size: int | None = None,
+    encodings: list[str] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Read all configured sources and group by namespace.
 
     Args:
         sources: List of SourceConfig from RAGConfig.
         max_file_size: Skip files larger than this (bytes).
+        encodings: encoding chain from rag.file_encodings; None =
+            the safe minimum (utf-8-sig only) — callers that read
+            real corpora must pass the config chain (drift #155).
 
     Returns:
         {namespace: [document_dicts]}.
     """
-    return _read_sources_incremental(sources, max_file_size)[0]
+    return _read_sources_incremental(
+        sources, max_file_size, None, encodings
+    )[0]
 
 
 def _read_sources_incremental(
     sources: list[SourceConfig],
     max_file_size: int | None = None,
     skip_by_ns: dict[str, dict[str, tuple[str | None, int, int]]] | None = None,
+    encodings: list[str] | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, set[str]]]:
     """Read sources; unchanged+complete files (per *skip_by_ns*) are
     not read from disk.
@@ -247,7 +261,7 @@ def _read_sources_incremental(
     for source in sources:
         skip = skip_by_ns.get(source.namespace) if skip_by_ns else None
         docs, uris = _collect_files_sync(
-            source, max_file_size=max_file_size, skip=skip
+            source, max_file_size=max_file_size, skip=skip, encodings=encodings
         )
         if uris:
             inventories[source.namespace] = (
@@ -453,6 +467,7 @@ async def index_folder(
     sources: list[SourceConfig] | None = None,
     index_path: str | None = None,
     lexical_index: ILexicalIndex | None = None,
+    encodings: list[str] | None = None,
 ) -> dict[str, Any]:
     """Index documents from disk folders directly into vector store.
 
@@ -566,6 +581,7 @@ async def index_folder(
         selected_sources,
         max_file_size,
         skip_by_ns,
+        encodings,
     )
     if not inventory_by_ns:
         # An empty corpus is a failed run, not a silent success: a typo

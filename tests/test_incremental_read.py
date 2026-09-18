@@ -73,9 +73,9 @@ class TestIncrementalRead:
         calls = {"n": 0}
         real_read = indexing._read_file_sync
 
-        def counting_read(path: Path) -> str | None:
+        def counting_read(path: Path, encodings: list[str] | None = None) -> str | None:
             calls["n"] += 1
-            return real_read(path)
+            return real_read(path, encodings)
 
         monkeypatch.setattr(indexing, "_read_file_sync", counting_read)
 
@@ -122,9 +122,9 @@ class TestIncrementalRead:
         calls = {"n": 0}
         real_read = indexing._read_file_sync
 
-        def counting_read(path: Path) -> str | None:
+        def counting_read(path: Path, encodings: list[str] | None = None) -> str | None:
             calls["n"] += 1
-            return real_read(path)
+            return real_read(path, encodings)
 
         monkeypatch.setattr(indexing, "_read_file_sync", counting_read)
 
@@ -225,7 +225,7 @@ class TestUnreadableFiles:
             raise PermissionError("locked by another process")
 
         monkeypatch.setattr(Path, "read_text", locked_read)
-        assert indexing._read_file_sync(target) is None
+        assert indexing._read_file_sync(target, ["utf-8-sig"]) is None
 
     async def test_collect_unreadable_keeps_uri(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -235,7 +235,7 @@ class TestUnreadableFiles:
         docs_dir.mkdir()
         (docs_dir / "a.md").write_text("content", encoding="utf-8")
 
-        def unreadable(path: Path) -> str | None:
+        def unreadable(path: Path, encodings: list[str] | None = None) -> str | None:
             return None
 
         monkeypatch.setattr(indexing, "_read_file_sync", unreadable)
@@ -272,7 +272,7 @@ class TestUnreadableFiles:
         # attempt the read and hit the unreadable path.
         os.utime(f, (2_000_000, 2_000_000))
 
-        def unreadable(path: Path) -> str | None:
+        def unreadable(path: Path, encodings: list[str] | None = None) -> str | None:
             return None
 
         monkeypatch.setattr(indexing, "_read_file_sync", unreadable)
@@ -508,9 +508,9 @@ class TestTargetedReadScope:
         calls: list[str] = []
         real_read = indexing._read_file_sync
 
-        def counting_read(path: Path) -> str | None:
+        def counting_read(path: Path, encodings: list[str] | None = None) -> str | None:
             calls.append(path.name)
-            return real_read(path)
+            return real_read(path, encodings)
 
         monkeypatch.setattr(indexing, "_read_file_sync", counting_read)
 
@@ -550,9 +550,9 @@ class TestTargetedReadScope:
         calls: list[str] = []
         real_read = indexing._read_file_sync
 
-        def counting_read(path: Path) -> str | None:
+        def counting_read(path: Path, encodings: list[str] | None = None) -> str | None:
             calls.append(path.name)
-            return real_read(path)
+            return real_read(path, encodings)
 
         monkeypatch.setattr(indexing, "_read_file_sync", counting_read)
 
@@ -791,3 +791,39 @@ class TestListByFilterPrecedence:
             {"source": "real-source"}, namespace="ns"
         )
         assert len(hits) == 1
+
+
+
+
+class TestFileEncodingsWiring:
+    """Drift #155: the encoding chain must actually reach the file
+    reader — a custom chain decides how files decode; the default
+    chain being similar is not the same as the custom one working."""
+
+    def test_custom_chain_reads_cp1251(self, tmp_path) -> None:
+        from ai_assistant.features.rag.indexing import _read_file_sync
+
+        (tmp_path / "doc.md").write_bytes("Мой любимый город".encode("cp1251"))
+
+        # Custom chain, cp1251 first: decodes correctly.
+        content = _read_file_sync(tmp_path / "doc.md", ["cp1251", "utf-8-sig"])
+        assert content == "Мой любимый город"
+
+        # Strict chain (utf-8-sig only) on the same file: exhausts —
+        # empty result, the owner's explicit choice, never mojibake.
+        strict = _read_file_sync(tmp_path / "doc.md", ["utf-8-sig"])
+        assert strict == ""
+
+    def test_chain_reaches_collect_files(self, tmp_path) -> None:
+        """The chain passes through _collect_files_sync (the real
+        ingestion path) — not just the reader in isolation."""
+        from ai_assistant.core.config import SourceConfig
+        from ai_assistant.features.rag.indexing import _collect_files_sync
+
+        (tmp_path / "note.md").write_bytes("Мой любимый город".encode("cp1251"))
+        source = SourceConfig(
+            namespace="ns", path=str(tmp_path), include=["*.md"]
+        )
+
+        docs, _uris = _collect_files_sync(source, encodings=["cp1251"])
+        assert docs and docs[0]["content"] == "Мой любимый город"

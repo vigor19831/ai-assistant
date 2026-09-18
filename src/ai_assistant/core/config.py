@@ -271,6 +271,20 @@ class RAGConfig(BaseSettings):
     # which words may precede a month name in a query. Absent = no
     # phrase parsing (digital forms still work).
     date_prepositions: list[str] = Field(default_factory=list)
+    # File-reading encodings, tried in order (drift #155: owner
+    # LANGUAGE DATA, like the month names — the last entry must be
+    # a permissive one or foreign files fail loudly instead of
+    # decoding to mojibake). Absent = the built-in default chain.
+    file_encodings: list[str] = Field(
+        default_factory=lambda: ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
+    )
+
+    @field_validator("file_encodings")
+    @classmethod
+    def _validate_encodings(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("file_encodings must not be empty")
+        return v
 
     @field_validator("date_month_names")
     @classmethod

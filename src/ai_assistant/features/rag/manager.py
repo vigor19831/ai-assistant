@@ -18,6 +18,7 @@ from ai_assistant.core.config import RAGStep, SourceConfig
 from ai_assistant.core.constants import (
     DEFAULT_RAG_PROMPT,
     DOC_DATE_KEY,
+    HEALTH_CHECK_TIMEOUT,
     SOURCE_INDEX_TIMEOUT,
     is_refusal_answer,
 )
@@ -382,7 +383,7 @@ class RAGManager:
             for ns in namespaces:
                 chunks = await asyncio.wait_for(
                     self.vector_store.list_by_filter({}, namespace=ns),
-                    timeout=5.0,
+                    timeout=HEALTH_CHECK_TIMEOUT,
                 )
                 chunk_count += len(chunks)
         except TimeoutError:

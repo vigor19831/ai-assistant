@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
+from ai_assistant.core.constants import YEAR_MAX, YEAR_MIN
+
 from .configs import SamplingConfig
 
 if TYPE_CHECKING:
@@ -38,7 +40,7 @@ class DateFilter:
     def __post_init__(self) -> None:
         if not 1 <= self.month <= 12:
             raise ValueError(f"month must be 1-12, got {self.month}")
-        if self.year is not None and not 1900 <= self.year <= 2200:
+        if self.year is not None and not YEAR_MIN <= self.year <= YEAR_MAX:
             raise ValueError(f"year out of range: {self.year}")
 
     def matches(self, doc_date: str | None) -> bool:

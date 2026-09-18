@@ -214,6 +214,7 @@ async def _index_source(
             sources=[src],
             index_path=state.vector_store.index_path,
             lexical_index=state.lexical_index,
+            encodings=list(config.rag.file_encodings),
         )
         if not result.get("success", False):
             logger.error(

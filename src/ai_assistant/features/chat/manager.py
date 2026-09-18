@@ -50,6 +50,10 @@ logger = get_logger("chat")
 
 # Token overhead for message framing (role markers, separators, formatting)
 # that the tokenizer does not count but the actual prompt includes.
+# A safety allowance, not a measured constant: 50 tokens covers the
+# OpenAI-style message framing of a trimmed history; revisit only if
+# a tokenizer/model pair with heavier framing appears (none measured
+# to date).
 _HISTORY_TOKEN_OVERHEAD = 50
 
 # Marker of the Sources block appended to RAG answers. History stores
