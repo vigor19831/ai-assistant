@@ -2167,7 +2167,7 @@ async def test_update_api_key_rejects_whitespace_only(mock_state):
 
 
 @pytest.mark.asyncio
-async def test_oai_conversation_id_recalls_server_history(mock_state):
+async def test_oai_conversation_id_recalls_server_history(real_state):
     """Drift #51: same conversation_id + no client messages -> server
     history is loaded and reaches the LLM.
     """
@@ -2180,13 +2180,13 @@ async def test_oai_conversation_id_recalls_server_history(mock_state):
         OAIChatMessage,
     )
 
-    mock_state.storage.get_history = AsyncMock(
+    real_state.storage.get_history = AsyncMock(
         return_value=[
             {"role": "user", "content": "Remember: my favorite number is 42."},
             {"role": "assistant", "content": "Got it! 42."},
         ]
     )
-    mock_state.chat_manager.chat = AsyncMock(
+    real_state.chat_manager.chat = AsyncMock(
         return_value=AssistantMessage(text="42", metadata={})
     )
 
@@ -2196,12 +2196,12 @@ async def test_oai_conversation_id_recalls_server_history(mock_state):
         conversation_id="conv-alpha",
     )
     await openai_chat_completions(
-        req, request=MagicMock(), manager=mock_state.chat_manager, state=mock_state
+        req, request=MagicMock(), manager=real_state.chat_manager, state=real_state
     )
 
     # Server history was fetched and passed to the manager.
-    mock_state.storage.get_history.assert_awaited_once()
-    history_arg = mock_state.chat_manager.chat.call_args.kwargs["history"]
+    real_state.storage.get_history.assert_awaited_once()
+    history_arg = real_state.chat_manager.chat.call_args.kwargs["history"]
     assert any("42" in h["content"] for h in history_arg)
 
 
