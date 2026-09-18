@@ -41,6 +41,22 @@ from ai_assistant.core.query_parser import parse_rag_query
 from ai_assistant.features.chat.manager import ChatManager
 from ai_assistant.features.rag.manager import IndexingManager, RAGManager
 
+
+def _mock_llm() -> MockLLM:
+    """Standard test MockLLM (edge-case suite)."""
+    return MockLLM(
+        LLMConfigData(
+            model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
+        )
+    )
+
+
+def _mock_embedder() -> MockEmbedder:
+    """Standard 384-dim test MockEmbedder (edge-case suite)."""
+    return MockEmbedder(
+        EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
+    )
+
 # ============================================================================
 # 12.1 Unicode & Special Characters
 # ============================================================================
@@ -152,11 +168,7 @@ class TestUnicodeMockLLM:
 
     @pytest.fixture
     def llm(self):
-        return MockLLM(
-            LLMConfigData(
-                model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
-            )
-        )
+        return _mock_llm()
 
     @pytest.mark.asyncio
     async def test_cyrillic_echo(self, llm):
@@ -187,9 +199,7 @@ class TestUnicodeEmbedder:
 
     @pytest.fixture
     def embedder(self):
-        return MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
+        return _mock_embedder()
 
     @pytest.mark.asyncio
     async def test_cyrillic_embedding(self, embedder):
@@ -341,14 +351,8 @@ class TestEmptySystemState:
     @pytest.fixture
     def fresh_rag_manager(self, fresh_store):
         """Return RAGManager with empty store and minimal deps."""
-        llm = MockLLM(
-            LLMConfigData(
-                model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
-            )
-        )
-        embedder = MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
+        llm = _mock_llm()
+        embedder = _mock_embedder()
         reranker = NullReranker(RerankerConfigData())
         tokenizer = CharFallbackTokenizer(TokenizerConfigData())
         return RAGManager(
@@ -410,14 +414,8 @@ class TestEmptySystemState:
     @pytest.mark.asyncio
     async def test_pipeline_steps_on_empty_data(self, fresh_store):
         """Individual pipeline steps must handle empty data gracefully."""
-        embedder = MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
-        llm = MockLLM(
-            LLMConfigData(
-                model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
-            )
-        )
+        embedder = _mock_embedder()
+        llm = _mock_llm()
         tokenizer = CharFallbackTokenizer(TokenizerConfigData())
 
         cfg = PipelineConfig(
@@ -464,9 +462,7 @@ class TestEmptySystemState:
     async def test_indexing_manager_empty_documents(self, fresh_store):
         """Indexing empty documents must return zero counts."""
         chunker = SimpleChunker(ChunkerConfigData(chunk_size=100, chunk_overlap=0))
-        embedder = MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
+        embedder = _mock_embedder()
         manager = IndexingManager(
             chunker=chunker,
             embedder=embedder,
@@ -479,11 +475,7 @@ class TestEmptySystemState:
     @pytest.mark.asyncio
     async def test_chat_manager_no_rag_prefix_routes_to_llm(self):
         """Chat without RAG prefix on empty system must route directly to LLM."""
-        llm = MockLLM(
-            LLMConfigData(
-                model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
-            )
-        )
+        llm = _mock_llm()
         reranker = NullReranker(RerankerConfigData())
         manager = ChatManager(
             llm=llm,
@@ -541,14 +533,8 @@ class TestUnicodeFullPipeline:
             VectorStoreConfigData(dim=384, index_path=str(tmp_path / "vs"))
         )
         chunker = SimpleChunker(ChunkerConfigData(chunk_size=100, chunk_overlap=10))
-        embedder = MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
-        llm = MockLLM(
-            LLMConfigData(
-                model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
-            )
-        )
+        embedder = _mock_embedder()
+        llm = _mock_llm()
         reranker = NullReranker(RerankerConfigData())
 
         # Index a Cyrillic document
@@ -596,14 +582,8 @@ class TestUnicodeFullPipeline:
             VectorStoreConfigData(dim=384, index_path=str(tmp_path / "vs"))
         )
         chunker = SimpleChunker(ChunkerConfigData(chunk_size=50, chunk_overlap=5))
-        embedder = MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
-        llm = MockLLM(
-            LLMConfigData(
-                model="mock", api_base="", api_key="", max_tokens=100, temperature=0.7
-            )
-        )
+        embedder = _mock_embedder()
+        llm = _mock_llm()
         reranker = NullReranker(RerankerConfigData())
 
         indexer = IndexingManager(
