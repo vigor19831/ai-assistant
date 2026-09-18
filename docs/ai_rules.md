@@ -196,6 +196,12 @@ Rules:
   never from memory of an earlier paste (files drift; four anchor misses
   in one session, 2026-09-17). For additions at the end of a file,
   instruct an append-to-end instead of an anchor.
+- Replace All pairs state the expected replacement count (verify the
+  editor's counter); single-replace pairs carry a unique context anchor.
+- Full-file replace is instructed as "replace the entire file content" —
+  an insertion point is never described.
+- "Find not found" on re-application of an already-issued pair means
+  "already applied" — expected, not an error.
 
 File review checklist (output findings only, skip if clean):
 - LANGUAGE: No Cyrillic in src/ code/comments/docstrings; scripts'
