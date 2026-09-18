@@ -247,6 +247,9 @@ def build_mock_state() -> InitializedAppState:  # type: ignore[name-defined]  # 
             stop_sequences=tuple(config.llm.stop_sequences),
         ),
         rag_steps=list(config.rag.steps),
+        lexical_index=None,
+        date_month_names=dict(config.rag.date_month_names),
+        date_prepositions=list(config.rag.date_prepositions),
     )
     rag_manager = RAGManager(
         llm=llm,
@@ -264,6 +267,9 @@ def build_mock_state() -> InitializedAppState:  # type: ignore[name-defined]  # 
             stop_sequences=tuple(config.llm.stop_sequences),
         ),
         rag_steps=list(config.rag.steps),
+        lexical_index=None,
+        date_month_names=dict(config.rag.date_month_names),
+        date_prepositions=list(config.rag.date_prepositions),
     )
 
     return InitializedAppState(
