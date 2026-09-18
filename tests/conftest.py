@@ -597,59 +597,6 @@ def make_test_client():
 # Adding a new adapter? Just append to params — no new test code needed.
 
 
-@pytest.fixture(params=["mock", "openai_compatible"])
-def embedder_adapter(request):
-    """Factory: yield concrete IEmbedder for parametrized contract tests."""
-    from ai_assistant.adapters.embedder_mock import MockEmbedder
-    from ai_assistant.adapters.embedder_openai_compatible import (
-        OpenAICompatibleEmbedder,
-    )
-    from ai_assistant.core.domain.configs import EmbedderConfigData
-
-    if request.param == "mock":
-        return MockEmbedder(
-            EmbedderConfigData(model="mock", dim=384, api_base="", api_key="")
-        )
-    if request.param == "openai_compatible":
-        return OpenAICompatibleEmbedder(
-            EmbedderConfigData(
-                model="test", dim=384, api_base="http://localhost:9999/v1", api_key="x"
-            )
-        )
-    raise ValueError(f"Unknown embedder: {request.param}")
-
-
-@pytest.fixture(params=["mock", "openai_compatible"])
-def llm_adapter(request):
-    """Factory: yield concrete ILLM for parametrized contract tests."""
-    from ai_assistant.adapters.llm_mock import MockLLM
-    from ai_assistant.adapters.llm_openai_compatible import OpenAICompatibleLLM
-    from ai_assistant.core.domain.configs import LLMConfigData
-
-    if request.param == "mock":
-        return MockLLM(
-            LLMConfigData(
-                model="mock",
-                api_base="",
-                api_key="",
-                max_tokens=100,
-                temperature=0.7,
-            )
-        )
-    if request.param == "openai_compatible":
-        return OpenAICompatibleLLM(
-            LLMConfigData(
-                model="test",
-                api_base="http://localhost:9999/v1",
-                api_key="x",
-                max_tokens=100,
-                temperature=0.7,
-                timeout=1.0,
-            )
-        )
-    raise ValueError(f"Unknown llm: {request.param}")
-
-
 @pytest.fixture(params=["memory", "faiss"])
 def vector_store_adapter(request, tmp_path):
     """Factory: yield concrete IVectorStore for parametrized contract tests."""
@@ -675,46 +622,3 @@ def vector_store_adapter(request, tmp_path):
             )
         )
     raise ValueError(f"Unknown vector_store: {request.param}")
-
-
-@pytest.fixture(params=["null", "api"])
-def reranker_adapter(request):
-    """Factory: yield concrete IReranker for parametrized contract tests."""
-    from ai_assistant.adapters.reranker_null import NullReranker
-    from ai_assistant.core.domain.configs import RerankerConfigData
-
-    if request.param == "null":
-        return NullReranker(RerankerConfigData(model="null", api_base="", api_key=""))
-    if request.param == "api":
-        from ai_assistant.adapters.reranker_api import APIReranker
-
-        return APIReranker(
-            RerankerConfigData(
-                model="test", api_base="http://localhost:9999/v1", api_key="x"
-            )
-        )
-    raise ValueError(f"Unknown reranker: {request.param}")
-
-
-@pytest.fixture(params=["simple"])
-def chunker_adapter(request):
-    """Factory: yield concrete IChunker for parametrized contract tests."""
-    from ai_assistant.adapters.chunker_simple import SimpleChunker
-    from ai_assistant.core.domain.configs import ChunkerConfigData
-
-    if request.param == "simple":
-        return SimpleChunker(ChunkerConfigData(chunk_size=100, chunk_overlap=0))
-    raise ValueError(f"Unknown chunker: {request.param}")
-
-
-@pytest.fixture(params=["sqlite"])
-def chat_storage_adapter(request, tmp_path):
-    """Factory: yield concrete IChatStorage for parametrized contract tests."""
-    from ai_assistant.adapters.storage_sqlite import SQLiteStorage
-    from ai_assistant.core.domain.configs import StorageConfigData
-
-    if request.param == "sqlite":
-        return SQLiteStorage(
-            StorageConfigData(db_path=str(tmp_path / "chat_storage.db"))
-        )
-    raise ValueError(f"Unknown storage: {request.param}")
