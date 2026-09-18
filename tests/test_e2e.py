@@ -89,7 +89,7 @@ class TestE2EChat:
         )
         assert resp.status_code == 200
 
-    def test_chat_llm_adapter_error_returns_503(self, mock_state):
+    def test_chat_llm_adapter_error_returns_503(self, mock_state, make_test_client):
         """Given: ChatManager.chat raises AdapterError.
         When: POST /api/v1/chat.
         Then: returns 503 Service Unavailable."""
@@ -111,24 +111,17 @@ class TestE2EChat:
         assert resp.status_code == 503
         assert "temporarily unavailable" in resp.json()["detail"]
 
-    def test_chat_llm_generic_exception_returns_500(self, mock_state):
+    def test_chat_llm_generic_exception_returns_500(
+        self, mock_state, make_test_client
+    ):
         """Given: ChatManager.chat raises generic Exception.
         When: POST /api/v1/chat.
         Then: handler catches it and returns 500."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.main import create_app
-
         mock_mgr = MagicMock()
         mock_mgr.chat = AsyncMock(side_effect=Exception("Generic LLM fail"))
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(
-            app,
-            raise_server_exceptions=False,
-            headers={"Authorization": "Bearer test-e2e-key"},
+        test_client = make_test_client(
+            mock_state, manager=mock_mgr, raise_server_exceptions=False
         )
         resp = test_client.post(
             "/api/v1/chat",
@@ -158,13 +151,10 @@ class TestE2EStream:
         assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
         assert "data:" in resp.text
 
-    def test_stream_trace_id_propagation(self, mock_state):
+    def test_stream_trace_id_propagation(self, mock_state, make_test_client):
         """Given: handler generates trace_id for each request.
         When: POST /api/v1/chat/stream.
         Then: trace_id is passed to chat_manager via metadata."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         captured_meta: dict[str, Any] = {}
 
@@ -175,11 +165,7 @@ class TestE2EStream:
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = capture_stream
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/api/v1/chat/stream",
             json={"message": "Hello", "conversation_id": "test-trace"},
@@ -187,13 +173,12 @@ class TestE2EStream:
         assert resp.status_code == 200
         assert "trace_id" in captured_meta.get("metadata", {})
 
-    def test_stream_chat_llm_adapter_error_returns_sse_error(self, mock_state):
+    def test_stream_chat_llm_adapter_error_returns_sse_error(
+        self, mock_state, make_test_client
+    ):
         """Given: ChatManager.stream_chat raises AdapterError.
         When: POST /api/v1/chat/stream.
         Then: returns SSE stream with error payload and [DONE] sentinel."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         async def failing_stream(*args, **kwargs):
             raise AdapterError("LLM stream down")
@@ -202,11 +187,7 @@ class TestE2EStream:
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = failing_stream
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/api/v1/chat/stream",
             json={"message": "Hello", "conversation_id": "test-stream-err"},
@@ -216,13 +197,12 @@ class TestE2EStream:
         assert "LLM service temporarily unavailable" in resp.text
         assert "data: [DONE]" in resp.text
 
-    def test_stream_chat_generic_exception_returns_sse_error(self, mock_state):
+    def test_stream_chat_generic_exception_returns_sse_error(
+        self, mock_state, make_test_client
+    ):
         """Given: ChatManager.stream_chat raises generic Exception.
         When: POST /api/v1/chat/stream.
         Then: returns SSE stream with error payload and [DONE] sentinel."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         async def failing_stream(*args, **kwargs):
             raise Exception("Generic stream fail")
@@ -245,13 +225,10 @@ class TestE2EStream:
         assert "Internal server error" in resp.text
         assert "data: [DONE]" in resp.text
 
-    def test_stream_interruption_by_client(self, mock_state):
+    def test_stream_interruption_by_client(self, mock_state, make_test_client):
         """Given: server is producing an SSE stream.
         When: client disconnects after reading a few chunks.
         Then: handler does not crash; cancellation is handled gracefully."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         async def endless_stream(*args, **kwargs):
             """Yield chunks immediately; client disconnects mid-stream."""
@@ -281,13 +258,10 @@ class TestE2EStream:
                     break
             assert len(chunks) >= 1
 
-    def test_stream_malformed_sse_handling(self, mock_state):
+    def test_stream_malformed_sse_handling(self, mock_state, make_test_client):
         """Given: stream raises exception containing quotes and newlines.
         When: POST /api/v1/chat/stream.
         Then: SSE error payload is valid JSON without injection."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         async def _malicious_stream(*args, **kwargs):
             raise ValueError('Error with "quotes" and \n newlines')
@@ -367,13 +341,12 @@ class TestE2EOpenAICompat:
         assert resp.status_code == 400
         assert "non-empty content" in resp.json()["detail"]
 
-    def test_openai_chat_completions_llm_error_returns_503(self, mock_state):
+    def test_openai_chat_completions_llm_error_returns_503(
+        self, mock_state, make_test_client
+    ):
         """Given: ChatManager.chat raises AdapterError in OAI endpoint.
         When: POST /v1/chat/completions.
         Then: returns 503 Service Unavailable."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         mock_mgr = MagicMock()
         mock_mgr.chat = AsyncMock(side_effect=AdapterError("LLM down"))
@@ -409,13 +382,10 @@ class TestE2EOpenAICompat:
         assert resp.headers["content-type"] == "text/event-stream; charset=utf-8"
         assert "data:" in resp.text
 
-    def test_chat_completions_trace_id(self, mock_state):
+    def test_chat_completions_trace_id(self, mock_state, make_test_client):
         """Given: OpenAI handler generates trace_id.
         When: POST /v1/chat/completions (non-streaming).
         Then: trace_id is propagated to chat_manager metadata."""
-        from ai_assistant.api.security import set_api_key
-        from ai_assistant.features.chat.handlers import get_chat_manager
-        from ai_assistant.main import create_app
 
         captured_meta: dict[str, Any] = {}
 

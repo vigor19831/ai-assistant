@@ -536,15 +536,21 @@ def _build_chat_manager_mock() -> MagicMock:
     return mgr
 
 
-def _build_test_client(state, raise_server_exceptions: bool = True) -> TestClient:
-    """Build a TestClient with mock state, auth header, and ChatManager override."""
+def _build_test_client(
+    state, raise_server_exceptions: bool = True, manager: MagicMock | None = None
+) -> TestClient:
+    """Build a TestClient with mock state, auth header, and ChatManager override.
+
+    manager: None builds the default chat manager mock; pass a custom
+    mock to inject behavior (error paths, metadata capture, streams).
+    """
     from ai_assistant.api.security import set_api_key
     from ai_assistant.features.chat.handlers import get_chat_manager
     from ai_assistant.main import create_app
 
     set_api_key("test-e2e-key")
     app = create_app(state=state)
-    chat_mgr_mock = _build_chat_manager_mock()
+    chat_mgr_mock = _build_chat_manager_mock() if manager is None else manager
     app.dependency_overrides[get_chat_manager] = lambda: chat_mgr_mock
     return TestClient(
         app,
@@ -569,6 +575,12 @@ def client_no_raise(mock_state):
     Use this fixture for tests that expect 500 status codes.
     """
     return _build_test_client(mock_state, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def make_test_client():
+    """Factory fixture — returns _build_test_client for custom-manager tests."""
+    return _build_test_client
 
 
 # ---------------------------------------------------------------------------
