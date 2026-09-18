@@ -18,7 +18,6 @@ from ai_assistant.api.security import set_api_key
 from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE, AdapterError
-from ai_assistant.features.chat.handlers import get_chat_manager
 from ai_assistant.main import create_app
 
 # ── Health & Info ──
@@ -99,11 +98,7 @@ class TestE2EChat:
         mock_mgr.chat = AsyncMock(side_effect=AdapterError("LLM down"))
 
         # Build app with dependency override
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/api/v1/chat",
             json={"message": "Hello", "conversation_id": "test-503"},
@@ -211,11 +206,7 @@ class TestE2EStream:
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = failing_stream
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/api/v1/chat/stream",
             json={"message": "Hello", "conversation_id": "test-stream-err-generic"},
@@ -239,11 +230,7 @@ class TestE2EStream:
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = endless_stream
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         with test_client.stream(
             "POST",
             "/api/v1/chat/stream",
@@ -270,11 +257,7 @@ class TestE2EStream:
         mock_mgr = MagicMock()
         mock_mgr.stream_chat = _malicious_stream
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/api/v1/chat/stream",
             json={"message": 'test "quoted" and newline'},
@@ -351,11 +334,7 @@ class TestE2EOpenAICompat:
         mock_mgr = MagicMock()
         mock_mgr.chat = AsyncMock(side_effect=AdapterError("LLM down"))
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/v1/chat/completions",
             json={
@@ -396,11 +375,7 @@ class TestE2EOpenAICompat:
         mock_mgr = MagicMock()
         mock_mgr.chat = capture_chat
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        app.dependency_overrides[get_chat_manager] = lambda: mock_mgr
-
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
+        test_client = make_test_client(mock_state, manager=mock_mgr)
         resp = test_client.post(
             "/v1/chat/completions",
             json={
