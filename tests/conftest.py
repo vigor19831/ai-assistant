@@ -328,6 +328,178 @@ def isolated_app_state(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Path A: real-adapter state factory (init_adapters over mock providers)
+# ---------------------------------------------------------------------------
+
+
+# F821 false positive: the annotation resolves via the
+# function-scoped import below and is never evaluated at runtime.
+def make_app_config(root: Path) -> AppConfig:  # type: ignore[name-defined]  # noqa: F821
+    """Return a fresh AppConfig with every section named explicitly.
+
+    Mock providers only (offline, no network); all disk paths under
+    root; char_fallback tokenizer (no downloaded tokenizer files in a
+    clean environment). The section field set mirrors the proven-valid
+    _make_minimal_config from test_api.py, with three deltas: reranker
+    "null" (a registered name — "dummy" only works where create_adapter
+    is patched), paths under root, explicit tokenizer section. Tests
+    mutate the returned config directly for per-case overrides
+    (existing idiom, see isolated_app_state).
+    """
+    from ai_assistant.core.config import AppConfig
+
+    return AppConfig.model_validate(
+        {
+            "llm": {
+                "provider": "mock",
+                "max_tokens": 100,
+                "temperature": 0.7,
+                "timeout": 5.0,
+                "stop_sequences": [],
+            },
+            "embedder": {"provider": "mock", "dim": 384, "timeout": 5.0},
+            "vector_store": {
+                "provider": "memory",
+                "dim": 384,
+                "metric": "l2",
+                "index_path": str(root / "indices"),
+            },
+            "chunker": {"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
+            "tokenizer": {"provider": "char_fallback"},
+            "storage": {"provider": "sqlite", "db_path": str(root / "storage.db")},
+            "reranker": {
+                "provider": "null",
+                "model": "test",
+                "api_base": "http://test",
+                "timeout": 5.0,
+            },
+            "rag": {
+                "steps": ["embed_query", "retrieve", "build_context", "generate"],
+                "prompt_version": "v1",
+                "prompt_name": "rag_default",
+                "top_k": 3,
+                "default_namespace": "test",
+            },
+        }
+    )
+
+
+@pytest.fixture
+async def real_state(tmp_path):
+    """Path A: real init_adapters over mock providers, tmp_path-scoped.
+
+    Wiring is inherited from deps.init_adapters wholesale — the drift
+    #151 class (constructor kwargs silently absorbed by defaults) has
+    no place to happen here: a new required kwarg either flows through
+    or fails loudly. Teardown mirrors lifespan stage 3 (adapter
+    shutdown, production order) with a hard timeout per call (§7).
+    Stages 1-2 (index persist, background tasks) are absent by design:
+    no tasks are spawned here, indices are throwaway tmp data. Shutdown
+    failures are NOT swallowed: production degrades to keep the cleanup
+    sequence alive, tests fail loud — a broken shutdown is a defect the
+    suite must catch.
+    """
+    import asyncio
+
+    from ai_assistant.api.deps import init_adapters
+    from ai_assistant.core.constants import ADAPTER_SHUTDOWN_TIMEOUT
+
+    state = await init_adapters(make_app_config(tmp_path))
+    yield state
+    for adapter in (
+        state.lexical_index,
+        state.llm,
+        state.embedder,
+        state.vector_store,
+        state.storage,
+        state.reranker,
+        state.chunker,
+        state.tokenizer,
+    ):
+        if adapter is not None:
+            await asyncio.wait_for(
+                adapter.shutdown(), timeout=ADAPTER_SHUTDOWN_TIMEOUT
+            )
+
+
+# ---------------------------------------------------------------------------
+# Test data builders
+# ---------------------------------------------------------------------------
+
+
+# F821 false positive: the annotation resolves via the
+# function-scoped import below and is never evaluated at runtime.
+def make_chunk(
+    text: str,
+    chunk_id: str = "c1",
+    source: str = "doc1",
+    index: int = 0,
+    total_chunks: int = 1,
+    embedding: list[float] | None = None,
+    source_uri: str | None = None,
+    original_path: str | None = None,
+    last_modified: str | None = None,
+) -> Chunk:  # type: ignore[name-defined]  # noqa: F821
+    """Return a fresh Chunk in the canonical test form.
+
+    The canonical shape is the base repeated across test_chat (~14
+    sites): fixed id, [1.0, 0.0, 0.0] embedding, plain ChunkMetadata.
+    Metadata variations (source_uri, original_path, last_modified) are
+    pass-through parameters. Owner stop-signal: if this grows per-test
+    kwargs, it is a third factory version — halt and reassess.
+    """
+    from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+    return Chunk(
+        id=chunk_id,
+        text=text,
+        embedding=[1.0, 0.0, 0.0] if embedding is None else embedding,
+        metadata=ChunkMetadata(
+            source=source,
+            index=index,
+            total_chunks=total_chunks,
+            source_uri=source_uri,
+            original_path=original_path,
+            last_modified=last_modified,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Path B: shell mannequin (lifespan unit tests patch init_adapters)
+# ---------------------------------------------------------------------------
+
+
+def make_shell_state(vector_store: MagicMock | None = None) -> MagicMock:
+    """Family-C mannequin: lifespan unit tests patch init_adapters, so
+    the state is the mock's return value — path A cannot reach here.
+
+    Sets the standard fields only; whatever the test VERIFIES (shutdown
+    trackers, save timeouts, hanging shutdowns) stays inline in the
+    test body. vector_store: None = the dense default ("hybrid off"
+    contract); pass a spec-mock with index_path / list_namespaces /
+    save when the test exercises index load or save.
+    """
+    from ai_assistant.core.ports.chunker import IChunker
+    from ai_assistant.core.ports.embedder import IEmbedder
+    from ai_assistant.core.ports.llm import ILLM
+    from ai_assistant.core.ports.reranker import IReranker
+    from ai_assistant.core.ports.storage import IChatStorage
+
+    state = MagicMock()
+    state.task_registry = AsyncMock()
+    state.tokenizer = AsyncMock()
+    state.vector_store = vector_store
+    state.lexical_index = None  # hybrid off: the default contract
+    state.llm = MagicMock(spec=ILLM)
+    state.embedder = MagicMock(spec=IEmbedder)
+    state.storage = MagicMock(spec=IChatStorage)
+    state.reranker = MagicMock(spec=IReranker)
+    state.chunker = MagicMock(spec=IChunker)
+    return state
+
+
+# ---------------------------------------------------------------------------
 # TestClient fixtures
 # ---------------------------------------------------------------------------
 
