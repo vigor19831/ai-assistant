@@ -708,11 +708,13 @@ def chunker_adapter(request):
 
 
 @pytest.fixture(params=["sqlite"])
-def chat_storage_adapter(request):
+def chat_storage_adapter(request, tmp_path):
     """Factory: yield concrete IChatStorage for parametrized contract tests."""
     from ai_assistant.adapters.storage_sqlite import SQLiteStorage
     from ai_assistant.core.domain.configs import StorageConfigData
 
     if request.param == "sqlite":
-        return SQLiteStorage(StorageConfigData(db_path=":memory:"))
+        return SQLiteStorage(
+            StorageConfigData(db_path=str(tmp_path / "chat_storage.db"))
+        )
     raise ValueError(f"Unknown storage: {request.param}")

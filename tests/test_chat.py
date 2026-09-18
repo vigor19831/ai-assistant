@@ -1205,16 +1205,6 @@ class TestChatManagerSources:
         assert "Sources:" in full_text
 
 
-# ── TestChatHistoryTrimming ──
-
-
-class TestChatHistoryTrimming:
-    """Given: conversation history may exceed token budget.
-    When: chat() is called.
-    Then: oldest messages are dropped, budget is respected, order preserved.
-    """
-
-
 # ── TestStreamPersistence ──
 
 
