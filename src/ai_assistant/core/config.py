@@ -103,8 +103,13 @@ class ChunkerConfig(BaseSettings):
 class EmbedderConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_EMBEDDER_", extra="forbid")
     provider: str = "mock"
-    model: str = "text-embedding-3-small"
-    api_base: str = "https://api.openai.com/v1"
+    # Drift #154 (offline-first): no silent cloud-model default — a
+    # configured remote provider must name its model (enforced at
+    # startup by _check_explicit_models).
+    model: str = ""
+    # Drift #154: no silent cloud-endpoint default either — with an
+    # OPENAI_API_KEY in the env a forgotten api_base spent real money.
+    api_base: str = ""
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
@@ -115,8 +120,10 @@ class EmbedderConfig(BaseSettings):
 class LLMConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_LLM_", extra="forbid")
     provider: str = "mock"
-    model: str = "gpt-4o-mini"
-    api_base: str = "https://api.openai.com/v1"
+    # Drift #154 (offline-first): no silent cloud-model default.
+    model: str = ""
+    # Drift #154: no silent cloud-endpoint default.
+    api_base: str = ""
     api_key: str | None = None
     available_models: list[str] = Field(default_factory=list)
     max_tokens: int = 4096
@@ -168,8 +175,10 @@ class RerankerConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AI_RERANKER_", extra="forbid")
     provider: str | None = None  # "api" or None for no reranker
-    model: str = "rerank-multilingual-v3.0"
-    api_base: str = "https://api.cohere.com"
+    # Drift #154 (offline-first): no silent cloud-model default.
+    model: str = ""
+    # Drift #154: no silent cloud-endpoint default.
+    api_base: str = ""
     api_key: str | None = None
     timeout: float = 30.0
     # Read by run_servers.py (never duplicated in run_servers.yaml
@@ -467,6 +476,47 @@ class AppConfig(BaseSettings):
             raise ValueError(
                 f"embedder.dim ({self.embedder.dim}) must equal "
                 f"vector_store.dim ({self.vector_store.dim})"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_explicit_models(self) -> AppConfig:
+        """Offline-first guard (drift #154): a configured remote
+        provider must name its model — an empty default fails loudly
+        at startup instead of silently requesting a cloud model.
+        Mock providers ignore the model field and are exempt; the
+        archivist's llm_model=null pattern is a different contract
+        (drift #132) and untouched.
+        """
+        if self.embedder.provider == "openai_compatible" and not self.embedder.model:
+            raise ValueError(
+                "embedder.model is required when provider is "
+                "'openai_compatible': set your embedding model name"
+            )
+        if self.embedder.provider == "openai_compatible" and not self.embedder.api_base:
+            raise ValueError(
+                "embedder.api_base is required when provider is "
+                "'openai_compatible': set your embedding server URL"
+            )
+        if self.llm.provider == "openai_compatible" and not self.llm.model:
+            raise ValueError(
+                "llm.model is required when provider is "
+                "'openai_compatible': set your model name"
+            )
+        if self.llm.provider == "openai_compatible" and not self.llm.api_base:
+            raise ValueError(
+                "llm.api_base is required when provider is "
+                "'openai_compatible': set your LLM server URL"
+            )
+        if self.reranker.provider in ("api", "local") and not self.reranker.model:
+            raise ValueError(
+                "reranker.model is required when provider is "
+                "'api' or 'local': set your reranker model name"
+            )
+        if self.reranker.provider in ("api", "local") and not self.reranker.api_base:
+            raise ValueError(
+                "reranker.api_base is required when provider is "
+                "'api' or 'local': set your reranker server URL"
             )
         return self
 

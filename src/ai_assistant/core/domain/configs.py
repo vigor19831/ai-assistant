@@ -39,8 +39,11 @@ class EmbedderConfigData:
         n_gpu_layers: Number of layers to offload to GPU (0 = CPU, 99 = all).
     """
 
-    model: str = "text-embedding-3-small"
-    api_base: str = "https://api.openai.com/v1"
+    # Drift #154 (offline-first): empty defaults — the app-level
+    # guard (_check_explicit_models) enforces explicit naming for
+    # remote providers; no silent cloud-model fallback.
+    model: str = ""
+    api_base: str = ""
     api_key: str | None = None
     dim: int = 384
     timeout: float = 60.0
@@ -68,8 +71,9 @@ class LLMConfigData:
         n_gpu_layers: Number of layers to offload to GPU (0 = CPU, 99 = all).
     """
 
-    model: str = "gpt-4o-mini"
-    api_base: str = "https://api.openai.com/v1"
+    # Drift #154 (offline-first): see EmbedderConfigData.
+    model: str = ""
+    api_base: str = ""
     api_key: str | None = None
     max_tokens: int = 4096
     temperature: float = 0.0
@@ -137,8 +141,9 @@ class RerankerConfigData:
             (0 = CPU). Read by run_servers.py, not by the adapter.
     """
 
-    model: str = "rerank-multilingual-v3.0"
-    api_base: str = "https://api.cohere.com"
+    # Drift #154 (offline-first): see EmbedderConfigData.
+    model: str = ""
+    api_base: str = ""
     api_key: str | None = None
     timeout: float = 30.0
     n_gpu_layers: int = 0

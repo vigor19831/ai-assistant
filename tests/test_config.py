@@ -831,3 +831,109 @@ def test_chat_exports_root_rejects_windows_absolute(bad_path):
 
     with pytest.raises(ValueError, match="path must be relative"):
         RAGConfig(chat_exports_root=bad_path)
+
+
+
+# --- Offline-first model guard (drift #154) ---
+
+
+class TestExplicitModelGuard:
+    """A configured remote provider must name its model: empty
+    defaults fail at startup instead of silently requesting a cloud
+    model. Mock providers ignore the model field."""
+
+    def test_openai_llm_without_model_rejected(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AppConfig(llm=LLMConfig(provider="openai_compatible", model=""))
+
+    def test_openai_embedder_without_model_rejected(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        from ai_assistant.core.config import EmbedderConfig
+
+        with pytest.raises(ValidationError):
+            AppConfig(embedder=EmbedderConfig(provider="openai_compatible", model=""))
+
+    def test_local_reranker_without_model_rejected(self) -> None:
+        import pytest
+        from pydantic import ValidationError
+
+        from ai_assistant.core.config import RerankerConfig
+
+        with pytest.raises(ValidationError):
+            AppConfig(reranker=RerankerConfig(provider="local", model=""))
+
+    def test_mock_providers_pass_with_empty_model(self) -> None:
+        cfg = AppConfig()
+        assert cfg.llm.model == ""
+        assert cfg.embedder.model == ""
+
+    def test_named_models_pass(self) -> None:
+        from ai_assistant.core.config import (
+            EmbedderConfig,
+            LLMConfig,
+            VectorStoreConfig,
+        )
+
+        cfg = AppConfig(
+            llm=LLMConfig(
+                provider="openai_compatible",
+                model="local-model",
+                api_base="http://127.0.0.1:8080/v1",
+            ),
+            embedder=EmbedderConfig(
+                provider="openai_compatible",
+                model="bge-m3",
+                api_base="http://127.0.0.1:8081/v1",
+                dim=1024,
+            ),
+            vector_store=VectorStoreConfig(dim=1024),
+        )
+        assert cfg.llm.model == "local-model"
+        assert cfg.embedder.api_base == "http://127.0.0.1:8081/v1"
+
+    def test_missing_api_base_rejected(self) -> None:
+        """A forgotten api_base must fail at startup, not silently
+        spend a cloud API key found in the environment (drift #154)."""
+        import pytest
+        from pydantic import ValidationError
+
+        from ai_assistant.core.config import EmbedderConfig, LLMConfig
+
+        with pytest.raises(ValidationError):
+            AppConfig(
+                embedder=EmbedderConfig(
+                    provider="openai_compatible", model="bge-m3"
+                )
+            )
+        with pytest.raises(ValidationError):
+            AppConfig(
+                llm=LLMConfig(provider="openai_compatible", model="local-model")
+            )
+
+    def test_empty_api_base_with_mock_provider_passes(self) -> None:
+        """Mock providers never make network calls — an empty
+        api_base default is inert for them."""
+        cfg = AppConfig()
+        assert cfg.llm.api_base == ""
+        assert cfg.embedder.api_base == ""
+
+    def test_full_remote_config_passes(self) -> None:
+        """Model + api_base both named: the guard is silent — the
+        normal configured path."""
+        from ai_assistant.core.config import EmbedderConfig, VectorStoreConfig
+
+        cfg = AppConfig(
+            embedder=EmbedderConfig(
+                provider="openai_compatible",
+                model="bge-m3",
+                api_base="http://127.0.0.1:8081/v1",
+                dim=1024,
+            ),
+            vector_store=VectorStoreConfig(dim=1024),
+        )
+        assert cfg.embedder.api_base == "http://127.0.0.1:8081/v1"

@@ -22,7 +22,7 @@ app_name: ai-assistant
 debug: false
 host: 127.0.0.1
 port: 8000
-config_version: "3"
+config_version: "4"
 
 cors:
   allow_origins: ["http://localhost", "http://127.0.0.1"]
@@ -323,6 +323,11 @@ rag:
     October: 10
     November: 11
     December: 12
+  # Prepositions that may precede a month name ("in March", "for
+  # March"). Owner language data, like the month names: ship your
+  # own forms in the live config.yaml. Absent = no phrase parsing
+  # (digital date forms like "2026-03" still work).
+  date_prepositions: ["in", "for"]
 
 namespaces:
   default:
