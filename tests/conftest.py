@@ -429,7 +429,7 @@ async def real_state(tmp_path):
 
 # F821 false positive: the annotation resolves via the
 # function-scoped import below and is never evaluated at runtime.
-def make_chunk(
+def build_chunk(
     text: str,
     chunk_id: str = "c1",
     source: str = "doc1",
@@ -463,6 +463,12 @@ def make_chunk(
             last_modified=last_modified,
         ),
     )
+
+
+@pytest.fixture
+def make_chunk():
+    """Factory fixture — returns build_chunk (canonical test chunks)."""
+    return build_chunk
 
 
 # ---------------------------------------------------------------------------

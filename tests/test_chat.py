@@ -224,17 +224,14 @@ class TestChatRAG:
         assert messages[0].text == "Hello world"
 
     @pytest.mark.asyncio
-    async def test_retrieve_test_prefix_triggers_rag(self, chat_manager_with_rag):
+    async def test_retrieve_test_prefix_triggers_rag(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: [t] prefix and chunk in test namespace.
         When: stream_chat() is called.
         Then: RAG is triggered and sources are appended.
         """
-        chunk = Chunk(
-            id="c1",
-            text="Paris is the capital of France.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Paris is the capital of France.")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
@@ -252,17 +249,14 @@ class TestChatRAG:
         assert "doc1" in result
 
     @pytest.mark.asyncio
-    async def test_retrieve_alt_prefix_triggers_rag(self, chat_manager_with_rag):
+    async def test_retrieve_alt_prefix_triggers_rag(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: [a] prefix and chunk in test-alt namespace.
         When: stream_chat() is called.
         Then: RAG is triggered for test-alt namespace.
         """
-        chunk = Chunk(
-            id="c1",
-            text="Project deadline is Friday.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Project deadline is Friday.")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
@@ -279,17 +273,14 @@ class TestChatRAG:
         assert "Sources:" in result
 
     @pytest.mark.asyncio
-    async def test_retrieve_default_prefix_triggers_rag(self, chat_manager_with_rag):
+    async def test_retrieve_default_prefix_triggers_rag(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: [d] prefix and chunk in test-default namespace.
         When: stream_chat() is called.
         Then: RAG is triggered for test-default namespace.
         """
-        chunk = Chunk(
-            id="c1",
-            text="Recipe: 2 eggs, 1 cup flour.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Recipe: 2 eggs, 1 cup flour.")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-default")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
@@ -324,17 +315,14 @@ class TestChatRAG:
         assert messages[-1].text != "something impossible to find"
 
     @pytest.mark.asyncio
-    async def test_retrieve_prefix_stripped_from_query(self, chat_manager_with_rag):
+    async def test_retrieve_prefix_stripped_from_query(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: message with [t] prefix.
         When: chat() is called.
         Then: prefix is stripped from query text sent to LLM.
         """
-        chunk = Chunk(
-            id="c1",
-            text="Some content",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Some content")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
         chat_manager_with_rag.llm.complete = AsyncMock(
             return_value=AssistantMessage(text="ok", metadata={}, tool_calls=[])
@@ -345,17 +333,14 @@ class TestChatRAG:
         assert "query text" in messages[-1].text
 
     @pytest.mark.asyncio
-    async def test_retrieve_case_insensitive_prefix(self, chat_manager_with_rag):
+    async def test_retrieve_case_insensitive_prefix(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: uppercase prefix [T].
         When: stream_chat() is called.
         Then: same result as lowercase [t].
         """
-        chunk = Chunk(
-            id="c1",
-            text="Content",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Content")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
@@ -425,17 +410,14 @@ class TestChatRAG:
         assert messages[-1].text == "query"
 
     @pytest.mark.asyncio
-    async def test_retrieve_per_namespace_prompt(self, chat_manager_with_rag):
+    async def test_retrieve_per_namespace_prompt(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: test-alt namespace with custom prompt.
         When: stream_chat() is called with [a] prefix.
         Then: correct prompt name is requested.
         """
-        chunk = Chunk(
-            id="c1",
-            text="Alt item.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Alt item.")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test-alt")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
@@ -455,7 +437,9 @@ class TestChatRAG:
             assert "Sources:" in "".join(chunks)
 
     @pytest.mark.asyncio
-    async def test_retrieve_fallback_to_defaults_when_no_namespace_config(self):
+    async def test_retrieve_fallback_to_defaults_when_no_namespace_config(
+        self, make_chunk
+    ):
         """Given: namespace with prefix but no per-namespace overrides.
         When: stream_chat() is called with prefix.
         Then: global defaults (rag_strict) are used.
@@ -473,12 +457,7 @@ class TestChatRAG:
             namespaces={"test": NamespaceConfig(prefix="t")},
             tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
         )
-        chunk = Chunk(
-            id="c1",
-            text="Content",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Content")
         await manager.vector_store.add([chunk], namespace="test")
         manager.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
 
@@ -759,17 +738,14 @@ class TestChatStreamRAG:
     """
 
     @pytest.mark.asyncio
-    async def test_stream_chat_with_rag_prefix(self, chat_manager_with_rag):
+    async def test_stream_chat_with_rag_prefix(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: [t] prefix with full RAG pipeline in stream_chat.
         When: stream_chat() is called.
         Then: RAG context is retrieved and stream proceeds.
         """
-        chunk = Chunk(
-            id="c1",
-            text="Paris is sunny.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Paris is sunny.")
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
 
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
@@ -785,23 +761,15 @@ class TestChatStreamRAG:
         assert chunks == ["Paris", " is", " sunny.", "\n\nSources:\n[1] doc1"]
 
     @pytest.mark.asyncio
-    async def test_namespace_test_and_alt_prefixes(self, chat_manager_with_rag):
+    async def test_namespace_test_and_alt_prefixes(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: [t] and [a] prefixes with chunks in respective namespaces.
         When: stream_chat() is called for each.
         Then: correct namespace routing occurs.
         """
-        chunk_t = Chunk(
-            id="c1",
-            text="Test settings.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc_test", index=0, total_chunks=1),
-        )
-        chunk_a = Chunk(
-            id="c2",
-            text="Alt plan.",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(source="doc_alt", index=0, total_chunks=1),
-        )
+        chunk_t = make_chunk("Test settings.", source="doc_test")
+        chunk_a = make_chunk("Alt plan.", chunk_id="c2", source="doc_alt")
         await chat_manager_with_rag.vector_store.add([chunk_t], namespace="test")
         await chat_manager_with_rag.vector_store.add([chunk_a], namespace="test-alt")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
@@ -936,23 +904,15 @@ class TestChatManagerSources:
     """
 
     @pytest.mark.asyncio
-    async def test_append_sources_with_source_uri(self, chat_manager_with_rag):
+    async def test_append_sources_with_source_uri(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: chunks with source_uri set.
         When: stream_chat() is called.
         Then: filename and URI are shown separated by em-dash.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Paris info",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=0,
-                    total_chunks=1,
-                    source_uri="file:///home/user/docs/france.md",
-                ),
-            ),
+            make_chunk("Paris info", source_uri="file:///home/user/docs/france.md"),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
@@ -970,20 +930,13 @@ class TestChatManagerSources:
 
     @pytest.mark.asyncio
     async def test_append_sources_without_source_uri_fallback_to_source(
-        self, chat_manager_with_rag
+        self, chat_manager_with_rag, make_chunk
     ):
         """Given: chunks without source_uri.
         When: stream_chat() is called.
         Then: source field is used as fallback.
         """
-        chunks = (
-            Chunk(
-                id="c1",
-                text="Berlin info",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(source="doc2", index=0, total_chunks=1),
-            ),
-        )
+        chunks = (make_chunk("Berlin info", source="doc2"),)
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
@@ -1001,24 +954,14 @@ class TestChatManagerSources:
 
     @pytest.mark.asyncio
     async def test_append_sources_always_when_chunks_present(
-        self, chat_manager_with_rag
+        self, chat_manager_with_rag, make_chunk
     ):
         """Given: chunks exist even if LLM refuses to answer.
         When: stream_chat() is called.
         Then: sources are still appended.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Unknown info",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=0,
-                    total_chunks=1,
-                    source_uri="file:///docs/unknown.md",
-                ),
-            ),
+            make_chunk("Unknown info", source_uri="file:///docs/unknown.md"),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
@@ -1035,23 +978,15 @@ class TestChatManagerSources:
         assert "unknown.md" in text
 
     @pytest.mark.asyncio
-    async def test_append_sources_without_citation_markers(self, chat_manager_with_rag):
+    async def test_append_sources_without_citation_markers(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: LLM answer without [N] citation markers but chunks exist.
         When: stream_chat() is called.
         Then: sources are still appended with filename and URI.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Paris info",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=0,
-                    total_chunks=1,
-                    source_uri="file:///docs/france.md",
-                ),
-            ),
+            make_chunk("Paris info", source_uri="file:///docs/france.md"),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
@@ -1068,33 +1003,22 @@ class TestChatManagerSources:
         assert "[1] france.md — file:///docs/france.md" in text
 
     @pytest.mark.asyncio
-    async def test_append_sources_multiple_citations(self, chat_manager_with_rag):
+    async def test_append_sources_multiple_citations(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: multiple chunks with source_uri from different documents.
         When: stream_chat() is called.
         Then: all unique sources are listed with filename and URI.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Info 1",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=0,
-                    total_chunks=2,
-                    source_uri="file:///docs/a.md",
-                ),
-            ),
-            Chunk(
-                id="c2",
-                text="Info 2",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc2",
-                    index=1,
-                    total_chunks=2,
-                    source_uri="file:///docs/b.md",
-                ),
+            make_chunk("Info 1", source_uri="file:///docs/a.md", total_chunks=2),
+            make_chunk(
+                "Info 2",
+                chunk_id="c2",
+                source="doc2",
+                index=1,
+                total_chunks=2,
+                source_uri="file:///docs/b.md",
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
@@ -1128,24 +1052,13 @@ class TestChatManagerSources:
 
     @pytest.mark.asyncio
     async def test_append_sources_old_index_without_source_uri_fallback(
-        self, chat_manager_with_rag
+        self, chat_manager_with_rag, make_chunk
     ):
         """Given: chunk from old index without source_uri (backward compat).
         When: stream_chat() is called.
         Then: falls back to source field as plain text.
         """
-        chunks = (
-            Chunk(
-                id="c1",
-                text="Old data",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="legacy_doc",
-                    index=0,
-                    total_chunks=1,
-                ),
-            ),
-        )
+        chunks = (make_chunk("Old data", source="legacy_doc"),)
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
         chat_manager_with_rag.llm.stream = MagicMock(
@@ -1161,22 +1074,18 @@ class TestChatManagerSources:
         assert "Sources:" in text
 
     @pytest.mark.asyncio
-    async def test_append_sources_with_original_path(self, chat_manager_with_rag):
+    async def test_append_sources_with_original_path(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: chunk with original_path but no source_uri.
         When: stream_chat() is called.
         Then: absolute server path is NOT exposed; only basename is shown.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Config info",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="config_doc",
-                    index=0,
-                    total_chunks=1,
-                    original_path="/home/user/docs/settings.yaml",
-                ),
+            make_chunk(
+                "Config info",
+                source="config_doc",
+                original_path="/home/user/docs/settings.yaml",
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
@@ -1197,45 +1106,25 @@ class TestChatManagerSources:
 
     @pytest.mark.asyncio
     async def test_append_sources_deduplicates_same_document(
-        self, chat_manager_with_rag
+        self, chat_manager_with_rag, make_chunk
     ):
         """Given: multiple chunks from the same document.
         When: stream_chat() is called.
         Then: only one source line is shown per unique document.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Part 1",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=0,
-                    total_chunks=3,
-                    source_uri="file:///docs/shared.md",
-                ),
+            make_chunk("Part 1", total_chunks=3, source_uri="file:///docs/shared.md"),
+            make_chunk(
+                "Part 2",
+                chunk_id="c2",
+                index=1,
+                total_chunks=3,
+                source_uri="file:///docs/shared.md",
             ),
-            Chunk(
-                id="c2",
-                text="Part 2",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=1,
-                    total_chunks=3,
-                    source_uri="file:///docs/shared.md",
-                ),
-            ),
-            Chunk(
-                id="c3",
-                text="Part 3 from other",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc2",
-                    index=0,
-                    total_chunks=1,
-                    source_uri="file:///docs/other.md",
-                ),
+            make_chunk(
+                "Part 3 from other",
+                source="doc2",
+                source_uri="file:///docs/other.md",
             ),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
@@ -1256,24 +1145,14 @@ class TestChatManagerSources:
 
     @pytest.mark.asyncio
     async def test_append_sources_skipped_when_answer_empty(
-        self, chat_manager_with_rag
+        self, chat_manager_with_rag, make_chunk
     ):
         """Given: chunks exist but LLM returns an empty answer.
         When: chat() and stream_chat() are called.
         Then: 'Sources:' block is NOT appended to the empty answer.
         """
         chunks = (
-            Chunk(
-                id="c1",
-                text="Paris info",
-                embedding=[1.0, 0.0, 0.0],
-                metadata=ChunkMetadata(
-                    source="doc1",
-                    index=0,
-                    total_chunks=1,
-                    source_uri="file:///docs/france.md",
-                ),
-            ),
+            make_chunk("Paris info", source_uri="file:///docs/france.md"),
         )
         await chat_manager_with_rag.vector_store.add(chunks, namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
@@ -1296,22 +1175,18 @@ class TestChatManagerSources:
         assert stream_text == ""
 
     @pytest.mark.asyncio
-    async def test_source_link_includes_last_modified(self, chat_manager_with_rag):
+    async def test_source_link_includes_last_modified(
+        self, chat_manager_with_rag, make_chunk
+    ):
         """Given: chunk with last_modified metadata.
         When: stream_chat() is called.
         Then: source line shows modification date.
         """
-        chunk = Chunk(
-            id="c1",
-            text="doc text",
-            embedding=[1.0, 0.0, 0.0],
-            metadata=ChunkMetadata(
-                source="plan.txt",
-                index=0,
-                total_chunks=1,
-                source_uri="docs/plan.txt",
-                last_modified="2025-01-15 14:30",
-            ),
+        chunk = make_chunk(
+            "doc text",
+            source="plan.txt",
+            source_uri="docs/plan.txt",
+            last_modified="2025-01-15 14:30",
         )
         await chat_manager_with_rag.vector_store.add([chunk], namespace="test")
         chat_manager_with_rag.embedder.embed = AsyncMock(return_value=[[1.0, 0.0, 0.0]])
