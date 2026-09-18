@@ -378,3 +378,55 @@ class TestLifespanMirrorBackfill:
         assert sync_pos < start_pos, (
             "mirror sync must run before watcher.start() (drift #146)"
         )
+
+
+class TestLifespanLexicalPersist:
+    """Given: an app state whose lexical mirror holds a namespace.
+    When: _async_cleanup runs (shutdown stage 1b).
+    Then: the mirror is persisted and reloadable — derived data
+    survives restart; a save failure degrades loudly, never blocks."""
+
+    async def test_cleanup_persists_lexical_mirror(self, tmp_path: Path) -> None:
+        from fastapi import FastAPI
+
+        from ai_assistant.api.lifespan import _async_cleanup
+
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        await lexical.add([_chunk("c1", "alpha keenetic", "a.md")], namespace="ns")
+        # A running system has its namespace persisted on disk — the
+        # cleanup loop iterates persisted namespaces.
+        await lexical.save(str(tmp_path / "lex"), namespace="ns")
+        state = _handler_state(tmp_path, lexical, store)
+
+        app = FastAPI()
+        app.state.app_state = state
+        await _async_cleanup(app, state.config)
+
+        reloaded = _lexical(tmp_path)
+        await reloaded.load(str(tmp_path / "lex"), namespace="ns")
+        found = await reloaded.search("keenetic", namespace="ns")
+        assert found and found[0].id == "c1"
+
+    async def test_cleanup_lexical_save_failure_degrades(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi import FastAPI
+
+        from ai_assistant.api.lifespan import _async_cleanup
+
+        lexical = _lexical(tmp_path)
+        store = _vector_store(tmp_path)
+        await lexical.add([_chunk("c1", "alpha", "a.md")], namespace="ns")
+        await lexical.save(str(tmp_path / "lex"), namespace="ns")
+
+        async def _boom(path: str, namespace: str = "default") -> None:
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(lexical, "save", _boom)
+        state = _handler_state(tmp_path, lexical, store)
+
+        app = FastAPI()
+        app.state.app_state = state
+        # Degraded (logger.exception), but the cleanup completes.
+        await _async_cleanup(app, state.config)
