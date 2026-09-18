@@ -63,6 +63,19 @@ from ai_assistant.features.rag.schemas import (
 _logger = get_logger(__name__)
 
 
+def _make_rag_manager(
+    llm: ILLM, vector_store: IVectorStore, embedder: IEmbedder, reranker: IReranker
+) -> RAGManager:
+    """Standard test RAGManager over the four mock ports."""
+    return RAGManager(
+        llm=llm,
+        vector_store=vector_store,
+        embedder=embedder,
+        reranker=reranker,
+        tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+    )
+
+
 # ── RAGManager ──
 
 
@@ -71,7 +84,7 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_pipeline_success(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker, make_chunk
     ):
         """Given: working ports return chunks and LLM generates answer.
         When: RAGManager.query is called.
@@ -79,22 +92,14 @@ class TestRAGManager:
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
             return_value=[
-                Chunk(
-                    id="c1",
-                    text="Paris is the capital of France.",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
+                make_chunk("Paris is the capital of France.", embedding=[0.1] * 384)
             ]
         )
         mock_reranker.rerank = AsyncMock(
             return_value=[
                 RerankResult(
-                    chunk=Chunk(
-                        id="c1",
-                        text="Paris is the capital of France.",
-                        embedding=[0.1] * 384,
-                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                    chunk=make_chunk(
+                        "Paris is the capital of France.", embedding=[0.1] * 384
                     ),
                     score=0.95,
                 )
@@ -103,12 +108,8 @@ class TestRAGManager:
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         mock_llm.complete = AsyncMock(return_value=AssistantMessage(text="Paris"))
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("What is the capital of France?")
         assert result["answer"] == "Paris"
@@ -118,7 +119,7 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_preamble_refusal_returns_no_sources(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker, make_chunk
     ):
         """Given: the model answers a refusal with a preamble.
         When: RAGManager.query processes it.
@@ -127,23 +128,13 @@ class TestRAGManager:
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
             return_value=[
-                Chunk(
-                    id="c1",
-                    text="test chunk",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
+                make_chunk("test chunk", embedding=[0.1] * 384)
             ]
         )
         mock_reranker.rerank = AsyncMock(
             return_value=[
                 RerankResult(
-                    chunk=Chunk(
-                        id="c1",
-                        text="test chunk",
-                        embedding=[0.1] * 384,
-                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                    ),
+                    chunk=make_chunk("test chunk", embedding=[0.1] * 384),
                     score=0.95,
                 )
             ]
@@ -157,12 +148,8 @@ class TestRAGManager:
             return_value=AssistantMessage(text=preamble_refusal)
         )
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("anything")
         assert result["answer"] == preamble_refusal
@@ -171,28 +158,20 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_returns_metrics(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker, make_chunk
     ):
         """RAGManager.query must include diagnostic metrics in response."""
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
             return_value=[
-                Chunk(
-                    id="c1",
-                    text="Paris is the capital of France.",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
+                make_chunk("Paris is the capital of France.", embedding=[0.1] * 384)
             ]
         )
         mock_reranker.rerank = AsyncMock(
             return_value=[
                 RerankResult(
-                    chunk=Chunk(
-                        id="c1",
-                        text="Paris is the capital of France.",
-                        embedding=[0.1] * 384,
-                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
+                    chunk=make_chunk(
+                        "Paris is the capital of France.", embedding=[0.1] * 384
                     ),
                     score=0.95,
                 )
@@ -201,12 +180,8 @@ class TestRAGManager:
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         mock_llm.complete = AsyncMock(return_value=AssistantMessage(text="Paris"))
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("What is the capital of France?")
 
@@ -231,12 +206,8 @@ class TestRAGManager:
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         mock_llm.complete = AsyncMock(return_value=AssistantMessage(text=""))
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         await mgr.query("test", namespace="test-alt")
 
@@ -247,7 +218,7 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_query_prompt_and_version_override(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker, make_chunk
     ):
         """Given: custom prompt name and version.
         When: RAGManager.query called with overrides.
@@ -255,23 +226,13 @@ class TestRAGManager:
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
             return_value=[
-                Chunk(
-                    id="c1",
-                    text="test chunk",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
+                make_chunk("test chunk", embedding=[0.1] * 384)
             ]
         )
         mock_reranker.rerank = AsyncMock(
             return_value=[
                 RerankResult(
-                    chunk=Chunk(
-                        id="c1",
-                        text="test chunk",
-                        embedding=[0.1] * 384,
-                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                    ),
+                    chunk=make_chunk("test chunk", embedding=[0.1] * 384),
                     score=0.95,
                 )
             ]
@@ -279,12 +240,8 @@ class TestRAGManager:
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         mock_llm.complete = AsyncMock(return_value=AssistantMessage(text=""))
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         # Should not raise — overrides flow through pipeline_config to generate step
         result = await mgr.query(
@@ -299,7 +256,7 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_refusal_returns_empty_sources(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker, make_chunk
     ):
         """Drift #50: a refusal answer carries no evidence.
 
@@ -309,12 +266,7 @@ class TestRAGManager:
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
             return_value=[
-                Chunk(
-                    id="c1",
-                    text="Paris is the capital of France.",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
+                make_chunk("Paris is the capital of France.", embedding=[0.1] * 384)
             ]
         )
         mock_reranker.rerank = AsyncMock(return_value=[])
@@ -323,12 +275,8 @@ class TestRAGManager:
             return_value=AssistantMessage(text="I don't know.")
         )
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("obscure topic")
         assert result["answer"] == "I don't know."
@@ -337,18 +285,13 @@ class TestRAGManager:
 
     @pytest.mark.asyncio
     async def test_substantive_answer_keeps_sources(
-        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker
+        self, mock_llm, mock_embedder, mock_vector_store, mock_reranker, make_chunk
     ):
         """Drift #50 guard: only exact refusals lose sources — a real
         answer mentioning a refusal phrase stays fully cited.
         """
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
-        chunk = Chunk(
-            id="c1",
-            text="Paris is the capital of France.",
-            embedding=[0.1] * 384,
-            metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-        )
+        chunk = make_chunk("Paris is the capital of France.", embedding=[0.1] * 384)
         mock_vector_store.search = AsyncMock(return_value=[chunk])
         mock_reranker.rerank = AsyncMock(
             return_value=[RerankResult(chunk=chunk, score=0.95)]
@@ -363,12 +306,8 @@ class TestRAGManager:
             )
         )
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("What is the capital of France?")
         assert result["sources"], "substantive answer must keep sources"
@@ -392,12 +331,8 @@ class TestRAGManager:
             )
         )
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("obscure topic")
         assert result["chunks_used"] == 0
@@ -412,6 +347,7 @@ class TestRAGManager:
         mock_embedder,
         mock_vector_store,
         mock_reranker,
+        make_chunk,
         mock_state,
     ):
         """Given: LLM raises AdapterError (simulating LLM_UNAVAILABLE).
@@ -421,23 +357,13 @@ class TestRAGManager:
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
             return_value=[
-                Chunk(
-                    id="c1",
-                    text="test chunk",
-                    embedding=[0.1] * 384,
-                    metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                )
+                make_chunk("test chunk", embedding=[0.1] * 384)
             ]
         )
         mock_reranker.rerank = AsyncMock(
             return_value=[
                 RerankResult(
-                    chunk=Chunk(
-                        id="c1",
-                        text="test chunk",
-                        embedding=[0.1] * 384,
-                        metadata=ChunkMetadata(source="doc1", index=0, total_chunks=1),
-                    ),
+                    chunk=make_chunk("test chunk", embedding=[0.1] * 384),
                     score=0.95,
                 )
             ]
@@ -445,12 +371,8 @@ class TestRAGManager:
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         mock_llm.complete = AsyncMock(side_effect=AdapterError("LLM down"))
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("anything")
         # generate step catches AdapterError and adds LLM_UNAVAILABLE to data.errors
@@ -481,12 +403,8 @@ class TestRAGManager:
         """
         from ai_assistant.core.domain.errors import ConfigurationError
 
-        mgr = RAGManager(
-            llm=mock_llm,
-            vector_store=mock_vector_store,
-            embedder=mock_embedder,
-            reranker=mock_reranker,
-            tokenizer=CharFallbackTokenizer(TokenizerConfigData()),
+        mgr = _make_rag_manager(
+            mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         # The bug should propagate, not be swallowed
         with (
@@ -1376,7 +1294,9 @@ class TestChatExportIsolation:
             assert "test.md" in indexed_docs[0]["metadata"]["source_uri"]
 
     @pytest.mark.asyncio
-    async def test_chat_export_not_in_regular_namespace_query(self, mock_vector_store):
+    async def test_chat_export_not_in_regular_namespace_query(
+        self, mock_vector_store, make_chunk
+    ):
         """Given: chat export exists in 'chat_test' namespace.
         When: querying regular 'test' namespace.
         Then: chat export chunks are NOT returned."""
@@ -1386,13 +1306,11 @@ class TestChatExportIsolation:
         def mock_search(query_embedding, top_k=5, namespace="default"):
             if namespace == "test":
                 return [
-                    Chunk(
-                        id="doc-1",
-                        text="regular document",
+                    make_chunk(
+                        "regular document",
+                        chunk_id="doc-1",
+                        source="doc.txt",
                         embedding=[0.1] * 384,
-                        metadata=ChunkMetadata(
-                            source="doc.txt", index=0, total_chunks=1
-                        ),
                     )
                 ]
             return []  # chat_test or other namespaces return empty
@@ -2136,7 +2054,9 @@ def test_check_rag_script_imports() -> None:
         sys.modules.pop("check_rag", None)
 
 
-async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> None:
+async def test_rag_health_after_load_shows_correct_chunks(
+    tmp_path: Path, make_chunk
+) -> None:
     """Health check after correct load() shows accurate chunk_count.
 
     Verifies that load() restores state correctly and health reflects it.
@@ -2144,18 +2064,14 @@ async def test_rag_health_after_load_shows_correct_chunks(tmp_path: Path) -> Non
     pytest.importorskip("faiss")
     from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
     from ai_assistant.core.domain.configs import VectorStoreConfigData
-    from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
     from ai_assistant.features.rag.manager import RAGManager
 
     config = VectorStoreConfigData(dim=384, index_path=str(tmp_path))
     vector_store = FaissVectorStore(config)
 
     # Add a chunk with embedding
-    chunk = Chunk(
-        id="test-1",
-        text="test content",
-        embedding=[0.1] * 384,
-        metadata=ChunkMetadata(source="test", index=0, total_chunks=1),
+    chunk = make_chunk(
+        "test content", chunk_id="test-1", source="test", embedding=[0.1] * 384
     )
     await vector_store.add([chunk], namespace="default")
 
