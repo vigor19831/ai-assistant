@@ -12,13 +12,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from starlette.testclient import TestClient
 
-from ai_assistant.api.security import set_api_key
 from ai_assistant.core.config import NamespaceConfig
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE, AdapterError
-from ai_assistant.main import create_app
 
 # ── Health & Info ──
 
@@ -511,7 +508,7 @@ class TestE2ERAG:
         assert isinstance(errors, list)
         assert any(e.get("loc") == ["body", "target_namespace"] for e in errors)
 
-    def test_query_per_namespace_override(self, mock_state):
+    def test_query_per_namespace_override(self, client, mock_state):
         """Given: namespace has custom prompt.
         When: POST /api/v1/rag/query with that namespace.
         Then: RAGManager receives overridden parameters."""
@@ -535,11 +532,7 @@ class TestE2ERAG:
             }
         )
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
-
-        resp = test_client.post(
+        resp = client.post(
             "/api/v1/rag/query",
             json={"query": "test", "namespace": "test-alt"},
         )
@@ -549,7 +542,7 @@ class TestE2ERAG:
         assert kwargs["prompt_name"] == "rag_creative"
         assert kwargs["namespace"] == "test-alt"
 
-    def test_rag_query_llm_unavailable_returns_503(self, mock_state):
+    def test_rag_query_llm_unavailable_returns_503(self, client, mock_state):
         """Given: RAG pipeline returns errors with empty answer.
         When: POST /api/v1/rag/query.
         Then: returns 503 Service Unavailable."""
@@ -569,18 +562,16 @@ class TestE2ERAG:
                 },
             }
         )
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
-
-        resp = test_client.post(
+        resp = client.post(
             "/api/v1/rag/query",
             json={"query": "test", "namespace": "default"},
         )
         assert resp.status_code == 503
         assert "temporarily unavailable" in resp.json()["detail"]
 
-    def test_rag_query_retrieve_error_returns_503(self, mock_state):
+    def test_rag_query_retrieve_error_returns_503(
+        self, client_no_raise, mock_state
+    ):
         """Given: vector_store.search raises Exception during query.
         When: POST /api/v1/rag/query.
         Then: pipeline catches it, returns 503 (errors + empty answer)."""
@@ -588,21 +579,15 @@ class TestE2ERAG:
             side_effect=Exception("Vector store down")
         )
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        test_client = TestClient(
-            app,
-            raise_server_exceptions=False,
-            headers={"Authorization": "Bearer test-e2e-key"},
-        )
-
-        resp = test_client.post(
+        resp = client_no_raise.post(
             "/api/v1/rag/query",
             json={"query": "test", "namespace": "default"},
         )
         assert resp.status_code == 503
 
-    def test_rag_query_reranker_error_returns_503(self, mock_state):
+    def test_rag_query_reranker_error_returns_503(
+        self, client_no_raise, mock_state
+    ):
         """Given: reranker.rerank raises Exception during query.
         When: POST /api/v1/rag/query.
         Then: pipeline catches it, returns 503 (errors + empty answer)."""
@@ -618,21 +603,13 @@ class TestE2ERAG:
         )
         mock_state.reranker.rerank = AsyncMock(side_effect=Exception("Reranker down"))
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        test_client = TestClient(
-            app,
-            raise_server_exceptions=False,
-            headers={"Authorization": "Bearer test-e2e-key"},
-        )
-
-        resp = test_client.post(
+        resp = client_no_raise.post(
             "/api/v1/rag/query",
             json={"query": "test", "namespace": "default"},
         )
         assert resp.status_code == 503
 
-    def test_query_empty_result_handling(self, mock_state):
+    def test_query_empty_result_handling(self, client, mock_state):
         """Given: query yields no relevant chunks but no errors.
         When: POST /api/v1/rag/query.
         Then: response contains empty answer and zero chunks_used gracefully."""
@@ -653,11 +630,7 @@ class TestE2ERAG:
             }
         )
 
-        set_api_key("test-e2e-key")
-        app = create_app(state=mock_state)
-        test_client = TestClient(app, headers={"Authorization": "Bearer test-e2e-key"})
-
-        resp = test_client.post(
+        resp = client.post(
             "/api/v1/rag/query",
             json={"query": "nonexistent topic", "namespace": "default"},
         )
