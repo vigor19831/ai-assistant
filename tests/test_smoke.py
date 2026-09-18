@@ -67,6 +67,17 @@ def _scan_src(
     return hits
 
 
+def _load_pyproject() -> dict[str, Any]:
+    """Load pyproject.toml as a dict; skip the test if it is missing."""
+    import tomllib
+
+    pyproject_path = _project_root() / "pyproject.toml"
+    if not pyproject_path.exists():
+        pytest.skip("pyproject.toml not found")
+    with open(pyproject_path, "rb") as f:
+        return tomllib.load(f)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # TestImportsClean
 # ═══════════════════════════════════════════════════════════════════════════
@@ -438,24 +449,11 @@ class TestNoCyrillic:
                     break
         return hits
 
-    def _scan_directory(self, directory: Path) -> list[tuple[str, int, str]]:
-        hits: list[tuple[str, int, str]] = []
-        if not directory.exists():
-            pytest.skip(f"Directory not found: {directory}")
-        for py_file in directory.rglob("*.py"):
-            if py_file.name.startswith("test_"):
-                continue
-            source = py_file.read_text(encoding="utf-8")
-            file_hits = self._find_cyrillic(source, str(py_file))
-            for lineno, line in file_hits:
-                hits.append((str(py_file), lineno, line))
-        return hits
-
     def test_src_no_cyrillic(self):
         """Given: all .py files in src/ai_assistant.
         When: scanned for Cyrillic characters.
         Then: zero hits outside i18n dirs and noqa-marked lines."""
-        hits = self._scan_directory(_src_dir())
+        hits = _scan_src(_src_dir(), predicate=self._find_cyrillic)
         filtered = [
             (f, ln, line)
             for f, ln, line in hits
@@ -478,13 +476,7 @@ class TestRuffRules:
         """Given: pyproject.toml.
         When: ruff lint select is read.
         Then: B, SIM, C4, TCH are present."""
-        import tomllib
-
-        pyproject_path = _project_root() / "pyproject.toml"
-        if not pyproject_path.exists():
-            pytest.skip("pyproject.toml not found")
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_pyproject()
         select = data.get("tool", {}).get("ruff", {}).get("lint", {}).get("select", [])
         assert "B" in select, "ruff select must include B (flake8-bugbear)"
         assert "SIM" in select, "ruff select must include SIM (simplify)"
@@ -495,13 +487,7 @@ class TestRuffRules:
         """Given: pyproject.toml.
         When: ruff target-version is read.
         Then: equals py311."""
-        import tomllib
-
-        pyproject_path = _project_root() / "pyproject.toml"
-        if not pyproject_path.exists():
-            pytest.skip("pyproject.toml not found")
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_pyproject()
         target = data.get("tool", {}).get("ruff", {}).get("target-version", "")
         assert target == "py311", f"ruff target-version must be py311: {target}"
 
@@ -519,13 +505,7 @@ class TestMypyStrict:
         """Given: pyproject.toml.
         When: mypy config is read.
         Then: strict = true."""
-        import tomllib
-
-        pyproject_path = _project_root() / "pyproject.toml"
-        if not pyproject_path.exists():
-            pytest.skip("pyproject.toml not found")
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_pyproject()
         strict = data.get("tool", {}).get("mypy", {}).get("strict", False)
         assert strict is True, "mypy strict must be enabled"
 
@@ -533,13 +513,7 @@ class TestMypyStrict:
         """Given: pyproject.toml.
         When: mypy python_version is read.
         Then: 3.11+ or unset (defaults to current interpreter)."""
-        import tomllib
-
-        pyproject_path = _project_root() / "pyproject.toml"
-        if not pyproject_path.exists():
-            pytest.skip("pyproject.toml not found")
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_pyproject()
         version = data.get("tool", {}).get("mypy", {}).get("python_version", "")
         assert version in ("", None, "3.11", "3.12", "3.13"), (
             f"mypy python_version must be 3.11+ or unset, got {version!r}"
@@ -556,13 +530,7 @@ class TestFrozenVersions:
     """Smoke: dependencies have frozen upper/lower bounds (PEP 508)."""
 
     def _get_dependencies(self) -> list[str]:
-        import tomllib
-
-        pyproject_path = _project_root() / "pyproject.toml"
-        if not pyproject_path.exists():
-            pytest.skip("pyproject.toml not found")
-        with open(pyproject_path, "rb") as f:
-            data = tomllib.load(f)
+        data = _load_pyproject()
         deps: list[str] = data.get("project", {}).get("dependencies", [])
         return deps
 
