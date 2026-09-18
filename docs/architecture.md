@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-09-17
+> Version: 2026-09-18
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -9,9 +9,13 @@
 ## 1. Project Identity (Non-Negotiable)
 
 - **offline-first**: Core works without cloud
+- **portable**: runs from its own folder on Linux/Windows; the venv is
+  rebuilt with one command, never relocated; all data lives under `./data`
 - **solo-maintained**: One human, 10+ years. Every change must be explainable in one sentence to a non-programmer
-- **immutable core**: `core/` changes only when physically impossible otherwise
+- **immutable core**: `core/` changes only when physically impossible otherwise; the owner may authorize a core change (bug fix, crutch removal, improvement) — always through an explicit `CORE CHANGE REQUIRED` gate (see ai_rules §4; precedent: drift #146, #151)
 - **AI is implementation assistant, not architect**: AI proposes code only. Architecture decisions belong to the human
+- **data is sacred**: `data/raw_documents/` is the source of truth; disk formats change only with a migration (§11); indices are derived data, always rebuildable
+- **deployment profile**: personal local assistant behind an API key — not a public internet service; target scale up to a few thousand documents (calibrates §14 and the IVF trigger)
 
 ---
 
@@ -80,7 +84,8 @@ raw_documents/{ns}/   _atomize/ = intent (--full)
      faiss + lexical index (per namespace)
 ```
 
-- **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66). raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109).
+- **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66); split outputs inherit the SOURCE's mtime (drift #149) — a re-split neither re-announces files to the watcher nor moves the year ground. raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109).
+- **Dates**: chat exports get machine-form date markers `[Speaker, YYYY-MM-DD]` at split time (year grounded by the source mtime; tables stay inside the script); indexing derives `doc_date` (YYYY-MM, last marker in the chunk) into `ChunkMetadata.custom` — no honest date → empty value, never a guess (drift #149). A date phrase in the query ("in March", owner's language data in yaml) frames the search BEFORE ranking, in both legs; undated chunks are excluded while the frame is active (drift #151).
 - **Atoms**: explicit — a chat MOVED into an _atomize/ folder (location is the intent, drift #108-#110), just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65).
 - **Validate**: static read-only contract check over the atoms output (V1–V6, drift #86/#87) — the enforcement arm of the boundary below: ingestion defects surface as a run-total at creation and in full via `prepare_docs --validate`, never silently. The producer itself stays quiet (owner decision); repair is a separate owner action, never automatic.
 - **Watch**: one document = one checkpoint; a kill loses one doc, the next pass resumes (#64). One reindex path at a time (#62). The 600 s window is a pause, not a reset.
@@ -393,11 +398,24 @@ Rules that survive model changes, hardware changes, and adapter swaps.
    The vector store stays the inventory authority; the reranker
    remains the final judge over the fused list (drift #137, #141).
 
+8. **A date frame is a query scope, not an answer filter.** Like a
+   namespace, it narrows what is searched BEFORE ranking — the LLM
+   never sees the filter, only its results. Both legs filter or
+   neither does (one-leg filtering leaks foreign months through RRF);
+   undated chunks are honestly excluded while a frame is active; the
+   phrase stays in the query text; a query without a date phrase is
+   byte-identical to the pre-filter pipeline (drift #151).
+
 ## 14. Hardware Ceiling Log
 
 > Full per-run history (2026-07-13 → 2026-09-15): git history of this
 > file, compaction commit of 2026-09-15. Model names and scores are
 > dated snapshots of one engine build, never rankings.
+> OWNER PROFILE: the numbers below describe the maintainer's machine
+> (GTX 1650 4GB / Ryzen 4800H / 16GB RAM) and his measured choices.
+> The project itself is model- and hardware-agnostic (owner
+> requirement #3): a different machine re-derives its own ceilings the
+> same way — measure, then decide.
 
 Hardware (stated once — the single reference for every limit below):
 GTX 1650 4GB VRAM / Ryzen 4800H / 16GB RAM.
@@ -413,6 +431,10 @@ Hard constraints (survive any engine or model change):
 - Hybrid lexical leg (BM25): peak RAM 5.86 GB vs 5.39 GB dense-only
   (2026-09-17, drift #141) — the in-memory text copy costs ~0.5 GB at
   3400+ chunks; scales with corpus text size, not embedding dim.
+  Second live point (2026-09-17, check_rag monitor, date-campaign
+  stage 2): 6.97 GB peak at 275 chunks / 6 docs — the delta vs the
+  bench numbers is mostly loaded model + reranker, not corpus; measure
+  on every corpus doubling before extrapolating.
 - Indexing rates: CPU ~4-7 chunks/s (measured 2026-09-01/02, engine
   pre-0.4.1) — "never completes a large source" was the caution then;
   re-measured live 2026-09-17 on engine 0.4.1: ~8.7 avg / 7.6-10 per

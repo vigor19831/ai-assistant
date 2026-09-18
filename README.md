@@ -5,6 +5,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **Offline-first**: works without cloud; your data never leaves your machine
 - **Multilingual**: bge-m3 embedder; quality measured on Russian and English corpora — other scripts not yet measured
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
+- **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" and the search frame narrows to March in both retrieval legs, before ranking — no date phrase, no filtering (language data lives in your yaml)
 - **Measured quality**: the bench is 17 contract tests (must pass on any hardware) + 34 capability tests (quality scales with LLM size); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
 - **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one documented chat-condensation flake, see docs)
 - **10-year maintainability**: boring code, explicit architecture, no magic
@@ -16,7 +17,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 ## Pipeline & Quality
 
-Pipeline: retrieve (hybrid: dense embeddings + exact-term BM25, fused by RRF rank-fusion; multi-query — the LLM generates 2 query variations; optional HyDE) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: `[Document N]` citations, conflict reporting, "I don't know" when evidence is absent). Chunking is recursive (paragraphs → sentences → words); question condensation handles multi-turn.
+Pipeline: retrieve (hybrid: dense embeddings + exact-term BM25, fused by RRF rank-fusion; multi-query — the LLM generates 2 query variations; optional HyDE; date phrases frame the search before ranking — both legs or neither) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: `[Document N]` citations, conflict reporting, "I don't know" when evidence is absent). Chunking is recursive (paragraphs → sentences → words); question condensation handles multi-turn.
 
 Quality is measured, not assumed: `scripts/check_rag.py` — 51 cases (17 contract tests that must pass on any hardware, 34 capability tests whose quality depends on LLM size, chat e2e). The benchmark is the single source of truth for RAG quality; results, canon and the full hardware campaign live in `docs/architecture.md` §14; known limitations (open-synthesis recall, date honesty on undated atoms, the chat-condensation flake) in `docs/drift.md`.
 
@@ -45,7 +46,7 @@ python run_servers.py
 
 Always start and stop the stack via `run_servers.py`: it pins the working directory to the project folder. Launching uvicorn manually from another directory silently creates a new empty `data/` there.
 
-**Documents**: place originals in `data/raw_documents/` — root is the default namespace, level-1 subfolders are namespaces, an `_atomize/` folder marks atomization intent; one home per file, no copies. Run `python scripts/prepare_docs.py` (or script-runner mode [1]) — parts land in `data/documents/` (files >150 KB split into ~30 KB parts, smaller pass as-is) and auto-index within 60 s. For faster indexing see the GPU embedding profile in `config.example.yaml`. Never edit `data/documents/` by hand: it is a mirror, and the reconcile treats hand-placed files as leftovers of vanished sources.
+**Documents**: place originals in `data/raw_documents/` — root is the default namespace, level-1 subfolders are namespaces, an `_atomize/` folder marks atomization intent; one home per file, no copies. Run `python scripts/prepare_docs.py` (or script-runner mode [1]) — parts land in `data/documents/` (files >150 KB split into ~30 KB parts, smaller pass as-is), chat exports get `[Speaker, YYYY-MM-DD]` date markers (the year comes from the source file's mtime — keep source mtimes honest when re-downloading old exports), and auto-index within 60 s. For faster indexing see the GPU embedding profile in `config.example.yaml`. Never edit `data/documents/` by hand: it is a mirror, and the reconcile treats hand-placed files as leftovers of vanished sources.
 
 **Chat exports** (AI conversations, decision-heavy dialogs): MOVE the file into an `_atomize/` folder and run mode [2] (`python scripts/prepare_docs.py --full`) — the archivist LLM distills status-disciplined atoms (fact / decision with the exact user quote / recommendation / hypothesis), guarding against advice being read as a decision a year later (drift #67). Audit with mode [3] (`--validate`, read-only V1–V6); the producer itself reports only a run-total. Atom quality is bounded by the extractor model class: 4–7B models invent dates, echo prompt templates, and merge statements (measured 2026-09-14: an inverted cost fact outranked its true source in live retrieval) — atoms stay OFF until a 14B-class model fits VRAM (drift #92); raw document splits are indexed meanwhile.
 
@@ -88,7 +89,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
 | `archivist` | Atom-extraction LLM profile for prepare_docs --full |
 | `vector_store` | FAISS or memory, index path, dimension |
 | `lexical_index` | Optional exact-term (BM25) retrieval leg — absent section = dense-only |
-| `rag` | Pipeline steps, top_k, sources, token margin |
+| `rag` | Pipeline steps, top_k, sources, token margin, date-filter language data (month names, prepositions) |
 | `namespaces` | Per-namespace prefix, chunk size, prompt template |
 | `security` | API key, admin endpoints, body size limits |
 | `tokenizer` | Provider (`huggingface`, `tiktoken`) and model path |
@@ -122,6 +123,7 @@ python scripts/check_rag.py
 | `faiss-cpu not installed` | `pip install faiss-cpu` |
 | Servers not responding | Check `data/llama.log`; ensure `llama-server` is installed |
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
+| "What did I decide in March" finds nothing | Date frames need (a) documents with dates — chat exports get them automatically at split time; (b) your month names in `rag.date_month_names` (the example yaml shows the shape); undated chunks are excluded while a date frame is active — that is by design |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
 | `check_rag.py` results differ between runs | Usually environment changed: benchmark is deterministic (temp 0.0) — check config, model, or index state. One documented exception: the chat-condensation flake (multi-turn-1); re-run any other surprising red before classifying it. |
 | Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ~30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
@@ -141,7 +143,7 @@ ai-assistant/
 ├── run_servers.yaml       ← server launch configuration
 ├── run_scripts.py         ← interactive script runner (check_rag, prepare_docs, …)
 ├── src/ai_assistant/      ← core/ (domain, ports, prompts, pipeline), adapters/, features/, api/, ui/
-├── tests/                 ← ~1000 tests (contracts, edge cases, integration, e2e)
+├── tests/                 ← 1200+ tests (contracts, edge cases, integration, e2e)
 ├── scripts/               ← check_all, check_rag, check_llm, prepare_docs, download_tokenizers, …
 ├── docs/                  ← ai_rules.md, architecture.md, drift.md
 ├── data/                  ← runtime, git-ignored: raw_documents/, documents/ (mirror), indices/, lexical_indices/, storage.db, tokenizers/, app.log
