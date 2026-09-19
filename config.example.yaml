@@ -16,6 +16,9 @@
 #    small files pass as-is; documents/ is a mirror — never edit it)
 # 5. After ANY config change: restart the servers — the config is read
 #    once at startup (run_servers.py stop && start)
+# 6. Backups: set backup.target_dir below (outside the project!) and
+#    run scripts/backup.py — raw_documents/ and chat history are the
+#    only data that never rebuilds.
 # =============================================================================
 
 app_name: ai-assistant
@@ -48,6 +51,26 @@ chat:
 storage:
   provider: sqlite
   db_path: ./data/storage.db
+
+# =============================================================================
+# BACKUP — [CHANGE] target_dir to your backup location
+# =============================================================================
+# Copies the three non-rebuildable data assets (this config, the
+# data/raw_documents/ corpus, the chat-history db) via:
+#   python scripts/backup.py
+# Each run creates a backup_YYYYMMDD_HHMMSS subfolder; old backups
+# are NEVER deleted automatically. Every copy is verified after
+# writing (file count, byte count, SQLite integrity_check, YAML
+# re-parse); exit code 1 means a copy failed — rerun, do not trust
+# a red backup. Indices are NOT backed up: they are derived data,
+# rebuilt by POST /rag/reindex.
+backup:
+  # [CHANGE] Absolute path OUTSIDE the project folder — the script
+  # refuses targets inside it (a disk failure would take the backup
+  # with the project). Best: another physical disk. The folder is
+  # created automatically. The backup copy contains this config
+  # INCLUDING its api_key values: treat the folder as sensitive.
+  target_dir: /path/to/your/backup-folder
 
 security:
   api_key: local

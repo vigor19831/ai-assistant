@@ -43,6 +43,7 @@ __all__ = [
     "CHAT_NS_PREFIX",
     "AppConfig",
     "ArchivistConfig",
+    "BackupConfig",
     "CORSConfig",
     "ChatConfig",
     "ChunkerConfig",
@@ -205,6 +206,19 @@ class ArchivistConfig(BaseSettings):
     # ctx(8192) - instruction(~800) - answer(~1500) = ~5800 tokens
     # * ~3.5 bytes/token RU/EN -> 12000.
     part_bytes: int = 12_000
+
+
+class BackupConfig(BaseSettings):
+    """Backup target (scripts/backup.py) — optional, app never reads it.
+
+    Same pattern as ArchivistConfig: a script-only section. Absent
+    section = backup unconfigured — the script fails loudly with the
+    exact yaml snippet to add. No config_version bump: a pure optional
+    addition migrates nothing (drift #138).
+    """
+
+    model_config = SettingsConfigDict(env_prefix="AI_BACKUP_", extra="forbid")
+    target_dir: str
 
 
 class RAGStep(StrEnum):
@@ -419,6 +433,7 @@ class AppConfig(BaseSettings):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     vector_store: VectorStoreConfig = Field(default_factory=VectorStoreConfig)
     lexical_index: LexicalIndexConfig | None = Field(default=None)
+    backup: BackupConfig | None = Field(default=None)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)

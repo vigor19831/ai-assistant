@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import ast
 import compileall
+import importlib.util
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from ai_assistant.core.logger import get_logger
 
@@ -848,3 +851,94 @@ def test_factory_import_without_faiss():
     )
     assert result.returncode == 0, f"factory crashed without faiss: {result.stderr}"
     assert "ok" in result.stdout
+
+
+# ── Backup script (tooling) ────────────────────────────────────────────────
+
+
+_BACKUP_SCRIPT = Path(__file__).parent.parent / "scripts" / "backup.py"
+_BACKUP_SPEC = importlib.util.spec_from_file_location(
+    "backup_test_mod", _BACKUP_SCRIPT
+)
+assert _BACKUP_SPEC is not None
+backup: Any = importlib.util.module_from_spec(_BACKUP_SPEC)
+assert _BACKUP_SPEC.loader is not None
+sys.modules["backup_test_mod"] = backup
+_BACKUP_SPEC.loader.exec_module(backup)
+
+
+def _make_backup_project(tmp_path: Path) -> Path:
+    """Miniature project: corpus file, storage db with one row."""
+    project = tmp_path / "project"
+    docs = project / "data" / "raw_documents"
+    docs.mkdir(parents=True)
+    (docs / "note.md").write_text("alpha beta", encoding="utf-8")
+    conn = sqlite3.connect(str(project / "data" / "storage.db"))
+    conn.execute(
+        "CREATE TABLE chat_messages (id INTEGER PRIMARY KEY, role TEXT, content TEXT)"
+    )
+    conn.execute("INSERT INTO chat_messages (role, content) VALUES ('user', 'hello')")
+    conn.commit()
+    conn.close()
+    return project
+
+
+def _write_backup_config(project: Path, target: Path) -> None:
+    """Write a valid minimal config pointing the backup at target."""
+    config = {
+        "backup": {"target_dir": str(target)},
+        "storage": {"db_path": "data/storage.db"},
+    }
+    (project / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+@pytest.mark.smoke
+class TestBackupScript:
+    """Backup tooling: the restore-critical paths, end to end on tmp."""
+
+    def test_full_backup_verified(self, tmp_path, monkeypatch):
+        """A full run copies config, corpus, db — each copy verifies."""
+        project = _make_backup_project(tmp_path)
+        target = tmp_path / "backups"
+        _write_backup_config(project, target)
+
+        monkeypatch.setattr(backup, "_ROOT", project)
+        monkeypatch.setenv("AI_CONFIG_PATH", str(project / "config.yaml"))
+
+        assert backup.main() == 0
+
+        folders = list(target.glob("backup_*"))
+        assert len(folders) == 1
+        snapshot = folders[0]
+        assert (snapshot / "config.yaml").exists()
+        note = snapshot / "raw_documents" / "note.md"
+        assert note.read_text(encoding="utf-8") == "alpha beta"
+        conn = sqlite3.connect(str(snapshot / "storage.db"))
+        rows = conn.execute("SELECT role, content FROM chat_messages").fetchall()
+        conn.close()
+        assert rows == [("user", "hello")]
+        assert (snapshot / "manifest.txt").exists()
+
+    def test_missing_section_fails_loudly(self, tmp_path, monkeypatch, capsys):
+        """No backup section: exit 1 with the exact yaml snippet."""
+        project = _make_backup_project(tmp_path)
+        (project / "config.yaml").write_text(
+            yaml.safe_dump({"storage": {"db_path": "data/storage.db"}}),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(backup, "_ROOT", project)
+        monkeypatch.setenv("AI_CONFIG_PATH", str(project / "config.yaml"))
+
+        assert backup.main() == 1
+        assert "backup section is missing" in capsys.readouterr().out
+
+    def test_target_inside_project_rejected(self, tmp_path, monkeypatch, capsys):
+        """A target inside the project folder is refused (disk death risk)."""
+        project = _make_backup_project(tmp_path)
+        _write_backup_config(project, project / "inside")
+
+        monkeypatch.setattr(backup, "_ROOT", project)
+        monkeypatch.setenv("AI_CONFIG_PATH", str(project / "config.yaml"))
+
+        assert backup.main() == 1
+        assert "inside the project" in capsys.readouterr().out

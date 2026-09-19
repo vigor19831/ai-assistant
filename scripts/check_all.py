@@ -169,6 +169,7 @@ MYPY_TEST_FLAGS: tuple[str, ...] = (
 
 MYPY_TARGETS: tuple[str, ...] = (
     "src/ai_assistant",
+    "scripts/backup.py",
     "scripts/check_all.py",
     "scripts/check_llm.py",
     "scripts/check_rag.py",

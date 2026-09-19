@@ -44,16 +44,51 @@ def get_python(root: Path) -> str:
 
 _EXCLUDED_SCRIPTS = frozenset({"setup.py", "__init__.py"})
 
+# Explicit menu order — the list is the source of truth for membership
+# AND order (ai_rules §11: no magic discovery; glob sorting put
+# backup.py first, 2026-09-18). Reorder = move a line; a new script =
+# add a line, otherwise it stays invisible — loudly.
+_SCRIPTS: list[str] = [
+    "check_all.py",
+    "check_llm.py",
+    "check_rag.py",
+    "clean_cache.py",
+    "context_build.py",
+    "download_tokenizers.py",
+    "kill.py",
+    "mutmut_check.py",
+    "open_shell.py",
+    "prepare_docs.py",
+    "structure.py",
+    "backup.py",
+]
+
 
 def collect_scripts(root: Path, subdir: str = "scripts") -> list[Path]:
-    """Return sorted list of runnable scripts, excluding internal files."""
+    """Return the explicitly ordered script list.
+
+    Membership and order both come from _SCRIPTS. A listed script
+    missing from disk and an unlisted .py file in scripts/ are both
+    reported loudly — the list is never silently wrong.
+    """
     d = root / subdir
     if not d.exists():
         return []
-    return sorted(
-        p for p in d.glob("*.py")
-        if p.name not in _EXCLUDED_SCRIPTS
+    paths: list[Path] = []
+    for name in _SCRIPTS:
+        p = d / name
+        if p.exists():
+            paths.append(p)
+        else:
+            print(f"  ! listed script missing: {p}")
+    unlisted = sorted(
+        p.name
+        for p in d.glob("*.py")
+        if p.name not in _SCRIPTS and p.name not in _EXCLUDED_SCRIPTS
     )
+    if unlisted:
+        print(f"  ! unlisted scripts (add to _SCRIPTS): {', '.join(unlisted)}")
+    return paths
 
 
 def _fmt_duration(seconds: float) -> str:
