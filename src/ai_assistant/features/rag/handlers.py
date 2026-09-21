@@ -11,6 +11,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from starlette.requests import Request  # noqa: TC002
+from starlette.responses import Response
 
 from ai_assistant.api.deps import (
     InitializedAppState,
@@ -896,3 +897,46 @@ async def reindex_status(
     if info is not None:
         return {"task_id": task_id, **info}
     return {"task_id": task_id, "status": "unknown"}
+
+
+# Documents folder for the source viewer (see get_source): mirrors
+# rag.sources.path from config.yaml -- the indexed mirror only, never
+# raw_documents/ (raw is sacred; the .md artifact is what the model
+# saw and what a human reads). Path constant, not a config knob: one
+# consumer, the convention is stable (drift #108/#109).
+_DOCUMENTS_DIR = Path("./data/documents")
+
+
+def _read_source_artifact(filename: str) -> str | None:
+    """Sync disk IO for the source viewer (ASYNC240: no pathlib in
+    async context -- the handler stays loop-clean, this runs the
+    small blocking read). Returns the artifact text or None when the
+    name is not a file under the documents root.
+    """
+    base = _DOCUMENTS_DIR.resolve()
+    target = (base / filename).resolve()
+    if not target.is_relative_to(base) or not target.is_file():
+        return None
+    return target.read_text(encoding="utf-8", errors="replace")
+
+
+@router.get("/source/{filename}")
+async def get_source(
+    filename: str,
+    _state: Annotated[InitializedAppState, Depends(get_state)],
+) -> Response:
+    """Serve one documents/ artifact for the UI source viewer.
+
+    The filename comes from the chat UI's source list, which builds
+    it from the pipeline's own artifact names ([N] lines of the
+    Sources block). Bare basename only: no separators, no ".." --
+    a 400 on anything shaped like a path. The artifact folder is the
+    ONLY reachable root: artifacts are derived data (rebuildable,
+    architecture 1), reading them is side-effect free.
+    """
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="bad filename")
+    text = _read_source_artifact(filename)
+    if text is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return Response(content=text, media_type="text/markdown")

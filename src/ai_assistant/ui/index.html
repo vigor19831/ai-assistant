@@ -127,6 +127,8 @@
         .sources-content { padding: 6px 12px 10px; font-size: 12px; color: #8b949e; border-top: 1px solid var(--border); }
         .sources-content p { margin: 0 0 4px; line-height: 1.45; }
         .sources-content p:last-child { margin-bottom: 0; }
+        .source-link { color: #58a6ff; text-decoration: none; }
+        .source-link:hover { text-decoration: underline; }
 
         .expand-btn { position: relative; z-index: 2; background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; margin-top: -10px; align-self: center; }
         .expand-btn:hover { background: var(--border); }
@@ -523,6 +525,7 @@
                 // Shorten artifact filenames in the plain-text source
                 // lines: strip _partNN, the download timestamp and the
                 // extension; keep [N] numbers and the modified date.
+                const sourceFiles = (sources.match(/[^\s()]+\.(md|txt|json)/g) || []);
                 const cleaned = sources.trim()
                     // Strip "[N] " line numbers: in-text [Document N]
                     // markers are removed at render, the numbers have
@@ -568,7 +571,15 @@
                     }, [])
                     .map(x => x.raw)
                     .join('\n');
-const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
+                // Build source lines as clickable rows: the shortened
+                // name shown, the FULL artifact filename in data-source.
+                const sourcesHtml = cleaned.split('\n').map((line, idx) => {
+                    const file = sourceFiles[idx];
+                    if (!file) return `<p>${escapeHtml(line)}</p>`;
+                    const label = escapeHtml(line.replace(file, '').trim() ||
+                        _shortSourceName(file));
+                    return `<p><a href="#" class="source-link" data-source="${escapeHtml(file)}">${label}</a></p>`;
+                }).join('');
                 // open while streaming so the sources are visible as they
                 // arrive; collapsed in the final render (matches the
                 // reasoning-block behavior)
@@ -1017,7 +1028,33 @@ const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
             container.addEventListener('click', e => {
                 const btn = e.target.closest('.copy-code-btn');
                 if (btn) { e.preventDefault(); copyCode(btn); }
+                const link = e.target.closest('.source-link');
+                if (link) { e.preventDefault(); openSourceViewer(link.dataset.source); }
             });
+        }
+
+        async function openSourceViewer(filename) {
+            // Fetch the documents/ artifact and show it in a modal.
+            // Read-only: the viewer never edits anything.
+            try {
+                const resp = await fetch(
+                    getApiBase() + '/api/v1/rag/source/' + encodeURIComponent(filename),
+                    { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') } }
+                );
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const text = await resp.text();
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay active';
+                overlay.innerHTML = `<div class="modal" style="max-width:860px;">
+                    <h2>${escapeHtml(_shortSourceName(filename))}</h2>
+                    <pre style="max-height:60vh;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.5;background:var(--surface);padding:12px;border-radius:8px;">${escapeHtml(text)}</pre>
+                    <div class="modal-actions"><button class="modal-btn primary" onclick="this.closest('.modal-overlay').remove()">Close</button></div>
+                </div>`;
+                overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+                document.body.appendChild(overlay);
+            } catch (err) {
+                showToast('Source load failed: ' + err.message);
+            }
         }
 
         window.newChat = newChat; window.toggleSidebar = toggleSidebar; window.deleteSession = deleteSession; window.sendMessage = sendMessage;
