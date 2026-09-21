@@ -350,12 +350,42 @@ class ChatManager:
             # No RAG prefix detected — return original message unchanged
             return message, message, None, ()
 
-        # Convert history dicts to (role, text) tuples for PipelineData
+        # Convert history dicts to (role, text) tuples for PipelineData.
+        # Drift #164: the condenser sees RAG turns ONLY — an assistant
+        # turn without a Sources block never passed the pipeline (an
+        # off-RAG answer: prefix not parsed, pure LLM), and feeding it
+        # to condensation poisons it (the zram->zrachok autocorrection).
+        # The Sources block is the provenance marker: it exists in the
+        # raw history at this point (stripped later, at the LLM stage)
+        # and marks exactly the answers the condenser may resolve
+        # against. Refusals carry no Sources (drift #50) but DO pass
+        # the pipeline — user turns are never filtered.
         chat_history: tuple[tuple[str, str], ...] = ()
         if history:
+            def _is_rag_turn(h: dict[str, Any]) -> bool:
+                # A turn counts when it BELONGED to the pipeline: an
+                # assistant turn proves it with a Sources block; a user
+                # turn proves it with a parsed namespace prefix -- the
+                # SAME parser as the main path (parse_rag_query over
+                # the prefix map), one definition of "a RAG turn".
+                # Drift #164 follow-up: the poisoner was the USER-side
+                # question (anatomy topic) -- filtering assistant turns
+                # alone let it through and the condenser "autocorrected"
+                # a colloquial word into it. Symmetric rule: mixed-mode
+                # turns (no prefix / no sources) are invisible to
+                # condensation; they remain in the full LLM history.
+                content = h.get("content", "") or ""
+                if not isinstance(content, str) or not content:
+                    return False
+                if h.get("role") == "assistant":
+                    return _SOURCES_MARKER in content
+                _q, ns = parse_rag_query(content, self._prefix_map)
+                return ns is not None
+
             chat_history = tuple(
                 (h.get("role", "user"), h.get("content", ""))
                 for h in history[-CONDENSE_HISTORY_LIMIT:]
+                if _is_rag_turn(h)
             )
 
         original_query_text = query_text  # preserve before pipeline mutation
