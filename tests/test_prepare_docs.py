@@ -2149,3 +2149,24 @@ def test_find_vanished_accepts_json_part_source(tmp_path: Path) -> None:
     (src_dir / "chat.json").write_bytes(_sample_chat_json())
     (dest_dir / "chat_part01.md").write_text("x", encoding="utf-8")
     assert _find_vanished(src_dir, dest_dir) == {}
+
+
+def test_chat_json_missing_display_model_falls_back() -> None:
+    """No displayModel on an assistant message -> neutral label."""
+    msgs = json.loads(_sample_chat_json())
+    del msgs[1]["displayModel"]
+    out = _chat_json_to_markdown(json.dumps(msgs).encode("utf-8"), "c.json")
+    text = out.decode("utf-8")  # type: ignore[union-attr]
+    assert "[Assistant, 2026-08-07]" in text
+
+
+def test_chat_json_unknown_role_skipped() -> None:
+    """Non user/assistant roles never reach the output."""
+    msgs = json.loads(_sample_chat_json())
+    msgs.insert(1, {"role": "system", "contents": [
+        {"type": "text", "content": "hidden system note"}],
+        "created_at": "2026-08-07 08:14:38"})
+    out = _chat_json_to_markdown(json.dumps(msgs).encode("utf-8"), "c.json")
+    text = out.decode("utf-8")  # type: ignore[union-attr]
+    assert "hidden system note" not in text
+    assert "настраиваю pop_os" in text

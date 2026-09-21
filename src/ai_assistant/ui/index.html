@@ -531,11 +531,14 @@
                     // markers are removed at render, the numbers have
                     // no addressee left (owner decision).
                     .replace(/^\[\d+\]\s*/gm, '')
-                    // "(modified 2026-09-20 18:55:22)" -> date only,
-                    // owner's format: (20-09-2026)
+                    // "(modified 2026-09-20 18:55:22)" is the download
+                    // time -- drop it entirely (noise). "(content
+                    // 07-08-2026/21-09-2026)" is the chat's lifetime --
+                    // keep it as the line's date.
+                    .replace(/\s*\(modified [^)]*\)/g, '')
                     .replace(
-                        /\(modified (\d{4})-(\d{2})-(\d{2})[^)]*\)/g,
-                        (_m, y, mo, d) => `(${d}-${mo}-${y})`
+                        /\(content ([^)]+)\)/g,
+                        (_m, d) => `(${d})`
                     )
                     .replace(
                         /[^\s()]+\.(md|txt|json)/g,

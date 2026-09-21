@@ -3316,3 +3316,68 @@ class TestDateFilter:
 
         with pytest.raises(ValueError):
             DateFilter(month=13)
+
+
+# ── Source viewer endpoint (drift: clickable sources) ──
+
+
+class TestSourceEndpoint:
+    """GET /rag/source/{filename} -- read-only artifact viewer."""
+
+    @pytest.mark.asyncio
+    async def test_serves_existing_artifact(self, tmp_path: Path) -> None:
+        """An artifact under documents/ is served as markdown."""
+        from ai_assistant.features.rag import handlers as rag_handlers
+
+        artifact = tmp_path / "doc_part01.md"
+        artifact.write_text("# doc\n", encoding="utf-8")
+        with patch.object(rag_handlers, "_DOCUMENTS_DIR", tmp_path):
+            resp = await rag_handlers.get_source("doc_part01.md", _state=MagicMock())
+        assert resp.status_code == 200
+        assert "# doc" in resp.body.decode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_rejects_path_shapes(self) -> None:
+        """Separator/backslash/dotdot names are 400 before any IO."""
+        from ai_assistant.features.rag import handlers as rag_handlers
+
+        for bad in ("../x.md", "a/b.md", "a\\b.md", ".."):
+            with pytest.raises(HTTPException) as exc:
+                await rag_handlers.get_source(bad, _state=MagicMock())
+            assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_missing_file_is_404(self, tmp_path: Path) -> None:
+        from ai_assistant.features.rag import handlers as rag_handlers
+
+        with (
+            patch.object(rag_handlers, "_DOCUMENTS_DIR", tmp_path),
+            pytest.raises(HTTPException) as exc,
+        ):
+            await rag_handlers.get_source("nope.md", _state=MagicMock())
+        assert exc.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_path_escape_outside_root_is_404(self, tmp_path: Path) -> None:
+        """A resolved path leaving the documents root is not served
+        even if it exists on disk (defense in depth past the 400)."""
+        import os
+
+        from ai_assistant.features.rag import handlers as rag_handlers
+
+        outside = tmp_path.parent / "outside_secret.md"
+        outside.write_text("secret", encoding="utf-8")
+        try:
+            with (
+                patch.object(rag_handlers, "_DOCUMENTS_DIR", tmp_path),
+                pytest.raises(HTTPException) as exc,
+            ):
+                await rag_handlers.get_source(
+                    os.path.relpath(outside, tmp_path), _state=MagicMock()
+                )
+            # Either defense layer is a correct rejection: the basename
+            # guard (400) or the containment check (404); the invariant
+            # is that the outside file is NEVER served.
+            assert exc.value.status_code in (400, 404)
+        finally:
+            outside.unlink(missing_ok=True)

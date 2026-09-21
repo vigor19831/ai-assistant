@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -120,6 +121,32 @@ def _sanitize_history(
     ]
 
 
+# Content-date extraction for the Sources block: the first and the
+# last [Speaker, YYYY-MM-DD] markers in a chunk's text span the
+# document's content lifetime (a chat continued across months shows
+# a range, a plain document has no markers and no date -- drift #149:
+# no honest date -> none shown). Day precision, owner's DD-MM-YYYY
+# format, range separator "/" (not "-", which reads as a hyphenated
+# single date).
+_CONTENT_DATE_RE = re.compile(
+    r"\[[^\[\]]+?, (\d{4}-\d{2}-\d{2})\]"
+)
+
+
+def _content_date_range(text: str) -> str:
+    """First..last marker dates of the text as DD-MM-YYYY, or ''."""
+    dates = [m.group(1) for m in _CONTENT_DATE_RE.finditer(text)]
+    if not dates:
+        return ""
+    def _fmt(iso: str) -> str:
+        y, mo, d = iso.split("-")
+        return f"{d}-{mo}-{y}"
+    first, last = dates[0], dates[-1]
+    if first == last:
+        return _fmt(first)
+    return f"{_fmt(first)}/{_fmt(last)}"
+
+
 class ChatManager:
     """Universal chat router."""
     @staticmethod
@@ -153,6 +180,9 @@ class ChatManager:
             if not md.source_uri and md.original_path:
                 display = os.path.basename(md.original_path) or md.source
             date_str = f" (modified {md.last_modified})" if md.last_modified else ""
+            content_dates = _content_date_range(chunk.text or "")
+            if content_dates:
+                date_str += f" (content {content_dates})"
             if link and link != display:
                 return f"{display}{date_str} — {link}"
             return f"{display}{date_str}"

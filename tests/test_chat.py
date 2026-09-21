@@ -1614,3 +1614,42 @@ def test_is_refusal_answer_text_after_refusal_disqualifies() -> None:
     closing statement."""
     text = "I don't know. But let me add one more thing."
     assert is_refusal_answer(text) is False
+
+
+def test_source_content_date_range() -> None:
+    """Sources lines carry the chunk's content date range (owner
+    format DD-MM-YYYY, '/' separator); plain chunks show none."""
+    from ai_assistant.features.chat.manager import _content_date_range
+
+    single = "[Пользователь, 2026-08-07]\n\nтекст\n"  # noqa: RUF001
+    assert _content_date_range(single) == "07-08-2026"
+
+    span = (
+        "[Пользователь, 2026-08-07]\n\nа\n\n"  # noqa: RUF001
+        "[ChatGPT, 2026-09-21]\n\nб\n"  # noqa: RUF001
+    )
+    assert _content_date_range(span) == "07-08-2026/21-09-2026"
+
+    assert _content_date_range("plain document, no markers") == ""
+
+
+def test_append_rag_sources_content_date_in_line() -> None:
+    """The Sources line carries (content DD-MM-YYYY[...]) when the
+    chunk text has date markers."""
+    md = ChunkMetadata(
+        source="doc_part01.md",
+        source_uri="doc_part01.md",
+        index=0,
+        total_chunks=1,
+        last_modified="2026-09-20 18:55:22",
+    )
+    chunk = Chunk(
+        id="c1",
+        text="[Пользователь, 2026-08-07]\n\nтекст\n",  # noqa: RUF001
+        embedding=None,
+        metadata=md,
+    )
+    out = ChatManager._append_rag_sources("Ответ.", (chunk,))
+    assert "[1] doc_part01.md" in out
+    assert "(content 07-08-2026)" in out
+    assert "(modified 2026-09-20 18:55:22)" in out
