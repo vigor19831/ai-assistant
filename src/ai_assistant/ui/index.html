@@ -227,6 +227,9 @@
                 <button class="icon-btn" onclick="exportChat()" title="Export" aria-label="Export chat">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                 </button>
+                <button class="icon-btn" onclick="exportAllChats()" title="Export ALL chats (backup)" aria-label="Backup all chats">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                </button>
                 <button class="icon-btn" onclick="openIndexModal()" title="Index Documents" aria-label="Index documents">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10M18 14l-6-6-6 6"/></svg>
                 </button>
@@ -625,6 +628,21 @@ const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
 
         loadSettings(); loadSessions(); initDragAndDrop(); setupScrollHandling(); setupKeyboardShortcuts(); setupModalDismiss(); setupBeforeUnload(); setupEventDelegation(); input.focus();
 
+        // Schema migration: messages written by older UI versions lack
+        // fields the current renderer may expect. One normalized shape
+        // for everything in storage -- old chats keep rendering after
+        // any future field addition (fill defaults here, never in the
+        // renderer scattered).
+        function migrateMessage(m) {
+            return {
+                id: m.id || Math.random().toString(36).substring(2, 15),
+                role: m.role || 'user',
+                content: typeof m.content === 'string' ? m.content : '',
+                timestamp: m.timestamp || Date.now(),
+                ...m,
+            };
+        }
+
         function loadSessions() {
             sessions = storage.get(SESSIONS_KEY, []);
             const savedId = localStorage.getItem(CURRENT_ID_KEY);
@@ -646,7 +664,7 @@ const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
             if (idToSave) atomicSave(idToSave, [...messages]);
             currentSessionId = targetId;
             localStorage.setItem(CURRENT_ID_KEY, targetId);
-            messages = storage.get('ai_chat_msgs_' + targetId, []);
+            messages = storage.get('ai_chat_msgs_' + targetId, []).map(migrateMessage);
             renderMessages();
             if (closeSidebar && window.innerWidth < 769) toggleSidebar();
         }
@@ -901,7 +919,15 @@ const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
 
         input.addEventListener('input', () => { autoResizeInput(); updateTokenCount(); });
         input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } if (e.key === 'Escape' && isStreaming) stopGeneration(); });
-        function updateTokenCount() { const len = input.value.length; tokenCountEl.textContent = len > 0 ? `~${Math.ceil(len/4)} tokens` : ''; }
+        function updateTokenCount() {
+            const t = input.value;
+            if (!t) { tokenCountEl.textContent = ''; return; }
+            // Rough token estimate: Cyrillic packs ~2 chars/token,
+            // Latin ~4. Split by script and sum both halves.
+            const cyr = (t.match(/[\u0400-\u04FF]/g) || []).length;
+            const rest = t.length - cyr;
+            tokenCountEl.textContent = `~${Math.ceil(cyr / 2) + Math.ceil(rest / 4)} tokens`;
+        }
 
         function copyCode(btn) { const code = btn.parentElement.querySelector('code'); if (!code) return; navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }); }
         function copyMessage(id) { const msg = messages.find(m => m.id === id); if (!msg) return; navigator.clipboard.writeText(msg.role === 'assistant' ? _parseReasoning(msg.content).answer : msg.content).then(() => showToast('Copied')); }
@@ -912,6 +938,27 @@ const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
             if (isStreaming) { showToast('Stop generation first'); return; }
             if (!createSession()) { showToast('⚠️ Could not create chat. Storage might be full.'); return; }
             renderMessages(); input.value = ''; autoResizeInput(); updateTokenCount(); showToast('New chat started');
+        }
+
+        function exportAllChats() {
+            // Full backup: every session with its messages as one JSON
+            // file. localStorage is the ONLY home of the UI chat history
+            // (the server db is a separate world) -- one browser data
+            // wipe loses it all; this button is the insurance.
+            const backup = { exportedAt: new Date().toISOString(), sessions: [] };
+            let total = 0;
+            for (const s of sessions) {
+                const msgs = storage.get('ai_chat_msgs_' + s.id, []);
+                backup.sessions.push({ ...s, messages: msgs });
+                total += msgs.length;
+            }
+            const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `chats-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            showToast(`Exported ${backup.sessions.length} chats, ${total} messages`);
         }
 
         function exportChat() {
@@ -974,7 +1021,7 @@ const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
         }
 
         window.newChat = newChat; window.toggleSidebar = toggleSidebar; window.deleteSession = deleteSession; window.sendMessage = sendMessage;
-        window.stopGeneration = stopGeneration; window.exportChat = exportChat; window.openSettings = openSettings; window.closeSettings = closeSettings;
+        window.stopGeneration = stopGeneration; window.exportChat = exportChat; window.exportAllChats = exportAllChats; window.openSettings = openSettings; window.closeSettings = closeSettings;
         window.saveSettings = saveSettings; window.clearAllData = clearAllData; window.openIndexModal = openIndexModal; window.closeIndexModal = closeIndexModal;
         window.startIndexing = startIndexing; window.copyCode = copyCode; window.copyMessage = copyMessage; window.regenerateMessage = regenerateMessage;
         window.editMessage = editMessage; window.handleFiles = handleFiles; window.removeAttachment = removeAttachment; window.forceScrollToBottom = forceScrollToBottom;
