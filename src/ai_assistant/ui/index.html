@@ -525,63 +525,55 @@
                 // Shorten artifact filenames in the plain-text source
                 // lines: strip _partNN, the download timestamp and the
                 // extension; keep [N] numbers and the modified date.
+                // Full artifact filenames in original line order (one
+                // per source line) -- collected BEFORE shortening.
                 const sourceFiles = (sources.match(/[^\s()]+\.(md|txt|json)/g) || []);
-                const cleaned = sources.trim()
-                    // Strip "[N] " line numbers: in-text [Document N]
-                    // markers are removed at render, the numbers have
-                    // no addressee left (owner decision).
+                // Parsed source lines -> grouped by CHAT NAME (parts of
+                // one chat merge into a single line; content dates of
+                // ALL parts span into one range; parts without a date
+                // join without contributing to the span).
+                const groups = sources.trim()
                     .replace(/^\[\d+\]\s*/gm, '')
-                    // "(modified 2026-09-20 18:55:22)" is the download
-                    // time -- drop it entirely (noise). "(content
-                    // 07-08-2026/21-09-2026)" is the chat's lifetime --
-                    // keep it as the line's date.
                     .replace(/\s*\(modified [^)]*\)/g, '')
-                    .replace(
-                        /\(content ([^)]+)\)/g,
-                        (_m, d) => `(${d})`
-                    )
-                    .replace(
-                        /[^\s()]+\.(md|txt|json)/g,
-                        m => _shortSourceName(m)
-                    )
-                    // Collapse same-chat part lines into one:
-                    // "X (d) · part 18\nX (d) · part 9" ->
-                    // "X (d) · part 18/9". Unsplit sources stay as is.
                     .split('\n')
-                    .reduce((acc, line) => {
-                        const m = line.match(/^(.*?)(?: · part (\d+))?(?: \((\d{2}-\d{2}-\d{4})\))?$/);
-                        if (!m || !m[1]) { acc.push({ raw: line }); return acc; }
-                        const name = m[1].trim();
-                        const part = m[2];
-                        const date = m[3] || '';
-                        const prev = acc[acc.length - 1];
-                        if (
-                            prev && prev.name === name && prev.date === date &&
-                            part !== undefined && prev.parts !== undefined
-                        ) {
-                            prev.parts = prev.parts + '/' + part;
-                            prev.raw = name + ' · part ' + prev.parts +
-                                (date ? ' (' + date + ')' : '');
-                        } else {
-                            acc.push({
-                                name: name, date: date, parts: part,
-                                raw: name +
-                                    (part !== undefined ? ' · part ' + part : '') +
-                                    (date ? ' (' + date + ')' : ''),
-                            });
+                    .map(line => {
+                        const fm = line.match(/([^\s()]+\.(?:md|txt|json))/);
+                        const file = fm ? fm[1] : '';
+                        const cm = line.match(/\(content ([^)]+)\)/);
+                        const date = cm ? cm[1] : '';
+                        const pm = line.match(/_part(\d+)\./);
+                        const part = pm ? parseInt(pm[1], 10) : null;
+                        return { file, date, part };
+                    })
+                    .filter(x => x.file)
+                    .reduce((acc, x) => {
+                        const name = _shortSourceName(x.file);
+                        // Group key: the name WITHOUT the part suffix --
+                        // parts of one chat share it regardless of dates.
+                        const key = name.replace(/ · part \d+(\/\d+)*$/, '');
+                        let g = acc.find(a => a.key === key);
+                        if (!g) {
+                            g = { key, name: key, parts: [], dates: [], file: x.file };
+                            acc.push(g);
                         }
+                        if (x.part !== null) g.parts.push(x.part);
+                        if (x.date) g.dates.push(x.date);
                         return acc;
-                    }, [])
-                    .map(x => x.raw)
-                    .join('\n');
-                // Build source lines as clickable rows: the shortened
-                // name shown, the FULL artifact filename in data-source.
-                const sourcesHtml = cleaned.split('\n').map((line, idx) => {
-                    const file = sourceFiles[idx];
-                    if (!file) return `<p>${escapeHtml(line)}</p>`;
-                    const label = escapeHtml(line.replace(file, '').trim() ||
-                        _shortSourceName(file));
-                    return `<p><a href="#" class="source-link" data-source="${escapeHtml(file)}">${label}</a></p>`;
+                    }, []);
+                const sourcesHtml = groups.map(g => {
+                    const parts = g.parts.length
+                        ? ' · part ' + g.parts.join('/') : '';
+                    // Date span across the group's parts: first..last
+                    // when they differ, the single date otherwise.
+                    let date = '';
+                    if (g.dates.length) {
+                        const uniq = [...new Set(g.dates)];
+                        date = uniq.length > 1
+                            ? ` (${uniq[0]}/${uniq[uniq.length - 1]})`
+                            : ` (${uniq[0]})`;
+                    }
+                    const label = escapeHtml(g.name + parts + date);
+                    return `<p><a href="javascript:void(0)" class="source-link" data-source="${escapeHtml(g.file)}">${label}</a></p>`;
                 }).join('');
                 // open while streaming so the sources are visible as they
                 // arrive; collapsed in the final render (matches the
