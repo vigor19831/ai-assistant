@@ -86,7 +86,7 @@
         .copy-code-btn:hover { background: var(--border); }
 
         .message p { margin: 0; line-height: 1.5; }
-        .message p:empty { display: none; }
+        .message p:empty, .message p:has(> br:only-child) { display: none; }
         .message p:last-child { margin-bottom: 0; }
         .message ul, .message ol { margin: 2px 0 4px 18px; line-height: 1.5; }
         .message li { margin-bottom: 1px; }
@@ -118,6 +118,15 @@
         .reasoning-content { padding: 8px 12px 12px; font-size: 13px; color: #8b949e; border-top: 1px solid var(--border); }
         .reasoning-content p { margin-bottom: 6px; }
         .reasoning-content p:last-child { margin-bottom: 0; }
+
+        .sources-block { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(48, 54, 61, 0.3); }
+        .sources-block summary { padding: 6px 12px; font-size: 12px; color: #8b949e; cursor: pointer; user-select: none; list-style: none; }
+        .sources-block summary::-webkit-details-marker { display: none; }
+        .sources-block summary::before { content: '▶ '; display: inline-block; transition: transform 0.2s; }
+        .sources-block[open] summary::before { transform: rotate(90deg); }
+        .sources-content { padding: 6px 12px 10px; font-size: 12px; color: #8b949e; border-top: 1px solid var(--border); }
+        .sources-content p { margin: 0 0 4px; line-height: 1.45; }
+        .sources-content p:last-child { margin-bottom: 0; }
 
         .expand-btn { position: relative; z-index: 2; background: var(--surface-hover); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 12px; font-size: 12px; cursor: pointer; margin-top: -10px; align-self: center; }
         .expand-btn:hover { background: var(--border); }
@@ -453,16 +462,40 @@
         }
         function restore(text, blocks) { return text.replace(/\x00C(\d+)\x00/g, (m, id) => blocks[parseInt(id)] || ''); }
 
+        function _splitSources(text) {
+            // Split a trailing "Sources:" block from the answer body.
+            // Matches the pipeline's output format ("Sources:\n[1] ...").
+            const idx = text.lastIndexOf('\nSources:');
+            if (idx === -1) return { answer: text, sources: '' };
+            return { answer: text.slice(0, idx), sources: text.slice(idx + 9) };
+        }
+        function _collapseBreaks(text) {
+            // LLM answers carry 3+ consecutive newlines between sections;
+            // with breaks:true marked turns each into a <br> stack.
+            // Collapse to a single blank line before rendering.
+            return text.replace(/\n{3,}/g, '\n\n');
+        }
+
         function _renderAssistantContent(content, streaming) {
             const parsed = _parseReasoning(content);
+            const { answer: answerRaw, sources } = _splitSources(parsed.answer);
+            const answerText = _collapseBreaks(answerRaw);
             let rb = '';
             if (parsed.hasReasoning) {
                 rb = `<details class="reasoning-block"${(parsed.isOpen || streaming) ? ' open' : ''}><summary>🤔 Reasoning</summary><div class="reasoning-content">${parsed.reasoning ? renderMarkdown(parsed.reasoning) : '<em>...</em>'}</div></details>`;
             } else if (streaming && !content.trim()) {
                 rb = `<div class="reasoning-block" style="border:none; background:transparent;"><div class="reasoning-content" style="border:none; padding:0; color: var(--text-bright);"><em>🤔 Thinking...</em></div></div>`;
             }
-            const answerHtml = parsed.answer ? renderMarkdown(parsed.answer) : '';
-            return rb + (answerHtml ? '<div class="answer-block">' + answerHtml + '</div>' : '');
+            const answerHtml = answerText ? renderMarkdown(answerText) : '';
+            let sb = '';
+            if (sources.trim()) {
+                const sourcesHtml = renderMarkdown(_collapseBreaks(sources.trim()));
+                // open while streaming so the sources are visible as they
+                // arrive; collapsed in the final render (matches the
+                // reasoning-block behavior)
+                sb = `<details class="sources-block"${streaming ? ' open' : ''}><summary>📎 Sources</summary><div class="sources-content">${sourcesHtml}</div></details>`;
+            }
+            return rb + (answerHtml ? '<div class="answer-block">' + answerHtml + '</div>' : '') + sb;
         }
         const settings = { apiBase: '', apiKey: 'local', model: 'local', temperature: 0.3, systemPrompt: '', maxHistory: 20 };
 
