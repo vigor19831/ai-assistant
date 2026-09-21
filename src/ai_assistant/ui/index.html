@@ -88,7 +88,7 @@
         .message p { margin: 0; line-height: 1.5; }
         .message p:empty, .message p:has(> br:only-child) { display: none; }
         .message p:last-child { margin-bottom: 0; }
-        .message ul, .message ol { margin: 2px 0 4px 18px; line-height: 1.5; }
+        .message ul, .message ol { margin: 2px 0 4px 16px; line-height: 1.45; padding-left: 2px; }
         .message li { margin-bottom: 1px; }
         .message h1, .message h2, .message h3, .message h4 { margin: 6px 0 3px 0; color: var(--text-bright); font-weight: 600; }
         .message h1 { font-size: 17px; } .message h2 { font-size: 15px; } .message h3 { font-size: 14px; } .message h4 { font-size: 13px; }
@@ -473,13 +473,41 @@
             // LLM answers carry 3+ consecutive newlines between sections;
             // with breaks:true marked turns each into a <br> stack.
             // Collapse to a single blank line before rendering.
-            return text.replace(/\n{3,}/g, '\n\n');
+            // A lone arrow on its own line (vertical "-> chains" some
+            // answers emit) glues back into one line:
+            // "a\n→\nb\n→\nc" -> "a → b → c".
+            // Inline math arrows ("$\\rightarrow$") render as KaTeX
+            // display blocks (the vertical-arrows bug): flatten them
+            // to plain text arrows BEFORE the math pass sees them.
+            return text
+                .replace(/\$\\(?:rightarrow|to|Rightarrow)\$/g, '→')
+                .replace(/\n{3,}/g, '\n\n')
+                .replace(/ *\n *([→⇒]|->) *\n */g, ' $1 ');
+        }
+        function _shortSourceName(name) {
+            // Artifact names carry pipeline noise the reader does not
+            // need: split part suffixes (_partNN), the download
+            // timestamp (_2026_09_20__1855) and the file extension.
+            // Keep the part number when present (it names the chunk
+            // the answer came from): "Настройка-..._part09.md" ->
+            // "Настройка-...-для-AI-разработки · part 9".
+            const part = name.match(/_part(\d+)/);
+            const base = name
+                .replace(/_part\d+/, '')
+                .replace(/_\d{4}_\d{2}_\d{2}(__\d{4})?/, '')
+                .replace(/\.(md|txt|json)$/, '');
+            return part ? base + ' · part ' + parseInt(part[1], 10) : base;
         }
 
         function _renderAssistantContent(content, streaming) {
             const parsed = _parseReasoning(content);
             const { answer: answerRaw, sources } = _splitSources(parsed.answer);
-            const answerText = _collapseBreaks(answerRaw);
+            // Strip in-text [Document N] markers: the source list under
+            // the spoiler carries the provenance; inline numbers are
+            // reader noise (owner decision, live UX session).
+            const answerText = _collapseBreaks(
+                answerRaw.replace(/\s*\[Document \d+(?:, ?Document \d+)*\]/g, '')
+            );
             let rb = '';
             if (parsed.hasReasoning) {
                 rb = `<details class="reasoning-block"${(parsed.isOpen || streaming) ? ' open' : ''}><summary>🤔 Reasoning</summary><div class="reasoning-content">${parsed.reasoning ? renderMarkdown(parsed.reasoning) : '<em>...</em>'}</div></details>`;
@@ -489,7 +517,55 @@
             const answerHtml = answerText ? renderMarkdown(answerText) : '';
             let sb = '';
             if (sources.trim()) {
-                const sourcesHtml = renderMarkdown(_collapseBreaks(sources.trim()));
+                // Shorten artifact filenames in the plain-text source
+                // lines: strip _partNN, the download timestamp and the
+                // extension; keep [N] numbers and the modified date.
+                const cleaned = sources.trim()
+                    // Strip "[N] " line numbers: in-text [Document N]
+                    // markers are removed at render, the numbers have
+                    // no addressee left (owner decision).
+                    .replace(/^\[\d+\]\s*/gm, '')
+                    // "(modified 2026-09-20 18:55:22)" -> date only,
+                    // owner's format: (20-09-2026)
+                    .replace(
+                        /\(modified (\d{4})-(\d{2})-(\d{2})[^)]*\)/g,
+                        (_m, y, mo, d) => `(${d}-${mo}-${y})`
+                    )
+                    .replace(
+                        /[^\s()]+\.(md|txt|json)/g,
+                        m => _shortSourceName(m)
+                    )
+                    // Collapse same-chat part lines into one:
+                    // "X (d) · part 18\nX (d) · part 9" ->
+                    // "X (d) · part 18/9". Unsplit sources stay as is.
+                    .split('\n')
+                    .reduce((acc, line) => {
+                        const m = line.match(/^(.*?)(?: · part (\d+))?(?: \((\d{2}-\d{2}-\d{4})\))?$/);
+                        if (!m || !m[1]) { acc.push({ raw: line }); return acc; }
+                        const name = m[1].trim();
+                        const part = m[2];
+                        const date = m[3] || '';
+                        const prev = acc[acc.length - 1];
+                        if (
+                            prev && prev.name === name && prev.date === date &&
+                            part !== undefined && prev.parts !== undefined
+                        ) {
+                            prev.parts = prev.parts + '/' + part;
+                            prev.raw = name + ' · part ' + prev.parts +
+                                (date ? ' (' + date + ')' : '');
+                        } else {
+                            acc.push({
+                                name: name, date: date, parts: part,
+                                raw: name +
+                                    (part !== undefined ? ' · part ' + part : '') +
+                                    (date ? ' (' + date + ')' : ''),
+                            });
+                        }
+                        return acc;
+                    }, [])
+                    .map(x => x.raw)
+                    .join('\n');
+const sourcesHtml = renderMarkdown(_collapseBreaks(cleaned));
                 // open while streaming so the sources are visible as they
                 // arrive; collapsed in the final render (matches the
                 // reasoning-block behavior)
