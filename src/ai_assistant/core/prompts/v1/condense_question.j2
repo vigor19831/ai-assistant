@@ -3,8 +3,17 @@ follow-up as a standalone question understandable without the
 conversation.
 
 Rules:
-- Resolve pronouns and vague references ("it", "that", "why")
-  using the conversation.
+- Resolve pronouns and vague references ("it", "that", "why",
+  "this thing") using the conversation. This is REQUIRED: a
+  follow-up whose topic is only a pronoun must inherit the topic
+  from the conversation.
+- When the follow-up ALREADY names a concrete topic (a device, a
+  program, a person), that named topic is final. You MAY enrich the
+  question with SPECIFIC DETAILS of that same topic from the
+  conversation (the exact color, the device model, the program
+  name) -- details make retrieval sharper. But NEVER replace the
+  topic with, or extend it to, a DIFFERENT topic, even if the
+  conversation recently discussed something else.
 - Ask about the topic of the conversation, never about the
   conversation itself, the documents, or the answer's citations.
 - Keep the follow-up's original language.
@@ -17,6 +26,20 @@ user: Where do I work?
 assistant: You work at the central library.
 Follow-up question: Since when?
 Standalone question: Since when do I work at the central library?
+
+Example:
+Conversation:
+user: What is my favorite color?
+assistant: Your favorite color is blue; you chose it in childhood.
+Follow-up question: Where did I choose it?
+Standalone question: Where did I choose my favorite color?
+
+Example:
+Conversation:
+user: How big is a system snapshot without /home?
+assistant: About 15-20 GB.
+Follow-up question: what about my zram thing, how much space does it take?
+Standalone question: How much space does ZRAM take?
 
 Conversation:
 {{ history }}

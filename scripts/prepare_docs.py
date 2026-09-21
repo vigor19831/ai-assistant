@@ -7,7 +7,12 @@ chunks/s (3397 chunks in ~500 s, 2026-09-02; re-measured live
 Hardware Ceiling Log), so a file larger than ~150 KB risks the
 timeout loop (drift #42 pattern). This script splits oversized
 files into ~30 KB parts at line boundaries before they enter
-data/documents/.
+data/documents/. Chat exports arrive as JSON (SaveAI exporter
+format): roles and per-message dates are structural facts there,
+so the script converts them into [Speaker, date] marker markdown
+(_chat_json_to_markdown); .md/.txt sources are plain documents and
+pass through byte-identical — the .md chat-export cleaner was
+retired with the corpus migration to JSON (drift #154).
 
 Atoms: extracts self-sufficient knowledge atoms (facts / decisions /
 recommendations / hypotheses with status discipline) from a chat
@@ -72,7 +77,6 @@ import json
 import os
 import re
 import sys
-import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -543,219 +547,88 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
     return target
 
 
-# Markdown image noise from AI-service exports: the full ![alt](url)
-# tag and the favicon-wrapped [![](favicon)](link) variant. Pure
-# export artifacts — no retrieval value, half the bytes of a typical
-# export. Code spans/blocks are NOT touched. Byte pattern: the image
-# URL alphabet is ASCII, and splitting operates on bytes.
-_MD_IMAGE_BYTES_RE = re.compile(
-    rb"!?\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)|!\[[^\]]*\]\([^)]*\)"
-)
-
-
-def _strip_markdown_noise(raw: bytes) -> bytes:
-    """Remove markdown image noise from raw bytes.
-
-    Idempotent: a second pass finds nothing. Returns the input object
-    unchanged when no match exists (the fast-path guards).
-    """
-    if b"](" not in raw and b"![" not in raw:
-        return raw
-    return _MD_IMAGE_BYTES_RE.sub(b"", raw)
-
-
-# --- Chat-export cleanup: universal chrome + speaker/date markers ---
-# Safety rule first: a file the script does not confidently recognize
-# passes through byte-identical. Two independent layers:
-#
-# Layer 1 (universal): standalone UI noise lines ("Copy", "Download",
-# "New chat"...) are stripped from any file recognized as an export:
-# a known speaker marker OR >= 2 distinct noise lines (one incidental
-# "Copy" in a plain document is not a signal). Lines inside ```
-# fences are never touched: chrome never sits in fences, and a
-# "Copy" inside a code block is content.
-#
-# Layer 2 (marker table): speaker annotation needs REAL markers. A
-# wrong speaker label is worse than none (the decision-contract
-# doctrine: an under-counted fact is recoverable, a fabricated one
-# poisons the memory). Known formats are explicit table entries --
-# supporting a new AI service is one tuple line, never a heuristic.
-# Unknown exports are cleaned but stay unlabeled, with a [HINT] line
-# naming the file. Cyrillic below is chat-content data, exempt from
-# the English-only rule like _RU_MONTHS.
+# --- Chat-export marker labels (the JSON converter's vocabulary) ---
+# Retired with the .md cleaner (drift #154): chats arrive as JSON,
+# roles/dates are structural facts, and the assistant label comes
+# from displayModel. The user label is the one shared constant --
+# the marker vocabulary the pipeline always indexed.
 
 _SPEAKER_USER_LABEL = "Пользователь"
-_SPEAKER_ASSISTANT_LABEL = "ChatGPT"
 
-# (marker line pattern, label) -- extend per new export format.
-_SPEAKER_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"^####\s*Вы сказали:\s*$"), _SPEAKER_USER_LABEL),
-    (re.compile(r"^####\s*You said:\s*$"), _SPEAKER_USER_LABEL),
-    (re.compile(r"^####\s*ChatGPT сказал:\s*$"), _SPEAKER_ASSISTANT_LABEL),
-    (re.compile(r"^####\s*ChatGPT said:\s*$"), _SPEAKER_ASSISTANT_LABEL),
-)
-
-# Date campaign stage 1: ONE table feeds BOTH the header regex and
-# the month-number lookup — the accepted forms and their numbers
-# cannot drift apart. Abbreviated forms live ONLY here; _RU_MONTHS
-# belongs to the atom validators (full forms).
-_SPEAKER_MONTH_NUMBERS: dict[str, int] = {
-    "января": 1, "янв": 1,
-    "февраля": 2, "фев": 2,
-    "марта": 3, "мар": 3,
-    "апреля": 4, "апр": 4,
-    "мая": 5, "май": 5,
-    "июня": 6, "июн": 6,
-    "июля": 7, "июл": 7,
-    "августа": 8, "авг": 8,
-    "сентября": 9, "сен": 9, "сент": 9,
-    "октября": 10, "окт": 10,
-    "ноября": 11, "ноя": 11, "нояб": 11,
-    "декабря": 12, "дек": 12,
-}
-_SPEAKER_MONTHS_ALT = "|".join(sorted(
-    _SPEAKER_MONTH_NUMBERS,
-    key=len,
-    reverse=True,
-))
-
-# Session date header ("пт, 10 июл. в 13:14", "чт, 27 авг. в 9:12"):
-# full and abbreviated RU months, optional weekday and time.
-# "вчера 7:39" and EN headers do not match -- no date is better
-# than a wrong one (same rule as _ground_dates).
-_SPEAKER_DATE_RE = re.compile(
-    rf"^(?:[а-яё]{{1,4}},?\s+)?(\d{{1,2}}\s+(?:{_SPEAKER_MONTHS_ALT}))\.?"  # noqa: RUF001
-    rf"(?:\s+в\s+\d{{1,2}}:\d{{2}})?\s*$",
-    re.IGNORECASE,
-)
-
-_NOISE_LINES = frozenset({
-    "Copy",
-    "Download",
-    "Regenerate",
-    "bash",
-    "New chat",
-    "Yesterday",
-    "Размышление",
-    "DeepThink",
-    "AI-generated, for reference only",
-    "One more step before you proceed...",
-    "ChatGPT может допускать ошибки. Рекомендуем проверять важную информацию.",
-})
-
-# A marker every N lines: any ~512-token chunk cut anywhere inside a
-# long turn still carries a speaker/date line.
-_MARKER_EVERY_LINES = 12
+_JSON_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
 
-def _clean_chat_export(data: bytes, src_name: str, source_year: int | None) -> bytes:
-    """Strip export chrome and annotate speakers/dates in chat exports.
+def _chat_json_to_markdown(raw: bytes, src_name: str) -> bytes | None:
+    """Convert a chat-export JSON (SaveAI exporter) into marker markdown.
 
-    source_year grounds year-less session headers (the SOURCE file's
-    year, passed by the caller — split_file owns the path). Only the
-    documents/ mirror is affected: raw sources and the atoms path are
-    untouched.
+    Roles and per-message timestamps are structural facts in the JSON
+    -- no heuristic detection. Output format: [Speaker, YYYY-MM-DD]
+    blocks -- [Пользователь, date] for user turns, the displayModel
+    name (ChatGPT, DeepSeek) for assistant turns. Non-text content items
+    (shopping cards, images) are skipped and counted -- reported in
+    the run output, never silently. A message without created_at gets
+    an undated marker (drift #149: no honest date -> no date). Returns
+    None when the payload is not a recognizable chat export (the
+    caller then leaves the file unprocessed and unindexed).
     """
     try:
-        text = data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return data
-    lines = text.split("\n")
-
-    # Pass 1 -- detection (fence-aware: a marker-looking line inside
-    # a code block is content, not a marker).
-    in_fence = False
-    marker_hits = 0
-    noise_seen: set[str] = set()
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        if stripped in _NOISE_LINES:
-            noise_seen.add(stripped)
-            continue
-        for pattern, _label in _SPEAKER_MARKERS:
-            if pattern.match(stripped) is not None:
-                marker_hits += 1
-                break
-    if marker_hits == 0 and len(noise_seen) < 2:
-        return data
-    if marker_hits == 0:
-        print(
-            f"[HINT] {src_name}: export chrome removed; no known speaker "
-            "markers -- turns stay unlabeled (normalize headers once or "
-            "extend _SPEAKER_MARKERS)"
-        )
-
-    # Pass 2 -- transform. Date campaign stage 1: session dates are
-    # normalized to the machine form YYYY-MM-DD, the year grounded by
-    # source_year (the SOURCE mtime, passed by split_file).
+        messages = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(messages, list) or not messages:
+        return None
     out: list[str] = []
-    in_fence = False
-    speaker = ""
-    date = ""
-    since_marker = _MARKER_EVERY_LINES
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_fence = not in_fence
-            out.append(line)
+    skipped_items = 0
+    for msg in messages:
+        if not isinstance(msg, dict):
             continue
-        if in_fence:
-            out.append(line)
+        role = msg.get("role")
+        if role not in ("user", "assistant"):
             continue
-        if stripped in _NOISE_LINES:
-            continue
-        new_speaker = ""
-        for pattern, label in _SPEAKER_MARKERS:
-            if pattern.match(stripped) is not None:
-                new_speaker = label
-                break
-        if new_speaker:
-            speaker = new_speaker
-            since_marker = _MARKER_EVERY_LINES
+        if role == "user":
+            speaker = _SPEAKER_USER_LABEL
         else:
-            date_match = _SPEAKER_DATE_RE.match(stripped)
-            if date_match is not None:
-                month_name = date_match.group(1).split()[-1]
-                month = _SPEAKER_MONTH_NUMBERS.get(month_name.lower())
-                day = int(date_match.group(1).split()[0])
-                if month is not None and source_year is not None:
-                    date = f"{source_year:04d}-{month:02d}-{day:02d}"
-                # Unparsed month or no source year: keep the previous
-                # date (a wrong date is worse than a stale one).
-        if speaker and since_marker >= _MARKER_EVERY_LINES:
-            out.append(f"[{speaker}, {date}]" if date else f"[{speaker}]")
-            since_marker = 0
-        out.append(line)
-        since_marker += 1
-    return "\n".join(out).encode("utf-8")
+            speaker = str(msg.get("displayModel") or "").strip() or "Assistant"
+        ts_match = _JSON_DATE_RE.match(str(msg.get("created_at") or ""))
+        date = ts_match.group(1) if ts_match else ""
+        parts: list[str] = [f"[{speaker}, {date}]" if date else f"[{speaker}]"]
+        for item in msg.get("contents", []):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                parts.append(str(item.get("content", "")))
+            else:
+                skipped_items += 1
+        if any(p.strip() for p in parts[1:]):
+            out.append("\n\n".join(parts))
+    if skipped_items:
+        print(f"[JSON] {src_name}: {skipped_items} non-text item(s) skipped")
+    if not out:
+        return None
+    return ("\n\n".join(out) + "\n").encode("utf-8")
 
 
 def split_file(src: Path, dest_dir: Path) -> list[Path]:
     """Split src into parts of ~PART_BYTES at line boundaries.
 
-    Returns the list of created part files. Files under the
-    threshold are copied as-is (single "part"). Markdown image noise
-    (![...](url) and their favicon wrappers) is stripped BEFORE
-    splitting, on every path (split-only included): image links are
-    pure embedding-export noise, they burn the token budget and add
-    nothing to retrieval.
+    Returns the list of created part files. Chat JSON exports are
+    converted to marker markdown first (_chat_json_to_markdown) and
+    always land as .md -- the only indexed suffix; a non-chat JSON is
+    left unprocessed and unindexed with a loud [SKIP-JSON]. Everything
+    else (.md/.txt plain documents) passes through byte-identical:
+    no cleaning layer, the retired .md cleaner's contract is gone
+    with it (drift #154). Files under the threshold are copied as-is.
     """
     raw = src.read_bytes()
     stem = src.stem
-    # Date campaign stage 1: the year ground for year-less session
-    # headers is the SOURCE's mtime — computed here (split_file owns
-    # the path) and passed into the cleaner.
-    try:
-        source_year: int | None = time.localtime(src.stat().st_mtime).tm_year
-    except OSError:
-        source_year = None  # unstatable source: no year -> no date
-    data = _strip_markdown_noise(raw)
-    data = _clean_chat_export(data, src.name, source_year)
+    out_suffix = ".md" if src.suffix == ".json" else src.suffix
+    if src.suffix == ".json":
+        data = _chat_json_to_markdown(raw, src.name)
+        if data is None:
+            print(f"[SKIP-JSON] {src.name}: not a recognized chat export")
+            return []
+    else:
+        data = raw
 
     # Reconcile FIRST: remove split outputs impossible for the current
     # source size — the stale as-is copy of a file that grew past the
@@ -767,17 +640,16 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     # Stale-output sweep: a previous run on a longer version of this
     # source may have left more parts than this run creates. Remove
     # them so a rerun after an edit never leaves old parts behind.
-    for stale in dest_dir.glob(glob.escape(stem) + "_part*" + src.suffix):
+    for stale in dest_dir.glob(glob.escape(stem) + "_part*" + out_suffix):
         stale.unlink()
 
-    # Split outputs inherit the SOURCE's mtime (date campaign stage 1):
-    # the year-grounding above reads it, and the watcher's freshness
-    # check compares mtimes -- a re-split must not re-announce every
-    # unchanged document nor move their years.
+    # Split outputs inherit the SOURCE's mtime: the watcher's
+    # freshness check compares mtimes -- a re-split must not
+    # re-announce every unchanged document.
     src_mtime = src.stat().st_mtime
 
     if len(data) <= THRESHOLD_BYTES:
-        target = dest_dir / f"{stem}{src.suffix}"
+        target = dest_dir / f"{stem}{out_suffix}"
         target.write_bytes(data)
         os.utime(target, (src_mtime, src_mtime))
         print(f"[SKIP] {src.name}: {len(data)} bytes <= threshold, copied as-is")
@@ -795,7 +667,7 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
             if newline != -1 and newline - end < PART_BYTES // 2:
                 end = newline + 1
         chunk = data[start:end]
-        target = dest_dir / f"{stem}_part{idx:02d}{src.suffix}"
+        target = dest_dir / f"{stem}_part{idx:02d}{out_suffix}"
         target.write_bytes(chunk)
         os.utime(target, (src_mtime, src_mtime))
         parts.append(target)
@@ -814,7 +686,18 @@ def _reconcile_outputs(src: Path, dest_dir: Path) -> None:
     shrank below the threshold is swept by split_file's rewrite
     path; this covers the copy-side drift on skip passes too.
     """
-    asis = dest_dir / f"{src.stem}{src.suffix}"
+    out_suffix = ".md" if src.suffix == ".json" else src.suffix
+    asis = dest_dir / f"{src.stem}{out_suffix}"
+    if src.suffix == ".json":
+        # A big JSON may convert into a small as-is .md (JSON is
+        # inflated by escaping and metadata) -- only the impossible
+        # combination is removed: parts alongside an as-is copy.
+        if asis.exists():
+            for stale in dest_dir.glob(
+                glob.escape(src.stem) + "_part*" + out_suffix
+            ):
+                stale.unlink()
+        return
     if src.stat().st_size <= THRESHOLD_BYTES:
         for stale in dest_dir.glob(glob.escape(src.stem) + "_part*" + src.suffix):
             stale.unlink()
@@ -832,6 +715,22 @@ def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bo
     via the watcher without touching this script's outputs.
     """
     src_mtime = src.stat().st_mtime
+    if split and src.suffix == ".json":
+        # The output shape (as-is copy vs parts) depends on the
+        # CONVERTED size, unknown here -- either marker being fresh
+        # counts as up to date. Decided HERE for json: the legacy
+        # branch below keys on the RAW json size (wrong side of the
+        # conversion) and would always demand a part01 marker.
+        markers = (
+            dest_dir / f"{src.stem}.md",
+            dest_dir / f"{src.stem}_part01.md",
+        )
+        if not any(
+            m.exists() and m.stat().st_mtime >= src_mtime for m in markers
+        ):
+            return True
+        if not atoms:
+            return False
     if split:
         # Mirror split_file's naming: small files are copied as-is
         # ({stem}{suffix}); big files become {stem}_part01... A
@@ -1805,10 +1704,21 @@ def _find_vanished(src_dir: Path, dest_dir: Path) -> dict[str, list[Path]]:
         rel = path.relative_to(dest_dir)
         dirs = list(rel.parts[:-1])
         source_name = _artifact_source_name(path)
-        candidates = (
+        candidates = [
             src_dir.joinpath(*dirs, source_name),
             src_dir.joinpath(*dirs, _ATOMIZE_SUBDIR, source_name),
-        )
+        ]
+        if path.suffix == ".md":
+            # A chat .md artifact may derive from a .json source
+            # (SaveAI export conversion) -- the stem of the SOURCE
+            # name (which strips _partNN first); path.stem would keep
+            # the part suffix and look for part01.json, flagging every
+            # split part as vanished on each run.
+            json_name = Path(source_name).stem + ".json"
+            candidates.append(src_dir.joinpath(*dirs, json_name))
+            candidates.append(
+                src_dir.joinpath(*dirs, _ATOMIZE_SUBDIR, json_name)
+            )
         if not any(c.is_file() for c in candidates):
             key = str(Path(*dirs, source_name)) if dirs else source_name
             leftovers.setdefault(key, []).append(path)

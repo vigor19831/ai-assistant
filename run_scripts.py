@@ -237,7 +237,7 @@ def _prepare_docs_mode() -> list[str]:
     print("    [3] validate atoms (read-only contract check)")
     print()
     print("  [1] splits everything new from data/raw_documents/")
-    print("      (cleaned of image noise); skips unchanged files.")
+    print("      (chats: JSON -> marker markdown); skips unchanged files.")
     print("  [2] same, plus atoms for the files you MOVED into an")
     print("      _atomize/ folder (raw_documents/ root or inside a")
     print("      namespace folder); one home per file, no copies.")

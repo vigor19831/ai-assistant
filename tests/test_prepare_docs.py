@@ -31,7 +31,12 @@ from typing import Any
 import httpx
 import pytest
 
-from scripts.prepare_docs import split_file
+from scripts.prepare_docs import (
+    _chat_json_to_markdown,
+    _find_vanished,
+    _needs_processing,
+    split_file,
+)
 
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "prepare_docs.py"
 _SPEC = importlib.util.spec_from_file_location("prepare_docs", _SCRIPT)
@@ -176,7 +181,7 @@ def test_make_atoms_creates_single_file(tmp_path: Path, monkeypatch) -> None:
     """One atoms-*.md file per chat, every answer block joined in."""
     src = _make_file(tmp_path, "chat.md", 8000)  # ~230 KB -> 24 parts at 12 KB
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     _fake_llm(monkeypatch, ["ATOM-CONTENT"])
     result = prepare_docs.make_atoms(src, dest)
     assert result.name == "atoms-chat.md"
@@ -198,7 +203,7 @@ def test_make_atoms_last_part_marked_final(tmp_path: Path, monkeypatch) -> None:
     """
     src = _make_file(tmp_path, "chat.md", 8000)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     calls = _fake_llm(monkeypatch, ["a1", "a2"])
     prepare_docs.make_atoms(src, dest)
     assert len(calls) >= 2
@@ -223,7 +228,7 @@ def test_make_atoms_temperature_zero(tmp_path: Path, monkeypatch) -> None:
     """Extraction must be deterministic: temperature 0.0 in payload."""
     src = _make_file(tmp_path, "chat.md", 100)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     calls = _fake_llm(monkeypatch, ["single answer"])
     prepare_docs.make_atoms(src, dest)
     assert calls[0]["temperature"] == 0.0
@@ -234,7 +239,7 @@ def test_make_atoms_raw_source_untouched(tmp_path: Path, monkeypatch) -> None:
     src = _make_file(tmp_path, "chat.md", 100)
     original = src.read_bytes()
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     _fake_llm(monkeypatch, ["answer"])
     prepare_docs.make_atoms(src, dest)
     assert src.read_bytes() == original
@@ -244,7 +249,7 @@ def test_make_atoms_payload_has_no_model(tmp_path: Path, monkeypatch) -> None:
     """No model field: a single-model local server routes without it."""
     src = _make_file(tmp_path, "chat.md", 100)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     calls = _fake_llm(monkeypatch, ["answer"])
     prepare_docs.make_atoms(src, dest)
     assert "model" not in calls[0]
@@ -257,7 +262,7 @@ def test_make_atoms_omits_model_when_name_empty(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", fake_root)
     src = _make_file(tmp_path, "chat.md", 100)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     calls = _fake_llm(monkeypatch, ["answer"])
     prepare_docs.make_atoms(src, dest)
     assert "model" not in calls[0]
@@ -278,7 +283,7 @@ def test_needs_processing_new_source(tmp_path: Path) -> None:
     """No outputs at all -> processing required."""
     src = _make_file(tmp_path, "new.md", 10)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     assert prepare_docs._needs_processing(src, dest, atoms=True, split=True)
 
 
@@ -291,7 +296,7 @@ def test_needs_processing_fresh_outputs_skipped(tmp_path: Path) -> None:
     """
     src = _make_file(tmp_path, "done.md", 10)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     copy = dest / "done.md"
     atoms = dest / "atoms-done.md"
     copy.write_text("c", encoding="utf-8")
@@ -306,7 +311,7 @@ def test_needs_processing_stale_output_detected(tmp_path: Path) -> None:
     """Source modified after the output was written -> reprocess."""
     src = _make_file(tmp_path, "edited.md", 10)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     copy = dest / "edited.md"
     atoms = dest / "atoms-edited.md"
     copy.write_text("c", encoding="utf-8")
@@ -320,7 +325,7 @@ def test_needs_processing_partial_layer_detected(tmp_path: Path) -> None:
     """Split exists but atoms missing -> only the atoms layer is stale."""
     src = _make_file(tmp_path, "half.md", 10)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     copy = dest / "half.md"
     copy.write_text("c", encoding="utf-8")
     _touch_later(copy, 60.0)
@@ -341,7 +346,7 @@ def test_idempotent_rerun_after_real_split(tmp_path: Path) -> None:
     small = _make_file(tmp_path, "small.md", 100)
     big = _make_file(tmp_path, "big.md", 8000)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     prepare_docs.split_file(small, dest)
     prepare_docs.split_file(big, dest)
     assert not prepare_docs._needs_processing(small, dest, atoms=False, split=True)
@@ -356,7 +361,7 @@ def test_reconcile_grown_source_drops_stale_copy(tmp_path: Path) -> None:
     """
     src = _make_file(tmp_path, "grew.md", 100)  # small (~3.5 KB)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     prepare_docs.split_file(src, dest)  # -> as-is copy "grew.md"
     assert (dest / "grew.md").exists()
     # Same source grows past THRESHOLD_BYTES: 20000 rows x 25 bytes
@@ -399,7 +404,7 @@ def test_make_atoms_payload_contains_prompt(tmp_path, monkeypatch):
     """
     src = _make_file(tmp_path, "chat.md", 100)
     dest = tmp_path / "dest"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     calls = _fake_llm(monkeypatch, ["answer"])
     prepare_docs.make_atoms(src, dest)
     content = calls[0]["messages"][0]["content"]
@@ -1086,7 +1091,7 @@ class TestIndexCoverage:
     def _dirs(self, tmp_path: Path) -> tuple[Path, Path]:
         dest = tmp_path / "documents"
         index = tmp_path / "indices"
-        dest.mkdir()
+        dest.mkdir(parents=True, exist_ok=True)
         index.mkdir()
         return dest, index
 
@@ -1211,7 +1216,7 @@ class TestValidateCli:
         """atoms-<name> maps to <name> in the source dir (make_atoms)."""
         dest = tmp_path / "documents"
         src = tmp_path / "raw_documents"
-        dest.mkdir()
+        dest.mkdir(parents=True, exist_ok=True)
         src.mkdir()
         (dest / "atoms-chat.md").write_text(DATED_FACT, encoding="utf-8")
         (src / "chat.md").write_text(SOURCE_NO_DATE, encoding="utf-8")
@@ -1235,7 +1240,7 @@ class TestFullRunSummary:
             encoding="utf-8",
         )
         dest = tmp_path / "dest"
-        dest.mkdir()
+        dest.mkdir(parents=True, exist_ok=True)
         answer = (
             "**[Релиз]** -- релиз состоялся 2026-08-07.\n"
             "  (Context: 2026-08-07; Status: fact)\n"
@@ -1263,7 +1268,7 @@ class TestFullRunSummary:
         src_dir.mkdir()
         (src_dir / "chat.md").write_text(GOOD_SOURCE, encoding="utf-8")
         dest = tmp_path / "dest"
-        dest.mkdir()
+        dest.mkdir(parents=True, exist_ok=True)
         _fake_llm(monkeypatch, [GOOD_RU_ATOMS])
         monkeypatch.setattr(
             sys,
@@ -1363,7 +1368,7 @@ class TestArchivistE2E:
         src = tmp_path / "chat.md"
         src.write_text(SYNTH_CHAT, encoding="utf-8")
         dest = tmp_path / "dest"
-        dest.mkdir()
+        dest.mkdir(parents=True, exist_ok=True)
         prepare_docs.make_atoms(src, dest)
 
         atoms = dest / "atoms-chat.md"
@@ -1545,34 +1550,6 @@ def test_check_script_source_urls_do_not_flip_reference() -> None:
     out = prepare_docs._check_script(text, "a.md", source_text=source)
     assert len(out) == 1
 
-
-def test_strip_markdown_noise_removes_images_not_text() -> None:
-    raw = (
-        b"# Title\n\n"
-        b"Text before.\n\n"
-        b"![Hamilton Khaki Field Quartz](https://images.example.com/a.png)\n\n"
-        b"Text after.\n"
-    )
-    out = prepare_docs._strip_markdown_noise(raw)
-    assert b"images.example.com" not in out
-    assert b"Text before." in out
-    assert b"Text after." in out
-
-
-def test_strip_markdown_noise_removes_favicon_wrappers() -> None:
-    raw = (
-        b"See [![](https://www.google.com/s2/favicons?domain=gq.com&sz=128)"
-        b"GQ](https://www.gq.com/story) source.\n"
-    )
-    out = prepare_docs._strip_markdown_noise(raw)
-    assert b"favicons" not in out
-    assert b"source." in out
-
-
-def test_strip_markdown_noise_keeps_plain_links() -> None:
-    raw = b"Link [text](https://example.com/page) stays.\n"
-    out = prepare_docs._strip_markdown_noise(raw)
-    assert b"[text](https://example.com/page)" in out
 
 # --- Atomization intent folder (drift #108): bare --atoms/--full read
 # the _atomize/ subfolder of the default source tree; root files stay
@@ -2024,7 +2001,7 @@ def test_needs_processing_edit_stales_atoms(tmp_path) -> None:
     src_dir = tmp_path / "raw_documents" / "_atomize"
     src_dir.mkdir(parents=True)
     dest = tmp_path / "documents"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     src = src_dir / "chat.md"
     src.write_text("# chat\n", encoding="utf-8")
     atoms_file = dest / "atoms-chat.md"
@@ -2036,80 +2013,24 @@ def test_needs_processing_edit_stales_atoms(tmp_path) -> None:
     ) is True
 
 
-# Chat-export cleanup tests: Cyrillic here is fixture DATA (real
-# export markers), not code language -- RUF001 silenced per line.
+# Plain-document pass-through contract (drift #154): the .md cleaner
+# is retired, .md/.txt sources are ordinary documents -- whatever
+# they contain (export chrome, images, a stray "Copy") reaches
+# documents/ byte-identical. Chat structure comes only from JSON.
 
 
-def test_split_file_annotates_speakers_and_dates(tmp_path):
-    src = tmp_path / "chat.md"
+def test_plain_md_passes_through_byte_identical(tmp_path):
+    src = tmp_path / "notes.md"
     src.write_text(
-        "# Тема\n\nпт, 10 июл. в 13:14\n\n"
-        "#### Вы сказали:\nдай совет\n\n"  # noqa: RUF001
-        "#### ChatGPT сказал:\nberite Seiko 4R36\n\n"
-        "Copy\nDownload\n",
+        "# Заметка\n\n![картинка](https://example.com/i.png)\n\n"
+        "Copy\nDownload\n#### Вы сказали:\nтекст\n",  # noqa: RUF001
         encoding="utf-8",
     )
     dest = tmp_path / "out"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     parts = split_file(src, dest)
-    text = parts[0].read_text(encoding="utf-8")
-    # Date campaign stage 1: machine-form markers, year from the
-    # source file's mtime (the test file is created "now", so the
-    # current year is the grounded one).
-    import time as _time
-
-    year = _time.localtime().tm_year
-    assert f"[Пользователь, {year}-07-10]" in text
-    assert f"[ChatGPT, {year}-07-10]" in text
-    assert "Copy" not in text
-    assert "Download" not in text
-
-
-def test_split_file_annotates_abbreviated_month(tmp_path):
-    src = tmp_path / "router.md"
-    src.write_text(
-        "чт, 27 авг. в 9:12\n\n"
-        "#### Вы сказали:\nвыбери роутер\n\n"  # noqa: RUF001
-        "#### ChatGPT сказал:\nberite Beryl 7\n",
-        encoding="utf-8",
-    )
-    dest = tmp_path / "out"
-    dest.mkdir()
-    parts = split_file(src, dest)
-    text = parts[0].read_text(encoding="utf-8")
-    import time as _time
-
-    year = _time.localtime().tm_year
-    assert f"[Пользователь, {year}-08-27]" in text
-
-
-def test_split_file_repeats_markers_in_long_turns(tmp_path):
-    body = "\n".join(f"совет номер {i}" for i in range(40))
-    src = tmp_path / "long.md"
-    src.write_text("#### ChatGPT сказал:\n" + body + "\n", encoding="utf-8")
-    dest = tmp_path / "out"
-    dest.mkdir()
-    parts = split_file(src, dest)
-    text = parts[0].read_text(encoding="utf-8")
-    assert text.count("[ChatGPT]") >= 3
-
-
-def test_split_file_cleans_unknown_export_but_never_labels(tmp_path):
-    src = tmp_path / "deepseek.md"
-    src.write_text(
-        "New chat\nYesterday\nИгорь В\n\nСоветую ядро amd-pstate.\n\n"  # noqa: RUF001
-        "bash\nCopy\nDownload\n",
-        encoding="utf-8",
-    )
-    dest = tmp_path / "out"
-    dest.mkdir()
-    parts = split_file(src, dest)
-    text = parts[0].read_text(encoding="utf-8")
-    assert "Copy" not in text
-    assert "New chat" not in text
-    assert "Советую ядро amd-pstate." in text
-    assert "Пользователь" not in text
-    assert "ChatGPT" not in text
+    assert len(parts) == 1
+    assert parts[0].read_bytes() == src.read_bytes()
 
 
 def test_split_file_leaves_plain_documents_unchanged(tmp_path):
@@ -2117,7 +2038,7 @@ def test_split_file_leaves_plain_documents_unchanged(tmp_path):
     src.write_text("Обычный документ без маркеров.\n\nCopy\n",
                    encoding="utf-8")
     dest = tmp_path / "out"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     parts = split_file(src, dest)
     text = parts[0].read_text(encoding="utf-8")
     assert "Copy" in text
@@ -2126,24 +2047,6 @@ def test_split_file_leaves_plain_documents_unchanged(tmp_path):
 
 # --- Date campaign stage 1: year grounding + mtime inheritance ---
 
-
-def test_split_file_year_comes_from_source_mtime(tmp_path):
-    """A source saved in 2024 produces 2024 markers even when the
-    export header carries no year (the only honest ground: the file)."""
-    import time as _time
-
-    src = tmp_path / "chat.md"
-    src.write_text(
-        "пт, 10 июл. в 13:14\n\n#### Вы сказали:\nдай совет\n",  # noqa: RUF001
-        encoding="utf-8",
-    )
-    old = _time.mktime((2024, 7, 1, 12, 0, 0, 0, 0, -1))
-    os.utime(src, (old, old))
-    dest = tmp_path / "out"
-    dest.mkdir()
-    parts = split_file(src, dest)
-    text = parts[0].read_text(encoding="utf-8")
-    assert "[Пользователь, 2024-07-10]" in text
 
 
 def test_split_outputs_inherit_source_mtime(tmp_path):
@@ -2156,26 +2059,93 @@ def test_split_outputs_inherit_source_mtime(tmp_path):
     old = _time.mktime((2024, 3, 1, 12, 0, 0, 0, 0, -1))
     os.utime(src, (old, old))
     dest = tmp_path / "out"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     parts = prepare_docs.split_file(src, dest)
     assert len(parts) > 1
     for part in parts:
         assert part.stat().st_mtime == pytest.approx(old, abs=2.0)
 
 
-def test_split_file_keeps_fenced_content_untouched(tmp_path):
-    src = tmp_path / "code.md"
-    src.write_text(
-        "#### ChatGPT сказал:\nпример:\n\n```\nCopy\n"  # noqa: RUF001
-        "#### ChatGPT сказал:\n```\n\nCopy\nDownload\n",
-        encoding="utf-8",
+def _sample_chat_json() -> bytes:
+    return json.dumps([
+        {
+            "role": "user",
+            "displayModel": "DeepSeek",
+            "contents": [{"type": "text", "content": "настраиваю pop_os"}],
+            "created_at": "2026-08-07 08:14:38",
+        },
+        {
+            "role": "assistant",
+            "displayModel": "DeepSeek",
+            "contents": [{"type": "text", "content": "Настроим ваш Pop!_OS"}],
+            "created_at": "2026-08-07 08:14:38",
+        },
+    ]).encode("utf-8")
+
+
+def test_chat_json_basic_markers() -> None:
+    out = _chat_json_to_markdown(_sample_chat_json(), "chat.json")
+    assert out is not None
+    text = out.decode("utf-8")
+    assert "[Пользователь, 2026-08-07]" in text
+    assert "[DeepSeek, 2026-08-07]" in text
+    assert "настраиваю pop_os" in text
+
+
+def test_chat_json_missing_date_is_undated() -> None:
+    msgs = json.loads(_sample_chat_json())
+    for m in msgs:
+        m["created_at"] = ""
+    out = _chat_json_to_markdown(json.dumps(msgs).encode("utf-8"), "c.json")
+    text = out.decode("utf-8")  # type: ignore[union-attr]
+    assert "[Пользователь]" in text
+    assert "[DeepSeek]" in text
+
+
+def test_chat_json_skips_non_text_items() -> None:
+    msgs = json.loads(_sample_chat_json())
+    msgs[1]["contents"].append(
+        {"type": "shopping_card", "shoppingCard": {"price": "€440.00"}}
     )
+    out = _chat_json_to_markdown(json.dumps(msgs).encode("utf-8"), "c.json")
+    text = out.decode("utf-8")  # type: ignore[union-attr]
+    assert "440" not in text
+
+
+def test_chat_json_rejects_non_chat() -> None:
+    assert _chat_json_to_markdown(b"{}", "x.json") is None
+    assert _chat_json_to_markdown(b"not json", "x.json") is None
+    empty = json.dumps([{"foo": 1}]).encode("utf-8")
+    assert _chat_json_to_markdown(empty, "x.json") is None
+
+
+def test_split_file_json_creates_md(tmp_path: Path) -> None:
+    src = tmp_path / "chat.json"
+    src.write_bytes(_sample_chat_json())
     dest = tmp_path / "out"
-    dest.mkdir()
+    dest.mkdir(parents=True, exist_ok=True)
     parts = split_file(src, dest)
-    text = parts[0].read_text(encoding="utf-8")
-    # "Copy" and the marker-like line inside the fence survive:
-    assert "Copy" in text
-    assert text.count("#### ChatGPT сказал:") == 2
-    # the real chrome outside the fence is gone:
-    assert "\nCopy\nDownload" not in text
+    assert parts == [dest / "chat.md"]
+    assert (dest / "chat.md").is_file()
+    assert not (dest / "chat.json").exists()
+    assert not _needs_processing(src, dest, atoms=False, split=True)
+
+
+def test_find_vanished_accepts_json_source(tmp_path: Path) -> None:
+    src_dir = tmp_path / "raw"
+    src_dir.mkdir()
+    dest_dir = tmp_path / "docs"
+    dest_dir.mkdir()
+    (src_dir / "chat.json").write_bytes(_sample_chat_json())
+    (dest_dir / "chat.md").write_text("x", encoding="utf-8")
+    assert _find_vanished(src_dir, dest_dir) == {}
+
+
+def test_find_vanished_accepts_json_part_source(tmp_path: Path) -> None:
+    src_dir = tmp_path / "raw"
+    src_dir.mkdir()
+    dest_dir = tmp_path / "docs"
+    dest_dir.mkdir()
+    (src_dir / "chat.json").write_bytes(_sample_chat_json())
+    (dest_dir / "chat_part01.md").write_text("x", encoding="utf-8")
+    assert _find_vanished(src_dir, dest_dir) == {}
