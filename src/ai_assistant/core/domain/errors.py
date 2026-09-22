@@ -11,6 +11,7 @@ __all__ = [
     "QUERY_EMBEDDING_MISSING",
     "QUERY_MISSING",
     "QUERY_TEXT_MISSING",
+    "RERANKER_NOT_PROVIDED",
     "VECTOR_STORE_NOT_PROVIDED",
     "AdapterError",
     "ConfigurationError",
