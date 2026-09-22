@@ -104,7 +104,7 @@ async def reload_indices(
 
 @router.get("/current-model", response_model=_CurrentModelResponse)
 async def get_current_model(
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> _CurrentModelResponse:
     if not state.config.security.admin_enabled:
         raise HTTPException(status_code=404, detail="Not found")
@@ -118,7 +118,7 @@ async def get_current_model(
 @router.post("/api-key", response_model=UpdateApiKeyResponse)
 async def update_api_key(
     req: UpdateApiKeyRequest,
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> UpdateApiKeyResponse:
     if not state.config.security.admin_enabled:
         raise HTTPException(status_code=404, detail="Not found")
