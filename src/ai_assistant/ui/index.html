@@ -874,7 +874,7 @@
             abortController = new AbortController();
             try {
                 const response = await fetchWithRetry(getApiBase() + '/v1/chat/completions', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') },
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'local') },
                     body: JSON.stringify({ model: settings.model || 'local', messages: apiMessages, stream: true, temperature: settings.temperature })
                 }, abortController.signal, 2, 120000);
 
@@ -984,7 +984,7 @@
             const folder = $('indexFolder').value.trim() || null, clear = $('indexClear').checked, b=$('indexStartBtn'), sr=$('indexStatusRow'), se=$('indexStatus');
             b.disabled = true; b.textContent = 'Starting...'; sr.style.display = 'block'; se.textContent = 'Sending...';
             try {
-                const resp = await fetch(getApiBase() + '/api/v1/rag/reindex', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') }, body: JSON.stringify({ folder, clear }) });
+                const resp = await fetch(getApiBase() + '/api/v1/rag/reindex', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'local') }, body: JSON.stringify({ folder, clear }) });
                 if (!resp.ok) throw new Error(await resp.text());
                 const data = await resp.json(); se.textContent = 'Started: ' + data.task_id; showToast('Indexing started'); pollIndexStatus(data.task_id);
             } catch (err) { se.textContent = 'Error: ' + err.message; b.disabled = false; b.textContent = 'Retry'; showToast('Failed: ' + err.message); }
@@ -994,7 +994,7 @@
             const se = $('indexStatus'), b = $('indexStartBtn');
             indexPollInterval = setInterval(async () => {
                 try {
-                    const resp = await fetch(getApiBase() + '/api/v1/rag/reindex/status/' + taskId, { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') } });
+                    const resp = await fetch(getApiBase() + '/api/v1/rag/reindex/status/' + taskId, { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'local') } });
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
                     const data = await resp.json(); se.textContent = JSON.stringify(data, null, 2);
                     if (data.status === 'completed' || data.status === 'failed') {
@@ -1034,7 +1034,7 @@
             try {
                 const resp = await fetch(
                     getApiBase() + '/api/v1/rag/source/' + encodeURIComponent(filename),
-                    { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'sk-local') } }
+                    { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'local') } }
                 );
                 if (!resp.ok) throw new Error('HTTP ' + resp.status);
                 const text = await resp.text();
