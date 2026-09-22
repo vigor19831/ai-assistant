@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ai_assistant.api.deps import AppState, get_state
+from ai_assistant.api.deps import InitializedAppState, get_state
 from ai_assistant.api.security import set_api_key
 from ai_assistant.core.constants import INDEX_IO_TIMEOUT
 from ai_assistant.core.logger import get_logger
@@ -45,7 +45,7 @@ class _ReloadIndicesResponse(BaseModel):
 
 @router.post("/reload-indices", response_model=_ReloadIndicesResponse)
 async def reload_indices(
-    state: Annotated[AppState, Depends(get_state)],
+    state: Annotated[InitializedAppState, Depends(get_state)],
 ) -> _ReloadIndicesResponse:
     """Reload all vector store indices from disk.
 

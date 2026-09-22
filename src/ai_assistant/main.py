@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI
@@ -16,6 +18,13 @@ from ai_assistant.api.router import assemble_routers
 from ai_assistant.core.config import CORSConfig, SecurityConfig, load_config
 
 __all__ = ["create_app"]
+
+# Read version from installed package metadata — always in sync with
+# pyproject.toml (same pattern as api/router.py, drift-synchronized).
+try:
+    _APP_VERSION = _pkg_version("ai-assistant")
+except PackageNotFoundError:
+    _APP_VERSION = "0.0.0"
 
 
 class _InfoResponse(BaseModel):
@@ -49,7 +58,7 @@ def create_app(
     """Application factory — creates a fresh FastAPI instance."""
     app = FastAPI(
         title="AI Assistant",
-        version="1.0.0",
+        version=_APP_VERSION,
         lifespan=lifespan or _default_lifespan,
     )
 
