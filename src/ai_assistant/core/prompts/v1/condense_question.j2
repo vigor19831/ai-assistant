@@ -19,6 +19,18 @@ Rules:
 - Keep the follow-up's original language.
 - Output ONLY the rewritten question: no preamble, no quotes,
   no explanation.
+- If the follow-up question is already standalone (no pronouns,
+  no vague references), output it EXACTLY as received.
+- Preserve temporal references (dates, months, years) EXACTLY as
+  the follow-up states them. Do NOT add, remove, or resolve dates
+  from the history.
+- When enriching, include ONLY the minimum detail needed to make
+  the question standalone. Do not add details the follow-up did
+  not ask about.
+- Only use information from the conversation history to resolve
+  references. NEVER introduce topics, facts, or terminology that
+  the follow-up did not reference, even if they appear in the
+  history.
 
 Example:
 Conversation:
@@ -36,10 +48,10 @@ Standalone question: Where did I choose my favorite color?
 
 Example:
 Conversation:
-user: How big is a system snapshot without /home?
-assistant: About 15-20 GB.
-Follow-up question: what about my zram thing, how much space does it take?
-Standalone question: How much space does ZRAM take?
+user: [d] what watches did I discuss in May?
+assistant: You discussed Seiko SPB143, Hamilton Khaki Field, and Citizen Eco-Drive Titanium, along with NH35, 4R36 and 6R35 calibers.
+Follow-up question: what calibers do they have?
+Standalone question: What calibers do the Seiko SPB143, Hamilton Khaki Field, and Citizen Eco-Drive Titanium have?
 
 Conversation:
 {{ history }}
