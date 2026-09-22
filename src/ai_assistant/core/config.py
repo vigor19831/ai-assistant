@@ -86,6 +86,11 @@ class ChatConfig(BaseSettings):
     max_context_tokens: int | None = None
     # Per-process limit. Total = this * uvicorn workers. Tune for VRAM/RAM.
     max_concurrent_chat: int = Field(default=5, ge=1)
+    # Drift #165: generation budget for PLAIN (no-prefix) chat answers.
+    # llm.max_tokens is sized for RAG answers and truncates long
+    # off-RAG replies mid-sentence; None = fall back to llm.max_tokens.
+    # Pure optional addition — no config_version bump (drift #138).
+    max_tokens_plain: int | None = Field(default=None, ge=1)
 
 class TokenizerConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AI_TOKENIZER_", extra="forbid")

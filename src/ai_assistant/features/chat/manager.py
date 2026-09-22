@@ -217,10 +217,12 @@ class ChatManager:
         sampling: SamplingConfig | None = None,
         date_month_names: dict[str, int] | None = None,
         date_prepositions: list[str] | None = None,
+        max_tokens_plain: int | None = None,
     ) -> None:
         self.llm = llm
         self.reranker = reranker
         self.system_message = system_message
+        self.max_tokens_plain = max_tokens_plain
         self.max_context_tokens = max_context_tokens
         self.embedder = embedder
         self.vector_store = vector_store
@@ -528,6 +530,13 @@ class ChatManager:
             metadata=meta,
         )
 
+        # Drift #165: plain (no-namespace) answers get their own
+        # generation budget — llm.max_tokens is sized for RAG answers
+        # and truncated long off-RAG replies mid-sentence. An explicit
+        # per-request value always wins; the RAG path is unchanged.
+        if namespace is None and max_tokens is None:
+            max_tokens = self.max_tokens_plain
+
         try:
             response = await self.llm.complete(
                 messages,
@@ -619,6 +628,10 @@ class ChatManager:
             history=history_local,
             metadata=meta,
         )
+
+        # Drift #165: see chat() — the same plain-path budget.
+        if namespace is None and max_tokens is None:
+            max_tokens = self.max_tokens_plain
 
         full_response = ""
         try:

@@ -8,7 +8,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **Multilingual**: bge-m3 embedder; quality measured on Russian and English corpora — other scripts not yet measured
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
 - **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" and the search frame narrows to March in both retrieval legs, before ranking — no date phrase, no filtering (language data lives in your yaml)
-- **Measured quality**: the bench is 17 contract tests (must pass on any hardware) + 34 capability tests (quality scales with LLM size); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
+- **Measured quality**: the bench is 16 contract tests (must pass on any hardware) + 35 capability tests (quality scales with LLM size); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
 - **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one documented chat-condensation flake, see docs)
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
@@ -21,7 +21,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 Pipeline: retrieve (hybrid — dense embeddings + exact-term BM25 fused by RRF; an optional leg: the `lexical_index` config section enables it, absent = dense-only; multi-query — the LLM generates 2 query variations; optional HyDE; date phrases frame the search before ranking — both legs or neither) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: grounded answers with a per-source `Sources` block, conflict reporting, "I don't know" when evidence is absent; the prompt teaches `[Document N]` in-text citations — following them is model-dependent). Chunking is simple fixed-size by default; the recursive chunker (paragraphs → sentences → words) is a one-line config switch (`chunker.provider: recursive`) for better retrieval. Question condensation handles multi-turn.
 
-Quality is measured, not assumed: `scripts/check_rag.py` — 51 cases (17 contract tests that must pass on any hardware, 34 capability tests whose quality depends on LLM size, chat e2e). The benchmark is the single source of truth for RAG quality; results, canon and the full hardware campaign live in `docs/architecture.md` §14; known limitations (open-synthesis recall, date honesty on undated atoms, the chat-condensation flake) in `docs/drift.md`.
+Quality is measured, not assumed: `scripts/check_rag.py` — 51 cases (16 contract tests that must pass on any hardware, 35 capability tests whose quality depends on LLM size, chat e2e). The benchmark is the single source of truth for RAG quality; results, canon and the full hardware campaign live in `docs/architecture.md` §14; known limitations (open-synthesis recall, date honesty on undated atoms, the chat-condensation flake) in `docs/drift.md`.
 
 ---
 

@@ -960,3 +960,15 @@ def test_file_encodings_default_chain() -> None:
 
     cfg = RAGConfig()
     assert cfg.file_encodings == ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
+
+
+# --- drift #165: plain-chat generation budget --------------------------------
+
+
+def test_chat_max_tokens_plain_defaults_to_none() -> None:
+    assert AppConfig().chat.max_tokens_plain is None
+
+
+def test_chat_max_tokens_plain_parses() -> None:
+    cfg = AppConfig(chat={"max_tokens_plain": 1536})
+    assert cfg.chat.max_tokens_plain == 1536

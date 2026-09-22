@@ -47,6 +47,11 @@ chat:
   # Max simultaneous chat requests per process. Tune for your hardware:
   # 2-3 for 4GB VRAM, 5-10 for 16GB RAM.
   max_concurrent_chat: 5
+  # Generation budget for PLAIN chat answers (no [prefix]): the shared
+  # llm.max_tokens is sized for RAG answers and truncates long off-RAG
+  # replies mid-sentence. Optional: absent = llm.max_tokens; explicit
+  # request values always win.
+  # max_tokens_plain: 1536
 
 storage:
   provider: sqlite

@@ -1653,3 +1653,68 @@ def test_append_rag_sources_content_date_in_line() -> None:
     assert "[1] doc_part01.md" in out
     assert "(content 07-08-2026)" in out
     assert "(modified 2026-09-20 18:55:22)" in out
+
+
+# --- drift #165: plain-path generation budget --------------------------------
+
+
+async def test_plain_chat_uses_max_tokens_plain() -> None:
+    llm = AsyncMock(spec=ILLM)
+    llm.complete.return_value = AssistantMessage(text="plain answer")
+    manager = ChatManager(
+        llm=llm,
+        reranker=NullReranker(RerankerConfigData()),
+        max_tokens_plain=1500,
+    )
+    await manager.chat("hello there", conversation_id="t165-plain")
+    assert llm.complete.call_args.kwargs["max_tokens"] == 1500
+
+
+async def test_plain_chat_explicit_request_wins() -> None:
+    llm = AsyncMock(spec=ILLM)
+    llm.complete.return_value = AssistantMessage(text="plain answer")
+    manager = ChatManager(
+        llm=llm,
+        reranker=NullReranker(RerankerConfigData()),
+        max_tokens_plain=1500,
+    )
+    await manager.chat(
+        "hello there", conversation_id="t165-explicit", max_tokens=99
+    )
+    assert llm.complete.call_args.kwargs["max_tokens"] == 99
+
+
+async def test_rag_chat_keeps_rag_budget() -> None:
+    llm = AsyncMock(spec=ILLM)
+    llm.complete.return_value = AssistantMessage(text="rag answer")
+    manager = ChatManager(
+        llm=llm,
+        reranker=NullReranker(RerankerConfigData()),
+        namespaces={"default": NamespaceConfig(prefix="d")},
+        max_tokens_plain=1500,
+    )
+    await manager.chat("[d] favorite color?", conversation_id="t165-rag")
+    assert llm.complete.call_args.kwargs["max_tokens"] is None
+
+
+async def test_plain_stream_uses_max_tokens_plain() -> None:
+    # Drift #38: async generators need the MagicMock factory form.
+    llm = MagicMock(spec=ILLM)
+
+    async def _gen(*args: object, **kwargs: object):
+        yield "answer"
+
+    llm.stream = MagicMock(side_effect=lambda *a, **k: _gen())
+    manager = ChatManager(
+        llm=llm,
+        reranker=NullReranker(RerankerConfigData()),
+        max_tokens_plain=1500,
+    )
+    chunks = [
+        c
+        async for c in manager.stream_chat(
+            "hello", conversation_id="t165-stream"
+        )
+    ]
+    assert chunks == ["answer"]
+    assert llm.stream.call_args.kwargs["max_tokens"] == 1500
