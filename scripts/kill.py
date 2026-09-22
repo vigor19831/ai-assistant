@@ -85,78 +85,87 @@ def _load_project_ports(root: Path) -> tuple[int, ...]:
 def _port_holder_pids(port: int) -> list[int]:
     """Return all PIDs holding *port*, or empty list."""
     pids: list[int] = []
-    try:
-        if os.name == "nt":
+    if os.name == "nt":
+        try:
             result = subprocess.run(
                 ["netstat", "-ano"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
-            for line in result.stdout.splitlines():
-                if "LISTENING" not in line:
-                    continue
-                if f":{port}" not in line:
-                    continue
-                parts = line.strip().split()
-                if len(parts) < 5:
-                    continue
-                local_addr = parts[1]
-                if not local_addr.endswith(f":{port}"):
-                    continue
+        except OSError:
+            return pids
+        for line in result.stdout.splitlines():
+            if "LISTENING" not in line:
+                continue
+            if f":{port}" not in line:
+                continue
+            parts = line.strip().split()
+            if len(parts) < 5:
+                continue
+            local_addr = parts[1]
+            if not local_addr.endswith(f":{port}"):
+                continue
+            try:
+                pid = int(parts[-1])
+                if pid not in pids:
+                    pids.append(pid)
+            except ValueError:
+                continue
+        return pids
+    # lsof returns one PID per line; fuser returns space-separated
+    # PIDs. Each probe is guarded on its own: a missing lsof must not
+    # abort the fuser fallback (the old blanket except did exactly
+    # that on FileNotFoundError).
+    for cmd in (
+        ["lsof", "-ti", f":{port}"],
+        ["fuser", f"{port}/tcp"],
+    ):
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            for token in result.stdout.strip().split():
                 try:
-                    pid = int(parts[-1])
+                    pid = int(token)
                     if pid not in pids:
                         pids.append(pid)
                 except ValueError:
                     continue
-        else:
-            # lsof returns one PID per line; fuser returns space-separated PIDs
-            for cmd in (
-                ["lsof", "-ti", f":{port}"],
-                ["fuser", f"{port}/tcp"],
-            ):
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    for token in result.stdout.strip().split():
-                        try:
-                            pid = int(token)
-                            if pid not in pids:
-                                pids.append(pid)
-                        except ValueError:
-                            continue
-    except Exception:
-        pass
     return pids
 
 
 def _kill_pid(pid: int, force: bool = False) -> bool:
-    """Kill process by PID. Returns True if signal sent."""
+    """Kill process by PID. True only when the kill was DELIVERED (the
+    tool ran and reported success) — taskkill without /F routinely
+    declines on console processes, and "sent" must not be optimistic."""
     try:
         if os.name == "nt":
             if force:
                 args = ["taskkill", "/F", "/PID", str(pid)]
             else:
                 args = ["taskkill", "/PID", str(pid)]
-            subprocess.run(args, capture_output=True, check=False)
-        else:
-            sig = signal.SIGKILL if force else signal.SIGTERM
-            os.kill(pid, sig)
+            result = subprocess.run(args, capture_output=True, check=False)
+            return result.returncode == 0
+        sig = signal.SIGKILL if force else signal.SIGTERM
+        os.kill(pid, sig)
         return True
     except (ProcessLookupError, PermissionError, OSError):
         return False
 
 
 def _kill_by_name(name: str) -> int:
-    """Kill all processes matching *name*. Returns count killed."""
+    """Kill all processes matching *name*. Returns count of tools that
+    reported a kill."""
     killed = 0
-    try:
-        if os.name == "nt":
+    if os.name == "nt":
+        try:
             result = subprocess.run(
                 ["taskkill", "/F", "/IM", name],
                 capture_output=True,
@@ -164,22 +173,33 @@ def _kill_by_name(name: str) -> int:
             )
             if result.returncode == 0:
                 killed += 1
-        else:
-            # Try pkill first
-            result = subprocess.run(
-                ["pkill", "-f", name],
-                capture_output=True,
-                check=False,
-            )
-            if result.returncode == 0:
-                killed += 1
-            # killall without -q to surface errors (stdout captured anyway)
-            subprocess.run(
-                ["killall", name],
-                capture_output=True,
-                check=False,
-            )
-    except FileNotFoundError:
+        except OSError:
+            pass
+        return killed
+    # pkill and killall are independent fallbacks, each guarded on its
+    # own: the old blanket except let a missing pkill abort the killall
+    # attempt, and killall's outcome was discarded (a killall-served
+    # kill reported as "Not found").
+    try:
+        result = subprocess.run(
+            ["pkill", "-f", name],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            killed += 1
+    except OSError:
+        pass
+    try:
+        # killall without -q to surface errors (stdout captured anyway)
+        result = subprocess.run(
+            ["killall", name],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            killed += 1
+    except OSError:
         pass
     return killed
 
@@ -214,6 +234,7 @@ def main() -> int:
 
     # 2. Kill by port holders
     print("\n[2/3] Killing port holders...")
+    held_ports: list[int] = []
     for port in project_ports:
         pids = _port_holder_pids(port)
         if pids:
@@ -228,6 +249,7 @@ def main() -> int:
                 print(f"  [OK] Port {port} freed")
             else:
                 print(f"  [FAIL] Port {port} STILL held (zombie/D-state?)")
+                held_ports.append(port)
         else:
             print(f"  [OK] Port {port} already free")
 
@@ -235,10 +257,16 @@ def main() -> int:
     print("\n[3/3] Cleaning PID files...")
     pid_file = root / "data" / "uvicorn.pid"
     if pid_file.exists():
-        pid_file.unlink(missing_ok=True)
+        pid_file.unlink()
         print(f"  [OK] Removed {pid_file}")
 
     print("\n" + "=" * 50)
+    if held_ports:
+        # Honest exit code: a failed emergency switch must not report
+        # success (run_scripts history showed kill as "ok" regardless).
+        print(f"  Done. [FAIL] Port(s) still held: {held_ports}")
+        print("=" * 50)
+        return 1
     print("  Done.")
     print("=" * 50)
     return 0

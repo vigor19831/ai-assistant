@@ -40,10 +40,28 @@ MAX_LATENCY_MS = 60_000
 
 # Negation words for the forbidden-keyword check. A forbidden term
 # preceded by one of these within the last 3 words is a negation
-# ("does not mention 2015"), not a violation.
+# ("does not mention 2015"), not a violation. The window is 3 words:
+# the common honest-refusal forms ("no information about X",
+# "cannot answer about X", "нет информации о X") fit; a wider one
+# would exempt bare mentions too easily.
 _NEGATION_WORDS = (
-    "не", "нет", "ни", "not", "don't", "doesn't", "didn't", "never", "no",
+    "не", "нет", "ни", "нельзя", "невозможно",
+    "not", "don't", "doesn't", "didn't", "cannot", "can't", "won't",
+    "never", "no", "without", "nothing", "nowhere",
 )
+
+
+def _norm_text(text: str) -> str:
+    """Lowercase + typographic apostrophes -> ASCII: the negation
+    window compares words, and a model's 'don't' must match the
+    list's "don't"."""
+    return text.lower().replace("\u2019", "'").replace("\u2018", "'")
+
+
+def _word_token(word: str) -> str:
+    """Strip edge punctuation from a window word: "don't," and "(no"
+    must match the negation list entries."""
+    return word.strip(".,;:!?\"'()")
 
 
 # ── Embedded resource monitor ────────────────────────────────────────────────
@@ -256,7 +274,7 @@ class TestCase:
 # ── Final corpus ─────────────────────────────────────────────────────────────
 
 TEST_SOURCES: list[SourceDoc] = [
-    # ===================== personal (en) — 23 docs =====================
+    # ===================== personal (en) — 24 docs =====================
     SourceDoc(
         "personal",
         "My favorite color is blue. I chose it in childhood because it reminds me of the sea and the sky. It is my only favorite color.",
@@ -268,6 +286,12 @@ TEST_SOURCES: list[SourceDoc] = [
     SourceDoc(
         "personal",
         "A balanced human diet typically includes vegetables, fruits, grains and protein sources. Nutritionists recommend limiting processed sugar and drinking enough water.",
+    ),
+    # Mirrors the personal_ru apple doc: a true personal fact and the
+    # health-adjacent distractor for noise-1 (medications).
+    SourceDoc(
+        "personal",
+        "I enjoy eating apples. Apples are red and crunchy. My favorite fruit is an apple because it is healthy and sweet.",
     ),
     SourceDoc(
         "personal",
@@ -753,8 +777,6 @@ TEST_CASES: list[TestCase] = [
             "lawyer",
             "doctor",
             "java",
-            "apple",
-            "fruit",
             "engineer",
             "teacher",
             "c++",
@@ -764,9 +786,8 @@ TEST_CASES: list[TestCase] = [
         ),
         expect_sources=True,
         sources_must_contain=("programmer", "python", "blue"),
-        sources_must_not_contain=("apple",),
         require_source_coverage=True,
-        description="Open question. Must synthesize facts from multiple chunks. No noise leak.",
+        description="Open question. Must synthesize facts from multiple chunks. No fabricated professions or cross-namespace tech leak.",
         requires_future_capability=True,
     ),
     TestCase(
@@ -866,7 +887,6 @@ TEST_CASES: list[TestCase] = [
         answer_must_not_contain=("purple", "green", "yellow", "orange"),
         expect_sources=True,
         sources_must_contain_any=("blue", "red"),
-        sources_must_not_contain=("apple", "fruit"),
         require_faithfulness=True,
         description="Two documents: color=blue and color=red. Must not invent a third color or mix them silently.",
     ),
@@ -927,6 +947,11 @@ TEST_CASES: list[TestCase] = [
             "not mentioned",
             "cannot answer",
             "please provide",
+            "не знаю",
+            "нет информации",
+            "не упом",
+            "не могу ответить",
+            "не указан",
         ),
         answer_must_not_contain=("guitar", "chords", "гитаре", "гитара"),
         expect_sources=False,
@@ -950,13 +975,17 @@ TEST_CASES: list[TestCase] = [
         query="Какой мой любимый цвет?",
         namespace="personal_conflict_ru",
         lang="ru",
-        answer_must_contain_any=("синий", "красный", "conflict", "contradict"),
+        answer_must_contain_any=(
+            "конфликт", "противореч", "изменил",
+            "conflict", "contradict", "both", "changed",
+        ),
+        answer_must_contain_all_any=("синий", "красный"),
         answer_must_not_contain=("фиолетовый", "зелёный", "жёлтый", "оранжевый"),
         expect_sources=True,
         sources_must_contain_any=("синий", "красный"),
-        sources_must_not_contain=("яблоко", "фрукт"),
         require_faithfulness=True,
-        description="Two Russian documents: color=blue and color=red. Must not invent third color.",
+        description="Mirror of conflict-1: must acknowledge the conflict and name both colors, never invent a third. Future-tier: naming both colors in RUSSIAN is language adherence — the documented EN-on-RU model residual (drift #131/#159); the conflict handling itself is contract-grade (proven live 2026-09-22).",
+        requires_future_capability=True,
     ),
 
     # ------------------------------------------------------------
@@ -996,12 +1025,10 @@ TEST_CASES: list[TestCase] = [
         query="What do I like?",
         namespace="personal",
         answer_must_contain_all_any=("jazz", "cat"),
-        answer_must_not_contain=("apple",),
         expect_sources=True,
         sources_must_contain=("jazz", "cat"),
-        sources_must_not_contain=("apple",),
         require_source_coverage=True,
-        description="Synthesize from larger context, ignore noise (apple).",
+        description="Synthesize from larger context (jazz, cat) from multiple docs; apples are a true 'like' and may appear.",
         requires_future_capability=True,
     ),
 
@@ -1533,31 +1560,58 @@ async def chat_query(
         payload["conversation_id"] = conversation_id
 
     if stream:
-        async with client.stream(
-            "POST",
-            f"{url.rstrip('/')}/v1/chat/completions",
-            json=payload,
-            timeout=timeout,
-        ) as r:
-            r.raise_for_status()
-            chunks: list[str] = []
-            async for line in r.aiter_lines():
-                if line.startswith("data: "):
-                    data_str = line[6:]
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        data = json.loads(data_str)
-                        # Server-side error (AdapterError, validation, etc.)
-                        if "error" in data:
-                            print(f"    [stream error] {data['error']}")
+        # Retry parity with the non-stream path (_request_with_retry):
+        # a transient failure BEFORE any content arrived is retried;
+        # once the first chunk is in, retrying would duplicate
+        # content — raise instead.
+        chunks: list[str] = []
+        for attempt in range(1, 4):
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{url.rstrip('/')}/v1/chat/completions",
+                    json=payload,
+                    timeout=timeout,
+                ) as r:
+                    r.raise_for_status()
+                    async for line in r.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]
+                        if data_str == "[DONE]":
                             break
-                        delta = data.get("choices", [{}])[0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            chunks.append(content)
-                    except Exception:
-                        continue
+                        try:
+                            data = json.loads(data_str)
+                            # Server-side error (AdapterError, validation, etc.)
+                            if "error" in data:
+                                print(f"    [stream error] {data['error']}")
+                                break
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                chunks.append(content)
+                        except Exception:
+                            continue
+                break
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                if chunks or attempt == 3:
+                    raise
+                wait = 2 ** (attempt - 1)
+                print(
+                    f"    [RETRY] stream {type(exc).__name__}, "
+                    f"waiting {wait}s..."
+                )
+                await asyncio.sleep(wait)
+            except httpx.HTTPStatusError as exc:
+                if (
+                    chunks
+                    or attempt == 3
+                    or exc.response.status_code != 503
+                ):
+                    raise
+                wait = 2 ** (attempt - 1)
+                print(f"    [RETRY] stream 503, waiting {wait}s...")
+                await asyncio.sleep(wait)
         answer = "".join(chunks)
     else:
         r = await _request_with_retry(
@@ -1571,7 +1625,6 @@ async def chat_query(
         choices = data.get("choices", [])
         answer = choices[0].get("message", {}).get("content", "") if choices else ""
 
-    import re
     # Robust check: looks for actual citation pattern OR explicit Sources block
     has_sources = bool(re.search(r"\[Document\s+\d+\]", answer)) or ("Sources:" in answer)
     return {
@@ -1620,6 +1673,14 @@ async def run_tests(
             print(f"[{i}/{total}] [{case.test_id}] {case.description}")
             print(f"    Query : {case.query}")
             print(f"    NS    : {case.namespace}")
+            # Tier membership counted ONCE, before any outcome — a
+            # crashed test must stay visible in its tier totals.
+            if case.use_chat_api:
+                chat_total += 1
+                if case.requires_future_capability:
+                    chat_future_total += 1
+                else:
+                    chat_contract_total += 1
             t0 = time.perf_counter()
 
             try:
@@ -1684,8 +1745,6 @@ async def run_tests(
                     print("    Src   : 0 chunks")
                     print("    Result: FAIL (0ms)")
                     print(f"    ! handler crashed instead of graceful response: {exc}")
-                    if case.use_chat_api:
-                        chat_total += 1
                     continue
                 print(f"    FAIL  API error: {exc}")
                 continue
@@ -1701,7 +1760,10 @@ async def run_tests(
             answer: str = data.get("answer") or ""
             sources: list[Any] = data.get("sources") or []
             has_sources = bool(sources)
-            print(f"    Answer: {answer[:120]}...")
+            print(
+                f"    Answer: {answer[:120]}"
+                f"{'...' if len(answer) > 120 else ''}"
+            )
             print(f"    Src   : {len(sources)} chunks")
 
             metrics = data.get("metrics")
@@ -1716,6 +1778,18 @@ async def run_tests(
                 )
 
             errors: list[str] = []
+
+            # A degraded-but-answered run (pipeline errors + a real
+            # answer) stays HTTP 200 by design (drift #122) — the
+            # benchmark must not score it as a clean pass. The error-*
+            # tests are exempt: their contract IS the graceful handling
+            # of an error condition — an errors field describing the
+            # problem is correct behavior for them.
+            resp_errors = [str(e) for e in (data.get("errors") or [])]
+            if resp_errors and not case.test_id.startswith("error-"):
+                errors.append(
+                    f"pipeline errors in response: {'; '.join(resp_errors)}"
+                )
 
             for kw in case.answer_must_contain:
                 if kw.lower() not in answer.lower():
@@ -1732,18 +1806,20 @@ async def run_tests(
                         errors.append(f"missing conflict fact '{kw}'")
 
             for forbidden in case.answer_must_not_contain:
-                ans_lower, forb_lower = answer.lower(), forbidden.lower()
-                if forb_lower in ans_lower:
-                    is_neg = False
-                    for match in re.finditer(re.escape(forb_lower), ans_lower):
-                        prefix_words = ans_lower[: match.start()].split()
-                        if any(
-                            w in _NEGATION_WORDS for w in prefix_words[-3:]
+                ans_norm = _norm_text(answer)
+                forb_norm = _norm_text(forbidden)
+                if forb_norm in ans_norm:
+                    # Per-OCCURRENCE negation: every un-negated mention
+                    # of a forbidden term is a violation — one negated
+                    # mention must not whitelist the others.
+                    for match in re.finditer(re.escape(forb_norm), ans_norm):
+                        prefix_words = ans_norm[: match.start()].split()
+                        if not any(
+                            _word_token(w) in _NEGATION_WORDS
+                            for w in prefix_words[-3:]
                         ):
-                            is_neg = True
+                            errors.append(f"forbidden '{forbidden}'")
                             break
-                    if not is_neg:
-                        errors.append(f"forbidden '{forbidden}'")
 
             if has_sources != case.expect_sources:
                 errors.append(f"sources={has_sources}, expected={case.expect_sources}")
@@ -1837,11 +1913,6 @@ async def run_tests(
                 status = "FAIL"
 
             if case.use_chat_api:
-                chat_total += 1
-                if case.requires_future_capability:
-                    chat_future_total += 1
-                else:
-                    chat_contract_total += 1
                 chat_history[case.test_id] = (case.query, _strip_sources_block(answer))
             print(f"    Result: {status} ({latency:.0f}ms)")
             for err in errors:
@@ -1889,7 +1960,8 @@ def main() -> int:
     )
     parser.add_argument("--url", default="http://localhost:8000")
     parser.add_argument("--api-key", default="local")
-    parser.add_argument("--timeout", type=float, default=30.0)
+    # 65 s keeps the 60 s SLA reachable (30 s made it dead code).
+    parser.add_argument("--timeout", type=float, default=65.0)
     parser.add_argument("--skip-index", action="store_true", help="Skip indexing")
     parser.add_argument(
         "--lang",
@@ -1934,9 +2006,11 @@ def main() -> int:
         if not args.skip_index:
             with contextlib.suppress(Exception):
                 asyncio.run(teardown_all(args.url, args.api_key, TEST_SOURCES))
-        _restore_logging()
+        # Monitor summary BEFORE the tee is restored — the peaks
+        # belong in the run log too.
         if not args.no_monitor:
             monitor.stop()
+        _restore_logging()
 
 
 if __name__ == "__main__":

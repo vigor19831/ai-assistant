@@ -2,7 +2,8 @@
 """Check LLM, embedder, reranker servers and local tokenizer.
 
 Compact output: one line per component when healthy; a failing
-component expands into a full troubleshooting block.
+component prints its failure reason (exception type + message)
+right after the verdict line.
 
 Returns 0 if all adapters are healthy; 1 otherwise.
 """
@@ -33,6 +34,9 @@ _SCRIPT_DIR = Path(__file__).parent.resolve()
 _ROOT = _SCRIPT_DIR.parent
 _CONFIG_DEFAULT = _ROOT / "config.yaml"
 _SEP = "─" * 50
+# Failure-reason lines truncate to this: a one-line hint, not a
+# traceback (the full detail stays in the application log).
+_REASON_MAX = 120
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -74,7 +78,8 @@ async def _check_llm(cfg: AppConfig) -> bool:
         llm = create_adapter("llm", llm_cfg.provider, llm_data)
         await llm.complete([UserMessage(text="Hi")])
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"    ! {type(exc).__name__}: {str(exc)[:_REASON_MAX]}")
         return False
     finally:
         if llm is not None:
@@ -101,7 +106,8 @@ async def _check_embedder(cfg: AppConfig) -> bool:
         embeddings = await embedder.embed(["Hello world"])
         has_vector = bool(embeddings and embeddings[0])
         return has_vector and len(embeddings[0]) == embedder.dimension
-    except Exception:
+    except Exception as exc:
+        print(f"    ! {type(exc).__name__}: {str(exc)[:120]}")
         return False
     finally:
         if embedder is not None:
@@ -132,7 +138,8 @@ async def _check_reranker(cfg: AppConfig) -> bool:
         )
         results = await reranker.rerank("test query", [chunk], top_k=1)
         return bool(results)
-    except Exception:
+    except Exception as exc:
+        print(f"    ! {type(exc).__name__}: {str(exc)[:120]}")
         return False
     finally:
         if reranker is not None:

@@ -21,7 +21,7 @@ HARD_EXCLUDE = frozenset({
 HIDDEN_FOLDERS = {
     ".git": "Git repository (contents hidden)",
     ".venv": "Python virtual environment (contents hidden)",
-    "data": "indexes, yaml profiles, tokenizers and logs",
+    "data": "corpus (raw_documents/), mirror, indices, chat history, logs",
     "vendor": "llama.cpp binaries and GGUF models",
 }
 
@@ -56,6 +56,12 @@ def is_ignored(path: Path, root: Path, patterns: list[str]) -> bool:
             if not path.is_dir():
                 continue
             pat_name = pat[:-1]
+            if "*" in pat_name or "?" in pat_name:
+                # Wildcarded dir patterns (e.g. src/*.egg-info/) need
+                # fnmatch — the literal compare never matched them.
+                if fnmatch.fnmatch(name, pat_name) or fnmatch.fnmatch(rel, pat_name):
+                    return True
+                continue
             if name == pat_name or rel == pat_name or rel.startswith(pat_name + "/"):
                 return True
             continue
@@ -115,20 +121,17 @@ def build(root: Path, use_color: bool = False) -> str:
         # Prune hard-excluded directories
         dirnames[:] = [d for d in dirnames if not hard_excluded(current / d, root)]
 
-        # Handle hidden folders: show them, but don't descend
-        if current.name in HIDDEN_FOLDERS and current != root:
-            entries.append(current)
-            dirnames.clear()
-            continue
+        # Hidden folders are SHOWN but never traversed: pruned right
+        # here (the old code appended them twice — in the dirs loop
+        # and again on arrival — and needed a dirnames.clear() guard)
+        for d in [d for d in dirnames if d in HIDDEN_FOLDERS]:
+            entries.append(current / d)
+            dirnames.remove(d)
 
         # Directories
         for d in dirnames:
             d_path = current / d
             if d_path.is_symlink():
-                continue
-            # Always show hidden folders, even if .gitignored
-            if d in HIDDEN_FOLDERS:
-                entries.append(d_path)
                 continue
             if not is_ignored(d_path, root, patterns):
                 entries.append(d_path)
@@ -178,7 +181,7 @@ def build(root: Path, use_color: bool = False) -> str:
             node.items(),
             key=lambda x: (
                 not isinstance(x[1], dict),      # directories first
-                isinstance(x[1], str),            # then hidden
+                x[1] is None,                    # then hidden, then files
                 x[0].lower()                      # alphabetical
             )
         )
@@ -221,7 +224,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate compact project structure")
     parser.add_argument("--root", "-r", type=Path, default=None)
     parser.add_argument("--output", "-o", type=Path, default=None,
-                        help="Output file (default: structure.txt in project root)")
+                        help="Output file (default: data/structure.txt)")
     parser.add_argument("--stdout", "-s", action="store_true",
                         help="Print to stdout instead of file")
     parser.add_argument("--color", "-c", action="store_true",
@@ -240,7 +243,9 @@ def main() -> int:
         print(f"ERROR: root path does not exist: {args.root}", file=sys.stderr)
         return 1
 
-    text = build(args.root, use_color=args.color and not args.stdout)
+    # ANSI codes are for the terminal only: --stdout prints there,
+    # the default file output must stay clean markdown.
+    text = build(args.root, use_color=args.color and args.stdout)
 
     if args.stdout:
         print(text)

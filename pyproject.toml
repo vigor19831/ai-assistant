@@ -50,6 +50,13 @@ faiss = [
 where = ["src"]
 include = ["ai_assistant*"]
 
+# Non-Python assets shipped inside the package: prompt templates and
+# the UI — a non-editable install (pip install .) loses both without
+# this (the -e workflow never noticed).
+[tool.setuptools.package-data]
+"ai_assistant" = ["ui/index.html", "ui/static/*"]
+"ai_assistant.core.prompts" = ["v1/*.j2"]
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"

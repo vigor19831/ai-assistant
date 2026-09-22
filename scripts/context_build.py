@@ -3,8 +3,8 @@
 context_build.py — AI Context Builder.
 
 Folder processing rules:
-  .venv .git data sources vendor — always fully excluded
-  docs — excluded, but ai_rules.md is embedded in context
+  .venv .git data sources vendor ui — always fully excluded
+  docs — folder excluded; ai_rules / architecture / drift embedded in full
   scripts tests — file list in rules/compact, full content in full mode
 """
 
@@ -46,7 +46,10 @@ ALWAYS_FULL = {
     "config.example.yaml", "pyproject.toml", ".gitignore",
 }
 
-_DOC_TRUNCATE_LIMIT: int = 25000
+# REQUIRED_DOCS are the ground truth (ai_rules §0) — they reach the AI in
+# FULL, always. This is a loud tripwire, not a truncation limit: crossing
+# it means the doc has outgrown the context budget — compact or split it.
+_DOC_SIZE_WARNING: int = 80000
 
 # Skip
 SKIP_FILES = [
@@ -88,15 +91,6 @@ def should_skip(rel_path: str) -> bool:
 
 def count_loc(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.strip())
-
-
-def _truncate_doc(content: str) -> str:
-    if len(content) <= _DOC_TRUNCATE_LIMIT:
-        return content
-    cut = content.rfind('\n', 0, _DOC_TRUNCATE_LIMIT + 1)
-    if cut > 0:
-        return content[:cut]
-    return content[:_DOC_TRUNCATE_LIMIT]
 
 
 def extract_imports(source: str) -> tuple[list[str], list[str]]:
@@ -331,8 +325,23 @@ def build_markdown(
         lines.extend([
             f"## {title}",
             f"> Auto-extracted from: `{rel}`",
+        ])
+        if len(content) > _DOC_SIZE_WARNING:
+            # Ground truth is never cut (ai_rules §0): embed in full,
+            # warn loudly — in the artifact AND in the generation log.
+            warning = (
+                f"> **WARNING:** `{rel}` is {len(content):,} chars "
+                f"(tripwire {_DOC_SIZE_WARNING:,}) — embedded IN FULL, but "
+                "the doc has outgrown the context budget: compact or split it."
+            )
+            logger.warning(
+                "Doc over size tripwire, embedded in full: %s (%d chars)",
+                rel, len(content),
+            )
+            lines.append(warning)
+        lines.extend([
             "```markdown",
-            _truncate_doc(content),
+            content,
             "```",
             "",
             "---",

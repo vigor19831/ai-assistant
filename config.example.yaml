@@ -90,7 +90,10 @@ ui:
   static_path: ./ui
 
 # =============================================================================
-# EMBEDDER — [CHANGE] api_base and model to match your server
+# EMBEDDER — [CHANGE] api_base and model to match your server.
+# Local profile: run_servers.py always starts this server on port 8081
+# (likewise 8080/8082) — keep the api_base ports as-is unless you run
+# the stack manually; a cloud api_base needs no local server at all.
 # =============================================================================
 embedder:
   provider: openai_compatible
@@ -305,7 +308,8 @@ rag:
     # raise a config request with a real case first). After 3
     # failures the watcher stops retrying until the file changes
     # again or POST /rag/reindex runs.
-    # Files >150 KB: the CPU embedder (~4 chunks/s) cannot finish within
+    # Files >150 KB: the CPU embedder (~8 chunks/s on engine 0.4.1;
+    # plan with a 1.5x margin) cannot finish within
     # the 600 s indexing window — split first: put originals into
     # data/raw_documents/ and run scripts/prepare_docs.py (writes ~12 KB
     # parts here, archivist part_bytes). Or run the GPU indexing profile

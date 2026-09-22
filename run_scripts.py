@@ -42,7 +42,7 @@ def get_python(root: Path) -> str:
     return str(venv_py) if venv_py.exists() else sys.executable
 
 
-_EXCLUDED_SCRIPTS = frozenset({"setup.py", "__init__.py"})
+_EXCLUDED_SCRIPTS = frozenset({"__init__.py"})
 
 # Explicit menu order — the list is the source of truth for membership
 # AND order (ai_rules §11: no magic discovery; glob sorting put
@@ -114,7 +114,8 @@ def _load_history(root: Path) -> dict[str, dict[str, object]]:
         with open(hist_file, encoding="utf-8") as f:
             data: dict[str, dict[str, object]] = json.load(f)
             return data
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"  ! run history unreadable, starting fresh: {exc}")
         return {}
 
 
@@ -134,8 +135,8 @@ def _save_history(
             tmp_path = Path(tmp.name)
         tmp_path.replace(hist_file)
         tmp_path = None  # Successfully moved, no cleanup needed
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"  ! run history not saved: {exc}")
     finally:
         if tmp_path is not None and tmp_path.exists():
             with contextlib.suppress(OSError):
@@ -286,7 +287,11 @@ def main() -> int:
                 continue
 
             try:
-                parts = shlex.split(choice)
+                # Windows: backslashes in path args would be eaten by
+                # shlex's POSIX mode — normalize to forward slashes
+                # (accepted by every Windows API).
+                raw = choice if os.name != "nt" else choice.replace("\\", "/")
+                parts = shlex.split(raw)
                 num = int(parts[0])
             except ValueError:
                 print("  ? Invalid input")

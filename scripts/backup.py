@@ -61,7 +61,7 @@ def _backup_db(src: Path, dst: Path) -> None:
 
 def _db_integrity(db: Path) -> str:
     """Run PRAGMA integrity_check on a copy; 'ok' means consistent."""
-    conn = sqlite3.connect(str(db))
+    conn = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)
     try:
         row = conn.execute("PRAGMA integrity_check").fetchone()
         return str(row[0]) if row else "no result"
@@ -102,6 +102,9 @@ def main() -> int:
     raw_docs = _ROOT / "data" / "raw_documents"
     db_path = _resolve(cfg.storage.db_path)
     ok = True
+    # Skipped assets must reach the manifest: "result: OK" alone hid
+    # a backup without the corpus (the source of truth).
+    skipped: list[str] = []
 
     # 1. The config itself
     config_copy = backup_dir / config_path.name
@@ -128,6 +131,7 @@ def main() -> int:
             print(f"OK   raw_documents: {dst_files} files, {dst_bytes} bytes")
     else:
         print(f"WARN raw_documents not found ({raw_docs}) — skipped")
+        skipped.append("raw_documents")
 
     # 3. Chat history
     if db_path.exists():
@@ -141,6 +145,7 @@ def main() -> int:
             print(f"OK   storage: {db_copy.name} integrity ok")
     else:
         print(f"WARN storage db not found ({db_path}) — skipped")
+        skipped.append("storage")
 
     manifest = backup_dir / "manifest.txt"
     manifest.write_text(
@@ -149,7 +154,8 @@ def main() -> int:
         f"config: {config_path}\n"
         f"raw_documents: {raw_docs}\n"
         f"storage_db: {db_path}\n"
-        f"result: {'OK' if ok else 'FAILED'}\n",
+        f"result: {'OK' if ok else 'FAILED'}\n"
+        f"skipped: {', '.join(skipped) if skipped else 'none'}\n",
         encoding="utf-8",
     )
 

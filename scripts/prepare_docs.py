@@ -324,6 +324,11 @@ _USER_BLOCK_RE = re.compile(
 )
 _DECISION_RE = re.compile(r"Status:\s*decision")
 _QUOTE_RE = re.compile(r'[Uu]ser (?:said|stated):\s*"([^"]+)"')
+# Quotes longer than this are not searched in the source: long spans
+# are where hallucinated "quotes" live. Demotion is the safe
+# direction — an under-counted decision is recoverable, a
+# fabricated one poisons the memory.
+_QUOTE_MAX = 120
 
 
 def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
@@ -346,7 +351,7 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
     decision is recoverable, a fabricated one poisons the memory.
     Returns (validated text, number of demoted lines).
     """
-    source = src.read_text(encoding="utf-8", errors="replace")
+    source = src.read_text(encoding="utf-8-sig", errors="replace")
     user_blocks = [m.group(1) for m in _USER_BLOCK_RE.finditer(source)]
     demoted = 0
     lines = atoms_text.splitlines()
@@ -356,7 +361,7 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
         start, end = _atom_bounds(lines, idx)
         quote_m = _QUOTE_RE.search("\n".join(lines[start : end + 1]))
         quote = quote_m.group(1) if quote_m else ""
-        if quote and len(quote) <= 120:
+        if quote and len(quote) <= _QUOTE_MAX:
             if user_blocks:
                 # ChatGPT-format export: speaker attribution is
                 # verified against the user blocks.
@@ -486,6 +491,13 @@ def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
     return parts
 
 
+def _out_suffix(src: Path) -> str:
+    """Artifact suffix for a source: chat JSON converts to marker
+    markdown (.md — the only indexed suffix); other sources keep
+    their own. One rule for parts, as-is copies and atoms files."""
+    return ".md" if src.suffix == ".json" else src.suffix
+
+
 def make_atoms(src: Path, dest_dir: Path) -> Path:
     """Extract knowledge atoms from a chat export via the local LLM.
 
@@ -525,7 +537,7 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         answer = resp.json()["choices"][0]["message"]["content"] or ""
         if answer.strip():
             answers.append(answer.strip())
-    target = dest_dir / f"atoms-{src.stem}{src.suffix}"
+    target = dest_dir / f"atoms-{src.stem}{_out_suffix(src)}"
     atoms_text = "\n\n---\n\n".join(answers)
     atoms_text, deduped = _dedup_atoms(atoms_text)
     atoms_text, demoted = _validate_decisions(atoms_text, src)
@@ -621,7 +633,7 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
     """
     raw = src.read_bytes()
     stem = src.stem
-    out_suffix = ".md" if src.suffix == ".json" else src.suffix
+    out_suffix = _out_suffix(src)
     if src.suffix == ".json":
         data = _chat_json_to_markdown(raw, src.name)
         if data is None:
@@ -656,6 +668,13 @@ def split_file(src: Path, dest_dir: Path) -> list[Path]:
         return [target]
 
     parts: list[Path] = []
+    # The stale sweep above removed old PARTS; a source that grew
+    # past the threshold also leaves an old as-is copy, which the
+    # watcher would index alongside the new parts (json: the
+    # converted size — and thus the shape — is known only here).
+    asis_path = dest_dir / f"{stem}{out_suffix}"
+    if asis_path.exists():
+        asis_path.unlink()
     start = 0
     idx = 1
     total = len(data)
@@ -686,17 +705,29 @@ def _reconcile_outputs(src: Path, dest_dir: Path) -> None:
     shrank below the threshold is swept by split_file's rewrite
     path; this covers the copy-side drift on skip passes too.
     """
-    out_suffix = ".md" if src.suffix == ".json" else src.suffix
+    out_suffix = _out_suffix(src)
     asis = dest_dir / f"{src.stem}{out_suffix}"
     if src.suffix == ".json":
         # A big JSON may convert into a small as-is .md (JSON is
-        # inflated by escaping and metadata) -- only the impossible
-        # combination is removed: parts alongside an as-is copy.
-        if asis.exists():
-            for stale in dest_dir.glob(
-                glob.escape(src.stem) + "_part*" + out_suffix
-            ):
+        # inflated by escaping and metadata) — the current shape is
+        # whichever marker is FRESH (mirrors _needs_processing); the
+        # other side's leftovers are impossible alongside it. The
+        # raw json size is the wrong side of the conversion and
+        # decides nothing here.
+        src_mtime = src.stat().st_mtime
+        parts = sorted(
+            dest_dir.glob(glob.escape(src.stem) + "_part*" + out_suffix)
+        )
+        part01 = dest_dir / f"{src.stem}_part01{out_suffix}"
+        asis_fresh = asis.exists() and asis.stat().st_mtime >= src_mtime
+        parts_fresh = (
+            part01.exists() and part01.stat().st_mtime >= src_mtime
+        )
+        if asis_fresh and parts:
+            for stale in parts:
                 stale.unlink()
+        elif parts_fresh and asis.exists():
+            asis.unlink()
         return
     if src.stat().st_size <= THRESHOLD_BYTES:
         for stale in dest_dir.glob(glob.escape(src.stem) + "_part*" + src.suffix):
@@ -744,7 +775,7 @@ def _needs_processing(src: Path, dest_dir: Path, atoms: bool, split: bool) -> bo
         if not marker.exists() or marker.stat().st_mtime < src_mtime:
             return True
     if atoms:
-        atoms_file = dest_dir / f"atoms-{src.stem}{src.suffix}"
+        atoms_file = dest_dir / f"atoms-{src.stem}{_out_suffix(src)}"
         if not atoms_file.exists() or atoms_file.stat().st_mtime < src_mtime:
             return True
     return False
@@ -1036,7 +1067,7 @@ def _ground_dates(atoms_text: str, src: Path) -> tuple[str, int]:
     answer (atoms-undated-1, known model limitation) instead of a
     false date. Returns (grounded text, removed token count).
     """
-    source = src.read_text(encoding="utf-8", errors="replace")
+    source = src.read_text(encoding="utf-8-sig", errors="replace")
     source_dates = frozenset(tok for _, tok in _parse_date_tokens(source))
 
     def _grounded(match: re.Match[str]) -> bool:
@@ -1769,7 +1800,7 @@ def _reconcile_vanished(src_dir: Path, dest_dir: Path) -> None:
             pass
     print(
         f"[RECONCILE] removed {removed} file(s); "
-        "the watcher re-indexes within 60 s"
+        "the watcher cleans up the orphaned chunks within 60 s"
     )
 
 
@@ -1843,6 +1874,16 @@ def main() -> int:
         return _run_validation(
             args.files, src_dir, dest_dir, Path(args.index), args.namespace
         )
+
+    # Argument validation BEFORE any destructive pass: the old order
+    # ran the vanished-sources reconcile (y/N deletion) before
+    # rejecting an invalid flag combination.
+    if args.atoms and args.split:
+        print("[ERROR] --atoms and --split are mutually exclusive", file=sys.stderr)
+        return 1
+    if args.atoms and args.full:
+        print("[ERROR] --atoms and --full are mutually exclusive", file=sys.stderr)
+        return 1
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2028,16 +2069,10 @@ def main() -> int:
             print(f"[ERROR] no files in {src_dir}", file=sys.stderr)
             return 1
 
-    if args.atoms and args.split:
-        print("[ERROR] --atoms and --split are mutually exclusive", file=sys.stderr)
-        return 1
-    if args.atoms and args.full:
-        print("[ERROR] --atoms and --full are mutually exclusive", file=sys.stderr)
-        return 1
-
     total_parts = 0
     atoms_errors = 0
     atoms_warnings = 0
+    any_atoms = False
     for src, target_dest, wants_atoms in targets:
         if not src.is_file():
             print(f"[ERROR] not a file: {src}", file=sys.stderr)
@@ -2053,6 +2088,14 @@ def main() -> int:
             explicit_files or not default_tree or wants_atoms
         )
         do_split = not args.atoms
+        # Layer separation: a stale SPLIT layer must not re-run the
+        # expensive LLM extraction when the atoms layer is fresh —
+        # wiping documents/ must cost a re-split, not hours of
+        # re-atomization.
+        if do_atoms and not _needs_processing(
+            src, target_dest, atoms=True, split=False
+        ):
+            do_atoms = False
         if not _needs_processing(
             src, target_dest, atoms=do_atoms, split=do_split
         ):
@@ -2060,22 +2103,29 @@ def main() -> int:
             continue
         if do_atoms:
             make_atoms(src, target_dest)
+            any_atoms = True
+            # Source lookup mirrors the tree: src_dir for tree files
+            # (namespace _atomize resolves through it), the file's
+            # own parent for an explicit absolute path outside the
+            # tree (src.parent alone broke the namespace case — V2
+            # degraded to "source not found").
+            mirror_root = src_dir if src.is_relative_to(src_dir) else src.parent
             violations = validate_file(
-                target_dest / f"atoms-{src.stem}{src.suffix}",
-                src.parent,
+                target_dest / f"atoms-{src.stem}{_out_suffix(src)}",
+                mirror_root,
                 dest_root=target_dest,
             )
             atoms_errors += sum(1 for v in violations if v.severity == "error")
             atoms_warnings += sum(1 for v in violations if v.severity == "warn")
-            if not do_split:
-                continue
+        if not do_split:
+            continue
         parts = split_file(src, target_dest)
         total_parts += len(parts)
 
-    print(f"[DONE] {total_parts} file(s) in {dest_dir}")
+    print(f"[DONE] {total_parts} part(s) created in {dest_dir}")
     print("[NEXT] watcher picks them up within 60 s; watch app.log for")
     print("       'Documents indexed' lines, one per part.")
-    if do_atoms:
+    if any_atoms:
         print("       'index.progress' covers the atoms file too.")
     if atoms_errors:
         print(

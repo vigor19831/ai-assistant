@@ -49,7 +49,12 @@ if (
     and Path(sys.executable).resolve() != _venv_py.resolve()
     and "--venv-relaunched" not in sys.argv
 ):
-    os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
+    _script = str(Path(__file__).resolve())
+    if os.name == "nt":
+        # subprocess.call keeps the console window on Windows double-click
+        sys.exit(subprocess.call([str(_venv_py), _script, *sys.argv[1:]]))
+    else:
+        os.execl(str(_venv_py), str(_venv_py), *sys.argv, "--venv-relaunched")
 
 
 ROOT = Path(__file__).parent.parent.resolve()
@@ -155,8 +160,11 @@ def main() -> int:
 
         _print_menu()
 
-        # Support CLI argument for non-interactive use
-        choice = sys.argv[1] if len(sys.argv) > 1 else None
+        # Support CLI argument for non-interactive use. The venv
+        # relaunch appends --venv-relaunched to argv — strip it, or
+        # the no-arg interactive run reads it as the target choice.
+        argv = [a for a in sys.argv[1:] if a != "--venv-relaunched"]
+        choice = argv[0] if argv else None
         if choice is None:
             try:
                 choice = input("  Target [1]: ").strip() or "1"
@@ -198,9 +206,10 @@ def main() -> int:
 
         print()
         if ok:
-            print("  [OK] MUTMUT COMPLETED — all mutations killed")
+            print("  [OK] MUTMUT RUN COMPLETED — survivors, if any, are in")
+            print("       the results above; mutmut exit codes do not encode them")
         else:
-            print("  [WARN] MUTMUT FOUND SURVIVING MUTATIONS — review tests")
+            print("  [WARN] MUTMUT RUN/RESULTS COMMAND FAILED — see output above")
         print()
 
         return 0 if ok else 1

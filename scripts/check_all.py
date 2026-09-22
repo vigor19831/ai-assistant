@@ -63,7 +63,7 @@ ROUTER_VARIABLE_PREFIXES: tuple[str, ...] = ("router", "admin_router", "api_rout
 ABC_BASES: frozenset[str] = frozenset({
     "ABC", "IChunker", "IEmbedder", "ILLM", "IReranker", "IVectorStore",
     "IChatStorage", "ISettingsStorage", "IClosable", "IInitializable",
-    "ITool", "IToolRegistry"
+    "ILexicalIndex", "ITokenizer"
 })
 FRAMEWORK_BASES: frozenset[str] = frozenset({
     "BaseHTTPMiddleware", "BaseMiddleware", "Middleware"
@@ -103,12 +103,6 @@ def _red(text: str) -> str:
 
 def _yellow(text: str) -> str:
     return _c(text, "33")
-
-def _bold(text: str) -> str:
-    return _c(text, "1")
-
-def _dim(text: str) -> str:
-    return _c(text, "2")
 
 
 # RUF001: the Cyrillic class IS the detector — these letters are

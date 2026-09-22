@@ -41,6 +41,9 @@ TIMEOUT_START = 30.0
 # index writes are atomic (tmp + rename, core/io_utils).
 STOP_GRACE_SECONDS = 10.0
 LLAMA_LOG_MAX_BYTES = 10_485_760
+# Fail-safe when config omits n_gpu_layers: CPU (0) — a missing
+# field must not attempt full GPU offload (OOM on small-VRAM cards).
+_NGL_DEFAULT = 0
 
 # ── Auto-activate venv ───────────────────────────────────────────────────────
 _venv = Path(__file__).parent / VENV
@@ -153,6 +156,64 @@ def _find_model(name: str, root: Path) -> Path | None:
     return None
 
 
+def _extra_args_safe(extra: list[Any] | None, server: str) -> bool:
+    """drift #60: n_gpu_layers lives in config.yaml only; a duplicate
+    -ngl in run_servers.yaml extra_args runs the server in an
+    unpredictable mode. Refuse loudly instead of starting broken."""
+    for arg in extra or []:
+        s = str(arg)
+        if s == "-ngl" or s.startswith("-ngl=") or s.startswith("--n-gpu-layers"):
+            print(
+                f"  ! {server}: extra_args carry '{s}' — remove it; "
+                "n_gpu_layers belongs to config.yaml only (drift #60)"
+            )
+            return False
+    return True
+
+
+def _is_local_endpoint(component_cfg: dict[str, Any], port: int, name: str) -> bool:
+    """True when the component points at OUR local server port.
+
+    mock providers and cloud api_base endpoints need no local
+    llama-server — the old 'model not found' warning was a false
+    alarm for them."""
+    if component_cfg.get("provider") == "mock":
+        print(f"  > {name} provider is mock — no local server to start\n")
+        return False
+    api_base = str(component_cfg.get("api_base") or "")
+    if f":{port}" not in api_base:
+        print(
+            f"  > {name} endpoint is {api_base or 'not set'} — "
+            "no local server to start\n"
+        )
+        return False
+    return True
+
+
+def _report_ready(
+    proc: subprocess.Popen[bytes], ready: bool, port: int, name: str, log: Path
+) -> None:
+    """Honest readiness: a port answer from a FOREIGN listener is not
+    our server (our child died at startup); a timeout distinguishes a
+    dead child from a slow one."""
+    if ready:
+        if proc.poll() is None:
+            print(f"  + {name} ready  http://127.0.0.1:{port}\n")
+        else:
+            print(
+                f"  ! Port {port} answered, but our {name} exited "
+                f"(code {proc.returncode}) — another process holds "
+                f"the port; see {log}\n"
+            )
+    elif proc.poll() is not None:
+        print(
+            f"  ! {name} exited at startup (code {proc.returncode}) "
+            f"— see {log}\n"
+        )
+    else:
+        print(f"  ! {name} did not respond in time — see {log}\n")
+
+
 def _load_config(root: Path) -> dict[str, Any]:
     """Lazy import yaml — it lives inside the venv."""
     import yaml
@@ -199,6 +260,8 @@ def _start_llm_server(
     cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
 ) -> None:
     llm_cfg: dict[str, Any] = cfg.get("llm", {})
+    if not _is_local_endpoint(llm_cfg, LLM_PORT, "LLM"):
+        return
     model = _find_model(llm_cfg.get("model", ""), root)
     if not model:
         print("  ! LLM model not found\n")
@@ -211,24 +274,25 @@ def _start_llm_server(
     cmd = [
         str(exe), "-m", str(model),
         "--host", "127.0.0.1", "--port", str(LLM_PORT),
-        "-ngl", str(llm_cfg.get("n_gpu_layers", 99)),
+        "-ngl", str(llm_cfg.get("n_gpu_layers", _NGL_DEFAULT)),
         "-c", str(llm_cfg.get("server_context_size", 4096)),
     ]
     # Low-level arguments now come exclusively from run_servers.yaml
     extra = launch.get("llm", {}).get("extra_args", [])
+    if not _extra_args_safe(extra, "llm"):
+        return
     if extra:
         cmd.extend(extra)
-    _run(cmd, llama_log)
-    if wait_port(LLM_PORT):
-        print(f"  + LLM ready  http://127.0.0.1:{LLM_PORT}\n")
-    else:
-        print("  ! LLM did not respond\n")
+    proc = _run(cmd, llama_log)
+    _report_ready(proc, wait_port(LLM_PORT), LLM_PORT, "LLM", llama_log)
 
 
 def _start_embedder(
     cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
 ) -> None:
     emb_cfg: dict[str, Any] = cfg.get("embedder", {})
+    if not _is_local_endpoint(emb_cfg, EMBED_PORT, "Embedder"):
+        return
     model = _find_model(emb_cfg.get("model", ""), root)
     if not model:
         print("  ! Embedder model not found\n")
@@ -241,24 +305,23 @@ def _start_embedder(
     cmd = [
         str(exe), "-m", str(model),
         "--host", "127.0.0.1", "--port", str(EMBED_PORT),
-        "-ngl", str(emb_cfg.get("n_gpu_layers", 99)),
+        "-ngl", str(emb_cfg.get("n_gpu_layers", _NGL_DEFAULT)),
         "-c", "512", "--embedding", "--pooling", "mean",
     ]
     extra = launch.get("embedder", {}).get("extra_args", [])
+    if not _extra_args_safe(extra, "embedder"):
+        return
     if extra:
         cmd.extend(extra)
-    _run(cmd, llama_log)
-    if wait_port(EMBED_PORT):
-        print(f"  + Embedder ready  http://127.0.0.1:{EMBED_PORT}\n")
-    else:
-        print("  ! Embedder did not respond\n")
+    proc = _run(cmd, llama_log)
+    _report_ready(proc, wait_port(EMBED_PORT), EMBED_PORT, "Embedder", llama_log)
 
 
 def _start_reranker(
     cfg: dict[str, Any], launch: dict[str, Any], root: Path, llama_log: Path
 ) -> None:
     rerank_cfg: dict[str, Any] = cfg.get("reranker", {})
-    if rerank_cfg.get("provider") != "local":
+    if not _is_local_endpoint(rerank_cfg, RERANK_PORT, "Reranker"):
         return
     model = _find_model(rerank_cfg.get("model", ""), root)
     if not model:
@@ -272,17 +335,16 @@ def _start_reranker(
     cmd = [
         str(exe), "-m", str(model),
         "--host", "127.0.0.1", "--port", str(RERANK_PORT),
-        "-ngl", str(rerank_cfg.get("n_gpu_layers", 99)),
+        "-ngl", str(rerank_cfg.get("n_gpu_layers", _NGL_DEFAULT)),
         "-c", "2048", "--rerank",
     ]
     extra = launch.get("reranker", {}).get("extra_args", [])
+    if not _extra_args_safe(extra, "reranker"):
+        return
     if extra:
         cmd.extend(extra)
-    _run(cmd, llama_log)
-    if wait_port(RERANK_PORT):
-        print(f"  + Reranker ready  http://127.0.0.1:{RERANK_PORT}\n")
-    else:
-        print("  ! Reranker did not respond\n")
+    proc = _run(cmd, llama_log)
+    _report_ready(proc, wait_port(RERANK_PORT), RERANK_PORT, "Reranker", llama_log)
 
 
 def _start_api(cfg: dict[str, Any], root: Path, py: str) -> None:
@@ -296,7 +358,9 @@ def _start_api(cfg: dict[str, Any], root: Path, py: str) -> None:
         py, "-m", "uvicorn", "ai_assistant.main:app",
         "--host", host, "--port", str(port),
     ]
-    proc = _run(cmd, root / "data" / "server_8000.log", env=env, cwd=str(root))
+    proc = _run(
+        cmd, root / "data" / f"server_{port}.log", env=env, cwd=str(root)
+    )
     (root / "data" / "uvicorn.pid").write_text(str(proc.pid), encoding="utf-8")
 
     if wait_port(port):
@@ -339,8 +403,34 @@ def start(root: Path) -> int:
             print("  > Removed stale PID file")
             pid_file.unlink(missing_ok=True)
 
+    # Venv FIRST: config loading needs yaml (venv-only), and no
+    # server may start without a venv.
+    venv_py = _ensure_venv(root)
+    if venv_py is None:
+        return 1
+
     cfg = _load_config(root)
     launch = _load_launch_config(root)
+
+    # Default-key guard: the example key 'local' on a non-loopback
+    # interface would silently expose the API to the network.
+    sec = cfg.get("security") or {}
+    host = cfg.get("host", HOST)
+    if (
+        isinstance(sec, dict)
+        and sec.get("api_key") == "local"
+        and host not in ("127.0.0.1", "localhost", "::1")
+    ):
+        print(
+            f"  ! Refusing to start: default security.api_key 'local' "
+            f"with host {host}"
+        )
+        print(
+            "    Set a real key in config.yaml or bind to 127.0.0.1 "
+            "(local-first profile)."
+        )
+        return 1
+
     (root / "data").mkdir(exist_ok=True)
 
     llama_log = root / "data" / "llama.log"
@@ -359,9 +449,6 @@ def start(root: Path) -> int:
         _start_embedder(cfg, launch, root, llama_log)
         _start_reranker(cfg, launch, root, llama_log)
 
-        venv_py = _ensure_venv(root)
-        if venv_py is None:
-            return 1
         _start_api(cfg, root, str(venv_py))
 
         _wait_for_stop()
@@ -391,11 +478,16 @@ def stop(root: Path) -> int:
                     os.kill(pid, signal.SIGTERM)
             except OSError:
                 pass  # gone or undeliverable — the force path below
-            deadline = time.time() + STOP_GRACE_SECONDS
-            while _pid_alive(pid) and time.time() < deadline:
-                time.sleep(0.2)
+            # Ctrl+C during the grace window means "force now", not
+            # "abort stop halfway" (llama servers would stay up).
+            try:
+                deadline = time.time() + STOP_GRACE_SECONDS
+                while _pid_alive(pid) and time.time() < deadline:
+                    time.sleep(0.2)
+            except KeyboardInterrupt:
+                pass
             if _pid_alive(pid):
-                print("  ! Graceful shutdown timed out — forcing")
+                print("  ! Graceful shutdown did not finish — forcing")
                 if os.name == "nt":
                     subprocess.run(
                         ["taskkill", "/F", "/PID", str(pid)],
@@ -437,20 +529,26 @@ def kill_main(root: Path) -> int:
         if os.name == "nt":
             result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
             for line in result.stdout.splitlines():
-                if (
-                    f":{port}" in line
-                    and ("LISTENING" in line or "ESTABLISHED" in line)
-                ):
-                    parts = line.strip().split()
-                    if parts:
-                        try:
-                            pid = int(parts[-1])
-                            subprocess.run(
-                                ["taskkill", "/F", "/PID", str(pid)],
-                                capture_output=True,
-                            )
-                        except ValueError:
-                            continue
+                # Aligned with kill.py: match the LOCAL address only
+                # (endswith) and LISTENING sockets — the old substring
+                # match also killed clients of the port.
+                if "LISTENING" not in line:
+                    continue
+                if f":{port}" not in line:
+                    continue
+                parts = line.strip().split()
+                if len(parts) < 5:
+                    continue
+                if not parts[1].endswith(f":{port}"):
+                    continue
+                try:
+                    pid = int(parts[-1])
+                except ValueError:
+                    continue
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                )
         else:
             for probe in (["lsof", "-ti", f":{port}"], ["fuser", f"{port}/tcp"]):
                 result = subprocess.run(probe, capture_output=True, text=True)
@@ -463,6 +561,10 @@ def kill_main(root: Path) -> int:
 
     (root / "data" / "uvicorn.pid").unlink(missing_ok=True)
     print("  + Done.")
+    still_held = [p for p in PORTS if not port_free(p)]
+    if still_held:
+        print(f"  ! Ports still held: {still_held}")
+        return 1
     return 0
 
 

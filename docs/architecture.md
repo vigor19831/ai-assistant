@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-09-18
+> Version: 2026-09-22
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -84,9 +84,9 @@ raw_documents/{ns}/   _atomize/ = intent (--full)
      faiss + lexical index (per namespace)
 ```
 
-- **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66); split outputs inherit the SOURCE's mtime (drift #149) — a re-split neither re-announces files to the watcher nor moves the year ground. raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109).
-- **Dates**: chat exports get machine-form date markers `[Speaker, YYYY-MM-DD]` at split time (year grounded by the source mtime; tables stay inside the script); indexing derives `doc_date` (YYYY-MM, last marker in the chunk) into `ChunkMetadata.custom` — no honest date → empty value, never a guess (drift #149). A date phrase in the query ("in March", owner's language data in yaml) frames the search BEFORE ranking, in both legs; undated chunks are excluded while the frame is active (drift #151).
-- **Atoms**: explicit — a chat MOVED into an _atomize/ folder (location is the intent, drift #108-#110), just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65).
+- **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66); split outputs inherit the SOURCE's mtime (drift #149) — a re-split neither re-announces files to the watcher nor moves the year ground. raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109). Chat exports arrive as JSON (SaveAI format): role, displayModel and per-message created_at are structural facts, converted into `[Speaker, date]` marker markdown by `_chat_json_to_markdown` (drift #160); .md/.txt sources are plain documents, byte-identical pass-through — the .md chat-export cleaner is retired (drift #162).
+- **Dates**: chat markers carry the message's own `created_at` date (structural in the JSON, drift #160); a message without one gets an undated marker — no honest date → no date. Indexing derives `doc_date` (YYYY-MM, last marker in the chunk) into `ChunkMetadata.custom` — no honest date → empty value, never a guess (drift #149). A date phrase in the query ("in March", owner's language data in yaml) frames the search BEFORE ranking, in both legs; undated chunks are excluded while the frame is active (drift #151).
+- **Atoms**: explicit — a chat MOVED into an _atomize/ folder (location is the intent, drift #108-#110), just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65). Chats arrive as JSON only (#162): atoms reactivation requires a JSON decision-validator rewrite (contents[].content, role=user) — the _USER_BLOCK_RE demotion is .md-era and silent on json sources.
 - **Validate**: static read-only contract check over the atoms output (V1–V6, drift #86/#87) — the enforcement arm of the boundary below: ingestion defects surface as a run-total at creation and in full via `prepare_docs --validate`, never silently. The producer itself stays quiet (owner decision); repair is a separate owner action, never automatic.
 - **Watch**: one document = one checkpoint; a kill loses one doc, the next pass resumes (#64). One reindex path at a time (#62). The 600 s window is a pause, not a reset.
 - Past this boundary only §2.2 RAG applies: the index answers from what ingestion put in — a polluted index is an ingestion defect, not a retrieval one.

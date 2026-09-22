@@ -2,6 +2,8 @@
 
 Production-grade offline RAG framework for solo maintainers.
 
+![AI Assistant interface](docs/screenshot.png)
+
 - **Offline-first**: works without cloud; your data never leaves your machine
 - **Multilingual**: bge-m3 embedder; quality measured on Russian and English corpora — other scripts not yet measured
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
@@ -17,7 +19,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 ## Pipeline & Quality
 
-Pipeline: retrieve (hybrid: dense embeddings + exact-term BM25, fused by RRF rank-fusion; multi-query — the LLM generates 2 query variations; optional HyDE; date phrases frame the search before ranking — both legs or neither) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: `[Document N]` citations, conflict reporting, "I don't know" when evidence is absent). Chunking is recursive (paragraphs → sentences → words); question condensation handles multi-turn.
+Pipeline: retrieve (hybrid — dense embeddings + exact-term BM25 fused by RRF; an optional leg: the `lexical_index` config section enables it, absent = dense-only; multi-query — the LLM generates 2 query variations; optional HyDE; date phrases frame the search before ranking — both legs or neither) → cross-encoder rerank (rank-only, never filters) → build context (token-budget aware) → generate (strict RAG: grounded answers with a per-source `Sources` block, conflict reporting, "I don't know" when evidence is absent; the prompt teaches `[Document N]` in-text citations — following them is model-dependent). Chunking is simple fixed-size by default; the recursive chunker (paragraphs → sentences → words) is a one-line config switch (`chunker.provider: recursive`) for better retrieval. Question condensation handles multi-turn.
 
 Quality is measured, not assumed: `scripts/check_rag.py` — 51 cases (17 contract tests that must pass on any hardware, 34 capability tests whose quality depends on LLM size, chat e2e). The benchmark is the single source of truth for RAG quality; results, canon and the full hardware campaign live in `docs/architecture.md` §14; known limitations (open-synthesis recall, date honesty on undated atoms, the chat-condensation flake) in `docs/drift.md`.
 
@@ -38,7 +40,7 @@ git clone <repo-url> ai-assistant && cd ai-assistant
 python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
 pip install -e ".[faiss]"        # runtime only
 pip install -e ".[dev,faiss]"    # if you will run tests/lint (check_all)
-cp config.example.yaml config.yaml
+cp config.example.yaml config.yaml    # Windows: copy config.example.yaml config.yaml
 # Edit config.yaml: set llm.model, embedder.model, reranker.model, n_gpu_layers
 python scripts/download_tokenizers.py
 python run_servers.py
@@ -60,11 +62,13 @@ For GPU support and build-from-source instructions, see the [llama.cpp documenta
 
 ## API Examples
 
+
 ### OpenAI-compatible chat
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer local" \
   -d '{"model":"qwen","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
@@ -123,10 +127,11 @@ python scripts/check_rag.py
 | `faiss-cpu not installed` | `pip install faiss-cpu` |
 | Servers not responding | Check `data/llama.log`; ensure `llama-server` is installed |
 | RAG answers wrong despite correct retrieval | Try larger model or reduce `chunk_size` / `temperature` |
+| No `[Document N]` citations in answers | The prompt teaches them, but small models follow the convention inconsistently. Citations are validated when present (a fabricated index fails the benchmark) and never required — the Sources block is the ground truth |
 | "What did I decide in March" finds nothing | Date frames need (a) documents with dates — chat exports get them automatically at split time; (b) your month names in `rag.date_month_names` (the example yaml shows the shape); undated chunks are excluded while a date frame is active — that is by design |
 | `401 Unauthorized` on native endpoints | Add `Authorization: Bearer <key>` header |
 | `check_rag.py` results differ between runs | Usually environment changed: benchmark is deterministic (temp 0.0) — check config, model, or index state. One documented exception: the chat-condensation flake (multi-turn-1); re-run any other surprising red before classifying it. |
-| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~4 chunks/s). Split files via `scripts/prepare_docs.py` (parts ~30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
+| Indexing never completes ("Auto-reindex timed out" loop) | Corpus exceeds the 600 s watcher window on the CPU embedder (~8 chunks/s measured on engine 0.4.1; plan with a 1.5x margin). Split files via `scripts/prepare_docs.py` (parts ~30 KB) or switch to the indexing profile (GPU embedder, LLM at 10 layers — see config.yaml comments). |
 | `HTTP request failed` at reindex start | Embedder server not up yet (startup race) or dead. Check `curl http://127.0.0.1:8081/health`; restart the stack. |
 | "GPU indexing" seems slow / crashes | Verify the embedder actually launched on GPU: `ps aux \| grep bge-m3` must show exactly ONE `-ngl` flag, its value from config.yaml (drift #60: dual -ngl flags run the server in an unpredictable mode). |
 

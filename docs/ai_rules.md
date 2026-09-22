@@ -1,7 +1,7 @@
 # AI Rules
 
-> Version: 2026-09-18
-> Next review: 2026-09-21
+> Version: 2026-09-22
+> Next review: 2026-12-21
 
 # Project Brief
 
@@ -51,8 +51,8 @@ assistant, not a public internet service.
 
 ## 0. Ground Truth & Division of Labor
 
-Only this document, `architecture.md`, `drift.md` and `docs/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.
-`context_build_*.md` is generated and is a map, not ground truth: it misses imports inside `with`/function scopes (lifespan helpers), sees no `get_prompt()` template names, and its file list is not an import graph. Verify any orphan/dead-code conclusion against the source before acting.
+Only this document, `architecture.md`, `drift.md` and `data/context_build_*.md`. No previous conversations, no general best practices, no hallucinated APIs or config keys.
+`context_build_*.md` is generated and is a map, not ground truth: it misses relative imports (`from .x import y`) and dynamic imports, sees no `get_prompt()` template names, and its file list is not an import graph. Verify any orphan/dead-code conclusion against the source before acting.
 
 Hierarchy: code in `src/` > this file > README.
 When code and rules conflict, code wins. If code violates a rule, that is known drift (see `docs/drift.md`). Propose fixing it, do not hallucinate stricter architecture.
@@ -67,7 +67,10 @@ Chat with the owner is in Russian. Cyrillic is allowed as DATA only: test
 fixtures (`# noqa: RUF001` per line), language tables inside scripts
 (prepare_docs), and the owner's live config.yaml (month names,
 prepositions). `config.example.yaml` stays English; src/ production code
-carries no Cyrillic (enforced by TestNoCyrillic).
+carries no Cyrillic (enforced by TestNoCyrillic). The rule covers `.j2`
+prompt templates too: src/ is English-only including templates (drift
+#163) — RU colloquial behavior is validated by live probes, and any
+future src/ owner-language markers need an explicit drift entry.
 Constraint priority: Absolute Constraints > Layer Boundaries > Core Protocol > Output Protocol.
 
 ## 2. Absolute Constraints

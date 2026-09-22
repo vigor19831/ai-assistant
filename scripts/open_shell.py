@@ -20,7 +20,6 @@ def main() -> int:
         return 1
 
     new_path = str(venv_scripts) + os.pathsep + os.environ.get("PATH", "")
-    new_prompt = "(.venv) " + os.environ.get("PROMPT", "$P$G")
 
     def _quote_ps(s: str) -> str:
         """Escape single quotes for PowerShell single-quoted string."""
@@ -31,7 +30,6 @@ def main() -> int:
         f"Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force; "
         f"$env:PATH = '{_quote_ps(new_path)}'; "
         f"$env:VIRTUAL_ENV = '{_quote_ps(str(venv))}'; "
-        f"$env:PROMPT = '{_quote_ps(new_prompt)}'; "
         f"Set-Location '{_quote_ps(str(root))}'; "
         f"Write-Host 'venv activated (admin)' -ForegroundColor Green"
     )
@@ -41,7 +39,10 @@ def main() -> int:
     # If already admin — just open PowerShell directly
     # windll is Windows-only; the script never runs elsewhere.
     if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
-        os.system(f'start powershell -NoExit -Command "{ps_script}"')
+        code = os.system(f'start powershell -NoExit -Command "{ps_script}"')
+        if code != 0:
+            print(f"[FAIL] start failed (exit {code})")
+            return 1
         return 0
 
     # Not admin — request elevation via UAC

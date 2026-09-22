@@ -16,7 +16,7 @@ import ssl
 import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 # ── Project root discovery ──
@@ -139,7 +139,7 @@ MIRRORS: dict[str, str] = {
     "mistralai/": "unsloth/",
     "deepseek-ai/": "unsloth/",
     "nvidia/": "unsloth/",
-    "Qwen/": "unsloth/",         # added
+    "Qwen/": "unsloth/",
     "01-ai/": "unsloth/",
     "tiiuae/": "unsloth/",
     "stabilityai/": "unsloth/",
@@ -212,9 +212,14 @@ def _resolve_preset(model_name: str) -> str | None:
         if key in normalised:
             return PRESETS[key]
 
+    # Steps 6-8 build repo URLs from the ORIGINAL casing: HF repo ids
+    # are case-sensitive in the API, and the lowered `name` risked
+    # 404s for models outside PRESETS.
+    cased = _remove_quant_suffix(original.strip())
+
     # 6. If name contains '/' assume it's already a HF repo
     if "/" in name:
-        return name
+        return cased
 
     # 7. Try to guess vendor from first segment
     # Split on '_' or '-' and try vendor map on first part
@@ -222,18 +227,15 @@ def _resolve_preset(model_name: str) -> str | None:
     if parts:
         vendor = _guess_vendor(parts[0])
         if vendor:
-            # Vendor prefix + the original name: the vendor map is
-            # keyed by first segment only, the rest of the name is
-            # preserved as-is.
-            return vendor + "/" + name
+            # Vendor prefix keyed by the first segment only; the rest
+            # of the name keeps its original casing.
+            return vendor + "/" + cased
 
     # 8. Last resort: unsloth/name
-    return f"unsloth/{name}"
+    return f"unsloth/{cased}"
 
 
 def download(repo: str, dest: Path, token: str | None, max_retries: int = 3) -> bool:
-    if repo is None:
-        return True
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / "tokenizer.json"
 
@@ -270,6 +272,18 @@ def download(repo: str, dest: Path, token: str | None, max_retries: int = 3) -> 
             size = out.stat().st_size
             print(f"  saved {size} bytes")
             return True
+        except HTTPError as e:
+            # Permanent client errors do not heal with retries (the
+            # old code retried a 404 three times with backoff).
+            if e.code // 100 == 4 and e.code != 429:
+                print(f"  HTTP {e.code} — permanent, not retrying")
+                return False
+            print(f"  Attempt {attempt}/{max_retries}: HTTP {e.code}")
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)
+            else:
+                print(f"  FAILED after {max_retries} attempts")
+                return False
         except (URLError, OSError) as e:
             print(f"  Attempt {attempt}/{max_retries} failed: {e}")
             if attempt < max_retries:
@@ -326,6 +340,7 @@ def main() -> int:
         repo = _resolve_preset(model)
         if repo is None:
             print(f"\n[{model}] -> tiktoken (OpenAI), skip")
+            skipped += 1
             continue
 
         # Use a directory name derived from model (with hyphens)

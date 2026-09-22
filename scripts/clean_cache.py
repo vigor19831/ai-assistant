@@ -54,6 +54,9 @@ SAFE_PATTERNS: list[str] = [
     "mutmut.xml",
 ]
 
+# Besides the traversed dirs (.git/.venv/vendor match SAFE_PATTERNS
+# from the inside), these also guard future pattern additions: a file
+# entry is unreachable until a matching pattern ever appears.
 NEVER_TOUCH: set[str] = {
     ".git",
     ".venv",
@@ -62,7 +65,6 @@ NEVER_TOUCH: set[str] = {
     "config.test.yaml",
     "pyproject.toml",
     "README.md",
-    "AI_RULES.md",
     ".env",
 }
 
@@ -79,9 +81,7 @@ def _is_safe_to_delete(target: Path, root: Path) -> bool:
         rel_parts = target.relative_to(root).parts
     except ValueError:
         rel_parts = target.parts
-    if any(part in NEVER_TOUCH for part in rel_parts):
-        return False
-    return ".venv" not in rel_parts
+    return not any(part in NEVER_TOUCH for part in rel_parts)
 
 
 def _stack_running() -> bool:
@@ -188,6 +188,10 @@ def delete_target(path: Path) -> tuple[bool, str]:
                 shutil.rmtree(path, onerror=_rmtree_onerror)
         return True, ""
     except OSError as e:
+        if e.errno == errno.ENOENT:
+            # Vanished between listing and deleting — success, not
+            # an error (was counted as a failure).
+            return True, ""
         if e.errno in (errno.EACCES, errno.EPERM, errno.EBUSY):
             return False, "locked by running process"
         if getattr(e, "winerror", None) == 32:
@@ -211,6 +215,9 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
     for f in files:
         rel = str(f.relative_to(root)) if root and f.is_relative_to(root) else str(f)
         print(f"  [FILE] {rel:<50} {format_size(f):>10}")
+    # A file inside a listed directory is counted once via the dir
+    # walk — the old loop double-counted such files.
+    listed_dirs = {t for t in targets if t.is_dir()}
     total = 0
     for t in targets:
         try:
@@ -220,7 +227,9 @@ def print_section(title: str, targets: list[Path], root: Path | None = None) -> 
                     for x in t.rglob("*")
                     if x.is_file() or x.is_symlink()
                 )
-            elif t.is_file() or t.is_symlink():
+            elif (t.is_file() or t.is_symlink()) and not any(
+                p in listed_dirs for p in t.parents
+            ):
                 total += t.lstat().st_size
         except OSError:
             pass
@@ -251,6 +260,9 @@ def main() -> int:
         ans = input("Choice [1]: ").strip()
     except EOFError:
         ans = "2"
+    except KeyboardInterrupt:
+        print("\nCancelled — nothing deleted.")
+        return 0
 
     targets = find_targets(root, SAFE_PATTERNS)
     if not targets:
