@@ -547,6 +547,7 @@ async def _truncate_to_fit(
     query_text: str,
     limit: int,
     tokenizer: ITokenizer,
+    refusal_phrase_local: str = "",
 ) -> tuple[PipelineData, str]:
     """Remove chunks from the end until prompt fits in the token limit.
 
@@ -569,6 +570,7 @@ async def _truncate_to_fit(
                     version=prompt_version,
                     query=query_text,
                     context="",
+                    refusal_phrase_local=refusal_phrase_local,
                 )
             except Exception:
                 prompt = _build_fallback_prompt((), query_text)
@@ -585,6 +587,7 @@ async def _truncate_to_fit(
                 version=prompt_version,
                 query=query_text,
                 context=current_data.context,
+                refusal_phrase_local=refusal_phrase_local,
             )
         except Exception:
             prompt = _build_fallback_prompt(current_data.chunks, query_text)
@@ -638,6 +641,7 @@ async def generate(data: PipelineData) -> PipelineData:
             version=prompt_version,
             query=query_text,
             context=data.context,
+            refusal_phrase_local=cfg.refusal_phrase_local,
         )
     except Exception:
         _logger.exception(
@@ -698,6 +702,7 @@ async def generate(data: PipelineData) -> PipelineData:
             query_text,
             limit,
             tokenizer=tokenizer,
+            refusal_phrase_local=cfg.refusal_phrase_local,
         )
         prompt_tokens = await _estimate_tokens(prompt, tokenizer=tokenizer)
         if prompt_tokens > limit:

@@ -177,3 +177,86 @@ class TestRefusalConstantsSync:
         assert REFUSAL_ANSWER not in rendered, (
             "rag_simple accidentally teaches the strict refusal phrase"
         )
+
+    def test_fallback_teaches_refusal_answer(self):
+        """The degraded path (invalid prompt_name, drift: silent fallback
+        FUTURE RISK) renders the same refusal contract — a drifting
+        fallback phrase would produce refusals the matcher misses.
+        """
+        from ai_assistant.core.constants import REFUSAL_ANSWER
+        from ai_assistant.core.prompts import get_prompt
+
+        rendered = get_prompt(
+            "fallback", version="v1", query="q", context="[Document 1] x"
+        )
+        assert REFUSAL_ANSWER in rendered, (
+            "fallback.j2 no longer contains REFUSAL_ANSWER verbatim — "
+            "update the constant or the template so they match"
+        )
+
+    def test_rag_strict_refusal_phrase_local_renders(self):
+        """The owner-configured local refusal phrase must reach the
+        rendered prompt — the variable is wired in rule 2 and the
+        RU-question example; a silent drop would leave the model
+        taught only the English closing phrase."""
+        from ai_assistant.core.prompts import get_prompt
+
+        rendered = get_prompt(
+            "rag_strict",
+            version="v1",
+            query="q",
+            context="[Document 1] x",
+            refusal_phrase_local="Test local refusal.",
+        )
+        assert "Test local refusal." in rendered, (
+            "refusal_phrase_local does not reach the rendered prompt — "
+            "check the get_prompt call sites in chat/rag managers"
+        )
+
+    def test_rag_strict_english_fallback_when_local_unset(self):
+        """Unset local phrase: both teaching spots fall back to the
+        English constant (the {% else %} branch of the example)."""
+        from ai_assistant.core.constants import REFUSAL_ANSWER
+        from ai_assistant.core.prompts import get_prompt
+
+        rendered = get_prompt(
+            "rag_strict", version="v1", query="q", context="[Document 1] x"
+        )
+        assert rendered.count(REFUSAL_ANSWER) >= 2, (
+            "unset refusal_phrase_local must fall back to REFUSAL_ANSWER "
+            "in rule 2 and the RU-question example"
+        )
+
+
+    def test_rag_strict_teaches_local_refusal_when_configured(self):
+        """The configured local phrase must reach the rendered prompt:
+        the template wires the refusal_phrase_local render variable
+        into rule 2 and the RU-question example."""
+        from ai_assistant.core.prompts import get_prompt
+
+        rendered = get_prompt(
+            "rag_strict",
+            version="v1",
+            query="q",
+            context="[Document 1] x",
+            refusal_phrase_local="Test local refusal.",
+        )
+        assert "Test local refusal." in rendered, (
+            "rag_strict.j2 does not render refusal_phrase_local — "
+            "the local refusal is configured but never taught"
+        )
+
+    def test_rag_strict_english_refusal_when_local_unset(self):
+        """Unset local phrase: every refusal-teaching spot falls back
+        to the English constant — the RU-question example must not
+        close with an empty answer."""
+        from ai_assistant.core.constants import REFUSAL_ANSWER
+        from ai_assistant.core.prompts import get_prompt
+
+        rendered = get_prompt(
+            "rag_strict", version="v1", query="q", context="[Document 1] x"
+        )
+        assert rendered.count(REFUSAL_ANSWER) >= 2, (
+            "unset refusal_phrase_local must fall back to REFUSAL_ANSWER "
+            "in both teaching spots (rule 2 and the RU-question example)"
+        )

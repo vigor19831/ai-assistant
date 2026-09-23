@@ -92,6 +92,11 @@ class PipelineConfig:
     # Date search frame (stage 2): None = unfiltered, the pre-stage-2
     # behavior. Set by the entry points from parse_date_phrase.
     date_filter: DateFilter | None = None
+    # Local-language refusal closing phrase (owner yaml data,
+    # rag.refusal_phrase_local): the GENERATE step passes it to the
+    # prompt render. Empty = English-only refusals; runtime config,
+    # never persisted.
+    refusal_phrase_local: str = ""
 
     def __post_init__(self) -> None:
         if self.top_k < 1:

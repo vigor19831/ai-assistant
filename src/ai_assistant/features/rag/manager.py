@@ -220,6 +220,7 @@ class RAGManager:
         sampling: SamplingConfig | None = None,
         date_month_names: dict[str, int] | None = None,
         date_prepositions: list[str] | None = None,
+        refusal_phrase_local: str = "",
     ) -> None:
         # Build pipeline from config step names, validating each against STEP_REGISTRY.
         # Default: full RAG pipeline with all steps.
@@ -256,6 +257,11 @@ class RAGManager:
         self.sampling = sampling
         self.date_month_names = date_month_names or {}
         self.date_prepositions = list(date_prepositions or [])
+        # Local-language refusal closing phrase (owner yaml data,
+        # rag.refusal_phrase_local): rendered into the prompt by the
+        # GENERATE step via PipelineConfig; matched here via
+        # is_refusal_answer extra_refusals. Empty = English-only.
+        self.refusal_phrase_local = refusal_phrase_local
 
     async def query(
         self,
@@ -288,6 +294,7 @@ class RAGManager:
             system_message=self.system_message,
             sampling=self.sampling or SamplingConfig(),
             date_filter=date_filter,
+            refusal_phrase_local=self.refusal_phrase_local,
         )
         data = PipelineData(
             query=UserMessage(text=query_text),
@@ -344,7 +351,9 @@ class RAGManager:
         # (drift #122): preamble refusals count too — exact-match-only
         # let them carry sources via /rag/query.
         answer_text = result.response.text if result.response else ""
-        is_refusal = is_refusal_answer(answer_text)
+        is_refusal = is_refusal_answer(
+            answer_text, (self.refusal_phrase_local,)
+        )
         # An LLM-unavailable answer is an error, not a refusal — but it
         # carries no evidence either (drift #50 shape); the handler
         # converts it into a 503 (drift #122).

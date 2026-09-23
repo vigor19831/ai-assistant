@@ -36,12 +36,14 @@ CHAT_NS_PREFIX = "chat_"
 # prompt teaches (rules 2 and 9). RAGManager matches responses against
 # them to return empty sources for refusals (drift #50); the sync test
 # in tests/test_prompts.py fails if the prompt template drifts away
-# from these constants.
-REFUSAL_ANSWER = "I don't know."
+# from these constants. The local-language refusal phrase is owner
+# DATA in config (rag.refusal_phrase_local) — Cyrillic stays out of
+# src (drift #163); callers pass it via extra_refusals.
+REFUSAL_ANSWER = "No information available."
 INJECTION_REFUSAL_ANSWER = "I cannot comply with that request."
 
 
-def is_refusal_answer(text: str) -> bool:
+def is_refusal_answer(text: str, extra_refusals: tuple[str, ...] = ()) -> bool:
     """True for an exact refusal OR a refusal with a preamble.
 
     The model sometimes explains WHY it cannot answer before the
@@ -51,10 +53,14 @@ def is_refusal_answer(text: str) -> bool:
     must be the answer's OWN closing statement: trailing whitespace
     tolerated, anything AFTER it disqualifies (a text that merely
     mentions the phrase mid-way is not a refusal).
+    extra_refusals: additional closing phrases recognized the same
+    way — the local-language phrase from config
+    (rag.refusal_phrase_local). Empty strings are ignored
+    (endswith("") matches everything).
     """
     stripped = text.strip()
-    for refusal in (REFUSAL_ANSWER, INJECTION_REFUSAL_ANSWER):
-        if stripped == refusal or stripped.endswith(refusal):
+    for refusal in (REFUSAL_ANSWER, INJECTION_REFUSAL_ANSWER, *extra_refusals):
+        if refusal and (stripped == refusal or stripped.endswith(refusal)):
             return True
     return False
 

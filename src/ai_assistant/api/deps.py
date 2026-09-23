@@ -386,6 +386,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         ),
         rag_steps=list(cfg.rag.steps),
         date_month_names=dict(rag_cfg.date_month_names),
+        refusal_phrase_local=rag_cfg.refusal_phrase_local,
         date_prepositions=list(rag_cfg.date_prepositions),
         # Drift #165: plain-chat generation budget (optional).
         max_tokens_plain=cfg.chat.max_tokens_plain,
@@ -410,6 +411,7 @@ async def init_adapters(config: AppConfig) -> InitializedAppState:
         ),
         rag_steps=list(cfg.rag.steps),
         date_month_names=dict(rag_cfg.date_month_names),
+        refusal_phrase_local=rag_cfg.refusal_phrase_local,
         date_prepositions=list(rag_cfg.date_prepositions),
     )
 

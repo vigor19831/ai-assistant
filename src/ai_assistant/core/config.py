@@ -297,6 +297,14 @@ class RAGConfig(BaseSettings):
     file_encodings: list[str] = Field(
         default_factory=lambda: ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
     )
+    # Local-language refusal closing phrase (owner decision
+    # 2026-09-23): rag_strict teaches it for questions in the
+    # owner's language; is_refusal_answer recognizes it via
+    # extra_refusals. Owner LANGUAGE DATA, like date_month_names —
+    # src stays ASCII (TestNoCyrillic, drift #163). Include the
+    # final period. Absent/empty = English-only refusals; pure
+    # optional addition, no config_version bump (drift #138).
+    refusal_phrase_local: str = ""
 
     @field_validator("file_encodings")
     @classmethod

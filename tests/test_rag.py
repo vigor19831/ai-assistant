@@ -142,7 +142,7 @@ class TestRAGManager:
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         preamble_refusal = (
             "The provided context does not contain information about "
-            "that. It discusses other topics.\n\nI don't know."
+            "that. It discusses other topics.\n\nNo information available."
         )
         mock_llm.complete = AsyncMock(
             return_value=AssistantMessage(text=preamble_refusal)
@@ -260,8 +260,8 @@ class TestRAGManager:
     ):
         """Drift #50: a refusal answer carries no evidence.
 
-        The model answered "I don't know." while retrieval returned
-        chunks — the response must not list them as sources.
+        The model answered "No information available." while retrieval
+        returned chunks — the response must not list them as sources.
         """
         mock_embedder.embed = AsyncMock(return_value=[[0.1] * 384])
         mock_vector_store.search = AsyncMock(
@@ -272,14 +272,14 @@ class TestRAGManager:
         mock_reranker.rerank = AsyncMock(return_value=[])
         mock_llm.get_context_limit = MagicMock(return_value=8192)
         mock_llm.complete = AsyncMock(
-            return_value=AssistantMessage(text="I don't know.")
+            return_value=AssistantMessage(text="No information available.")
         )
 
         mgr = _make_rag_manager(
             mock_llm, mock_vector_store, mock_embedder, mock_reranker
         )
         result = await mgr.query("obscure topic")
-        assert result["answer"] == "I don't know."
+        assert result["answer"] == "No information available."
         assert result["sources"] == []
         assert result["chunks_used"] == 0
 
@@ -300,8 +300,9 @@ class TestRAGManager:
         mock_llm.complete = AsyncMock(
             return_value=AssistantMessage(
                 text=(
-                    "I don't know the exact date, "
-                    "but Paris is the capital [Document 1]."
+                    "The exact date is not in the context: "
+                    "No information available. "
+                    "But Paris is the capital [Document 1]."
                 )
             )
         )

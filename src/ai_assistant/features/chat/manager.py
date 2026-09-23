@@ -218,6 +218,7 @@ class ChatManager:
         date_month_names: dict[str, int] | None = None,
         date_prepositions: list[str] | None = None,
         max_tokens_plain: int | None = None,
+        refusal_phrase_local: str = "",
     ) -> None:
         self.llm = llm
         self.reranker = reranker
@@ -236,6 +237,11 @@ class ChatManager:
         self.sampling = sampling
         self.date_month_names = date_month_names or {}
         self.date_prepositions = list(date_prepositions or [])
+        # Local-language refusal closing phrase (owner yaml data,
+        # rag.refusal_phrase_local): taught to the prompt at render
+        # and matched via is_refusal_answer extra_refusals. Empty =
+        # English-only refusals.
+        self.refusal_phrase_local = refusal_phrase_local
         self._prefix_map = build_prefix_map(self.namespaces)
         # Build pipeline internally — ChatManager owns its pipeline.
         # Factory in handlers.py passes cfg.rag.steps; GENERATE is
@@ -435,12 +441,13 @@ class ChatManager:
 
         if not data.chunks:
             # No evidence found. Feed the LLM an empty-context RAG prompt
-            # so it can decide to say "I don't know" instead of hallucinating.
+            # so it can decide to refuse instead of hallucinating.
             prompt_text = get_prompt(
                 pipeline_config.prompt_name,
                 version=self.prompt_version,
                 query=original_query_text,
                 context="",
+                refusal_phrase_local=self.refusal_phrase_local,
             )
             return prompt_text, original_query_text, namespace, ()
 
@@ -449,6 +456,7 @@ class ChatManager:
             version=self.prompt_version,
             query=data.query.text if data.query else original_query_text,
             context=data.context,
+            refusal_phrase_local=self.refusal_phrase_local,
         )
         return prompt, original_query_text, namespace, data.chunks
 
@@ -566,8 +574,12 @@ class ChatManager:
         answer_text = strip_rag_sources(response.text or "")
         # Drift #50: a refusal is a complete answer with no evidence —
         # sources stay empty, as on the rag query path. Refusals that
-        # close a preamble count too; see is_refusal_answer.
-        is_refusal = is_refusal_answer(answer_text)
+        # close a preamble count too; see is_refusal_answer. The local
+        # yaml phrase is matched via extra_refusals: it is taught only
+        # when configured, so it can appear only when configured.
+        is_refusal = is_refusal_answer(
+            answer_text, (self.refusal_phrase_local,)
+        )
         logger.info(
             "Chat response",
             extra={
@@ -666,7 +678,9 @@ class ChatManager:
         # sources stay empty, as on the rag query path. Preamble
         # refusals count too (see is_refusal_answer). Log parity with
         # the non-stream path: a refusal logs chunks_used=0 (drift #143).
-        is_refusal = is_refusal_answer(full_response)
+        is_refusal = is_refusal_answer(
+            full_response, (self.refusal_phrase_local,)
+        )
         logger.info(
             "Stream response",
             extra={

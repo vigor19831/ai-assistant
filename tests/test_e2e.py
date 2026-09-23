@@ -615,7 +615,7 @@ class TestE2ERAG:
         Then: response contains empty answer and zero chunks_used gracefully."""
         mock_state.rag_manager.query = AsyncMock(
             return_value={
-                "answer": "I don't know.",
+                "answer": "No information available.",
                 "sources": [],
                 "chunks_used": 0,
                 "errors": [],
@@ -636,7 +636,7 @@ class TestE2ERAG:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["answer"] == "I don't know."
+        assert data["answer"] == "No information available."
         assert data["chunks_used"] == 0
 
 

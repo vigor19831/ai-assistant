@@ -367,6 +367,9 @@ rag:
   # permissive (latin-1) or foreign files fail loudly instead of
   # decoding to mojibake.
   file_encodings: ["utf-8-sig", "cp1251", "cp1252", "latin-1"]
+  # Local-language refusal closing phrase (owner data; empty = English-only
+  # refusals). Include the final period — the matcher is exact.
+  refusal_phrase_local: ""
 
 namespaces:
   default:

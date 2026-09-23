@@ -44,6 +44,24 @@ MAX_LATENCY_MS = 60_000
 # the common honest-refusal forms ("no information about X",
 # "cannot answer about X", "нет информации о X") fit; a wider one
 # would exempt bare mentions too easily.
+# Owner's local refusal phrase (bilingual contract, drift #186):
+# loaded from config.yaml so the benchmark never hardcodes Cyrillic
+# into the script (drift #163 discipline). A TUPLE of tail elements:
+# empty tuple = EN-only mode, one element = the phrase — splatted into
+# the must_contain_any tuples so their type stays tuple[str, ...].
+def _local_refusal_tail() -> tuple[str, ...]:
+    try:
+        import yaml
+
+        with open(_PROJECT_ROOT / "config.yaml", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        phrase = str(cfg.get("rag", {}).get("refusal_phrase_local", ""))
+    except Exception:
+        return ()
+    return (phrase,) if phrase else ()
+
+_LOCAL_REFUSAL_TAIL = _local_refusal_tail()
+
 _NEGATION_WORDS = (
     "не", "нет", "ни", "нельзя", "невозможно",
     "not", "don't", "doesn't", "didn't", "cannot", "can't", "won't",
@@ -801,6 +819,7 @@ TEST_CASES: list[TestCase] = [
             "not mentioned",
             "not specified",
             "cannot answer",
+            *_LOCAL_REFUSAL_TAIL,
         ),
         answer_must_not_contain=(
             "containers",
@@ -844,6 +863,7 @@ TEST_CASES: list[TestCase] = [
             "no information",
             "not mentioned",
             "cannot answer",
+            *_LOCAL_REFUSAL_TAIL,
         ),
         answer_must_not_contain=("vegetables", "grains", "nutritionists"),
         expect_sources=False,
@@ -949,6 +969,7 @@ TEST_CASES: list[TestCase] = [
             "please provide",
             "не знаю",
             "нет информации",
+            "информация отсутствует",
             "не упом",
             "не могу ответить",
             "не указан",
@@ -957,6 +978,24 @@ TEST_CASES: list[TestCase] = [
         expect_sources=False,
         require_faithfulness=False,
         description="No piano info in Russian index, guitar doc is the distractor. Mirror of missing-2.",
+        requires_future_capability=True,
+    ),
+    TestCase(
+        test_id="missing-ru-2",
+        query="Могу ли я играть на пианино?",
+        namespace="personal_ru",
+        lang="ru",
+        answer_must_contain_any=(
+            "не знаю",
+            "нет информации",
+            "информация отсутствует",
+            "не упом",
+            "не могу ответить",
+        ),
+        answer_must_not_contain=("гитаре", "гитара", "guitar", "chords"),
+        expect_sources=False,
+        require_faithfulness=False,
+        description="Russian-query refusal: the local closing phrase must be produced and matched (bilingual refusal contract); also a config-liveness check — red means refusal_phrase_local is unset. The only automated coverage of the RU refusal chain.",
         requires_future_capability=True,
     ),
     TestCase(
@@ -1095,6 +1134,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_contain_any=(
             "don't know", "not sure", "no information",
             "cannot answer", "not found", "no data",
+            *_LOCAL_REFUSAL_TAIL,
         ),
         expect_sources=False,
         require_faithfulness=False,
@@ -1655,6 +1695,7 @@ async def run_tests(
     contract_passed = 0
     future_passed = 0
     known_limitations = 0
+    failed_contract: list[str] = []
     chat_passed = 0
     chat_total = 0
     chat_contract_passed = 0
@@ -1811,13 +1852,21 @@ async def run_tests(
                 if forb_norm in ans_norm:
                     # Per-OCCURRENCE negation: every un-negated mention
                     # of a forbidden term is a violation — one negated
-                    # mention must not whitelist the others.
+                    # mention must not whitelist the others. Negation is
+                    # checked on BOTH sides of the term: honest forms
+                    # exist either way ("no information about X",
+                    # "X is not specified").
                     for match in re.finditer(re.escape(forb_norm), ans_norm):
                         prefix_words = ans_norm[: match.start()].split()
-                        if not any(
+                        suffix_words = ans_norm[match.end() :].split()
+                        negated = any(
                             _word_token(w) in _NEGATION_WORDS
                             for w in prefix_words[-3:]
-                        ):
+                        ) or any(
+                            _word_token(w) in _NEGATION_WORDS
+                            for w in suffix_words[:5]
+                        )
+                        if not negated:
                             errors.append(f"forbidden '{forbidden}'")
                             break
 
@@ -1911,6 +1960,7 @@ async def run_tests(
                 known_limitations += 1
             else:
                 status = "FAIL"
+                failed_contract.append(case.test_id)
 
             if case.use_chat_api:
                 chat_history[case.test_id] = (case.query, _strip_sources_block(answer))
@@ -1941,12 +1991,9 @@ async def run_tests(
             f"({known_limitations} known limitations)"
         )
     if contract_passed != contract_total:
-        print("\nSome contract tests failed. Fix the pipeline:")
-        print("  • embedding quality (semantic-1)")
-        print("  • prompt grounding rules            (trap-1, trap-2)")
-        print("  • namespace isolation               (isolation-1)")
-        print("  • multi-chunk reasoning             (multihop-1, edge-2)")
-        print("  • faithfulness / source coverage    (retrieval-1, multihop-1)")
+        print("\nContract tests failed:")
+        for test_id in failed_contract:
+            print(f"  • {test_id}")
         return 1
     print("\nContract tests passed. Known limitations are documented.")
     return 0
