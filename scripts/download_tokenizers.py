@@ -68,7 +68,7 @@ PRESETS: dict[str, str | None] = {
     "gemma-3-4b-it": "google/gemma-3-4b-it",
     "gemma-3-27b-it": "google/gemma-3-27b-it",
     "gemma-2": "google/gemma-2-9b-it",
-    "gemma-4": "google/gemma-3-4b-it",
+    "gemma-4": "google/gemma-4-E4B-it",
     "phi": "microsoft/Phi-4-mini-instruct",
     "phi-4": "microsoft/Phi-4-mini-instruct",
     "phi-4-mini-instruct": "microsoft/Phi-4-mini-instruct",
@@ -322,6 +322,31 @@ def _read_models_from_config() -> list[str]:
         return []
 
 
+def _configured_tokenizer_ok(model: str) -> bool:
+    """True when config.yaml already points this model at a valid
+    tokenizer.json (size heuristic: > 100KB, same as download())."""
+    try:
+        import yaml
+
+        path = PROJECT_ROOT / "config.yaml"
+        if not path.exists():
+            return False
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        model_name = (data.get("tokenizer") or {}).get("model_name", "")
+        if not model_name:
+            return False
+        tokenizer_file = PROJECT_ROOT / model_name / "tokenizer.json"
+        if not tokenizer_file.exists():
+            return False
+        # st_size flows through yaml-sourced Any paths; the bool()
+        # cast keeps the declared return type (same Any-infection as
+        # the check_rag loader — fix once, pattern twice).
+        return bool(tokenizer_file.stat().st_size > 100_000)
+    except Exception:
+        return False
+
+
 def main() -> int:
     models = _read_models_from_config()
     if not models:
@@ -337,14 +362,32 @@ def main() -> int:
     failed = 0
 
     for model in models:
+        # The configured tokenizer wins: if tokenizer.model_name
+        # points to a valid tokenizer.json under the tokenizer root,
+        # the model is served — downloading a preset duplicate would
+        # create an orphan folder and risk a different tokenizer
+        # than the one actually loaded (the gemma-3 preset resolving
+        # a gemma-4 name is that failure mode).
+        configured = _configured_tokenizer_ok(model)
+        if configured:
+            print(f"\n[{model}] -> tokenizer configured and valid, skip")
+            skipped += 1
+            continue
+
         repo = _resolve_preset(model)
         if repo is None:
             print(f"\n[{model}] -> tiktoken (OpenAI), skip")
             skipped += 1
             continue
 
-        # Use a directory name derived from model (with hyphens)
-        name = model.split("/")[-1].replace("_", "-")[:30]
+        # Directory name = the config model name as-is: full length,
+        # no underscore rewriting. The name IS the identity key —
+        # truncation created duplicate folders when a rename in
+        # config.yaml no longer matched the downloaded folder, and
+        # '_'->'-' broke the match with GGUF names (Q4_K_XL).
+        # A '/' in a model id keeps only the last segment (a folder
+        # name cannot contain '/').
+        name = model.split("/")[-1]
         dest = DEFAULT_DIR / name
 
         print(f"\n[{name}] -> {repo}")
