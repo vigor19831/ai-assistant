@@ -105,6 +105,15 @@ class IndexingManager:
                     (line for line in document.content.splitlines() if line.strip()),
                     "",
                 )
+                # Date campaign stage 3 (drift #190): sliding date
+                # inheritance. A chunk without its own [Speaker, date]
+                # marker inherits the date of the LAST marker seen
+                # earlier in the same document — the document's own
+                # testimony, never a guess. A single-session document
+                # dates all its chunks; a mixed-session document keeps
+                # each part under its own session; plain documents
+                # without markers stay undated (byte-identical).
+                last_seen_date = _extract_doc_date(doc_first_line, 0, doc_first_line)
                 for idx, chunk in enumerate(chunks):
                     chunk_source_uri = (
                         chunk.metadata.source_uri
@@ -116,6 +125,10 @@ class IndexingManager:
                     # existing custom dict: no disk format change.
                     custom = chunk.metadata.custom.copy() if chunk.metadata else {}
                     doc_date = _extract_doc_date(chunk.text, idx, doc_first_line)
+                    if doc_date is None:
+                        doc_date = last_seen_date
+                    else:
+                        last_seen_date = doc_date
                     if doc_date is not None:
                         custom[DOC_DATE_KEY] = doc_date
                     all_chunks.append(

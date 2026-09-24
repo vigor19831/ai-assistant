@@ -31,6 +31,7 @@ from ai_assistant.core.domain.configs import (
 from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE, AdapterError
 from ai_assistant.core.domain.messages import AssistantMessage
+from ai_assistant.core.domain.pipeline import DateFilter
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.ports.chunker import IChunker
 from ai_assistant.core.ports.embedder import IEmbedder
@@ -2412,7 +2413,7 @@ class TestReadSources:
         # MemoryVectorStore flattens custom keys into the metadata
         # dict — no nested "custom" here (that shape is the lexical
         # index's list_by_filter parity).
-        assert meta[0][1]["doc_date"] == "2024-07"
+        assert meta[0][1]["doc_date"] == "2024-07-10"
 
     @pytest.mark.asyncio
     async def test_index_documents_no_marker_no_doc_date(
@@ -2445,7 +2446,8 @@ class TestReadSources:
         self, mock_chunker, mock_embedder, memory_vector_store
     ):
         """A note dated by its author on the first line (digital
-        forms): chunk 0 gets doc_date; later chunks do not."""
+        forms): chunk 0 states the date directly; later chunks inherit
+        it via sliding inheritance (drift #190)."""
         from ai_assistant.features.rag.manager import IndexingManager
 
         manager = IndexingManager(
@@ -2464,7 +2466,7 @@ class TestReadSources:
             {"source": "note-2"}, namespace="test"
         )
         assert len(meta) == 1
-        assert meta[0][1]["doc_date"] == "2026-03"
+        assert meta[0][1]["doc_date"] == "2026-03-12"
 
     @pytest.mark.asyncio
     async def test_index_documents_copies_last_modified_from_document_metadata(
@@ -3436,3 +3438,287 @@ class TestParseDatePhraseBareDay:
         result = parse_date_phrase(query, _BD_MONTHS, _BD_PREPS)
         assert result is not None
         assert result.month == 9
+
+# --- Date campaign stage 3: day-level frames + sliding inheritance ---
+# (drift #190)
+
+
+class TestDateFilterDay:
+    """DateFilter.day: full dates match day frames, month-only never."""
+
+    def test_full_date_matches_day_frame(self) -> None:
+        f = DateFilter(month=7, year=2026, day=5)
+        assert f.matches("2026-07-05") is True
+
+    def test_full_date_rejects_other_day(self) -> None:
+        f = DateFilter(month=7, year=2026, day=5)
+        assert f.matches("2026-07-28") is False
+
+    def test_month_only_doc_date_never_matches_day_frame(self) -> None:
+        # The chunk never stated a day; the query's day cannot match it.
+        f = DateFilter(month=7, year=2026, day=5)
+        assert f.matches("2026-07") is False
+
+    def test_month_frame_matches_full_date(self) -> None:
+        # Backward direction: a month-level frame still finds
+        # day-precision chunks (the day is more precise, not wrong).
+        f = DateFilter(month=7, year=2026)
+        assert f.matches("2026-07-05") is True
+
+    def test_month_frame_matches_legacy_month_date(self) -> None:
+        # Legacy stage-1/2 storage stays valid until reindex.
+        f = DateFilter(month=7, year=2026)
+        assert f.matches("2026-07") is True
+
+    def test_day_requires_year(self) -> None:
+        with pytest.raises(ValueError):
+            DateFilter(month=7, day=5)
+
+    def test_day_out_of_range(self) -> None:
+        with pytest.raises(ValueError):
+            DateFilter(month=7, year=2026, day=32)
+
+
+class TestParseDatePhraseDay:
+    """Day capture in both phrase shapes (stage 3)."""
+
+    def test_bare_day_with_year_gives_day(self) -> None:
+        months = {"июля": 7}
+        result = parse_date_phrase("Что мы обсуждали 5 июля 2026?", months, ["в"])
+        assert result is not None
+        assert (result.month, result.year, result.day) == (7, 2026, 5)
+
+    def test_bare_day_without_year_stays_month(self) -> None:
+        # No year -> no day: day requires year by contract.
+        months = {"июля": 7}
+        result = parse_date_phrase("Что мы обсуждали 5 июля?", months, ["в"])
+        assert result is not None
+        assert (result.month, result.year, result.day) == (7, None, None)
+
+    def test_prepositional_day_with_year(self) -> None:
+        months = {"июле": 7}
+        result = parse_date_phrase("Что обсуждали 5 в июле 2026?", months, ["в"])
+        # "5 в июле" is odd RU phrasing; the day digit precedes the
+        # preposition and does not bind. The month-year frame still fires.
+        assert result is not None
+        assert (result.month, result.year) == (7, 2026)
+
+    def test_prepositional_day_inside_phrase(self) -> None:
+        months = {"июле": 7, "июля": 7}
+        result = parse_date_phrase("Что случилось в 5 июля 2026?", months, ["в"])
+        # "в 5 июля" — preposition, then day, then month: the pattern
+        # captures prep + optional day + month + optional year.
+        assert result is not None
+        assert (result.month, result.year, result.day) == (7, 2026, 5)
+
+
+class TestExtractDocDateFull:
+    """_extract_doc_date keeps the full YYYY-MM-DD (stage 3)."""
+
+    def test_marker_yields_full_date(self) -> None:
+        from ai_assistant.features.rag.indexing import _extract_doc_date
+
+        text = "[Пользователь, 2026-07-05]\nлюблю зелёный чай"  # noqa: RUF001
+        assert _extract_doc_date(text, 0, text) == "2026-07-05"
+
+    def test_last_marker_wins_full_date(self) -> None:
+        from ai_assistant.features.rag.indexing import _extract_doc_date
+
+        text = (
+            "[Пользователь, 2026-07-05]\nчай\n\n"  # noqa: RUF001
+            "[ChatGPT, 2026-07-05]\nответ"  # noqa: RUF001
+        )
+        assert _extract_doc_date(text, 1, text) == "2026-07-05"
+
+    def test_first_line_digital_date_full(self) -> None:
+        from ai_assistant.features.rag.indexing import _extract_doc_date
+
+        assert _extract_doc_date("текст", 0, "2026-03-12") == "2026-03-12"
+
+    def test_undated_returns_none(self) -> None:
+        from ai_assistant.features.rag.indexing import _extract_doc_date
+
+        assert _extract_doc_date("просто текст", 2, "Первая строка") is None
+
+
+class TestSlidingDateInheritance:
+    """Chunks without markers inherit the last seen date (drift #190)."""
+
+    @pytest.mark.asyncio
+    async def test_single_session_dates_all_chunks(self, real_state) -> None:
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        # Session doc: one marker at the top; body without markers.
+        # Long enough for the simple chunker to split into >1 chunk.
+        content = (
+            "[Пользователь, 2026-07-05]\n"
+            + ("люблю зелёный чай и кедровые колодки. " * 60)
+        )
+        mgr = IndexingManager(
+            chunker=real_state.chunker,
+            embedder=real_state.embedder,
+            vector_store=real_state.vector_store,
+        )
+        result = await mgr.index_documents(
+            [{"id": "session-doc", "content": content, "metadata": {}}],
+            namespace="test-sliding",
+        )
+        assert result["chunk_count"] > 1
+        stored = await real_state.vector_store.list_by_filter(
+            {}, namespace="test-sliding"
+        )
+        assert stored, "no chunks stored"
+        dated = [meta for _cid, meta in stored if "doc_date" in meta]
+        assert len(dated) == len(stored)
+        assert all(meta["doc_date"] == "2026-07-05" for meta in dated)
+
+    @pytest.mark.asyncio
+    async def test_plain_doc_stays_undated(self, real_state) -> None:
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        content = "Просто статья без дат. " * 80
+        mgr = IndexingManager(
+            chunker=real_state.chunker,
+            embedder=real_state.embedder,
+            vector_store=real_state.vector_store,
+        )
+        await mgr.index_documents(
+            [{"id": "plain-doc", "content": content, "metadata": {}}],
+            namespace="test-sliding-plain",
+        )
+        stored = await real_state.vector_store.list_by_filter(
+            {}, namespace="test-sliding-plain"
+        )
+        assert stored, "no chunks stored"
+        undated = [
+            meta
+            for _cid, meta in stored
+            if "doc_date" not in meta.get("custom", {})
+        ]
+        assert len(undated) == len(stored)
+
+    @pytest.mark.asyncio
+    async def test_mixed_doc_keeps_sessions_separate(self, real_state) -> None:
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        part1 = "[Пользователь, 2026-08-31]\n" + ("роутер и wifi. " * 60)
+        part2 = "[Пользователь, 2026-09-04]\n" + ("пк и видеокарта. " * 60)
+        mgr = IndexingManager(
+            chunker=real_state.chunker,
+            embedder=real_state.embedder,
+            vector_store=real_state.vector_store,
+        )
+        await mgr.index_documents(
+            [
+                {
+                    "id": "mixed-doc",
+                    "content": part1 + "\n\n" + part2,
+                    "metadata": {},
+                }
+            ],
+            namespace="test-sliding-mixed",
+        )
+        stored = await real_state.vector_store.list_by_filter(
+            {}, namespace="test-sliding-mixed"
+        )
+        dates = {meta.get("doc_date") for _cid, meta in stored}
+        assert dates == {"2026-08-31", "2026-09-04"}
+
+    @pytest.mark.asyncio
+    async def test_day_frame_returns_only_that_day(self, real_state) -> None:
+        """A day frame matches only the chunks of that exact day."""
+        from ai_assistant.core.constants import DOC_DATE_KEY
+        from ai_assistant.features.rag.manager import IndexingManager
+
+        doc_july5 = {
+            "id": "shoes",
+            "content": "[Пользователь, 2026-07-05]\n" + ("уход за обувью. " * 40),
+            "metadata": {},
+        }
+        doc_july28 = {
+            "id": "watches",
+            "content": "[Пользователь, 2026-07-28]\n" + ("часы и калибры. " * 40),
+            "metadata": {},
+        }
+        mgr = IndexingManager(
+            chunker=real_state.chunker,
+            embedder=real_state.embedder,
+            vector_store=real_state.vector_store,
+        )
+        await mgr.index_documents([doc_july5, doc_july28], namespace="test-dayframe")
+        frame = DateFilter(month=7, year=2026, day=5)
+        stored = await real_state.vector_store.list_by_filter(
+            {}, namespace="test-dayframe"
+        )
+        matching = [
+            cid
+            for cid, meta in stored
+            if frame.matches(meta.get(DOC_DATE_KEY))
+        ]
+        shoes_chunks = [cid for cid, meta in stored if meta.get("source") == "shoes"]
+        assert set(matching) == set(shoes_chunks)
+
+
+class TestFaissDateFilterAdaptive:
+    """Adaptive widening: a fat date is found even when the top-40
+    semantic fetch misses it (drift #191)."""
+
+    @pytest.mark.asyncio
+    async def test_fat_date_found_beyond_semantic_top(self, tmp_path) -> None:
+        pytest.importorskip("faiss")
+        from ai_assistant.adapters.vector_store_faiss import FaissVectorStore
+        from ai_assistant.core.domain.configs import VectorStoreConfigData
+
+        store = FaissVectorStore(
+            VectorStoreConfigData(dim=3, index_path=str(tmp_path / "vs"))
+        )
+        # 60 chunks of the wrong date, one line apart in embedding
+        # space; 7 chunks of the wanted date, far from the query.
+        # The semantic top-40 is all wrong-date chunks.
+        from ai_assistant.core.constants import DOC_DATE_KEY
+        from ai_assistant.core.domain.documents import Chunk, ChunkMetadata
+
+        chunks: list[Chunk] = []
+        for i in range(60):
+            chunks.append(
+                Chunk(
+                    id=f"noise-{i}",
+                    text=f"noise {i}",
+                    embedding=[1.0, 0.0, 0.0],
+                    metadata=ChunkMetadata(
+                        source="noise-doc",
+                        index=i,
+                        total_chunks=67,
+                        custom={DOC_DATE_KEY: "2026-09-03"},
+                    ),
+                )
+            )
+        for i in range(7):
+            chunks.append(
+                Chunk(
+                    id=f"target-{i}",
+                    text=f"target {i}",
+                    embedding=[0.0, 1.0, 0.0],
+                    metadata=ChunkMetadata(
+                        source="target-doc",
+                        index=i,
+                        total_chunks=7,
+                        custom={DOC_DATE_KEY: "2026-09-04"},
+                    ),
+                )
+            )
+        await store.add(chunks, namespace="test-adaptive")
+
+        frame = DateFilter(month=9, year=2026, day=4)
+        # Query points at the noise cluster: the first fetch (40)
+        # returns noise chunks only; escalation must reach the 7
+        # target chunks of the wanted date.
+        found = await store.search(
+            [1.0, 0.0, 0.0], top_k=5, namespace="test-adaptive", date_filter=frame
+        )
+        assert len(found) == 5
+        assert all(
+            c.metadata is not None
+            and c.metadata.custom.get(DOC_DATE_KEY) == "2026-09-04"
+            for c in found
+        )

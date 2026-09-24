@@ -43,6 +43,11 @@ _FIRST_LINE_DATE_RE = re.compile(
     r"^\s*(?:(?P<iy>\d{4})-(?P<im>\d{2})-(?P<id>\d{2})"
     r"|(?P<dd>\d{2})\.(?P<dm>\d{2})\.(?P<dy>\d{4}))\b"
 )
+# doc_date format: full "YYYY-MM-DD" (stage 3) — the marker states
+# the day, so it is stored. The legacy "YYYY-MM" values (stage 1-2
+# index) still parse in DateFilter.matches() for month/year frames;
+# a day-level frame never matches them (the chunk never stated a
+# day). Reindex repopulates the full form.
 # The metadata key lives in core.constants (stage 2: adapters filter
 # on it — features/ must not be imported from adapters); the top
 # import block already carries it.
@@ -51,21 +56,23 @@ _FIRST_LINE_DATE_RE = re.compile(
 def _extract_doc_date(
     chunk_text: str, chunk_index: int, doc_first_line: str
 ) -> str | None:
-    """Return the chunk's doc_date ("YYYY-MM") or None (no honest date).
+    """Return the chunk's doc_date ("YYYY-MM-DD") or None (no honest date).
 
-    Pure function: no state, no IO, no language tables.
+    Pure function: no state, no IO, no language tables. Full date:
+    the marker states the day, so it is kept (stage 3) — month-level
+    frames slice by prefix, day-level need the day.
     """
     last: re.Match[str] | None = None
     for match in _DOC_DATE_MARKER_RE.finditer(chunk_text):
         last = match
     if last is not None:
-        return f"{last.group(1)}-{last.group(2)}"
+        return f"{last.group(1)}-{last.group(2)}-{last.group(3)}"
     if chunk_index == 0:
         m = _FIRST_LINE_DATE_RE.match(doc_first_line)
         if m is not None:
             if m.group("iy") is not None:
-                return f"{m.group('iy')}-{m.group('im')}"
-            return f"{m.group('dy')}-{m.group('dm')}"
+                return f"{m.group('iy')}-{m.group('im')}-{m.group('id')}"
+            return f"{m.group('dy')}-{m.group('dm')}-{m.group('dd')}"
     return None
 
 

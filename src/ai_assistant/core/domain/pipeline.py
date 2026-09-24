@@ -25,23 +25,35 @@ __all__ = ["DateFilter", "PipelineConfig", "PipelineData", "ReindexStatusEntry"]
 
 @dataclass(frozen=True, slots=True)
 class DateFilter:
-    """Search frame by document date (date campaign stage 2).
+    """Search frame by document date (date campaign stages 2-3).
 
     month is always set (1-12); year is None for "in March" of any
-    year. matches() compares against a chunk's doc_date ("YYYY-MM"
-    or None). Undated chunks never match an active filter — "unknown
-    when" is not "in March". Frozen: the filter travels through
-    PipelineConfig unchanged.
+    year; day is None for month-level frames and set for day-level
+    ones ("July 5"). matches() compares against a chunk's doc_date
+    ("YYYY-MM" or "YYYY-MM-DD"; the month-only legacy form matches
+    month/year queries but never a day-level frame — the day came
+    from the query, the chunk never stated it). Undated chunks never
+    match an active filter — "unknown when" is not "in March".
+    Frozen: the filter travels through PipelineConfig unchanged.
     """
 
     month: int
     year: int | None = None
+    day: int | None = None
 
     def __post_init__(self) -> None:
         if not 1 <= self.month <= 12:
             raise ValueError(f"month must be 1-12, got {self.month}")
         if self.year is not None and not YEAR_MIN <= self.year <= YEAR_MAX:
             raise ValueError(f"year out of range: {self.year}")
+        if self.day is not None and not 1 <= self.day <= 31:
+            raise ValueError(f"day out of range: {self.day}")
+        if self.day is not None and self.year is None:
+            # A day without a year is meaningless for matching (it
+            # cannot be compared against "YYYY-MM-DD" storage) and
+            # never occurs in practice: parse_date_phrase derives the
+            # day from the same phrase that carries the month.
+            raise ValueError("day requires year")
 
     def matches(self, doc_date: str | None) -> bool:
         """True when the chunk's doc_date falls inside the frame."""
@@ -54,7 +66,18 @@ class DateFilter:
             return False
         if chunk_month != self.month:
             return False
-        return self.year is None or chunk_year == self.year
+        if self.year is not None and chunk_year != self.year:
+            return False
+        if self.day is not None:
+            if len(doc_date) < 10:
+                return False
+            try:
+                chunk_day = int(doc_date[8:10])
+            except ValueError:
+                return False
+            if chunk_day != self.day:
+                return False
+        return True
 
 
 @dataclass(frozen=True, slots=True)

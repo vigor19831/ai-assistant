@@ -68,7 +68,7 @@ def _date_phrase_pattern(
         sorted((re.escape(p) for p in prepositions), key=len, reverse=True)
     )
     return re.compile(
-        rf"(?:^|\W)(?:{preps})\s+({months_alt})"
+        rf"(?:^|\W)(?:{preps})\s+(?:(\d{{1,2}})\s+)?({months_alt})"
         r"(?:\s+(\d{4}))?(?:\W|$)",
         re.IGNORECASE,
     )
@@ -78,11 +78,13 @@ def _bare_day_pattern(months_alt: str) -> re.Pattern[str]:
     """Day + month name without a preposition.
 
     The day digits anchor the match to an explicit date mention, so
-    a bare month name alone never activates the frame.
+    a bare month name alone never activates the frame. The optional
+    trailing year upgrades the frame to day-level; without a year
+    the frame stays month-level (day requires year — a day cannot
+    be matched against storage without one).
     """
     return re.compile(
-        rf"(?:^|\W)(\d{{1,2}})\s+({months_alt})"
-        r"(?:\s+(\d{4}))?(?:\W|$)",
+        rf"(?:^|\W)(\d{{1,2}})\s+({months_alt})(?:\s+(\d{{4}}))?(?:\W|$)",
         re.IGNORECASE,
     )
 
@@ -114,13 +116,27 @@ def parse_date_phrase(
     pattern = _date_phrase_pattern(prepositions, alt)
     match = pattern.search(text)
     if match is not None:
-        year = int(match.group(2)) if match.group(2) is not None else None
-        return DateFilter(year=year, month=month_names[match.group(1).lower()])
+        year = int(match.group(3)) if match.group(3) is not None else None
+        day = int(match.group(1)) if (
+            match.group(1) is not None and year is not None
+        ) else None
+        return DateFilter(
+            year=year,
+            month=month_names[match.group(2).lower()],
+            day=day,
+        )
     bare = _bare_day_pattern(alt)
     bare_match = bare.search(text)
     if bare_match is not None:
         year = int(bare_match.group(3)) if bare_match.group(3) is not None else None
-        return DateFilter(year=year, month=month_names[bare_match.group(2).lower()])
+        day = int(bare_match.group(1)) if (
+            bare_match.group(1) is not None and year is not None
+        ) else None
+        return DateFilter(
+            year=year,
+            month=month_names[bare_match.group(2).lower()],
+            day=day,
+        )
     return None
 
 

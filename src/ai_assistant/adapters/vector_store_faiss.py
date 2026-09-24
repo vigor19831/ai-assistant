@@ -47,6 +47,15 @@ _logger = get_logger("adapters.vector_store_faiss")
 # fetch widens by this factor to keep top_k filled. A knob needs 3
 # real cases first (architecture 11.2).
 _DATE_FILTER_FETCH_MULTIPLIER = 4
+# Adaptive widening (drift #191): when even the widened fetch leaves
+# fewer than top_k filtered results, the fetch escalates — first
+# _DATE_FILTER_ESCALATION_MULTIPLIER, then the whole index (fetch ==
+# ntotal: a full scan of the flat index, milliseconds at the
+# project's scale). Guarantees: if top_k chunks of the requested date
+# exist in the index, the search returns them. The escalation only
+# runs while the filtered result is short AND the fetch is not yet
+# exhaustive — never loops.
+_DATE_FILTER_ESCALATION_MULTIPLIER = 25
 
 
 class _NamespaceData:
@@ -242,28 +251,48 @@ class FaissVectorStore(IVectorStore):
                 norm = np.linalg.norm(q)
                 if norm > 0:
                     q = q / norm
-            fetch = (
-                top_k * _DATE_FILTER_FETCH_MULTIPLIER
-                if date_filter is not None
-                else top_k
-            )
-            _, indices = ns.index.search(q, fetch)
             results: list[Chunk] = []
-            for idx in indices[0]:
-                if idx == -1:
-                    continue
-                chunk = ns.chunks.get(int(idx))
-                if chunk is None:
-                    continue
-                if date_filter is not None and not date_filter.matches(
-                    chunk.metadata.custom.get(DOC_DATE_KEY)
-                    if chunk.metadata is not None
-                    else None
-                ):
-                    continue
-                if len(results) >= top_k:
-                    break
-                results.append(chunk)
+            seen_ids: set[int] = set()
+
+            def _filtered_fetch(fetch: int) -> None:
+                """One vector fetch + date filter, appending to results."""
+                _, indices = ns.index.search(q, fetch)
+                for idx in indices[0]:
+                    if int(idx) in seen_ids:
+                        continue
+                    if idx == -1:
+                        continue
+                    chunk = ns.chunks.get(int(idx))
+                    if chunk is None:
+                        continue
+                    if date_filter is not None and not date_filter.matches(
+                        chunk.metadata.custom.get(DOC_DATE_KEY)
+                        if chunk.metadata is not None
+                        else None
+                    ):
+                        continue
+                    if len(results) >= top_k:
+                        break
+                    seen_ids.add(int(idx))
+                    results.append(chunk)
+
+            if date_filter is None:
+                _filtered_fetch(top_k)
+                return results
+            # Date-filtered search (drift #191): adaptive widening.
+            # Pass 1: the widened fetch. Pass 2 (only when short):
+            # escalation multiplier. Pass 3 (only when still short):
+            # the whole index — a full flat scan, the flat-index
+            # equivalent of pre-filtering. Each pass appends; the
+            # early-break inside _filtered_fetch keeps each cheap.
+            _filtered_fetch(top_k * _DATE_FILTER_FETCH_MULTIPLIER)
+            if len(results) < top_k:
+                _filtered_fetch(
+                    top_k * _DATE_FILTER_FETCH_MULTIPLIER
+                    * _DATE_FILTER_ESCALATION_MULTIPLIER
+                )
+            if len(results) < top_k:
+                _filtered_fetch(ns.index.ntotal)
             return results
 
     def _rebuild_index(self, chunks: list[Chunk]) -> tuple[Any, dict[int, Chunk], int]:
