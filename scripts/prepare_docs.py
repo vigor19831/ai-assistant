@@ -570,6 +570,39 @@ _SPEAKER_USER_LABEL = "Пользователь"
 _JSON_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
 
+def _file_header(src_name: str, models: list[str], first_user_line: str) -> str:
+    """File header for a converted chat (drift #194).
+
+    Topic: the source stem with the export-date stamp cut; a bare
+    stamp stem (no semantic name) falls back to the first user line
+    — a structural fact, never a guess. Participants legend lists the
+    assistant models actually present in the export.
+    """
+    stem = Path(src_name).stem
+    parts = " ".join(p for p in stem.replace("_", " ").split() if p).split()
+    for idx, part in enumerate(parts):
+        if len(part) == 4 and part.isdigit() and (
+            idx + 1 >= len(parts) or parts[idx + 1].isdigit()
+        ):
+            parts = parts[:idx]
+            break
+    title = " ".join(parts)
+    if not title and first_user_line:
+        snippet = first_user_line.strip()
+        title = (snippet[:80] + "...") if len(snippet) > 80 else snippet
+    header = [f"# Диалог: {title}", ""]
+    if models:
+        header.append(
+            "Участники: "
+            + "; ".join(
+                f"[{m}] — ассистент, его советы и рекомендации" for m in models  # noqa: RUF001
+            )
+            + f"; [{_SPEAKER_USER_LABEL}] — владелец, его слова и выборы."  # noqa: RUF001
+        )
+        header.append("")
+    return "\n".join(header)
+
+
 def _chat_json_to_markdown(raw: bytes, src_name: str) -> bytes | None:
     """Convert a chat-export JSON (SaveAI exporter) into marker markdown.
 
@@ -591,6 +624,8 @@ def _chat_json_to_markdown(raw: bytes, src_name: str) -> bytes | None:
         return None
     out: list[str] = []
     skipped_items = 0
+    models: list[str] = []
+    first_user_line = ""
     for msg in messages:
         if not isinstance(msg, dict):
             continue
@@ -601,6 +636,8 @@ def _chat_json_to_markdown(raw: bytes, src_name: str) -> bytes | None:
             speaker = _SPEAKER_USER_LABEL
         else:
             speaker = str(msg.get("displayModel") or "").strip() or "Assistant"
+            if speaker not in models:
+                models.append(speaker)
         ts_match = _JSON_DATE_RE.match(str(msg.get("created_at") or ""))
         date = ts_match.group(1) if ts_match else ""
         parts: list[str] = [f"[{speaker}, {date}]" if date else f"[{speaker}]"]
@@ -612,12 +649,17 @@ def _chat_json_to_markdown(raw: bytes, src_name: str) -> bytes | None:
             else:
                 skipped_items += 1
         if any(p.strip() for p in parts[1:]):
+            if role == "user" and not first_user_line:
+                first_user_line = " ".join(
+                    p for p in parts[1:] if p.strip()
+                )[:200]
             out.append("\n\n".join(parts))
     if skipped_items:
         print(f"[JSON] {src_name}: {skipped_items} non-text item(s) skipped")
     if not out:
         return None
-    return ("\n\n".join(out) + "\n").encode("utf-8")
+    header = _file_header(src_name, models, first_user_line)
+    return (header + "\n---\n\n" + "\n\n".join(out) + "\n").encode("utf-8")
 
 
 def split_file(src: Path, dest_dir: Path) -> list[Path]:

@@ -2170,3 +2170,63 @@ def test_chat_json_unknown_role_skipped() -> None:
     text = out.decode("utf-8")  # type: ignore[union-attr]
     assert "hidden system note" not in text
     assert "настраиваю pop_os" in text
+
+
+class TestChatJsonFileHeader:
+    """File headers on converted chats (drift #194)."""
+
+    def _convert(self, tmp_path, messages, name="shoe-care_2026_09_23__2038.json"):
+        from scripts.prepare_docs import _chat_json_to_markdown
+
+        raw = json.dumps(messages, ensure_ascii=False).encode("utf-8")
+        return _chat_json_to_markdown(raw, name)
+
+    def test_header_topic_and_participants(self, tmp_path):
+        msgs = [
+            {
+                "role": "user",
+                "displayModel": "ChatGPT",
+                "created_at": "2026-07-05 09:42:29",
+                "contents": [{"type": "text", "content": "test question one"}],
+            },
+            {
+                "role": "assistant",
+                "displayModel": "ChatGPT",
+                "created_at": "2026-07-05 09:42:30",
+                "contents": [{"type": "text", "content": "test answer one"}],
+            },
+        ]
+        result = self._convert(tmp_path, msgs)
+        text = result.decode("utf-8")
+        assert text.startswith("# Диалог: shoe-care")
+        assert "[ChatGPT] — ассистент" in text
+        assert "[Пользователь] — владелец" in text
+        assert "[Пользователь, 2026-07-05]" in text  # markers unchanged
+
+    def test_bare_stamp_stem_falls_back_to_first_user_line(self, tmp_path):
+        msgs = [
+            {
+                "role": "user",
+                "displayModel": "X",
+                "created_at": "2026-07-05 09:42:29",
+                "contents": [
+                    {
+                        "type": "text",
+                        "content": "recommend a router for my home",
+                    }
+                ],
+            },
+        ]
+        raw_name = "2026_09_23__2038.json"  # no semantic stem
+        result = self._convert(tmp_path, msgs, name=raw_name)
+        text = result.decode("utf-8")
+        assert "recommend a router" in text.splitlines()[0]
+
+    def test_header_before_first_marker(self, tmp_path):
+        msgs = [
+            {"role": "user", "displayModel": "X", "created_at": "2026-07-05 09:42:29",
+             "contents": [{"type": "text", "content": "вопрос"}]},
+        ]
+        result = self._convert(tmp_path, msgs)
+        text = result.decode("utf-8")
+        assert text.index("# Диалог:") < text.index("[Пользователь, 2026-07-05]")

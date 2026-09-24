@@ -418,6 +418,8 @@ class TestBuildContext:
             ),
         )
         result = await build_context(data)
+        # Drift #194: bare chunks (no metadata) keep the plain label —
+        # no title to add.
         assert result.context == "[Document 1]\nvalid"
 
     @pytest.mark.asyncio
@@ -450,6 +452,7 @@ class TestBuildContext:
             chunks=(Chunk(id="c1", text="only"),),
         )
         result = await build_context(data)
+        # Drift #194: bare chunks (no metadata) keep the plain label.
         assert result.context == "[Document 1]\nonly"
 
     @pytest.mark.asyncio
@@ -1210,6 +1213,7 @@ class TestBuildFallbackPrompt:
             Chunk(id="c2", text="Second piece of context."),
         )
         result = build_fallback_prompt(chunks, "What is the answer?")
+        # Drift #194: bare chunks (no metadata) keep the plain label.
         assert "[Document 1]\nFirst piece of context." in result
         assert "[Document 1]\nSecond piece of context." in result
         assert "Question: What is the answer?" in result
@@ -1230,6 +1234,7 @@ class TestBuildFallbackPrompt:
         Then: only [1] marker present."""
         chunks = (Chunk(id="c1", text="Only context."),)
         result = build_fallback_prompt(chunks, "Simple question?")
+        # Drift #194: bare chunks (no metadata) keep the plain label.
         assert "[Document 1]\nOnly context." in result
         assert "[2]" not in result
 
@@ -1273,9 +1278,10 @@ class TestBuildFallbackPrompt:
             ),
         )
         result = build_fallback_prompt(chunks, "What is the answer?")
-        assert "[Document 1]\nFirst piece of file one." in result
-        assert "[Document 1]\nSecond piece of file one." in result
-        assert "[Document 2]\nPiece of file two." in result
+        # Drift #194: labels carry the file title after the number.
+        assert "[Document 1] — fileone\nFirst piece of file one." in result
+        assert "[Document 1] — fileone\nSecond piece of file one." in result
+        assert "[Document 2] — filetwo\nPiece of file two." in result
         assert "[Document 3]" not in result
 
 # ———————————————————————————————————————
@@ -1526,3 +1532,40 @@ async def test_rerank_skips_on_empty_query() -> None:
     result = await rerank(data)
     assert result.chunks == (chunk,)
     mock_reranker.rerank.assert_not_called()
+
+
+class TestChunkTitles:
+    """Chunk titles in build_context (drift #194)."""
+
+    def _chunk(self, uri, text):
+        return Chunk(
+            id=f"c-{uri}-{text[:8]}",
+            text=text,
+            metadata=ChunkMetadata(
+                source=uri, index=0, total_chunks=1, source_uri=uri,
+            ),
+        )
+
+    def test_title_from_source_uri(self):
+        from ai_assistant.core.pipeline_steps import _format_chunks
+
+        uri = "gear-pickup-dialog_2026_09_23__2037.md"
+        chunks = (self._chunk(uri, "test body text"),)
+        out = _format_chunks(chunks)
+        assert "[Document 1]" in out
+        assert "gear-pickup-dialog" in out
+        assert "2026 09 23" not in out  # stamp stripped
+
+    def test_plain_md_gets_title_too(self):
+        from ai_assistant.core.pipeline_steps import _format_chunks
+
+        chunks = (self._chunk("sea-article.md", "test body"),)
+        out = _format_chunks(chunks)
+        assert "sea-article" in out
+
+    def test_unknown_metadata_no_title_no_crash(self):
+        from ai_assistant.core.pipeline_steps import _format_chunks
+
+        chunks = (Chunk(id="x", text="bare chunk", metadata=None),)
+        out = _format_chunks(chunks)
+        assert "[Document 1]" in out

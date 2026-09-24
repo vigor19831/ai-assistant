@@ -3632,12 +3632,12 @@ class TestSlidingDateInheritance:
 
         doc_july5 = {
             "id": "shoes",
-            "content": "[Пользователь, 2026-07-05]\n" + ("уход за обувью. " * 40),
+            "content": "[Пользователь, 2026-07-05]\n" + ("test shoe care text. " * 40),
             "metadata": {},
         }
         doc_july28 = {
             "id": "watches",
-            "content": "[Пользователь, 2026-07-28]\n" + ("часы и калибры. " * 40),
+            "content": "[Пользователь, 2026-07-28]\n" + ("test watch calibers. " * 40),
             "metadata": {},
         }
         mgr = IndexingManager(

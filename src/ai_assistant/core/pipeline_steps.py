@@ -506,6 +506,12 @@ def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
     Preserves rank order from the reranker. Residual edge: a file
     whose every chunk is an exact duplicate of an earlier chunk
     keeps its Sources entry but gets no context label.
+
+    Chunk titles (drift #194): each block carries its file's title
+    (the source_uri stem with the export-date stamp stripped) so the
+    model sees WHICH conversation the chunk belongs to without
+    guessing. Citations keep the [Document N] form; the prompt rules
+    and the Sources block are unaffected.
     """
 
     def _file_key(chunk: Chunk) -> str:
@@ -513,6 +519,27 @@ def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
             return "unknown"
         md = chunk.metadata
         return md.source_uri or md.original_path or md.source or "unknown"
+
+    def _title_of(key: str) -> str:
+        """Human title of a file key: the uri stem, export stamp cut.
+
+        "dialog-x_2026_09_23__2037.md" -> "dialog-x": the stamp is cut
+        from the first 4-digit year-like token that is followed by
+        digits (a "2001: Odyssey" title keeps its year: the next token
+        is a word).
+        """
+        if key == "unknown":
+            return ""
+        stem = key.rsplit("/", 1)[-1]
+        stem = stem.rsplit(".", 1)[0] if "." in stem else stem
+        parts = " ".join(p for p in stem.replace("_", " ").split() if p).split()
+        for idx, part in enumerate(parts):
+            if len(part) == 4 and part.isdigit() and (
+                idx + 1 >= len(parts) or parts[idx + 1].isdigit()
+            ):
+                parts = parts[:idx]
+                break
+        return " ".join(parts)
 
     seen_texts: set[str] = set()
     doc_ids: dict[str, int] = {}
@@ -529,7 +556,11 @@ def _format_chunks(chunks: tuple[Chunk, ...]) -> str:
         key = _file_key(chunk)
         if key not in doc_ids:
             doc_ids[key] = len(doc_ids) + 1
-        lines.append(f"[Document {doc_ids[key]}]\n{normalized}")
+        label = f"[Document {doc_ids[key]}]"
+        title = _title_of(key)
+        if title:
+            label = f"{label} — {title}"
+        lines.append(f"{label}\n{normalized}")
     return "\n\n".join(lines)
 
 
