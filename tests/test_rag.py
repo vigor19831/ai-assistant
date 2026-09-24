@@ -37,6 +37,7 @@ from ai_assistant.core.ports.embedder import IEmbedder
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.ports.vector_store import IVectorStore
+from ai_assistant.core.query_parser import parse_date_phrase
 from ai_assistant.features.rag.handlers import (
     delete_chunks,
     index_documents,
@@ -3382,3 +3383,56 @@ class TestSourceEndpoint:
             assert exc.value.status_code in (400, 404)
         finally:
             outside.unlink(missing_ok=True)
+
+
+# --- Bare day + month date phrases (drift #188) ---
+_BD_MONTHS = {
+    "июль": 7, "июля": 7, "июле": 7,
+    "сентябрь": 9, "сентября": 9, "сентябре": 9,
+    "май": 5, "мая": 5, "мае": 5,
+}
+_BD_PREPS = ["в", "за"]
+
+
+class TestParseDatePhraseBareDay:
+    """Bare day+month phrases activate the month frame (drift #188)."""
+
+    def test_bare_day_activates_frame(self) -> None:
+        query = "Что мы обсуждали 5 июля?"
+        result = parse_date_phrase(query, _BD_MONTHS, _BD_PREPS)
+        assert result is not None
+        assert result.month == 7
+        assert result.year is None
+
+    def test_bare_day_with_year(self) -> None:
+        query = "разговор 22 июля 2026 года"
+        result = parse_date_phrase(query, _BD_MONTHS, _BD_PREPS)
+        assert result is not None
+        assert result.month == 7
+        assert result.year == 2026
+
+    def test_bare_day_two_digits(self) -> None:
+        query = "что было 17 сентября"
+        result = parse_date_phrase(query, _BD_MONTHS, _BD_PREPS)
+        assert result is not None
+        assert result.month == 9
+
+    def test_bare_month_alone_never_activates(self) -> None:
+        query = "месяцы: июль и сентябрь"
+        result = parse_date_phrase(query, _BD_MONTHS, _BD_PREPS)
+        assert result is None
+
+    def test_number_without_month_no_frame(self) -> None:
+        result = parse_date_phrase("range 300 thousand km", _BD_MONTHS, _BD_PREPS)
+        assert result is None
+
+    def test_absent_prepositions_stay_digital_only(self) -> None:
+        query = "что было 4 сентября"
+        result = parse_date_phrase(query, _BD_MONTHS, [])
+        assert result is None
+
+    def test_prepositional_phrase_wins_over_bare_day(self) -> None:
+        query = "в сентябре, а 5 июля что?"  # noqa: RUF001
+        result = parse_date_phrase(query, _BD_MONTHS, _BD_PREPS)
+        assert result is not None
+        assert result.month == 9

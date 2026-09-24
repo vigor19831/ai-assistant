@@ -54,6 +54,8 @@ def parse_rag_query(text: str, prefix_map: dict[str, str]) -> tuple[str, str | N
 #   preposition + month name         -> month, any year
 #   preposition + month name + year  -> month + year
 #   "2026-03"                        -> month + year (digital)
+#   day + month name, no preposition -> month, any year
+#   day + month name + year          -> month + year
 # Returns None when no date phrase is found (the default path —
 # byte-identical pre-stage-2 behavior).
 _DIGITAL_DATE_RE = re.compile(r"(?:^|\W)(\d{4})-(\d{2})(?:\W|$)")
@@ -72,6 +74,19 @@ def _date_phrase_pattern(
     )
 
 
+def _bare_day_pattern(months_alt: str) -> re.Pattern[str]:
+    """Day + month name without a preposition.
+
+    The day digits anchor the match to an explicit date mention, so
+    a bare month name alone never activates the frame.
+    """
+    return re.compile(
+        rf"(?:^|\W)(\d{{1,2}})\s+({months_alt})"
+        r"(?:\s+(\d{4}))?(?:\W|$)",
+        re.IGNORECASE,
+    )
+
+
 def parse_date_phrase(
     text: str,
     month_names: dict[str, int],
@@ -79,10 +94,12 @@ def parse_date_phrase(
 ) -> DateFilter | None:
     """Extract a date frame from the query text, or None.
 
-    First matching phrase wins; ties impossible (leftmost match).
-    The matched phrase is NOT removed from the text. prepositions
-    are language data from config (rag.date_prepositions), like the
-    month names: no language knowledge lives in src.
+    First matching phrase wins within a shape; across shapes the
+    precedence is digital form, then prepositional phrase, then
+    bare day + month. The matched phrase is NOT removed from the
+    text. prepositions are language data from config
+    (rag.date_prepositions), like the month names: no language
+    knowledge lives in src.
     """
     if not text:
         return None
@@ -99,6 +116,11 @@ def parse_date_phrase(
     if match is not None:
         year = int(match.group(2)) if match.group(2) is not None else None
         return DateFilter(year=year, month=month_names[match.group(1).lower()])
+    bare = _bare_day_pattern(alt)
+    bare_match = bare.search(text)
+    if bare_match is not None:
+        year = int(bare_match.group(3)) if bare_match.group(3) is not None else None
+        return DateFilter(year=year, month=month_names[bare_match.group(2).lower()])
     return None
 
 
