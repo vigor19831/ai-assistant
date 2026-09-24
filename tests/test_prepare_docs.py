@@ -2230,3 +2230,64 @@ class TestChatJsonFileHeader:
         result = self._convert(tmp_path, msgs)
         text = result.decode("utf-8")
         assert text.index("# Диалог:") < text.index("[Пользователь, 2026-07-05]")
+
+
+class TestForeignScriptFilter:
+    """Birth-time foreign-script atom filter (drift #197)."""
+
+    def test_latin_atom_removed_from_ru_source(self) -> None:
+        from scripts.prepare_docs import _filter_foreign_script_atoms
+
+        atoms = (
+            "## Facts\n"
+            "[Щетка нужна для чистки обуви каждый день.] "
+            "(Context: 2026-07-05; Status: fact)\n\n"
+            "[Statement] The JSON object structure includes a created_at "
+            "field set to a timestamp value indicating metadata. "
+            "(Status: fact)\n"
+        )
+        out, removed = _filter_foreign_script_atoms(atoms, source_is_ru=True)
+        assert removed == 1
+        assert "JSON object" not in out
+        assert "Щетка" in out
+
+    def test_mixed_ru_atom_survives(self) -> None:
+        from scripts.prepare_docs import _filter_foreign_script_atoms
+
+        atoms = (
+            "## Facts\n"
+            "[Пользователь выбрал ThinkPad T480 и доволен покупкой.] "
+            "(Context: 2026-07-05; Status: fact)\n"
+        )
+        out, removed = _filter_foreign_script_atoms(atoms, source_is_ru=True)
+        assert removed == 0
+        assert "ThinkPad" in out
+
+    def test_chronology_not_filtered(self) -> None:
+        from scripts.prepare_docs import _filter_foreign_script_atoms
+
+        atoms = (
+            "## Chronology\n"
+            "2026-07-05 - setup - final review\n"
+        )
+        out, removed = _filter_foreign_script_atoms(atoms, source_is_ru=True)
+        assert removed == 0
+        assert "final review" in out
+
+    def test_en_source_noop(self) -> None:
+        from scripts.prepare_docs import _filter_foreign_script_atoms
+
+        atoms = "## Facts\n[English atom stays.](Status: fact)\n"
+        out, removed = _filter_foreign_script_atoms(atoms, source_is_ru=False)
+        assert removed == 0
+        assert "English atom" in out
+
+    def test_source_is_ru_detection(self) -> None:
+        from scripts.prepare_docs import _source_is_ru
+
+        ru = "привет, это русский чат про обувь".encode()
+        en = b"hello, this is an english chat"
+        mixed = "https://img.example.com/x.png " * 5 + "русский текст здесь"
+        assert _source_is_ru(ru) is True
+        assert _source_is_ru(en) is False
+        assert _source_is_ru(mixed.encode("utf-8")) is True

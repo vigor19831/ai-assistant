@@ -457,6 +457,68 @@ def _dedup_atoms(atoms_text: str) -> tuple[str, int]:
     return "\n".join(out), removed
 
 
+def _filter_foreign_script_atoms(
+    atoms_text: str, source_is_ru: bool
+) -> tuple[str, int]:
+    """Drop atoms written in the source's non-dominant script (drift #197).
+
+    Birth-time twin of V5 (the _check_script rule): an atom whose
+    letters are >= _FOREIGN_SCRIPT_RATIO in the foreign script (Latin
+    in an RU source, Cyrillic in an EN source) is export-tail junk or
+    a model artifact — the live case was a Qwen "JSON metadata" fact
+    (115/115 Latin letters in an RU chat, caught by V5 manually,
+    2026-09-24). Chronology lines are skipped: they are index entries
+    whose digits/dates are legitimately script-neutral. Short atoms
+    under _MIN_ATOM_LETTERS are left for V5 to report — an under-
+    threshold atom here would be cut twice, and cutting is the
+    stronger action: it must stay for the *provable* cases only.
+    Returns (filtered text, removed atom count).
+    """
+    if not source_is_ru:
+        return atoms_text, 0
+    lines = atoms_text.splitlines()
+    out: list[str] = []
+    removed = 0
+    idx = 0
+    section = ""
+    while idx < len(lines):
+        line = lines[idx]
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            section = stripped.lstrip("#").strip().lower()
+        if _ATOM_START_RE.match(line) is not None and not section.startswith(
+            "chronology"
+        ):
+            _start, end = _atom_bounds(lines, idx)
+            atom_text = "\n".join(lines[idx : end + 1])
+            cyrillic = len(_CYR_RE.findall(atom_text))
+            latin = len(_LAT_RE.findall(atom_text))
+            total = cyrillic + latin
+            if (
+                total >= _MIN_ATOM_LETTERS
+                and latin / total >= _FOREIGN_SCRIPT_RATIO
+            ):
+                removed += 1
+                idx = end + 1
+                continue
+        out.append(line)
+        idx += 1
+    return "\n".join(out), removed
+
+
+def _source_is_ru(raw: bytes) -> bool:
+    """Dominant script of the source chat (for the foreign-script filter).
+
+    Strips URLs before counting (image links carry Latin hostnames
+    that would flip an RU source — the same trick as V5's source side).
+    A mixed/unknown source returns False: the filter only runs when
+    the source is provably RU.
+    """
+    text = raw.decode("utf-8", errors="replace")
+    plain = re.sub(r"https?://\S+", " ", text)
+    return len(_CYR_RE.findall(plain)) > len(_LAT_RE.findall(plain))
+
+
 def _split_for_atoms(data: bytes, part_bytes: int) -> list[bytes]:
     """Split raw bytes into ~part_bytes parts at line boundaries.
 
@@ -540,10 +602,18 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
     target = dest_dir / f"atoms-{src.stem}{_out_suffix(src)}"
     atoms_text = "\n\n---\n\n".join(answers)
     atoms_text, deduped = _dedup_atoms(atoms_text)
+    atoms_text, foreign = _filter_foreign_script_atoms(
+        atoms_text, _source_is_ru(data)
+    )
     atoms_text, demoted = _validate_decisions(atoms_text, src)
     atoms_text, ungrounded = _ground_dates(atoms_text, src)
     if deduped:
         print(f"[ATOMS] dedup: {deduped} duplicate atom(s) across parts removed")
+    if foreign:
+        print(
+            f"[ATOMS] foreign-script: {foreign} junk atom(s) removed "
+            "(export-tail/model artifacts, V5 class)"
+        )
     if demoted:
         print(
             f"[ATOMS] validator: {demoted} fabricated/assistant-voiced "
