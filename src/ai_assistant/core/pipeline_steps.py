@@ -799,62 +799,43 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
 
     cfg = _get_config(data)
 
-    # Generate variations via LLM
-    prompt = get_prompt(
-        "multi_query",
-        version=cfg.prompt_version,
-        query=data.query.text,
-    )
-
-    if data.llm is None:
-        return data.add_error(LLM_NOT_PROVIDED)
-
-    try:
-        response = await _call_llm(
-            data.llm,
-            [UserMessage(text=prompt)],
-            sampling=cfg.sampling,
-        )
-    except Exception:
-        _logger.exception(
-            "multi_query generation failed", extra={"trace_id": data.trace_id}
-        )
-        response = None
-
-    variations: list[str] = []
-    if response is not None and response.text:
-        for line in response.text.splitlines():
-            line = line.strip()
-            if line and line.lower() != data.query.text.lower():
-                # Strip numeric list artifacts (e.g. "1.", "2)", "3-")
-                # without consuming meaningful leading digits or dashes.
-                cleaned = re.sub(r"^\s*\d+[\.\)\-]\s*", "", line)
-                if cleaned:
-                    variations.append(cleaned)
-
-    queries = [data.query.text, *variations[:MULTI_QUERY_VARIATIONS]]
-    _logger.debug(
-        "multi_query variations",
-        extra={"trace_id": data.trace_id, "count": len(queries), "queries": queries},
-    )
-
-    # Retrieve for each query, deduplicate by chunk id preserving order
-    seen: set[str] = set()
-    combined: list[Chunk] = []
-
     if data.embedder is None or data.vector_store is None:
         return data.add_error(
             EMBEDDER_NOT_PROVIDED
             if data.embedder is None
             else VECTOR_STORE_NOT_PROVIDED
         )
+    if data.llm is None:
+        return data.add_error(LLM_NOT_PROVIDED)
 
     fetch_k = cfg.top_k * (
         data.reranker.retrieval_multiplier if data.reranker is not None else 1
     )
-    # Lexical leg: the ORIGINAL wording only, once -- variations are
-    # paraphrases that would dilute the exact terms hybrid retrieval
-    # exists to preserve.
+
+    # Retrieve for the ORIGINAL query first (drift #207): the lexical
+    # leg runs on the original wording only, and a non-empty lexical
+    # result means the exact terms already hit — the semantic gap the
+    # variations exist to bridge is absent, so the LLM call is skipped
+    # (measured: ~4-7 s per easy query on the 4B). An empty lexical
+    # leg (paraphrase/query mismatch) keeps variations exactly as the
+    # pre-#207 behavior, including the original query in position 1.
+    seen: set[str] = set()
+    combined: list[Chunk] = []
+
+    embeddings = await _call_embed(data.embedder, data.query.text)
+    if not embeddings:
+        return data.add_error(INTERNAL_SERVER_ERROR)
+    original_chunks = await _call_search(
+        data.vector_store,
+        embeddings[0],
+        fetch_k,
+        cfg.namespace,
+        cfg.date_filter,
+    )
+    for c in original_chunks:
+        seen.add(c.id)
+        combined.append(c)
+
     lexical_leg: list[Chunk] = []
     if data.lexical_index is not None and data.query.text:
         try:
@@ -869,31 +850,76 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
                 "lexical search failed, continuing dense-only",
                 extra={"namespace": cfg.namespace},
             )
-    for q in queries:
+
+    variations: list[str] = []
+    if lexical_leg:
+        # Exact terms hit (drift #207): no semantic gap to bridge.
+        _logger.info(
+            f"rag.multi_query trace={data.trace_id} "
+            f"skipped: lexical leg hit ({len(lexical_leg)}), "
+            "variations not generated"
+        )
+    else:
+        prompt = get_prompt(
+            "multi_query",
+            version=cfg.prompt_version,
+            query=data.query.text,
+        )
         try:
-            embeddings = await _call_embed(data.embedder, q)
-            if not embeddings:
-                continue
-            chunks = await _call_search(
-                data.vector_store,
-                embeddings[0],
-                fetch_k,
-                cfg.namespace,
-                cfg.date_filter,
+            response = await _call_llm(
+                data.llm,
+                [UserMessage(text=prompt)],
+                sampling=cfg.sampling,
             )
-            for c in chunks:
-                if c.id not in seen:
-                    seen.add(c.id)
-                    combined.append(c)
-        except Exception as exc:
-            _logger.warning(
-                "multi_query retrieve failed for variation",
-                extra={"trace_id": data.trace_id, "query": q, "error": str(exc)},
+        except Exception:
+            _logger.exception(
+                "multi_query generation failed", extra={"trace_id": data.trace_id}
             )
+            response = None
+        if response is not None and response.text:
+            for line in response.text.splitlines():
+                line = line.strip()
+                if line and line.lower() != data.query.text.lower():
+                    # Strip numeric list artifacts (e.g. "1.", "2)", "3-")
+                    # without consuming meaningful leading digits or dashes.
+                    cleaned = re.sub(r"^\s*\d+[\.\)\-]\s*", "", line)
+                    if cleaned:
+                        variations.append(cleaned)
+
+        queries = [data.query.text, *variations[:MULTI_QUERY_VARIATIONS]]
+        _logger.debug(
+            "multi_query variations",
+            extra={
+                "trace_id": data.trace_id,
+                "count": len(queries),
+                "queries": queries,
+            },
+        )
+        for q in variations[:MULTI_QUERY_VARIATIONS]:
+            try:
+                var_embeddings = await _call_embed(data.embedder, q)
+                if not var_embeddings:
+                    continue
+                chunks = await _call_search(
+                    data.vector_store,
+                    var_embeddings[0],
+                    fetch_k,
+                    cfg.namespace,
+                    cfg.date_filter,
+                )
+                for c in chunks:
+                    if c.id not in seen:
+                        seen.add(c.id)
+                        combined.append(c)
+            except Exception as exc:
+                _logger.warning(
+                    "multi_query retrieve failed for variation",
+                    extra={"trace_id": data.trace_id, "query": q, "error": str(exc)},
+                )
 
     increment_counter(
         "ai_assistant_rag_multi_query_total",
-        labels={"namespace": cfg.namespace, "variations": str(len(queries))},
+        labels={"namespace": cfg.namespace, "variations": str(1 + len(variations))},
     )
 
     if lexical_leg:

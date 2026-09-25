@@ -44,6 +44,7 @@ from ai_assistant.core.pipeline_steps import (
     retrieve,
 )
 from ai_assistant.core.ports.embedder import IEmbedder
+from ai_assistant.core.ports.lexical_index import ILexicalIndex
 from ai_assistant.core.ports.llm import ILLM
 from ai_assistant.core.ports.reranker import IReranker, RerankResult
 from ai_assistant.core.ports.vector_store import IVectorStore
@@ -1469,6 +1470,74 @@ async def test_multi_query_retrieve_preserves_meaningful_prefixes() -> None:
     assert "-budget overview" in texts_embedded
     assert "cash flow" in texts_embedded
     assert "1. cash flow" not in texts_embedded
+
+
+class TestMultiQuerySkip:
+    """Drift #207: variations are skipped when the lexical leg hits."""
+
+    @pytest.mark.asyncio
+    async def test_lexical_hit_skips_llm(self) -> None:
+        """A lexical-leg hit means no LLM variation call."""
+        llm = MagicMock(spec=ILLM)
+        llm.get_context_limit = MagicMock(return_value=8192)
+        llm.complete = AsyncMock(return_value=AssistantMessage(text="variation"))
+        embedder = AsyncMock(spec=IEmbedder)
+        embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        store = MagicMock(spec=IVectorStore)
+        store.search = AsyncMock(
+            return_value=[
+                Chunk(id="c1", text="hit", metadata=None)
+            ]
+        )
+        reranker = MagicMock(spec=IReranker)
+        reranker.retrieval_multiplier = 1
+        lexical = MagicMock(spec=ILexicalIndex)
+        lexical.search = AsyncMock(
+            return_value=[Chunk(id="c1", text="hit", metadata=None)]
+        )
+        data = PipelineData(
+            query=UserMessage(text="exact terms query"),
+            llm=llm,
+            embedder=embedder,
+            vector_store=store,
+            reranker=reranker,
+            lexical_index=lexical,
+            pipeline_config=PipelineConfig(top_k=5),
+        )
+        result = await multi_query_retrieve(data)
+        assert result.chunks
+        llm.complete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lexical_miss_generates_variations(self) -> None:
+        """An empty lexical leg keeps the LLM variation call."""
+        llm = MagicMock(spec=ILLM)
+        llm.get_context_limit = MagicMock(return_value=8192)
+        llm.complete = AsyncMock(
+            return_value=AssistantMessage(text="paraphrased question")
+        )
+        embedder = AsyncMock(spec=IEmbedder)
+        embedder.embed = AsyncMock(return_value=[[0.1] * 384])
+        store = MagicMock(spec=IVectorStore)
+        store.search = AsyncMock(
+            return_value=[Chunk(id="c1", text="hit", metadata=None)]
+        )
+        reranker = MagicMock(spec=IReranker)
+        reranker.retrieval_multiplier = 1
+        lexical = MagicMock(spec=ILexicalIndex)
+        lexical.search = AsyncMock(return_value=[])
+        data = PipelineData(
+            query=UserMessage(text="vague colloquial query"),
+            llm=llm,
+            embedder=embedder,
+            vector_store=store,
+            reranker=reranker,
+            lexical_index=lexical,
+            pipeline_config=PipelineConfig(top_k=5),
+        )
+        result = await multi_query_retrieve(data)
+        llm.complete.assert_called_once()
+        assert result.chunks
 
 
 @pytest.mark.asyncio
