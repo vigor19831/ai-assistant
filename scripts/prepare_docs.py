@@ -77,6 +77,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -341,6 +342,29 @@ _QUOTE_RE = re.compile(r'[Uu]ser (?:said|stated):\s*"([^"]+)"')
 # fabricated one poisons the memory.
 _QUOTE_MAX = 120
 
+# Atomization LLM retries (drift #208): 3 attempts, exponential
+# backoff (2s, 4s), one layer only (#43). A transient blip mid-run
+# must not discard a multi-part pass; a persistent outage exits
+# with the humanized message (#204).
+_ATOM_RETRY_ATTEMPTS = 3
+
+
+def _correction_source_text(src: Path) -> str:
+    """Read the source the way the CORRECTORS must compare against.
+
+    For a .json chat the atoms contain the CONVERTED markdown
+    (markers, unescaped quotes); the raw JSON escapes newlines and
+    typographic quotes differently, so a verbatim quote check against
+    raw bytes demotes genuine quotes (drift #209, the A1 seam from
+    the full review). The plain .md/.txt source is read as-is.
+    """
+    if src.suffix == ".json":
+        raw = src.read_bytes()
+        converted = _chat_json_to_markdown(raw, src.name)
+        if converted is not None:
+            return converted.decode("utf-8", errors="replace")
+    return src.read_text(encoding="utf-8-sig", errors="replace")
+
 
 def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
     """Demote fabricated decisions to recommendations.
@@ -362,7 +386,7 @@ def _validate_decisions(atoms_text: str, src: Path) -> tuple[str, int]:
     decision is recoverable, a fabricated one poisons the memory.
     Returns (validated text, number of demoted lines).
     """
-    source = src.read_text(encoding="utf-8-sig", errors="replace")
+    source = _correction_source_text(src)
     user_blocks = [m.group(1) for m in _USER_BLOCK_RE.finditer(source)]
     demoted = 0
     lines = atoms_text.splitlines()
@@ -603,13 +627,31 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         if model_name:
             payload["model"] = model_name
         print(f"[ATOM] part {idx}/{total} -> LLM ({len(part)} bytes)")
-        try:
-            resp = httpx.post(
-                str(cfg["llm_api_base"]),
-                json=payload,
-                timeout=float(cfg["timeout"]),
-            )
-        except httpx.ConnectError:
+        # Bounded retry (drift #208, the #43 single-layer rule): a
+        # transient network blip mid-run must not discard the whole
+        # pass (the live case: 10 parts x ~30 s each). ConnectError
+        # with all attempts spent falls through to the humanized
+        # exit; HTTP errors raise immediately (retrying a 400 is
+        # pointless).
+        resp = None
+        for attempt in range(1, _ATOM_RETRY_ATTEMPTS + 1):
+            try:
+                resp = httpx.post(
+                    str(cfg["llm_api_base"]),
+                    json=payload,
+                    timeout=float(cfg["timeout"]),
+                )
+                break
+            except httpx.ConnectError:
+                if attempt == _ATOM_RETRY_ATTEMPTS:
+                    break
+                wait = 2**attempt
+                print(
+                    f"[RETRY] LLM unreachable (attempt {attempt}/"
+                    f"{_ATOM_RETRY_ATTEMPTS}), waiting {wait}s..."
+                )
+                time.sleep(wait)
+        if resp is None:
             print(
                 f"[ERROR] LLM server not reachable at "
                 f"{cfg['llm_api_base']} — is it running?\n"
@@ -1203,7 +1245,7 @@ def _ground_dates(atoms_text: str, src: Path) -> tuple[str, int]:
     answer (atoms-undated-1, known model limitation) instead of a
     false date. Returns (grounded text, removed token count).
     """
-    source = src.read_text(encoding="utf-8-sig", errors="replace")
+    source = _correction_source_text(src)
     source_dates = frozenset(tok for _, tok in _parse_date_tokens(source))
 
     def _grounded(match: re.Match[str]) -> bool:

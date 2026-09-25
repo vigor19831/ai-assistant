@@ -27,6 +27,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -2400,3 +2401,78 @@ class TestWrongHomeArtifacts:
             for p in files
         }
         assert found == {"atoms-chat.md", "chat.md"}
+
+
+class TestRetryAndConvertedSource:
+    """drift #208 (bounded retry) + #209 (converted-source check)."""
+
+    def test_retry_recovers_transient_blip(self, tmp_path, monkeypatch) -> None:
+        """A first-connect blip then success: the run completes."""
+        import scripts.prepare_docs as pd
+
+        calls = {"n": 0}
+
+        def flaky_post(url, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise httpx.ConnectError("blip")
+            m = MagicMock()
+            m.json.return_value = {
+                "choices": [{"message": {"content": "## Facts\nok"}}]
+            }
+            m.raise_for_status.return_value = None
+            return m
+
+        monkeypatch.setattr(pd.httpx, "post", flaky_post)
+        monkeypatch.setattr(pd.time, "sleep", lambda s: None)
+        src = tmp_path / "chat.json"
+        src.write_text("[]", encoding="utf-8")
+        target = pd.make_atoms(src, tmp_path)
+        assert calls["n"] == 2
+        assert target.exists()
+
+    def test_persistent_outage_exits(self, tmp_path, monkeypatch) -> None:
+        import scripts.prepare_docs as pd
+
+        def dead_post(url, **kwargs):
+            raise httpx.ConnectError("down")
+
+        monkeypatch.setattr(pd.httpx, "post", dead_post)
+        monkeypatch.setattr(pd.time, "sleep", lambda s: None)
+        src = tmp_path / "chat.json"
+        src.write_text("[]", encoding="utf-8")
+        with pytest.raises(SystemExit):
+            pd.make_atoms(src, tmp_path)
+
+    def test_converted_quote_survives_check(self, tmp_path) -> None:
+        """A decision quote with typographic quotes in JSON is NOT
+        demoted: the check runs against the converted text (#209)."""
+        from scripts.prepare_docs import _correction_source_text, _validate_decisions
+
+        chat = json.dumps(
+            [
+                {
+                    "role": "user",
+                    "displayModel": "ChatGPT",
+                    "created_at": "2026-09-25 10:00:00",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "content": "Беру «Патриот» — решено окончательно",
+                        }
+                    ],
+                }
+            ],
+            ensure_ascii=False,
+        ).encode("utf-8")
+        src = tmp_path / "chat.json"
+        src.write_bytes(chat)
+        atoms = (
+            "## Decisions\n"
+            "- [Решение о машине.] (User said: \"Беру «Патриот» — "  # noqa: RUF001
+            "решено окончательно\"; Status: decision)\n"
+        )
+        _out, demoted = _validate_decisions(atoms, src)
+        assert demoted == 0
+        # The converted source really contains the quote:
+        assert "Беру «Патриот»" in _correction_source_text(src)
