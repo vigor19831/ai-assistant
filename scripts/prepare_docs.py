@@ -230,11 +230,22 @@ decision -- and those words must be quoted in the atom.
 BODY PHRASING rule (applies to recommendation and fact atoms): never
 write "Vy vybrali", "you chose", "your decision is" in the atom body
 for assistant advice. The body must attribute the voice: "ChatGPT
-predlozhil", "the assistant recommended", "posovetovano". The user's
+предложил", "the assistant recommended", "посоветовано". The user's
 REQUIREMENTS (wishes, constraints, budget) are facts with the body
 "The user wants/requires" — never decisions, and never placed under
 ## Decisions. ## Decisions stays empty unless a real user acceptance
 was found.
+
+FIRST-PERSON PREFERENCE rule: when the user states a liking, choice,
+or preference in their own words («мне нравится X», «я бы взял X»,
+«я предпочитаю X», even casually inside a longer message), write it
+as a Fact with the DIRECT form: «Пользователь предпочитает X» /
+"The user likes/prefers/would take X". Never rephrase it into project
+terms ("the base vehicle for the project") or hide it inside a
+requirements list — a future question "what do I like?" must match
+this atom word-for-word. This rule strengthens, never overrides, the
+body-phrasing rule above: assistant advice keeps its attribution;
+only the USER's own voice is stated as the user's preference.
 - recommendation: proposed but not accepted or not resolved.
 - hypothesis: a statement that sounded confident in the chat but was
   NOT verified by a run, a command, or the user's confirmation
@@ -592,9 +603,22 @@ def make_atoms(src: Path, dest_dir: Path) -> Path:
         if model_name:
             payload["model"] = model_name
         print(f"[ATOM] part {idx}/{total} -> LLM ({len(part)} bytes)")
-        resp = httpx.post(
-            str(cfg["llm_api_base"]), json=payload, timeout=float(cfg["timeout"])
-        )
+        try:
+            resp = httpx.post(
+                str(cfg["llm_api_base"]),
+                json=payload,
+                timeout=float(cfg["timeout"]),
+            )
+        except httpx.ConnectError:
+            print(
+                f"[ERROR] LLM server not reachable at "
+                f"{cfg['llm_api_base']} — is it running?\n"
+                "        Start the stack (run_servers) and re-run this\n"
+                "        script; nothing is lost, atomization restarts\n"
+                "        cleanly (the source file is untouched, no partial\n"
+                "        atoms were written)."
+            )
+            sys.exit(1)
         resp.raise_for_status()
         answer = resp.json()["choices"][0]["message"]["content"] or ""
         if answer.strip():

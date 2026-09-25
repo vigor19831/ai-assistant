@@ -236,6 +236,7 @@ table deduped); 2026-09-15 (round 5); 2026-09-17 (round 6: #129–#141).
 | 201 | 2026-09-24 | Wrong-home reconcile: atoms- outside _atomize/ and plain mirrors inside it are stale-move leftovers — same y/N as #111; live-verified (the shoe-file V2-warn was a pre-#201 wrong-home state) |
 | 202 | 2026-09-25 | prepare_docs full review: healthy; one young seam — correctors read RAW json while atoms hold CONVERTED text (benign demotion direction; the watches chat is the natural test); deferred until observed |
 | 203 | 2026-09-25 | Output legend in prepare_docs (owner request, readability): a 10-code preface prints once before any work — codes match the emitters exactly (SKIP/PART/JSON/ATOM/ATOMS/RECONCILE/INFO/WARN/ERROR), English per §1, printed before argparse so --help and misuse see it too; zero behavior change |
+| 204 | 2026-09-25 | make_atoms connection error humanized (owner request, same class as #203): httpx.ConnectError now prints a one-line diagnosis (the LLM address from config, "is it running?", restart cleanly, nothing lost) instead of a 40-line httpcore traceback — the live case: morning run without the stack started, read as a code defect; exit 1 for scripting; only ConnectError is caught, timeouts/HTTP errors keep their original handling |
 
 ## FUTURE RISKS
 
