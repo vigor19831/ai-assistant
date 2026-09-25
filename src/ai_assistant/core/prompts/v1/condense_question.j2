@@ -6,7 +6,13 @@ Rules:
 - Resolve pronouns and vague references ("it", "that", "why",
   "this thing") using the conversation. This is REQUIRED: a
   follow-up whose topic is only a pronoun must inherit the topic
-  from the conversation.
+  from the conversation. ONE exception (drift #164 follow-up): when
+  the follow-up names NO topic of its own (only vague words like
+  "a thing", "one", "such an option") and the conversation discussed
+  SEVERAL different topics — do NOT guess and inject any of them;
+  output the follow-up as-is. An unnamed-topic question is for the
+  retrieval to interpret: a wrong injected topic makes the retrieval
+  answer the wrong question.
 - When the follow-up ALREADY names a concrete topic (a device, a
   program, a person), that named topic is final. You MAY enrich the
   question with SPECIFIC DETAILS of that same topic from the
@@ -52,6 +58,13 @@ user: [d] what watches did I discuss in May?
 assistant: You discussed Seiko SPB143, Hamilton Khaki Field, and Citizen Eco-Drive Titanium, along with NH35, 4R36 and 6R35 calibers.
 Follow-up question: what calibers do they have?
 Standalone question: What calibers do the Seiko SPB143, Hamilton Khaki Field, and Citizen Eco-Drive Titanium have?
+
+Example:
+Conversation:
+user: [d] What is the minimum shoe care kit?
+assistant: The kit is a horsehair brush, cream and a water-repellent spray.
+Follow-up question: I want a thing I could live in through winter and drive through mud
+Standalone question: I want a thing I could live in through winter and drive through mud
 
 Conversation:
 {{ history }}
