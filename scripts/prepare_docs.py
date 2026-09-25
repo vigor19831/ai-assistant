@@ -1829,7 +1829,7 @@ def _artifact_source_name(dest_file: Path) -> str:
 
 
 def _find_vanished(src_dir: Path, dest_dir: Path) -> dict[str, list[Path]]:
-    """Leftover artifacts in dest whose raw source is gone.
+    """Leftover artifacts in dest whose raw source is gone or moved.
 
     Stateless — the dest tree itself is the history: a file at
     documents/{ns}/{name} maps to the raw candidates
@@ -1837,6 +1837,13 @@ def _find_vanished(src_dir: Path, dest_dir: Path) -> dict[str, list[Path]]:
     (parts/atoms prefixes stripped). A file with no existing candidate
     is a leftover of a vanished (or moved-away) source. Indexed
     suffixes only — the V6 blind-spot convention.
+
+    Wrong-home artifacts (drift #201): the source exists but lives on
+    the OTHER side of the _atomize/ boundary — an atoms-x.md whose
+    source sits OUTSIDE _atomize/ (demotion leftover), or a plain
+    mirror whose source sits ONLY inside _atomize/ (promotion
+    leftover). Both are stale representations of the previous home:
+    reconcile offers them the same y/N removal.
     """
     leftovers: dict[str, list[Path]] = {}
     if not dest_dir.is_dir():
@@ -1847,22 +1854,38 @@ def _find_vanished(src_dir: Path, dest_dir: Path) -> dict[str, list[Path]]:
         rel = path.relative_to(dest_dir)
         dirs = list(rel.parts[:-1])
         source_name = _artifact_source_name(path)
-        candidates = [
-            src_dir.joinpath(*dirs, source_name),
-            src_dir.joinpath(*dirs, _ATOMIZE_SUBDIR, source_name),
-        ]
+
+        # Candidate source names: the artifact's own suffix plus the
+        # .json twin (an .md artifact may derive from a .json chat).
+        names = [source_name]
         if path.suffix == ".md":
-            # A chat .md artifact may derive from a .json source
-            # (SaveAI export conversion) -- the stem of the SOURCE
-            # name (which strips _partNN first); path.stem would keep
-            # the part suffix and look for part01.json, flagging every
-            # split part as vanished on each run.
-            json_name = Path(source_name).stem + ".json"
-            candidates.append(src_dir.joinpath(*dirs, json_name))
-            candidates.append(
-                src_dir.joinpath(*dirs, _ATOMIZE_SUBDIR, json_name)
-            )
+            names.append(Path(source_name).stem + ".json")
+
+        plain_homes = [
+            src_dir.joinpath(*dirs, name) for name in names
+        ]
+        atomize_homes = [
+            src_dir.joinpath(*dirs, _ATOMIZE_SUBDIR, name) for name in names
+        ]
+        candidates = plain_homes + atomize_homes
+
         if not any(c.is_file() for c in candidates):
+            # The source is gone entirely (deleted or moved away).
+            key = str(Path(*dirs, source_name)) if dirs else source_name
+            leftovers.setdefault(key, []).append(path)
+            continue
+
+        # Wrong-home check (drift #201): an atoms- artifact is born
+        # ONLY from _atomize/; a plain mirror is born ONLY from
+        # outside it. The source exists but on the wrong side of the
+        # boundary — the artifact is stale, a leftover of the move.
+        is_atoms = path.name.startswith("atoms-")
+        wrong_home = (
+            not any(h.is_file() for h in atomize_homes)
+            if is_atoms
+            else not any(h.is_file() for h in plain_homes)
+        )
+        if wrong_home:
             key = str(Path(*dirs, source_name)) if dirs else source_name
             leftovers.setdefault(key, []).append(path)
     return leftovers

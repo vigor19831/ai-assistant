@@ -1950,7 +1950,15 @@ def test_reconcile_namespace_leftover_removes_empty_dir(
 
 
 def test_reconcile_never_touches_live_sources(tmp_path, monkeypatch) -> None:
-    """Artifacts whose source still exists are never flagged."""
+    """Live sources are never touched; a plain-homed source's ATOM
+    is a wrong-home leftover offered for removal (drift #201).
+
+    one.md lives in the plain root -> its mirror is legitimate, but
+    atoms-one.md has no _atomize/ home -> the y/N answer decides.
+    Answering "n" keeps everything (the reconcile never deletes on
+    its own); answering "y" removes the atom, never the mirror or
+    the raw source.
+    """
     monkeypatch.setattr(prepare_docs, "_PROJECT_ROOT", tmp_path)
     src = tmp_path / "data" / "raw_documents"
     src.mkdir(parents=True)
@@ -1963,10 +1971,19 @@ def test_reconcile_never_touches_live_sources(tmp_path, monkeypatch) -> None:
         "sys.argv",
         ["prepare_docs.py", "--dest", str(dest)],
     )
-    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    # "n" keeps everything: the y/N discipline itself is the contract.
+    monkeypatch.setattr("builtins.input", lambda _prompt: "n")
     assert prepare_docs.main() == 0
     assert (dest / "one.md").exists()
     assert (dest / "atoms-one.md").exists()
+
+    # "y" removes the wrong-home atom only — the mirror and the raw
+    # source are untouchable.
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert prepare_docs.main() == 0
+    assert (src / "one.md").exists()
+    assert (dest / "one.md").exists()
+    assert not (dest / "atoms-one.md").exists()
 
 
 def test_explicit_src_scope_atomizes_as_given(
@@ -2291,3 +2308,95 @@ class TestForeignScriptFilter:
         assert _source_is_ru(ru) is True
         assert _source_is_ru(en) is False
         assert _source_is_ru(mixed.encode("utf-8")) is True
+
+
+class TestWrongHomeArtifacts:
+    """Reconcile catches atoms/mirrors left by _atomize moves
+    (drift #201): the source exists but on the other side of the
+    boundary."""
+
+    def _make_dest_artifact(self, dest_dir, name):
+        target = dest_dir / name
+        target.write_text("artifact content", encoding="utf-8")
+        return target
+
+    def test_demotion_leaves_stale_atom(self, tmp_path):
+        from scripts.prepare_docs import _find_vanished
+
+        src = tmp_path / "raw"
+        dest = tmp_path / "docs"
+        src.mkdir()
+        dest.mkdir()
+        # Source moved OUT of _atomize/ back to the plain root.
+        (src / "chat.json").write_text("{}", encoding="utf-8")
+        self._make_dest_artifact(dest, "atoms-chat.md")
+        leftovers = _find_vanished(src, dest)
+        assert any(
+            p.name == "atoms-chat.md"
+            for files in leftovers.values()
+            for p in files
+        )
+
+    def test_promotion_leaves_stale_mirror(self, tmp_path):
+        from scripts.prepare_docs import _find_vanished
+
+        src = tmp_path / "raw"
+        dest = tmp_path / "docs"
+        (src / "_atomize").mkdir(parents=True)
+        dest.mkdir()
+        # Source moved INTO _atomize/; the old plain mirror remains.
+        (src / "_atomize" / "chat.json").write_text("{}", encoding="utf-8")
+        self._make_dest_artifact(dest, "chat.md")
+        leftovers = _find_vanished(src, dest)
+        assert any(
+            p.name == "chat.md"
+            for files in leftovers.values()
+            for p in files
+        )
+
+    def test_atom_with_atomize_source_stays(self, tmp_path):
+        from scripts.prepare_docs import _find_vanished
+
+        src = tmp_path / "raw"
+        dest = tmp_path / "docs"
+        (src / "_atomize").mkdir(parents=True)
+        dest.mkdir()
+        (src / "_atomize" / "chat.json").write_text("{}", encoding="utf-8")
+        self._make_dest_artifact(dest, "atoms-chat.md")
+        leftovers = _find_vanished(src, dest)
+        assert not any(
+            p.name == "atoms-chat.md"
+            for files in leftovers.values()
+            for p in files
+        )
+
+    def test_plain_mirror_with_plain_source_stays(self, tmp_path):
+        from scripts.prepare_docs import _find_vanished
+
+        src = tmp_path / "raw"
+        dest = tmp_path / "docs"
+        src.mkdir()
+        dest.mkdir()
+        (src / "chat.json").write_text("{}", encoding="utf-8")
+        self._make_dest_artifact(dest, "chat.md")
+        leftovers = _find_vanished(src, dest)
+        assert leftovers == {}
+
+    def test_deleted_source_still_caught(self, tmp_path):
+        """The pre-201 behavior is intact: a fully deleted source's
+        artifacts (both kinds) are leftovers."""
+        from scripts.prepare_docs import _find_vanished
+
+        src = tmp_path / "raw"
+        dest = tmp_path / "docs"
+        src.mkdir()
+        dest.mkdir()
+        self._make_dest_artifact(dest, "atoms-chat.md")
+        self._make_dest_artifact(dest, "chat.md")
+        leftovers = _find_vanished(src, dest)
+        found = {
+            p.name
+            for files in leftovers.values()
+            for p in files
+        }
+        assert found == {"atoms-chat.md", "chat.md"}
