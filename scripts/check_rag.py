@@ -1084,10 +1084,10 @@ TEST_CASES: list[TestCase] = [
             "not specified",
             *_LOCAL_REFUSAL_TAIL,
         ),
-        answer_must_not_contain=("because", "since you", "g-shock", "watch"),
+        answer_must_not_contain=("because i", "because you", "since you", "to track"),
         expect_sources=False,
         require_faithfulness=False,
-        description="Premise trap (drift #180 class): no purchase exists anywhere in the corpus — the model must refuse, never fabricate a reason. requires_future_capability: measured red on the 4B; a leading flip-green indicator on a model upgrade.",
+        description="Premise trap (drift #180 class): no purchase exists anywhere in the corpus — the model must refuse, never fabricate a reason. Naming the subject in the refusal is HONEST ('no record of buying a G-Shock') — only fabricated REASONS fail. requires_future_capability: a leading flip-green indicator on a model upgrade.",
         requires_future_capability=True,
     ),
     TestCase(
