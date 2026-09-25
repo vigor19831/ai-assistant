@@ -2476,3 +2476,53 @@ class TestRetryAndConvertedSource:
         assert demoted == 0
         # The converted source really contains the quote:
         assert "Беру «Патриот»" in _correction_source_text(src)
+
+
+def test_empty_export_message_distinct(tmp_path, capsys) -> None:
+    """A recognized-but-empty export reports the re-export hint,
+    not 'unknown format' (drift #210)."""
+    chat = json.dumps(
+        [
+            {
+                "role": "user",
+                "displayModel": "DeepSeek",
+                "created_at": "2026-08-07 08:14:38",
+                "contents": [{"type": "text", "content": ""}],
+            },
+            {
+                "role": "assistant",
+                "displayModel": "DeepSeek",
+                "created_at": "2026-08-07 08:14:38",
+                "contents": [{"type": "text", "content": ""}],
+            }
+        ],
+        ensure_ascii=False,
+    ).encode("utf-8")
+    result = _chat_json_to_markdown(chat, "skeleton.json")
+    captured = capsys.readouterr().out
+    assert result is None
+    assert "recognized but EMPTY" in captured
+
+
+def test_foreign_shape_message_unchanged(tmp_path, capsys) -> None:
+    """A truly unknown structure returns None silently at the
+    converter level; the generic message is split_file's to print
+    (drift #210 keeps the split there). The converter-level distinct
+    message exists ONLY for the recognized-but-empty case."""
+    blob = json.dumps({"something": "else"}).encode("utf-8")
+    result = _chat_json_to_markdown(blob, "weird.json")
+    captured = capsys.readouterr().out
+    assert result is None
+    assert captured == ""
+
+def test_foreign_shape_split_message(tmp_path, capsys) -> None:
+    """End-to-end: an unknown JSON shape passes through split_file,
+    which prints the generic skip (the contract split_file owns)."""
+    src = tmp_path / "weird.json"
+    src.write_text(json.dumps({"something": "else"}), encoding="utf-8")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    result = split_file(src, dest)
+    captured = capsys.readouterr().out
+    assert result == []
+    assert "not a recognized chat export" in captured

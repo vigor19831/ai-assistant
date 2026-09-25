@@ -793,6 +793,23 @@ def _chat_json_to_markdown(raw: bytes, src_name: str) -> bytes | None:
     if skipped_items:
         print(f"[JSON] {src_name}: {skipped_items} non-text item(s) skipped")
     if not out:
+        # The two empty outcomes are DIFFERENT failures (drift #210,
+        # the Pop-OS case: a skeleton export burned half a day of
+        # "wrong format" diagnosis): a recognized structure with all
+        # contents empty means the EXPORTER wrote no texts — re-export
+        # the chat; anything else is genuinely unknown shape.
+        if messages and all(
+            isinstance(m, dict) and m.get("role") in ("user", "assistant")
+            for m in messages
+        ):
+            print(
+                f"[SKIP-JSON] {src_name}: recognized but EMPTY "
+                f"(0 text messages) — re-export the chat"
+            )
+        else:
+            print(
+                f"[SKIP-JSON] {src_name}: not a recognized chat export"
+            )
         return None
     header = _file_header(src_name, models, first_user_line)
     return (header + "\n---\n\n" + "\n\n".join(out) + "\n").encode("utf-8")
