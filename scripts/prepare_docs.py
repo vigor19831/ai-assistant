@@ -1940,6 +1940,22 @@ def _reconcile_vanished(src_dir: Path, dest_dir: Path) -> None:
 
 
 def main() -> int:
+    # Output legend for non-programmer owners (drift #203): the run
+    # prints short codes; this preface explains them once, up front.
+    # English only (§1 — published repo); codes match the emitters.
+    print("[LEGEND] output codes this run may print:")
+    print("  [SKIP]     = already up to date, nothing done")
+    print("  [SKIP] as-is = small file, copied whole (no split needed)")
+    print("  [SKIP-JSON] = not a recognized chat export, left alone")
+    print("  [PART]     = large file split into ~30KB parts for the watcher")
+    print("  [JSON]     = chat converted; non-text items (images/cards) skipped")
+    print("  [ATOM]     = sending one part to the LLM to extract facts")
+    print("  [ATOMS]    = atoms written + corrector counts (dedup/junk/demoted)")
+    print("  [RECONCILE]= stale leftovers found (source moved/deleted)")
+    print("  [INFO]     = files wait in _atomize/ — run with --full")
+    print("  [WARN]     = attention needed, nothing broken")
+    print("  [ERROR]    = failed; the run stops that file")
+    print()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "files",
