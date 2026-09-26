@@ -60,6 +60,7 @@ _SCRIPTS: list[str] = [
     "open_shell.py",
     "prepare_docs.py",
     "structure.py",
+    "web_grab.py",
     "backup.py",
 ]
 
@@ -223,6 +224,22 @@ def run(
     return res.returncode, elapsed
 
 
+# ── web_grab mode picker ─────────────────────────────────────────────────────
+def _web_grab_mode() -> list[str]:
+    """Ask for the page URL to save (pasted by the owner)."""
+    print()
+    print("  web_grab: paste the page URL")
+    try:
+        url = input("    URL: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        raise
+    if not url:
+        print("  ? Empty URL — nothing to save")
+        input("  Press Enter...")
+        return []
+    return [url]
+
+
 # ── prepare_docs mode picker ────────────────────────────────────────────────
 def _prepare_docs_mode() -> list[str]:
     """Ask the user which prepare_docs mode to run.
@@ -305,6 +322,8 @@ def main() -> int:
                 if idx_script == num:
                     if "prepare_docs" in t:
                         extra = _prepare_docs_mode() + extra
+                    elif "web_grab" in t:
+                        extra = _web_grab_mode() + extra
                     last = t
                     last_extra = list(extra)
                     _, last_time = run(py, t, root, extra, history)
