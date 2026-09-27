@@ -1,6 +1,6 @@
 # Architecture
 
-> Version: 2026-09-22
+> Version: 2026-09-26
 > Companion to: ai_rules.md
 > Purpose: Prevents AI from proposing architectural changes that create hidden problems; defines RAG philosophy and core principles.
 
@@ -15,6 +15,7 @@
 - **immutable core**: `core/` changes only when physically impossible otherwise; the owner may authorize a core change (bug fix, crutch removal, improvement) — always through an explicit `CORE CHANGE REQUIRED` gate (see ai_rules §4; precedent: drift #146, #151)
 - **AI is implementation assistant, not architect**: AI proposes code only. Architecture decisions belong to the human
 - **data is sacred**: `data/raw_documents/` is the source of truth; disk formats change only with a migration (§11); indices are derived data, always rebuildable
+- **three source channels**: AI chats arrive as JSON exports, plain .md/.txt documents pass through, web pages arrive via `scripts/web_grab.py` (trafilatura, a pyproject dependency) — the project consumes clean sources, it does not compete with extraction tools (drift #213)
 - **deployment profile**: personal local assistant behind an API key — not a public internet service; target scale up to a few thousand documents (calibrates §14 and the IVF trigger)
 
 ---
@@ -84,9 +85,9 @@ raw_documents/{ns}/   _atomize/ = intent (--full)
      faiss + lexical index (per namespace)
 ```
 
-- **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66); split outputs inherit the SOURCE's mtime (drift #149) — a re-split neither re-announces files to the watcher nor moves the year ground. raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109). Chat exports arrive as JSON (SaveAI format): role, displayModel and per-message created_at are structural facts, converted into `[Speaker, date]` marker markdown by `_chat_json_to_markdown` (drift #160); .md/.txt sources are plain documents, byte-identical pass-through — the .md chat-export cleaner is retired (drift #162).
-- **Dates**: chat markers carry the message's own `created_at` date (structural in the JSON, drift #160); a message without one gets an undated marker — no honest date → no date. Indexing derives `doc_date` (YYYY-MM, last marker in the chunk) into `ChunkMetadata.custom` — no honest date → empty value, never a guess (drift #149). A date phrase in the query ("in March", owner's language data in yaml) frames the search BEFORE ranking, in both legs; undated chunks are excluded while the frame is active (drift #151).
-- **Atoms**: explicit — a chat MOVED into an _atomize/ folder (location is the intent, drift #108-#110), just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65). Chats arrive as JSON only (#162): atoms reactivation requires a JSON decision-validator rewrite (contents[].content, role=user) — the _USER_BLOCK_RE demotion is .md-era and silent on json sources.
+- **Split**: files >150 KB → ~30 KB parts; small pass as-is. Idempotent by mtime (#66); split outputs inherit the SOURCE's mtime (drift #149) — a re-split neither re-announces files to the watcher nor moves the year ground. raw_documents/ root is the default namespace; level-1 subfolders are namespaces — documents/ mirrors the tree (drift #109). Chat exports arrive as JSON (SaveAI format): role, displayModel and per-message created_at are structural facts, converted into `[Speaker, date]` marker markdown by `_chat_json_to_markdown` (drift #160) — with a file header (topic from the stem, participants legend, first-user-line fallback, drift #194); a recognized-but-empty export (0 text messages) SKIPs with a re-export hint, distinct from unknown shapes (drift #210); .md/.txt sources are plain documents, byte-identical pass-through — the .md chat-export cleaner is retired (drift #162). Web pages are NOT raw inputs: `web_grab.py` (runner menu) extracts a page to a clean .md via trafilatura before it ever reaches raw_documents/ (drift #213/#214).
+- **Dates**: chat markers carry the message's own `created_at` date (structural in the JSON, drift #160); a message without one gets an undated marker — no honest date → no date. Indexing derives `doc_date` (full YYYY-MM-DD, last marker in the chunk, drift #190; legacy YYYY-MM values still match month frames, never day frames — the chunk must state the day it is matched by) into `ChunkMetadata.custom`; a markerless chunk inherits the last seen marker's date — sliding inheritance (drift #190) — and plain docs stay undated byte-identically. A date phrase in the query frames the search BEFORE ranking, in both legs: prepositional ("in March"), digital ("2026-03"), and bare-day forms ("July 5", day digits anchor the match — a bare month name never activates, drift #188); a day requires an explicit year (drift #191); FAISS escalates the fetch (x4 → x100 → full scan) when a frame leaves the result short (drift #191); undated chunks are excluded while a frame is active (drift #151).
+- **Atoms**: explicit — a chat MOVED into an _atomize/ folder (location is the intent, drift #108-#110), just-in-time, never default — a raw year-old chat would index assistant advice as user decisions. The archivist LLM extracts facts / decisions (exact user quote required — THE DECISION TEST, #67) / recommendations / hypotheses (#65), with first-person preference statements written in the DIRECT form (drift #205). POLICY #92 (atoms OFF until 14B) is REVISED by measurement: the Gemma-4 live pilot passed the validators (drift #196), four birth-time correctors run at creation — dedup, decision demotion (against the CONVERTED source, drift #209), date grounding, foreign-script junk (drift #197) — bounded retry survives transient blips (drift #208). The prompt teaches: user's own liking/choice → direct-form Fact; assistant advice keeps its attribution, never a decision.
 - **Validate**: static read-only contract check over the atoms output (V1–V6, drift #86/#87) — the enforcement arm of the boundary below: ingestion defects surface as a run-total at creation and in full via `prepare_docs --validate`, never silently. The producer itself stays quiet (owner decision); repair is a separate owner action, never automatic.
 - **Watch**: one document = one checkpoint; a kill loses one doc, the next pass resumes (#64). One reindex path at a time (#62). The 600 s window is a pause, not a reset.
 - Past this boundary only §2.2 RAG applies: the index answers from what ingestion put in — a polluted index is an ingestion defect, not a retrieval one.
@@ -395,16 +396,24 @@ Rules that survive model changes, hardware changes, and adapter swaps.
    merge via RRF: no score normalization, no weights, no thresholds,
    no config knobs (`RRF_K` is a constant). The lexical leg queries the
    ORIGINAL user wording exactly once — never multi-query paraphrases.
+   A non-empty lexical leg (exact terms hit) SKIPS the LLM variation
+   call entirely: the semantic gap the variations bridge is absent,
+   measured 1.5–2.5 s query-to-rerank instead of 8–12 (drift #207);
+   an empty lexical leg keeps the full variation path unchanged.
    The vector store stays the inventory authority; the reranker
    remains the final judge over the fused list (drift #137, #141).
 
 8. **A date frame is a query scope, not an answer filter.** Like a
    namespace, it narrows what is searched BEFORE ranking — the LLM
    never sees the filter, only its results. Both legs filter or
-   neither does (one-leg filtering leaks foreign months through RRF);
+   neither does (one-leg filtering leaks foreign months through RFF);
    undated chunks are honestly excluded while a frame is active; the
    phrase stays in the query text; a query without a date phrase is
-   byte-identical to the pre-filter pipeline (drift #151).
+   byte-identical to the pre-filter pipeline (drift #151). Frames are
+   month- or day-level: a day requires an explicit year, bare-day
+   forms ("July 5") anchor on day digits (drift #188/#191); the FAISS
+   leg escalates its fetch when a frame leaves the result short
+   (drift #191).
 
 ## 14. Hardware Ceiling Log
 

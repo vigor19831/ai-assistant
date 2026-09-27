@@ -1,7 +1,7 @@
 # AI Rules
 
-> Version: 2026-09-22
-> Next review: 2026-12-21
+> Version: 2026-09-26
+> Next review: 2026-12-26
 
 # Project Brief
 
@@ -44,7 +44,11 @@ when a proposal conflicts with them, the requirements win.
 
 Standing facts (context for every decision): data on disk is sacred —
 `data/raw_documents/` is the source of truth, disk formats change only
-with a migration (architecture §11); target scale is up to a few thousand
+with a migration (architecture §11); raw sources arrive from three
+channels — AI chats as JSON exports, plain .md/.txt documents, and web
+pages via scripts/web_grab.py (trafilatura, a declared pyproject
+dependency; a .pyproject install is REQUIRED for the venv rebuild to
+keep web_grab working); target scale is up to a few thousand
 documents — this calibrates the IVF trigger and RAM ceilings (architecture
 §14); the deployment profile is local-first with API-key auth — a personal
 assistant, not a public internet service.
@@ -66,7 +70,8 @@ Language: all code, comments, docstrings, and documentation are in English.
 Chat with the owner is in Russian. Cyrillic is allowed as DATA only: test
 fixtures (`# noqa: RUF001` per line), language tables inside scripts
 (prepare_docs), and the owner's live config.yaml (month names,
-prepositions). `config.example.yaml` stays English; src/ production code
+prepositions). The web_grab script prints owner-facing output (like
+prepare_docs) — the CLI-print exemption applies. `config.example.yaml` stays English; src/ production code
 carries no Cyrillic (enforced by TestNoCyrillic). The rule covers `.j2`
 prompt templates too: src/ is English-only including templates (drift
 #163) — RU colloquial behavior is validated by live probes, and any
