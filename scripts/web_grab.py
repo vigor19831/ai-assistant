@@ -1,12 +1,14 @@
 """Save a web page as clean markdown via trafilatura (drift #216).
 
 The extraction itself is trafilatura's job — this wrapper only
-removes friction: URL in, clean .md in raw_documents/, with the
-empty-output guard (the Pop-OS lesson: a silent empty file must
-never reach raw_documents).
+removes friction: URL in, clean .md in the Downloads folder. The
+page is reviewed by the owner there (delete noise, edit text)
+before it is moved into data/raw_documents/ — raw_documents/ can
+hold hundreds of files, so the new arrival is easier to find and
+check in Downloads.
 
 Usage:
-  python scripts/web_grab.py <url>              # one page
+  python scripts/web_grab.py <url>               # one page
   python scripts/web_grab.py --batch queue.txt   # one URL per line
 """
 from __future__ import annotations
@@ -18,37 +20,13 @@ import sys
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RAW_DIR = _PROJECT_ROOT / "data" / "raw_documents"
+# The browser-style download folder: anchored to the user profile
+# (pathlib + home — cross-platform, no hardcoded absolute paths);
+# created when the system's own folder is named differently.
+DOWNLOAD_DIR = Path.home() / "Downloads"
 
 # trafilatura is called as a subprocess: the tool stays swappable
 # (one line to replace), never a code-level dependency.
-
-
-def _clipboard_text() -> str:
-    """Read the clipboard cross-platform (pyperclip: Linux/Win/macOS).
-
-    On Linux pyperclip shells out to xclip/xsel/wl-paste under the
-    hood — the platform package is still needed there (documented in
-    the README line below the docstring); on Windows and macOS the
-    native clipboard is used with no extra system packages.
-    """
-    try:
-        import pyperclip
-    except ImportError:
-        sys.exit(
-            "[ERROR] pyperclip is not installed: run 'pip install -e .' "
-            "(project dependencies) or 'pip install pyperclip'"
-        )
-    try:
-        text = str(pyperclip.paste())
-    except pyperclip.PyperclipException as exc:
-        sys.exit(
-            f"[ERROR] clipboard unavailable: {exc}\n"
-            "        (Linux needs the xclip or wl-clipboard system package)"
-        )
-    if not text.strip():
-        sys.exit("[ERROR] the clipboard is empty — copy the URL first")
-    return text.strip()
 
 
 def _slugify(title: str) -> str:
@@ -59,7 +37,7 @@ def _slugify(title: str) -> str:
 
 
 def _grab(url: str) -> Path | None:
-    """Fetch one URL -> raw_documents/<name>.md. None on failure."""
+    """Fetch one URL -> Downloads/<name>.md. None on failure."""
     print(f"[WEB] {url}")
     result = subprocess.run(
         ["trafilatura", "-u", url, "--markdown"],
@@ -75,20 +53,20 @@ def _grab(url: str) -> Path | None:
         return None
     title_match = re.search(r"^# (.+)$", result.stdout, flags=re.MULTILINE)
     title = title_match.group(1).strip() if title_match else url.split("/")[-1][:40]
-    target = RAW_DIR / f"{_slugify(title)}.md"
+    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    target = DOWNLOAD_DIR / f"{_slugify(title)}.md"
     counter = 2
     while target.exists():  # same-stem collision: suffix, never overwrite
-        target = RAW_DIR / f"{_slugify(title)}-{counter}.md"
+        target = DOWNLOAD_DIR / f"{_slugify(title)}-{counter}.md"
         counter += 1
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
     target.write_text(result.stdout, encoding="utf-8")
-    print(f"[DONE] {target.name}")
+    print(f"[DONE] {target}")
     return target
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("url", help="Page URL to save")
+    parser.add_argument("url", nargs="?", help="Page URL to save")
     parser.add_argument(
         "--batch", help="File with one URL per line (comments with #)"
     )
@@ -100,15 +78,18 @@ def main() -> int:
             for line in Path(args.batch).read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.startswith("#")
         ]
-    else:
+    elif args.url:
         urls = [args.url]
+    else:
+        parser.error("provide a URL or --batch FILE")
 
     saved = 0
     for url in urls:
         if _grab(url):
             saved += 1
-    print(f"\n[SUMMARY] {saved}/{len(urls)} page(s) saved to raw_documents/")
-    print("[NEXT] run prepare_docs (runner menu [10], mode 1) to index them")
+    print(f"\n[SUMMARY] {saved}/{len(urls)} page(s) saved to Downloads/")
+    print("[NEXT] review the file(s) (delete noise), then move them into")
+    print("       data/raw_documents/ and run prepare_docs")
     return 0 if saved == len(urls) else 1
 
 

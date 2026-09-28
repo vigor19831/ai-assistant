@@ -1,18 +1,26 @@
 """Backup script — copies non-rebuildable data out of the project.
 
-Backs up (everything else is rebuildable or versioned):
-- config.yaml          the live config: language tables, paths, models
-- data/raw_documents/  the corpus — the source of truth
-- storage db           chat history — permanent-loss data
+Backs up (an explicit owner list, nothing discovered):
+- data/raw_documents/         the corpus — the source of truth
+- data/llm_profiles/          model profiles / settings
+- data/split_context_build.sh the owner's context build helper
+- storage db                  chat history — permanent-loss data
 
-Skips on purpose: indices (derived, rebuilt by reindex), code and
-docs (git is their backup).
+The two scripts live in data/ on purpose: data/ is gitignored and
+they are personal owner assets, not code for other users — the
+backup keeps them together with the rest.
 
-The target folder is owner data in config.yaml (backup.target_dir);
-each run creates a timestamped subfolder, old backups are NEVER
-deleted automatically. Every copy is verified after writing (file
-count, byte count, SQLite integrity_check, YAML re-parse); any
-mismatch exits 1. Run via run_scripts or directly:
+Skipped on purpose: indices and data/documents/ (derived, rebuilt
+by reindex), code and docs (git is their backup), config.yaml (keep
+a copy yourself if it matters).
+
+The target folder is owner data in config.yaml (backup.target_dir,
+relative paths anchor to the project root); each run creates a
+timestamped subfolder, old backups are NEVER deleted automatically.
+Every copy is verified after writing (file/byte counts, SQLite
+integrity_check); any mismatch exits 1. The live SQLite db is
+never file-copied (WAL): the backup API snapshots it. Run via
+run_scripts or directly:
 python scripts/backup.py
 """
 
@@ -25,11 +33,20 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
-
 from ai_assistant.core.config import AppConfig, load_config
 
 _ROOT = Path(__file__).resolve().parent.parent
+
+# The backup scope: an explicit list (explicit over implicit — no
+# directory scan decides what is sacred). A missing item is a WARN,
+# never a silent absence. The chat userscripts (recorder, scout)
+# live in scripts/ — tracked by git, shared with other users; the
+# backup never duplicates what git already keeps.
+_BACKUP_ITEMS = (
+    "raw_documents",           # the corpus — the source of truth
+    "llm_profiles",            # model profiles / settings
+    "split_context_build.sh",  # the owner's context build helper
+)
 
 
 def _resolve(path_str: str) -> Path:
@@ -42,6 +59,28 @@ def _tree_stats(path: Path) -> tuple[int, int]:
     """Return (file_count, total_bytes) under path."""
     files = [f for f in path.rglob("*") if f.is_file()]
     return len(files), sum(f.stat().st_size for f in files)
+
+
+def _copy_item(src: Path, dst: Path) -> bool:
+    """Copy one backup item (a tree or a single file) and verify it."""
+    if src.is_dir():
+        shutil.copytree(src, dst)
+        src_files, src_bytes = _tree_stats(src)
+        dst_files, dst_bytes = _tree_stats(dst)
+        if (dst_files, dst_bytes) != (src_files, src_bytes):
+            print(
+                f"FAIL: {src.name} mismatch: "
+                f"{dst_files}/{src_files} files, {dst_bytes}/{src_bytes} bytes"
+            )
+            return False
+        print(f"OK   {src.name}: {dst_files} files, {dst_bytes} bytes")
+        return True
+    shutil.copy2(src, dst)
+    if dst.stat().st_size != src.stat().st_size:
+        print(f"FAIL: {src.name} size mismatch")
+        return False
+    print(f"OK   {src.name}: {dst.stat().st_size} bytes")
+    return True
 
 
 def _backup_db(src: Path, dst: Path) -> None:
@@ -99,41 +138,26 @@ def main() -> int:
         print(f"FAIL: cannot create {backup_dir}: {exc}")
         return 1
 
-    raw_docs = _ROOT / "data" / "raw_documents"
+    # Resolved here (not a module constant): tests monkeypatch _ROOT,
+    # and the data paths must follow the patched root.
+    data_dir = _ROOT / "data"
     db_path = _resolve(cfg.storage.db_path)
     ok = True
     # Skipped assets must reach the manifest: "result: OK" alone hid
     # a backup without the corpus (the source of truth).
     skipped: list[str] = []
 
-    # 1. The config itself
-    config_copy = backup_dir / config_path.name
-    shutil.copy2(config_path, config_copy)
-    parsed = yaml.safe_load(config_copy.read_text(encoding="utf-8"))
-    if not isinstance(parsed, dict):
-        print("FAIL: the config copy does not parse as YAML")
-        ok = False
-    else:
-        print(f"OK   config: {config_copy.name} re-parses")
-
-    # 2. The corpus
-    if raw_docs.exists():
-        shutil.copytree(raw_docs, backup_dir / "raw_documents")
-        src_files, src_bytes = _tree_stats(raw_docs)
-        dst_files, dst_bytes = _tree_stats(backup_dir / "raw_documents")
-        if (dst_files, dst_bytes) != (src_files, src_bytes):
-            print(
-                f"FAIL: raw_documents mismatch: "
-                f"{dst_files}/{src_files} files, {dst_bytes}/{src_bytes} bytes"
-            )
-            ok = False
+    # 1. The explicit item list
+    for item in _BACKUP_ITEMS:
+        src = data_dir / item
+        if src.exists():
+            if not _copy_item(src, backup_dir / item):
+                ok = False
         else:
-            print(f"OK   raw_documents: {dst_files} files, {dst_bytes} bytes")
-    else:
-        print(f"WARN raw_documents not found ({raw_docs}) — skipped")
-        skipped.append("raw_documents")
+            print(f"WARN {item} not found ({src}) — skipped")
+            skipped.append(item)
 
-    # 3. Chat history
+    # 2. Chat history
     if db_path.exists():
         db_copy = backup_dir / db_path.name
         _backup_db(db_path, db_copy)
@@ -151,8 +175,7 @@ def main() -> int:
     manifest.write_text(
         f"backup: {timestamp}\n"
         f"source_root: {_ROOT}\n"
-        f"config: {config_path}\n"
-        f"raw_documents: {raw_docs}\n"
+        f"items: {', '.join(_BACKUP_ITEMS)}\n"
         f"storage_db: {db_path}\n"
         f"result: {'OK' if ok else 'FAILED'}\n"
         f"skipped: {', '.join(skipped) if skipped else 'none'}\n",

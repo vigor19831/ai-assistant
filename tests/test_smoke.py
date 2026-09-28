@@ -868,11 +868,17 @@ _BACKUP_SPEC.loader.exec_module(backup)
 
 
 def _make_backup_project(tmp_path: Path) -> Path:
-    """Miniature project: corpus file, storage db with one row."""
+    """Miniature project: all three backup items plus a storage db."""
     project = tmp_path / "project"
     docs = project / "data" / "raw_documents"
     docs.mkdir(parents=True)
     (docs / "note.md").write_text("alpha beta", encoding="utf-8")
+    profiles = project / "data" / "llm_profiles"
+    profiles.mkdir()
+    (profiles / "gemma.yaml").write_text("model: gemma\n", encoding="utf-8")
+    (project / "data" / "split_context_build.sh").write_text(
+        "#!/bin/bash\n", encoding="utf-8"
+    )
     conn = sqlite3.connect(str(project / "data" / "storage.db"))
     conn.execute(
         "CREATE TABLE chat_messages (id INTEGER PRIMARY KEY, role TEXT, content TEXT)"
@@ -897,7 +903,7 @@ class TestBackupScript:
     """Backup tooling: the restore-critical paths, end to end on tmp."""
 
     def test_full_backup_verified(self, tmp_path, monkeypatch):
-        """A full run copies config, corpus, db — each copy verifies."""
+        """A full run copies the item list + db — every copy verifies."""
         project = _make_backup_project(tmp_path)
         target = tmp_path / "backups"
         _write_backup_config(project, target)
@@ -910,14 +916,21 @@ class TestBackupScript:
         folders = list(target.glob("backup_*"))
         assert len(folders) == 1
         snapshot = folders[0]
-        assert (snapshot / "config.yaml").exists()
         note = snapshot / "raw_documents" / "note.md"
         assert note.read_text(encoding="utf-8") == "alpha beta"
+        assert (
+            snapshot / "llm_profiles" / "gemma.yaml"
+        ).read_text(encoding="utf-8") == "model: gemma\n"
+        assert (snapshot / "split_context_build.sh").exists()
         conn = sqlite3.connect(str(snapshot / "storage.db"))
         rows = conn.execute("SELECT role, content FROM chat_messages").fetchall()
         conn.close()
         assert rows == [("user", "hello")]
-        assert (snapshot / "manifest.txt").exists()
+        # The config is NOT backed up anymore — the contract, pinned.
+        assert not (snapshot / "config.yaml").exists()
+        manifest = (snapshot / "manifest.txt").read_text(encoding="utf-8")
+        assert "result: OK" in manifest
+        assert "skipped: none" in manifest
 
     def test_missing_section_fails_loudly(self, tmp_path, monkeypatch, capsys):
         """No backup section: exit 1 with the exact yaml snippet."""

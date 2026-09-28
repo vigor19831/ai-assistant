@@ -9,6 +9,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **Bilingual refusals**: an unanswered question closes with `rag.refusal_phrase_local` in your language (empty = English-only) — same contract, empty sources, matched on both entry paths
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
 - **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" or "what did we discuss on July 5, 2026" — the search frame narrows to that month or day, in both retrieval legs, before ranking (a day needs an explicit year; language data lives in your yaml)
+- **Chat capture from any AI site**: a browser userscript (`scripts/chat_recorder.user.js`, Violentmonkey) exports chats as SaveAI JSON straight from the browser — one button, no per-site extensions; a second userscript (`scripts/chat_scout.user.js`) diagnoses sites whose format is unknown
 - **Measured quality**: the bench is 16 contract tests (must pass on any hardware) + 35 capability tests (quality scales with LLM size); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
 - **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one documented chat-condensation flake, see docs)
 - **10-year maintainability**: boring code, explicit architecture, no magic
@@ -52,8 +53,8 @@ Always start and stop the stack via `run_servers.py`: it pins the working direct
 **Three source channels** — originals live in `data/raw_documents/` (root = default namespace, subfolders = namespaces; never edit `data/documents/`, the mirror — reconcile deletes hand-placed files):
 
 - `.md` / `.txt` — plain documents, pass through as-is;
-- AI chats as `.json` exports — converted to `[Speaker, date]` markdown automatically;
-- web pages — via `python scripts/web_grab.py "URL"` (runner menu [12]): trafilatura extracts a clean `.md` (the project consumes clean sources, it does not compete with extraction tools).
+- AI chats as `.json` exports — converted to `[Speaker, date]` markdown automatically. Two independent sources produce them: the SaveAI browser extension, or the project's own recorder — install Violentmonkey, create a script from `scripts/chat_recorder.user.js`, open the chat, F5, scroll the history up, click the dark "E" button. When a site's format is unknown the button downloads the raw response — support grows one key-line per site;
+- web pages — via `python scripts/web_grab.py "URL"` (runner menu [12]): trafilatura extracts a clean `.md` into your Downloads folder — review it there, then move it into `raw_documents/` (the project consumes clean sources, it does not compete with extraction tools).
 
 `python scripts/prepare_docs.py` (runner menu [10]): >150 KB files split to ~30 KB parts, everything auto-indexed within 60 s. GPU-indexing profile: `config.example.yaml`.
 
@@ -170,7 +171,7 @@ ai-assistant/
 3. `vendor/models/*.gguf` — a small-class LLM in IQ4_XS quantization (~4.5GB for a 7B), embedder (bge-m3 ~1.2GB), reranker (bge-reranker-v2-m3 ~0.5GB).
 4. `data/raw_documents/` — your `.md` / `.txt` files (see Quick Start).
 
-**Backups**: the git repo stores only code. Your data — `data/` (chat history, indices, documents) and `config.yaml` — is not in it. Copy both regularly; a dead disk is the one failure this project cannot recover from.
+**Backups**: the git repo stores code (the userscripts included). Your data is not in it: `python scripts/backup.py` copies the non-rebuildable assets — the corpus (`data/raw_documents/`), model profiles (`data/llm_profiles/`), owner scripts, and the chat-history db — into a folder outside the project (`backup.target_dir` in config.yaml), verifies every copy, and never auto-deletes old snapshots. Indices and the `documents/` mirror are derived — a reindex rebuilds them. Copy `config.yaml` yourself. A dead disk is the one failure this project cannot recover from.
 
 ---
 

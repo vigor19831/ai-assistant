@@ -303,6 +303,11 @@ def main() -> int:
                 _, last_time = run(py, last, root, list(last_extra), history)
                 continue
 
+            if not choice:
+                # Empty Enter: redraw the menu, never crash (the old
+                # behavior was IndexError on shlex.split("")[0]).
+                continue
+
             try:
                 # Windows: backslashes in path args would be eaten by
                 # shlex's POSIX mode — normalize to forward slashes
