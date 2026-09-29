@@ -36,7 +36,11 @@ from ai_assistant.core.domain.messages import (
     SystemMessage,
     UserMessage,
 )
-from ai_assistant.core.domain.pipeline import PipelineConfig, PipelineData
+from ai_assistant.core.domain.pipeline import (
+    NAMESPACE_ALL,
+    PipelineConfig,
+    PipelineData,
+)
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.metrics import increment_counter
 from ai_assistant.core.ports.tokenizer import ITokenizer
@@ -162,27 +166,41 @@ async def _call_rerank(
     return await reranker.rerank(query, list(chunks), top_k=top_k)
 
 
+def _rrf_fuse_many(
+    lists: list[list[Chunk]],
+    limit: int | None,
+) -> list[Chunk]:
+    """Reciprocal Rank Fusion over N ranked candidate lists.
+
+    Rank-only by design (architecture 13.1): no score normalization,
+    no thresholds -- each list contributes 1/(RRF_K + rank), so a chunk
+    found by several lists outranks a chunk found by one. Ties break by
+    chunk id ascending (deterministic across runs: benchmark stability,
+    architecture 14). limit=None keeps every candidate: a fan-out pool
+    must not be pre-cut by a single-namespace budget -- the reranker
+    decides the final top_k (Retrieval is Recall, architecture 2.2).
+    """
+    scores: dict[str, float] = {}
+    by_id: dict[str, Chunk] = {}
+    for leg in lists:
+        for rank, chunk in enumerate(leg, start=1):
+            # later lists overwrite on id collisions; in practice the
+            # same id means the same chunk (single-source namespaces)
+            by_id[chunk.id] = chunk
+            scores[chunk.id] = scores.get(chunk.id, 0.0) + 1.0 / (RRF_K + rank)
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+    if limit is None:
+        return [by_id[chunk_id] for chunk_id, _ in ranked]
+    return [by_id[chunk_id] for chunk_id, _ in ranked[:limit]]
+
+
 def _rrf_fuse(
     dense: list[Chunk],
     lexical: list[Chunk],
     limit: int,
 ) -> list[Chunk]:
-    """Reciprocal Rank Fusion of the dense and lexical candidate lists.
-
-    Rank-only by design (architecture 13.1): no score normalization,
-    no thresholds -- each leg contributes 1/(RRF_K + rank), so a chunk
-    found by both legs outranks a chunk found by one. Ties break by
-    chunk id ascending (deterministic across runs: benchmark stability,
-    architecture 14).
-    """
-    scores: dict[str, float] = {}
-    by_id: dict[str, Chunk] = {}
-    for legs in (dense, lexical):
-        for rank, chunk in enumerate(legs, start=1):
-            by_id[chunk.id] = chunk  # dense wins ties on id collisions
-            scores[chunk.id] = scores.get(chunk.id, 0.0) + 1.0 / (RRF_K + rank)
-    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
-    return [by_id[chunk_id] for chunk_id, _ in ranked[:limit]]
+    """Two-leg RRF (dense + lexical): see _rrf_fuse_many."""
+    return _rrf_fuse_many([dense, lexical], limit)
 
 
 async def _hybrid_fetch(
@@ -222,6 +240,24 @@ async def _hybrid_fetch(
                 extra={"namespace": namespace},
             )
     return dense, lexical
+
+
+async def _resolve_search_namespaces(
+    vector_store: IVectorStore, namespace: str
+) -> list[str]:
+    """Namespaces to search: [namespace] normally; for NAMESPACE_ALL,
+    every namespace the store lists (sorted -- deterministic candidate
+    order regardless of adapter listing order).
+
+    The sentinel resolves HERE, in the steps, so both entry paths (RAG
+    API and the chat [a] prefix) share one implementation with zero
+    feature-layer changes. An empty listing returns [] -- an honest
+    no-evidence refusal downstream, never a silent fallback.
+    """
+    if namespace != NAMESPACE_ALL:
+        return [namespace]
+    listed = await vector_store.list_namespaces(vector_store.index_path)
+    return sorted(listed)
 
 
 @step("condense_question", requires={"llm", "query"})
@@ -368,16 +404,40 @@ async def retrieve(data: PipelineData) -> PipelineData:
         fetch_k = cfg.top_k * multiplier
         namespace = cfg.namespace
         query_text = data.query.text if data.query is not None else ""
-        dense, lexical = await _hybrid_fetch(
-            vector_store,
-            data.lexical_index,
-            embedding,
-            query_text,
-            fetch_k,
-            namespace,
-            cfg.date_filter,
-        )
-        chunks = _rrf_fuse(dense, lexical, fetch_k)
+        if namespace == NAMESPACE_ALL:
+            namespaces = await _resolve_search_namespaces(vector_store, namespace)
+            _logger.info(
+                f"rag.fanout trace={data.trace_id} "
+                f"namespaces={','.join(namespaces)}"
+            )
+            dense_lists: list[list[Chunk]] = []
+            lexical_lists: list[list[Chunk]] = []
+            for ns in namespaces:
+                d_ns, l_ns = await _hybrid_fetch(
+                    vector_store,
+                    data.lexical_index,
+                    embedding,
+                    query_text,
+                    fetch_k,
+                    ns,
+                    cfg.date_filter,
+                )
+                dense_lists.append(d_ns)
+                lexical_lists.append(l_ns)
+            dense = [c for leg in dense_lists for c in leg]
+            lexical = [c for leg in lexical_lists for c in leg]
+            chunks = _rrf_fuse_many([*dense_lists, *lexical_lists], None)
+        else:
+            dense, lexical = await _hybrid_fetch(
+                vector_store,
+                data.lexical_index,
+                embedding,
+                query_text,
+                fetch_k,
+                namespace,
+                cfg.date_filter,
+            )
+            chunks = _rrf_fuse(dense, lexical, fetch_k)
         increment_counter(
             "ai_assistant_rag_retrieve_total",
             labels={"namespace": namespace},
@@ -825,38 +885,43 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
     embeddings = await _call_embed(data.embedder, data.query.text)
     if not embeddings:
         return data.add_error(INTERNAL_SERVER_ERROR)
-    original_chunks = await _call_search(
-        data.vector_store,
-        embeddings[0],
-        fetch_k,
-        cfg.namespace,
-        cfg.date_filter,
-    )
-    for c in original_chunks:
-        seen.add(c.id)
-        combined.append(c)
+    namespaces = await _resolve_search_namespaces(data.vector_store, cfg.namespace)
+    for ns in namespaces:
+        original_chunks = await _call_search(
+            data.vector_store,
+            embeddings[0],
+            fetch_k,
+            ns,
+            cfg.date_filter,
+        )
+        for c in original_chunks:
+            seen.add(c.id)
+            combined.append(c)
 
-    lexical_leg: list[Chunk] = []
+    lexical_legs: list[list[Chunk]] = []
     if data.lexical_index is not None and data.query.text:
-        try:
-            lexical_leg = await data.lexical_index.search(
-                data.query.text,
-                top_k=fetch_k,
-                namespace=cfg.namespace,
-                date_filter=cfg.date_filter,
-            )
-        except Exception:
-            _logger.exception(
-                "lexical search failed, continuing dense-only",
-                extra={"namespace": cfg.namespace},
-            )
+        for ns in namespaces:
+            try:
+                leg = await data.lexical_index.search(
+                    data.query.text,
+                    top_k=fetch_k,
+                    namespace=ns,
+                    date_filter=cfg.date_filter,
+                )
+                lexical_legs.append(leg)
+            except Exception:
+                _logger.exception(
+                    "lexical search failed, continuing dense-only",
+                    extra={"namespace": ns},
+                )
+    lexical_hit = any(lexical_legs)
 
     variations: list[str] = []
-    if lexical_leg:
+    if lexical_hit:
         # Exact terms hit (drift #207): no semantic gap to bridge.
         _logger.info(
             f"rag.multi_query trace={data.trace_id} "
-            f"skipped: lexical leg hit ({len(lexical_leg)}), "
+            f"skipped: lexical leg hit ({sum(len(leg) for leg in lexical_legs)}), "
             "variations not generated"
         )
     else:
@@ -900,17 +965,18 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
                 var_embeddings = await _call_embed(data.embedder, q)
                 if not var_embeddings:
                     continue
-                chunks = await _call_search(
-                    data.vector_store,
-                    var_embeddings[0],
-                    fetch_k,
-                    cfg.namespace,
-                    cfg.date_filter,
-                )
-                for c in chunks:
-                    if c.id not in seen:
-                        seen.add(c.id)
-                        combined.append(c)
+                for ns in namespaces:
+                    chunks = await _call_search(
+                        data.vector_store,
+                        var_embeddings[0],
+                        fetch_k,
+                        ns,
+                        cfg.date_filter,
+                    )
+                    for c in chunks:
+                        if c.id not in seen:
+                            seen.add(c.id)
+                            combined.append(c)
             except Exception as exc:
                 _logger.warning(
                     "multi_query retrieve failed for variation",
@@ -922,8 +988,11 @@ async def multi_query_retrieve(data: PipelineData) -> PipelineData:
         labels={"namespace": cfg.namespace, "variations": str(1 + len(variations))},
     )
 
-    if lexical_leg:
-        combined = _rrf_fuse(combined, lexical_leg, fetch_k)
+    if lexical_hit:
+        if len(namespaces) > 1:
+            combined = _rrf_fuse_many([combined, *lexical_legs], None)
+        else:
+            combined = _rrf_fuse(combined, lexical_legs[0], fetch_k)
 
     _logger.debug(
         "multi_query_retrieve done",

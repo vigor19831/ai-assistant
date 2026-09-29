@@ -20,7 +20,21 @@ if TYPE_CHECKING:
     from .documents import Chunk
     from .messages import AssistantMessage, UserMessage
 
-__all__ = ["DateFilter", "PipelineConfig", "PipelineData", "ReindexStatusEntry"]
+__all__ = [
+    "NAMESPACE_ALL",
+    "DateFilter",
+    "PipelineConfig",
+    "PipelineData",
+    "ReindexStatusEntry",
+]
+
+# Reserved namespace value (all-namespaces fan-out): when
+# PipelineConfig.namespace == NAMESPACE_ALL, the retrieval steps
+# search every namespace the vector store lists and fuse the
+# candidates into one pool for the reranker. Eternal structural
+# constant: part of the namespace contract; a real source folder
+# must never be named "all".
+NAMESPACE_ALL: str = "all"
 
 
 @dataclass(frozen=True, slots=True)

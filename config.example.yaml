@@ -391,6 +391,19 @@ namespaces:
     prefix: "000"
     chunk_size: 512
     prompt: rag_strict
+  # Reserved all-namespaces fan-out (drift #224): "all" is NOT a
+  # real folder — never create data/raw_documents/all/. With a prefix
+  # declared, "[a] your question" searches EVERY namespace the store
+  # lists (bench/test artifacts included, if present) and fuses the
+  # candidates into one pool for the reranker; regular [d]/[w]
+  # queries are unaffected. The API accepts namespace "all" directly
+  # with or without this entry — the yaml entry only adds the [a]
+  # chat prefix. Removing the entry disables [a]; the reserved name
+  # stays reserved either way.
+  all:
+    prefix: a
+    chunk_size: 512
+    prompt: rag_strict
 
 # =============================================================================
 # CHUNKER — choose between simple and recursive
