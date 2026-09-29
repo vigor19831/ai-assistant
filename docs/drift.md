@@ -254,6 +254,7 @@ table deduped); 2026-09-15 (round 5); 2026-09-17 (round 6: #129–#141).
 | 219 | 2026-09-28 | Backup scope: explicit owner list (`raw_documents`, `llm_profiles`, `split_context_build.sh`) + storage db via backup-API; the userscripts live in scripts/ (git is their backup); missing items WARN into the manifest |
 | 220 | 2026-09-28 | `run_scripts` empty-Enter crash fixed — IndexError on `shlex.split("")[0]`; empty Enter now redraws the menu |
 | 221 | 2026-09-28 | Coverage lessons: one key-line per new site format (`content_blocks` Z.ai, fragments/`inserted_at` DeepSeek, createTime Grok, blocks Kimi); sub-second pair ordering needs second-granularity sorting; alert() text is uncopyable — diagnostics must download files |
+| 222 | 2026-09-29 | `check_rag` chat-no-prefix matcher accepts full-form refusals ("do not know", "do not have access") — the morning single-red was an honest refusal in an unlisted form; the #97 re-run confirmed the flake class before the fix; instrument defect proven independently under the bench discipline (§13.4) |
 
 ## FUTURE RISKS
 

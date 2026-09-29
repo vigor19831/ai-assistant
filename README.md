@@ -10,7 +10,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate
 - **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" or "what did we discuss on July 5, 2026" — the search frame narrows to that month or day, in both retrieval legs, before ranking (a day needs an explicit year; language data lives in your yaml)
 - **Chat capture from any AI site**: a browser userscript (`scripts/chat_recorder.user.js`, Violentmonkey) exports chats as SaveAI JSON straight from the browser — one button, no per-site extensions; a second userscript (`scripts/chat_scout.user.js`) diagnoses sites whose format is unknown
-- **Measured quality**: the bench is 16 contract tests (must pass on any hardware) + 35 capability tests (quality scales with LLM size); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
+- **Measured quality**: the bench is 17 contract tests (must pass on any hardware) + 39 future-capability tests (quality scales with LLM size, 4 known limitations today); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
 - **Deterministic**: temperature 0.0 by default — verdicts reproduce byte-identically (one documented chat-condensation flake, see docs)
 - **10-year maintainability**: boring code, explicit architecture, no magic
 
@@ -23,7 +23,7 @@ Production-grade offline RAG framework for solo maintainers.
 
 Pipeline: retrieve (hybrid: dense + BM25 by RRF; multi-query variations, skipped when exact terms already hit — measured 1.5–2.5 s to rerank; optional HyDE; date phrases frame the search before ranking) → rerank (rank-only) → build context (token-budget aware; each block titled with its source file) → generate (strict RAG: `Sources` block, conflict reporting, honest refusal). Chunking: simple fixed-size default, recursive as a one-line switch. Condensation handles multi-turn and never injects a topic into an unnamed question.
 
-Quality is measured, not assumed: `scripts/check_rag.py` — 56 cases (17 contract tests that must pass on any hardware, 39 capability tests whose quality depends on LLM size, chat e2e; among them premise-trap and preference probes — leading indicators for a model upgrade). The benchmark is the single source of truth; canon and the hardware method live in `docs/architecture.md` §14; known limitations in `docs/drift.md`.
+Quality is measured, not assumed: `scripts/check_rag.py` — 56 cases (17 contract tests that must pass on any hardware, 39 future-capability tests whose quality depends on LLM size — chat e2e and premise/preference probes among them, leading indicators for a model upgrade). The benchmark is the single source of truth; canon and the hardware method live in `docs/architecture.md` §14; known limitations in `docs/drift.md`.
 
 ---
 
@@ -179,7 +179,7 @@ ai-assistant/
 
 - `docs/ai_rules.md` — AI development constraints
 - `docs/architecture.md` — architectural strategy, RAG philosophy, Hardware Ceiling Log
-- `docs/drift.md` — drift log + FUTURE RISKS
+- `docs/drift.md` — drift log + FUTURE RISKS + OWNER IDEAS (parked improvements, with take-when triggers)
 
 ---
 

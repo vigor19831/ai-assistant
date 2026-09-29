@@ -1123,6 +1123,7 @@ TEST_CASES: list[TestCase] = [
         answer_must_contain_any=(
             "don't know", "not sure", "no information",
             "don't have access", "cannot provide", "I don't have",
+            "do not know", "do not have access",
         ),
         expect_sources=False,
         require_faithfulness=False,
