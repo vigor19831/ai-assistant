@@ -415,6 +415,13 @@ Rules that survive model changes, hardware changes, and adapter swaps.
    leg escalates its fetch when a frame leaves the result short
    (drift #191).
 
+9. **An all-namespaces query is a query scope, not a namespace.** The
+   reserved value `all` (`NAMESPACE_ALL`) makes retrieval fan out over
+   every namespace the store lists and fuse candidates into ONE
+   untruncated pool for the reranker; regular namespaces are
+   unaffected (byte-identical), the sentinel resolves inside the
+   pipeline steps, and a real folder must never be named `all`.
+
 ## 14. Hardware Ceiling Log
 
 > Full per-run history (2026-07-13 → 2026-09-15): git history of this
