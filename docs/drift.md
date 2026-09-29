@@ -255,6 +255,7 @@ table deduped); 2026-09-15 (round 5); 2026-09-17 (round 6: #129–#141).
 | 220 | 2026-09-28 | `run_scripts` empty-Enter crash fixed — IndexError on `shlex.split("")[0]`; empty Enter now redraws the menu |
 | 221 | 2026-09-28 | Coverage lessons: one key-line per new site format (`content_blocks` Z.ai, fragments/`inserted_at` DeepSeek, createTime Grok, blocks Kimi); sub-second pair ordering needs second-granularity sorting; alert() text is uncopyable — diagnostics must download files |
 | 222 | 2026-09-29 | `check_rag` chat-no-prefix matcher accepts full-form refusals ("do not know", "do not have access") — the morning single-red was an honest refusal in an unlisted form; the #97 re-run confirmed the flake class before the fix; instrument defect proven independently under the bench discipline (§13.4) |
+| 223 | 2026-09-29 | Test-isolation litter: pytest/`check_all` wrote `data/indices/{default,test}` — two writers closed (`tests/test_api.py`: `_make_minimal_config` hardcoded a live path; the stateful machine's store fell back to the config-default `index_path`, `delete()` auto-persists per contract). Method: `sys.addaudithook` disk-write tracer naming the test + stack. Rules: single-file bisects miss order-dependent writers — the isolation census must run the full suite; the empty `test/` dir is NOT a phantom-empty-namespace manifestation (that mechanism persists an empty store FILE; the dir held none) — a mkdir-by-config-path leftover, call site untraced (fix landed first). |
 
 ## FUTURE RISKS
 

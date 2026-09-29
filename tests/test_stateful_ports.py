@@ -16,6 +16,7 @@ import asyncio
 import concurrent.futures
 import contextlib
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -90,10 +91,17 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
         self._store: IVectorStore | None = None
         self._expected: dict[str, set[str]] = {}  # namespace -> chunk_ids
         self._dim: int = 384
+        # Isolated index dir: delete() auto-persists the store to
+        # index_path (see test_vector_store_delete_auto_persists), and
+        # the config default points into the live ./data tree.
+        # Per-instance dir, removed in teardown (chat machine idiom).
+        self._index_dir: str = tempfile.mkdtemp(prefix="vector_stateful_")
 
     def _init_store(self) -> IVectorStore:
-        """Create a fresh MemoryVectorStore."""
-        return MemoryVectorStore(VectorStoreConfigData(dim=self._dim))
+        """Create a fresh MemoryVectorStore with an isolated index path."""
+        return MemoryVectorStore(
+            VectorStoreConfigData(dim=self._dim, index_path=self._index_dir)
+        )
 
     @rule()
     def init(self) -> None:
@@ -135,6 +143,7 @@ class VectorStoreStateMachine(RuleBasedStateMachine):
             # Best-effort cleanup; do not let teardown fail
             with contextlib.suppress(Exception):
                 _run_async(self._store.shutdown())
+        shutil.rmtree(self._index_dir, ignore_errors=True)
         super().teardown()
 
     @invariant()

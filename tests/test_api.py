@@ -8,7 +8,9 @@ Then: all contracts, boundaries, and error paths are verified.
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import threading
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -95,8 +97,14 @@ def mock_request():
     return req
 
 
-def _make_minimal_config() -> AppConfig:
-    """Return a fresh AppConfig with test-safe defaults."""
+def _make_minimal_config(root: Path | None = None) -> AppConfig:
+    """Return a fresh AppConfig with test-safe defaults.
+
+    Disk paths sit under root (tmp_path in callers); None -> a fresh
+    OS temp dir. Never the live ./data tree (check_all litter, 2026-09-29).
+    """
+    if root is None:
+        root = Path(tempfile.mkdtemp(prefix="test_api_"))
     return AppConfig.model_validate(
         {
             "llm": {
@@ -111,7 +119,7 @@ def _make_minimal_config() -> AppConfig:
                 "provider": "memory",
                 "dim": 384,
                 "metric": "l2",
-                "index_path": "./data/indices/test",
+                "index_path": str(root / "indices"),
             },
             "chunker": {"provider": "simple", "chunk_size": 512, "chunk_overlap": 50},
             "storage": {"provider": "sqlite", "db_path": ":memory:"},
