@@ -7,7 +7,8 @@ Production-grade offline RAG framework for solo maintainers.
 - **Offline-first**: works without cloud; your data never leaves your machine
 - **Multilingual**: bge-m3 embedder; quality measured on Russian and English corpora — other scripts not yet measured
 - **Bilingual refusals**: an unanswered question closes with `rag.refusal_phrase_local` in your language (empty = English-only) — same contract, empty sources, matched on both entry paths
-- **Namespace isolation**: separate knowledge bases that never cross-contaminate
+- **Namespace isolation**: separate knowledge bases that never cross-contaminate; an `[all]` query fans the search out over every namespace at once
+- **Namespace picker in the chat UI**: a dropdown over the input field lists your yaml namespaces (with a filter box) and inserts the `[prefix]` for you — hundreds of namespaces stay two keystrokes away
 - **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" or "what did we discuss on July 5, 2026" — the search frame narrows to that month or day, in both retrieval legs, before ranking (a day needs an explicit year; language data lives in your yaml)
 - **Chat capture from any AI site**: a browser userscript (`scripts/chat_recorder.user.js`, Violentmonkey) exports chats as SaveAI JSON straight from the browser — one button, no per-site extensions; a second userscript (`scripts/chat_scout.user.js`) diagnoses sites whose format is unknown
 - **Measured quality**: the bench is 17 contract tests (must pass on any hardware) + 39 future-capability tests (quality scales with LLM size, 4 known limitations today); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
@@ -60,7 +61,7 @@ Always start and stop the stack via `run_servers.py`: it pins the working direct
 
 **Chat atomization** (optional): MOVE a chat into `_atomize/` and run mode [2] — the archivist distills facts / decisions (with the exact user quote) / recommendations / hypotheses; four birth-time correctors guard against junk and advice-as-decision. Audit: mode [3] (`--validate`). Atom quality is model-bound: validated live on Gemma-4-E4B (a 4–8B class); a model swap requires re-validating before trusting atoms on a corpus.
 
-**Queries**: `[prefix] question` routes to a namespace (`[d]` = default; prefixes are configured in `namespaces:`). Without a prefix the chat is plain conversation — RAG is strictly opt-in.
+**Queries**: `[prefix] question` routes to a namespace (`[default]`, `[work]` — full names, configured in `namespaces:`); `[all]` searches every namespace at once, candidates fused into one pool for the reranker. The chat UI's namespace picker inserts the prefix for you. Without a prefix the chat is plain conversation — RAG is strictly opt-in.
 
 Open http://localhost:8000/ui.
 
@@ -86,7 +87,7 @@ curl -X POST http://127.0.0.1:8000/v1/chat/completions \
 curl -X POST http://127.0.0.1:8000/api/v1/rag/query \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer local" \
-  -d '{"query":"[d] what is the architecture?"}'
+  -d '{"query":"[default] what is the architecture?"}'
 ```
 
 ---
