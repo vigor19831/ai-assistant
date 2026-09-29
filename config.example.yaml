@@ -332,7 +332,7 @@ rag:
       recursive: false
       # Example second namespace: raw_documents/work/x.md is mirrored
       # to data/documents/work/x.md and indexed as namespace "work";
-      # declare it in namespaces: below (queries: "[w] your question").
+      # declare it in namespaces: below (queries: "[work] your question").
       # - namespace: work
       #   path: ./data/documents/work
       #   include: ["*.md", "*.txt"]
@@ -373,14 +373,14 @@ rag:
 
 namespaces:
   default:
-    prefix: d
+    prefix: default
     # [CHANGE] Re-index after changing this.
     chunk_size: 512
     prompt: rag_strict
   # Example namespace (drift #109): raw_documents/work/ -> "work";
-  # query routing: "[w] your question".
+  # query routing: "[work] your question".
   # work:
-  #   prefix: w
+  #   prefix: work
   #   chunk_size: 512
   #   prompt: rag_strict
   # Required by scripts/check_rag.py: the chat-prefix e2e tests
@@ -395,13 +395,13 @@ namespaces:
   # real folder — never create data/raw_documents/all/. With a prefix
   # declared, "[a] your question" searches EVERY namespace the store
   # lists (bench/test artifacts included, if present) and fuses the
-  # candidates into one pool for the reranker; regular [d]/[w]
+  # candidates into one pool for the reranker; regular [work]/[sber]
   # queries are unaffected. The API accepts namespace "all" directly
-  # with or without this entry — the yaml entry only adds the [a]
-  # chat prefix. Removing the entry disables [a]; the reserved name
+  # with or without this entry — the yaml entry only adds the [all]
+  # chat prefix. Removing the entry disables [all]; the reserved name
   # stays reserved either way.
   all:
-    prefix: a
+    prefix: all
     chunk_size: 512
     prompt: rag_strict
 

@@ -138,6 +138,19 @@
         .input-hint { font-size: 11px; color: #6e7681; display: flex; justify-content: space-between; padding: 0 4px; }
         #messageInput { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; color: inherit; font-size: 14px; resize: none; min-height: 44px; max-height: 200px; font-family: inherit; line-height: 1.5; }
         #messageInput:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+        .ns-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 12px; height: 40px; padding: 0 12px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; flex-shrink: 0; max-width: 160px; transition: all 0.2s; }
+        .ns-btn:hover { background: var(--surface-hover); color: var(--text-bright); }
+        .ns-btn.has-prefix { border-color: var(--accent); color: var(--text-bright); }
+        .ns-btn .ns-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ns-dropdown { position: absolute; bottom: calc(100% + 8px); left: 0; width: 280px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); display: none; flex-direction: column; overflow: hidden; z-index: 300; }
+        .ns-dropdown.open { display: flex; }
+        .ns-dropdown input { background: var(--surface); border: none; border-bottom: 1px solid var(--border); border-radius: 0; padding: 10px 12px; color: inherit; font-size: 13px; outline: none; }
+        .ns-dropdown .ns-list { overflow-y: auto; padding: 4px; max-height: 280px; }
+        .ns-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .ns-item:hover, .ns-item.active { background: var(--surface); }
+        .ns-item .ns-prefix { font-family: monospace; font-size: 11px; background: var(--surface-hover); padding: 1px 6px; border-radius: 4px; flex-shrink: 0; }
+        .ns-item.is-all .ns-prefix { background: var(--success); color: white; }
+        .ns-item.none { color: #8b949e; }
         .attach-btn, .send-btn, .stop-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 12px; width: 40px; height: 40px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
         .attach-btn:hover { background: var(--surface-hover); color: var(--text-bright); }
         .send-btn { background: var(--accent); border-color: var(--accent); color: white; }
@@ -264,6 +277,14 @@
             <button class="attach-btn" onclick="document.getElementById('fileInput').click()" title="Attach file" aria-label="Attach file">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
             </button>
+            <button type="button" class="ns-btn" id="nsBtn" title="Select namespace ([prefix] is inserted at the start of the message)" aria-label="Select namespace" aria-haspopup="listbox">
+                <span class="ns-btn-label" id="nsBtnLabel">plain</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="ns-dropdown" id="nsDropdown" role="listbox" aria-label="Namespace list">
+                <input type="text" id="nsSearch" placeholder="Filter namespaces..." autocomplete="off" aria-label="Filter namespaces">
+                <div class="ns-list" id="nsList"></div>
+            </div>
             <div class="input-wrapper">
                 <div class="attachments" id="attachments" role="list" aria-label="Attached files"></div>
                 <textarea id="messageInput" rows="1" placeholder="Message... (drop files here)" aria-label="Message input"></textarea>
@@ -588,6 +609,8 @@
         const input = $('messageInput'), container = $('chatContainer'), scrollBtn = $('scrollBtn'), toastEl = $('toast');
         const attachmentsEl = $('attachments'), chatListEl = $('chatList'), sidebar = $('sidebar'), sidebarOverlay = $('sidebarOverlay');
         const dragOverlay = $('dragOverlay'), sendBtn = $('sendBtn'), stopBtn = $('stopBtn'), tokenCountEl = $('tokenCount'), emptyState = $('emptyState');
+        const nsBtn = $('nsBtn'), nsBtnLabel = $('nsBtnLabel'), nsDropdown = $('nsDropdown'), nsSearch = $('nsSearch'), nsList = $('nsList');
+        let nsEntries = [];
 
         const storage = {
             get(key, fb) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch { return fb; } },
@@ -632,7 +655,7 @@
             }
         }
 
-        loadSettings(); loadSessions(); initDragAndDrop(); setupScrollHandling(); setupKeyboardShortcuts(); setupModalDismiss(); setupBeforeUnload(); setupEventDelegation(); input.focus();
+        loadSettings(); loadSessions(); initDragAndDrop(); setupScrollHandling(); setupKeyboardShortcuts(); setupModalDismiss(); setupBeforeUnload(); setupEventDelegation(); updateNsBadge(); loadNsEntries(true); input.focus();
 
         // Schema migration: messages written by older UI versions lack
         // fields the current renderer may expect. One normalized shape
@@ -923,7 +946,83 @@
 
         function stopGeneration() { if (abortController) { abortController.abort(); showToast('Generation stopped'); } }
 
-        input.addEventListener('input', () => { autoResizeInput(); updateTokenCount(); });
+        // ── Namespace selector (dropdown over GET /rag/prefixes) ──
+        // The list always comes from the SERVER (yaml truth), never
+        // hardcoded here: a yaml prefix change must never leave the
+        // menu stale.
+        async function loadNsEntries(silent) {
+            try {
+                const resp = await fetch(getApiBase() + '/api/v1/rag/prefixes', { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'local') } });
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const data = await resp.json();
+                nsEntries = Array.isArray(data.items) ? data.items : [];
+            } catch (e) { if (!silent) showToast('Namespace list unavailable: ' + e.message); }
+        }
+        function currentNsPrefix() { const m = input.value.match(/^\[([a-zA-Z0-9_.-]+)\]\s*/i); return m ? m[1].toLowerCase() : null; }
+        function updateNsBadge() { const p = currentNsPrefix(); nsBtnLabel.textContent = p || 'plain'; nsBtn.classList.toggle('has-prefix', !!p); }
+        function closeNsDropdown(refocus) {
+            nsDropdown.classList.remove('open');
+            if (refocus) input.focus();
+        }
+        async function toggleNsDropdown() {
+            if (nsDropdown.classList.contains('open')) { closeNsDropdown(true); return; }
+            nsDropdown.classList.add('open');
+            nsSearch.value = '';
+            renderNsList();
+            nsSearch.focus();
+            await loadNsEntries(false);
+            renderNsList();
+        }
+        function renderNsList() {
+            const q = nsSearch.value.trim().toLowerCase();
+            const cur = currentNsPrefix();
+            nsList.innerHTML = '';
+            if (!nsEntries.length) {
+                const empty = document.createElement('div');
+                empty.className = 'ns-item none';
+                empty.textContent = 'no namespaces loaded (is the server running?)';
+                nsList.appendChild(empty);
+            }
+            for (const e of nsEntries) {
+                if (q && !(e.namespace.toLowerCase().includes(q) || e.prefix.toLowerCase().includes(q))) continue;
+                const el = document.createElement('div');
+                el.className = 'ns-item' + (e.is_all ? ' is-all' : '') + (cur === e.prefix.toLowerCase() ? ' active' : '');
+                el.setAttribute('role', 'option');
+                el.innerHTML = '<span class="ns-prefix">' + escapeHtml(e.prefix) + '</span><span>' + escapeHtml(e.namespace) + '</span>';
+                el.onclick = () => selectNsEntry(e);
+                nsList.appendChild(el);
+            }
+            if (!q || 'plain'.includes(q)) {
+                const el = document.createElement('div');
+                el.className = 'ns-item none' + (cur === null ? ' active' : '');
+                el.setAttribute('role', 'option');
+                el.innerHTML = '<span class="ns-prefix">—</span><span>plain chat (no prefix)</span>';
+                el.onclick = () => selectNsEntry(null);
+                nsList.appendChild(el);
+            }
+        }
+        function selectNsEntry(entry) {
+            closeNsDropdown(true);
+            const m = input.value.match(/^\[[a-zA-Z0-9_.-]+\]\s*/i);
+            const rest = m ? input.value.slice(m[0].length) : input.value;
+            input.value = entry ? `[${entry.prefix}] ${rest}` : rest;
+            input.dispatchEvent(new Event('input'));
+            input.focus();
+            input.selectionStart = input.selectionEnd = input.value.length;
+        }
+        nsBtn.addEventListener('click', toggleNsDropdown);
+        nsSearch.addEventListener('input', renderNsList);
+        nsSearch.addEventListener('keydown', e => {
+            if (e.key === 'Escape') { e.stopPropagation(); closeNsDropdown(true); }
+            if (e.key === 'Enter') { e.preventDefault(); const first = nsList.querySelector('.ns-item[role="option"]'); if (first) first.click(); }
+        });
+        document.addEventListener('click', e => {
+            if (!nsDropdown.classList.contains('open')) return;
+            if (nsDropdown.contains(e.target) || nsBtn.contains(e.target)) return;
+            closeNsDropdown(false);
+        });
+
+        input.addEventListener('input', () => { autoResizeInput(); updateTokenCount(); updateNsBadge(); });
         input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } if (e.key === 'Escape' && isStreaming) stopGeneration(); });
         function updateTokenCount() {
             const t = input.value;
@@ -938,7 +1037,7 @@
         function copyCode(btn) { const code = btn.parentElement.querySelector('code'); if (!code) return; navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = 'Copy', 2000); }); }
         function copyMessage(id) { const msg = messages.find(m => m.id === id); if (!msg) return; navigator.clipboard.writeText(msg.role === 'assistant' ? _parseReasoning(msg.content).answer : msg.content).then(() => showToast('Copied')); }
         function regenerateMessage(id) { const idx = messages.findIndex(m => m.id === id); if (idx <= 0) return; const u = messages[idx - 1]; if (u.role !== 'user') return; removeMessage(id); removeMessage(u.id); input.value = u.content; sendMessage(); }
-        function editMessage(id) { if (isStreaming) return; const msg = messages.find(m => m.id === id); if (!msg) return; input.value = msg.content; input.focus(); input.dispatchEvent(new Event('input')); messages.slice(messages.findIndex(m => m.id === id)).forEach(m => removeMessage(m.id)); currentNs = detectNamespace(msg.content); nsBadge.textContent = currentNs; }
+        function editMessage(id) { if (isStreaming) return; const msg = messages.find(m => m.id === id); if (!msg) return; input.value = msg.content; input.focus(); input.dispatchEvent(new Event('input')); messages.slice(messages.findIndex(m => m.id === id)).forEach(m => removeMessage(m.id)); currentNs = detectNamespace(msg.content); }
 
         function newChat() {
             if (isStreaming) { showToast('Stop generation first'); return; }
@@ -1009,7 +1108,7 @@
             document.addEventListener('keydown', e => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'k') e.preventDefault();
                 if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'N') { e.preventDefault(); newChat(); }
-                if (e.key === 'Escape') { if ($('settingsModal').classList.contains('active')) closeSettings(); else if ($('indexModal').classList.contains('active')) closeIndexModal(); else if (sidebar.classList.contains('open')) toggleSidebar(); }
+                if (e.key === 'Escape') { if (nsDropdown.classList.contains('open')) closeNsDropdown(true); else if ($('settingsModal').classList.contains('active')) closeSettings(); else if ($('indexModal').classList.contains('active')) closeIndexModal(); else if (sidebar.classList.contains('open')) toggleSidebar(); }
             });
         }
         function setupModalDismiss() {

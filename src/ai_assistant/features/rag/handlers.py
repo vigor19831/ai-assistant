@@ -26,6 +26,7 @@ from ai_assistant.core.constants import (
     REINDEX_TASK_TIMEOUT,
 )
 from ai_assistant.core.domain.errors import LLM_UNAVAILABLE_MSG
+from ai_assistant.core.domain.pipeline import NAMESPACE_ALL
 from ai_assistant.core.io_utils import atomic_write
 from ai_assistant.core.logger import get_logger
 from ai_assistant.core.query_parser import build_prefix_map, parse_rag_query
@@ -38,6 +39,8 @@ from ai_assistant.features.rag.schemas import (
     IndexRequest,
     IndexResponse,
     NamespaceListResponse,
+    PrefixEntry,
+    PrefixListResponse,
     QueryRequest,
     QueryResponse,
     ReindexRequest,
@@ -429,6 +432,36 @@ async def list_namespaces(
         extra={"trace_id": trace_id, "count": len(namespaces)},
     )
     return NamespaceListResponse(namespaces=namespaces)
+
+
+@router.get("/prefixes", response_model=PrefixListResponse)
+async def list_chat_prefixes(
+    state: Annotated[InitializedAppState, Depends(get_state)],
+) -> PrefixListResponse:
+    """Chat-addressable namespaces from the yaml, NOT the store listing.
+
+    rag.sources entries that have a declared prefix, plus the
+    all-namespaces sentinel when the owner declared one. Store
+    contents (bench/test artifacts) never appear here: addressing
+    follows the config, and the sentinel name is reserved (drift #224).
+    """
+    entries: list[PrefixEntry] = []
+    for ns in sorted({s.namespace for s in state.config.rag.sources}):
+        if ns == NAMESPACE_ALL:
+            continue
+        ns_cfg = state.config.namespaces.get(ns)
+        if ns_cfg is not None and ns_cfg.prefix:
+            entries.append(PrefixEntry(namespace=ns, prefix=ns_cfg.prefix))
+    all_cfg = state.config.namespaces.get(NAMESPACE_ALL)
+    if all_cfg is not None and all_cfg.prefix:
+        entries.append(
+            PrefixEntry(namespace=NAMESPACE_ALL, prefix=all_cfg.prefix, is_all=True)
+        )
+    _logger.info(
+        "List chat prefixes",
+        extra={"trace_id": uuid.uuid4().hex, "count": len(entries)},
+    )
+    return PrefixListResponse(items=entries)
 
 
 async def _index_chat_export(

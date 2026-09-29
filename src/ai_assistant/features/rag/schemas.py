@@ -15,6 +15,8 @@ __all__ = [
     "IndexRequest",
     "IndexResponse",
     "NamespaceListResponse",
+    "PrefixEntry",
+    "PrefixListResponse",
     "QueryRequest",
     "QueryResponse",
     "RagMetrics",
@@ -156,6 +158,22 @@ class NamespaceListResponse(BaseModel):
     """Available RAG namespaces."""
 
     namespaces: list[str]
+
+
+class PrefixEntry(BaseModel):
+    """One chat-addressable namespace: display name + [prefix]."""
+
+    namespace: str
+    prefix: str
+    # True only for the all-namespaces sentinel (drift #224): the UI
+    # highlights it; the knowledge lives here, not in the frontend.
+    is_all: bool = False
+
+
+class PrefixListResponse(BaseModel):
+    """Chat-addressable namespaces (GET /rag/prefixes)."""
+
+    items: list[PrefixEntry]
 
 
 class SaveChatRequest(BaseModel):
