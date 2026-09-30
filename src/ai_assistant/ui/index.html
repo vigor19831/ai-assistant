@@ -329,10 +329,6 @@
             <h2 id="settingsTitle">⚙️ Settings</h2>
             <div class="modal-row"><label>API Base URL</label><input type="url" id="settingApiBase" placeholder="http://127.0.0.1:8000"></div>
             <div class="modal-row"><label>API Key</label><input type="password" id="settingApiKey" placeholder="sk-..."></div>
-            <div class="modal-row"><label>Model</label><input type="text" id="settingModel" placeholder="gpt-4, llama2, etc."></div>
-            <div class="modal-row"><label>Temperature</label><input type="number" id="settingTemperature" value="0.3" min="0" max="2" step="0.1"></div>
-            <div class="modal-row"><label>System Prompt</label><textarea id="settingSystemPrompt" placeholder="You are a helpful assistant..."></textarea></div>
-            <div class="modal-row"><label>Max History Messages</label><input type="number" id="settingMaxHistory" value="20" min="2" max="100"></div>
             <div class="modal-actions">
                 <button class="modal-btn danger" onclick="clearAllData()">Clear All Data</button>
                 <button class="modal-btn" onclick="closeSettings()">Cancel</button>
@@ -345,22 +341,17 @@
         <div class="modal">
             <h2 id="indexTitle">📚 Index Documents</h2>
             <div class="modal-row">
-                <label>Folder (optional)</label>
-                <input type="text" id="indexFolder" placeholder="Leave empty to index all configured sources">
-            </div>
-            <div class="modal-row">
                 <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;">
                     <input type="checkbox" id="indexClear" style="width:auto;">
-                    Clear existing index before reindexing
+                    Rebuild from scratch (clears the indexes first — needed only after an embedder change)
                 </label>
             </div>
             <div class="modal-row" id="indexStatusRow" style="display:none;">
-                <label>Status</label>
                 <pre id="indexStatus" style="font-family:monospace;font-size:12px;background:var(--surface);padding:10px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;"></pre>
             </div>
             <div class="modal-actions">
                 <button class="modal-btn" onclick="closeIndexModal()">Close</button>
-                <button class="modal-btn primary" id="indexStartBtn" onclick="startIndexing()">Start Indexing</button>
+                <button class="modal-btn primary" id="indexStartBtn" onclick="startIndexing()">Index Now</button>
             </div>
         </div>
     </div>
@@ -398,17 +389,20 @@
         let manualScrollLockTimer = null;
         let lastContainerHeight = 0;
 
-        marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+        marked.setOptions({ breaks: true, gfm: true });
         const markedRenderer = new marked.Renderer();
 
         markedRenderer.code = ({ text, lang }) => {
             let highlighted = escapeHtml(text);
-            try {
-                if (lang && hljs.getLanguage(lang)) {
-                    highlighted = hljs.highlight(text, { language: lang }).value;
+            let safeLang = 'text';
+            if (lang) {
+                const l = lang.trim().split(/\s+/)[0];
+                if (hljs.getLanguage(l)) {
+                    highlighted = hljs.highlight(text, { language: l }).value;
+                    safeLang = escapeHtml(l);
                 }
-            } catch(e) {}
-            return `<pre><code class="hljs language-${lang || 'text'}">${highlighted}</code><button class="copy-code-btn" aria-label="Copy code">Copy</button></pre>`;
+            }
+            return `<pre><code class="hljs language-${safeLang}">${highlighted}</code><button class="copy-code-btn" aria-label="Copy code">Copy</button></pre>`;
         };
 
         markedRenderer.link = ({ href, title, text }) => {
@@ -425,7 +419,7 @@
 
         function renderMarkdown(text) {
             const codeBlocks = [], mathPlaceholders = [];
-            text = text.replace(/```(\w+)?\n([\s\S]*?)```/g, (m, lang, code) => { codeBlocks.push({ code, lang: lang || 'text' }); return `\x00CB${codeBlocks.length - 1}\x00`; });
+            text = text.replace(/```(\w*)[ \t]*\r?\n([\s\S]*?)```/g, (m, lang, code) => { codeBlocks.push({ code, lang: lang || 'text' }); return `\x00CB${codeBlocks.length - 1}\x00`; });
             text = text.replace(/`([^`]+)`/g, (m, code) => { codeBlocks.push({ code, lang: 'inline' }); return `\x00CB${codeBlocks.length - 1}\x00`; });
             text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m, p1) => { mathPlaceholders.push({ type: 'block', math: p1.trim() }); return `\x00M${mathPlaceholders.length - 1}\x00`; });
             text = text.replace(/\$([^\$\n]+?)\$/g, (m, p1) => { mathPlaceholders.push({ type: 'inline', math: p1.trim() }); return `\x00M${mathPlaceholders.length - 1}\x00`; });
@@ -438,16 +432,15 @@
             codeBlocks.forEach((block, i) => {
                 let hl = escapeHtml(block.code);
                 try { if (block.lang !== 'inline' && hljs.getLanguage(block.lang)) hl = hljs.highlight(block.code, { language: block.lang }).value; } catch(e) {}
-                if (block.lang === 'inline') {
-                    html = html.replace(`\x00CB${i}\x00`, `<code>${hl}</code>`);
-                } else {
-                    html = html.replace(`\x00CB${i}\x00`, `<pre><code class="hljs language-${block.lang}">${hl}</code><button class="copy-code-btn" aria-label="Copy code">Copy</button></pre>`);
-                }
+                const replacement = block.lang === 'inline'
+                    ? `<code>${hl}</code>`
+                    : `<pre><code class="hljs language-${block.lang}">${hl}</code><button class="copy-code-btn" aria-label="Copy code">Copy</button></pre>`;
+                html = html.split(`\x00CB${i}\x00`).join(replacement);
             });
 
             return DOMPurify.sanitize(html, {
-                ALLOWED_TAGS: ['p','br','strong','em','del','a','ul','ol','li','blockquote','hr','h1','h2','h3','h4','table','thead','tbody','tr','th','td','pre','code','div','span','details','summary','img'],
-                ALLOWED_ATTR: ['href','title','class','target','rel','open','src','alt','width','height']
+                ALLOWED_TAGS: ['p','br','strong','em','del','a','ul','ol','li','blockquote','hr','h1','h2','h3','h4','table','thead','tbody','tr','th','td','pre','code','div','span','details','summary','img','button'],
+                ALLOWED_ATTR: ['href','title','class','target','rel','open','src','alt','width','height','aria-label']
             });
         }
 
@@ -623,7 +616,11 @@
             }
             return rb + (answerHtml ? '<div class="answer-block">' + answerHtml + '</div>' : '') + sb;
         }
-        const settings = { apiBase: '', apiKey: 'local', model: 'local', temperature: 0.3, systemPrompt: '', maxHistory: 20 };
+        // Browser-owned settings only. Model, temperature, system
+        // prompt and history depth are the SERVER's yaml — the UI
+        // never overrides them (a UI temperature silently broke the
+        // bench determinism contract, temp 0.0).
+        const settings = { apiBase: '', apiKey: 'local' };
 
         const $ = id => document.getElementById(id);
         const input = $('messageInput'), container = $('chatContainer'), scrollBtn = $('scrollBtn'), toastEl = $('toast');
@@ -659,7 +656,7 @@
         async function fetchWithRetry(url, options, externalSignal, retries = 2, timeoutMs = 10000) {
             for (let i = 0; i <= retries; i++) {
                 const controller = new AbortController();
-                if (externalSignal) externalSignal.addEventListener('abort', () => controller.abort());
+                if (externalSignal) externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
                 try {
                     const res = await fetch(url, { ...options, signal: controller.signal });
@@ -684,11 +681,11 @@
         // renderer scattered).
         function migrateMessage(m) {
             return {
+                ...m,
                 id: m.id || Math.random().toString(36).substring(2, 15),
                 role: m.role || 'user',
                 content: typeof m.content === 'string' ? m.content : '',
                 timestamp: m.timestamp || Date.now(),
-                ...m,
             };
         }
 
@@ -741,14 +738,12 @@
             });
         }
 
-        function loadSettings() { Object.assign(settings, storage.get(SETTINGS_KEY, {})); if (typeof settings.temperature !== 'number') settings.temperature = 0.3; }
+        function loadSettings() { Object.assign(settings, storage.get(SETTINGS_KEY, {})); }
         function saveSettings() {
             settings.apiBase = $('settingApiBase').value.trim(); settings.apiKey = $('settingApiKey').value.trim();
-            settings.model = $('settingModel').value.trim(); settings.temperature = parseFloat($('settingTemperature').value) || 0.3;
-            settings.systemPrompt = $('settingSystemPrompt').value.trim(); settings.maxHistory = parseInt($('settingMaxHistory').value, 10) || 20;
             storage.set(SETTINGS_KEY, settings); closeSettings(); showToast('Settings saved');
         }
-        function openSettings() { $('settingApiBase').value = settings.apiBase; $('settingApiKey').value = settings.apiKey; $('settingModel').value = settings.model; $('settingTemperature').value = settings.temperature; $('settingSystemPrompt').value = settings.systemPrompt; $('settingMaxHistory').value = settings.maxHistory; $('settingsModal').classList.add('active'); }
+        function openSettings() { $('settingApiBase').value = settings.apiBase; $('settingApiKey').value = settings.apiKey; $('settingsModal').classList.add('active'); }
         function closeSettings() { $('settingsModal').classList.remove('active'); }
         function clearAllData() { if (!confirm('Delete ALL data?')) return; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith('ai_chat_')) localStorage.removeItem(k); } location.reload(); }
 
@@ -909,16 +904,26 @@
             const assistantDiv = container.querySelector(`[data-id="${assistantMsg.id}"] .message`);
             assistantDiv.classList.add('streaming');
 
-            const apiMessages = [];
-            if (settings.systemPrompt) apiMessages.push({role: 'system', content: settings.systemPrompt});
-            messages.slice(-settings.maxHistory - 1, -1).forEach(m => { if (m.role !== 'system') apiMessages.push({role: m.role, content: m.content}); });
-            apiMessages.push({role: 'user', content: text});
+            // The server applies chat.history_limit from the yaml —
+            // the client sends the session history as-is. addMessage
+            // already put the current question into messages, so the
+            // whole session is here; NO manual push (a duplicate
+            // User-turn confused the model — external audit catch).
+            // The empty-assistant filter guards an INVARIANT, not a
+            // current bug: the placeholder is added BELOW this point,
+            // so it never reaches the payload today — but a future
+            // reorder must not be able to break the "payload never
+            // ends with an empty assistant turn" contract.
+            const apiMessages = messages
+                .filter(m => m.role !== 'system'
+                    && (m.role !== 'assistant' || m.content !== ''))
+                .map(m => ({ role: m.role, content: m.content }));
 
             abortController = new AbortController();
             try {
                 const response = await fetchWithRetry(getApiBase() + '/v1/chat/completions', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'local') },
-                    body: JSON.stringify({ model: settings.model || 'local', messages: apiMessages, stream: true, temperature: settings.temperature })
+                    body: JSON.stringify({ messages: apiMessages, stream: true })
                 }, abortController.signal, 2, 120000);
 
                 const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = '';
@@ -988,29 +993,21 @@
         // Bar/statusline are display:none when idle — no reserved
         // space (the "black centimeter" lesson).
         const indexBar = $('indexBar'), indexBarMsg = $('indexBarMsg'), statusLine = $('indexStatusLine');
-        function _fmtDur(sec) {
-            if (sec < 60) return Math.round(sec) + ' sec';
-            return Math.floor(sec / 60) + ' min ' + Math.round(sec % 60) + ' sec';
-        }
         async function pollIndexBar() {
             try {
                 const resp = await fetch(getApiBase() + '/api/v1/rag/index-status', { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'local') } });
                 if (!resp.ok) return;
                 const s = await resp.json();
                 if (s.running) {
-                    // Server started_at is monotonic SECONDS on its own
-                    // clock — not comparable to Date.now(). Show elapsed
-                    // only from the first poll that saw the task; pace
-                    // and ETA derive from that same local timestamp.
-                    if (!indexBar.dataset.localStart) indexBar.dataset.localStart = String(Date.now());
-                    const elapsed = (Date.now() - Number(indexBar.dataset.localStart)) / 1000;
-                    const pace = s.done > 0 ? elapsed / s.done : 0;
-                    const left = s.total > s.done && pace > 0 ? (s.total - s.done) * pace : null;
+                    // Counter + percent only: pace-derived time fields
+                    // were RETIRED — corpus documents differ in size
+                    // tens of times, so the extrapolation swung 5x
+                    // between polls (owner-caught live) and undermined
+                    // trust in the numbers that are always honest.
                     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : null;
                     const parts = ['Indexing: ' + (s.namespace || '?')];
                     if (s.total > 0) parts.push(s.done + '/' + s.total + (pct !== null ? ' · ' + pct + '%' : ''));
                     else if (s.done > 0) parts.push(s.done + ' done');
-                    parts.push('· ' + _fmtDur(elapsed) + (left !== null ? ' · ~' + _fmtDur(left) + ' left' : ''));
                     indexBarMsg.textContent = parts.join(' ');
                     indexBar.className = 'index-bar ok visible';
                     statusLine.className = 'index-statusline';
@@ -1167,28 +1164,52 @@
         function toggleSidebar() { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('active'); }
         let toastTimeout; function showToast(text) { clearTimeout(toastTimeout); toastEl.textContent = text; toastEl.classList.add('show'); toastTimeout = setTimeout(() => toastEl.classList.remove('show'), 2500); }
 
-        function openIndexModal() { $('indexModal').classList.add('active'); $('indexStatusRow').style.display = 'none'; $('indexStatus').textContent = ''; const b=$('indexStartBtn'); b.disabled=false; b.textContent='Start Indexing'; }
+        function openIndexModal() { $('indexModal').classList.add('active'); $('indexStatusRow').style.display = 'none'; $('indexStatus').textContent = ''; const b=$('indexStartBtn'); b.disabled=false; b.textContent='Index Now'; }
         function closeIndexModal() { $('indexModal').classList.remove('active'); if (indexPollInterval) { clearInterval(indexPollInterval); indexPollInterval = null; } }
         async function startIndexing() {
-            const folder = $('indexFolder').value.trim() || null, clear = $('indexClear').checked, b=$('indexStartBtn'), sr=$('indexStatusRow'), se=$('indexStatus');
-            b.disabled = true; b.textContent = 'Starting...'; sr.style.display = 'block'; se.textContent = 'Sending...';
+            const clear = $('indexClear').checked, b=$('indexStartBtn'), sr=$('indexStatusRow'), se=$('indexStatus');
+            if (clear && !confirm('Rebuild from scratch clears the indexes and re-embeds EVERYTHING (hours on a large corpus). Continue?')) return;
+            b.disabled = true; b.textContent = 'Starting...'; sr.style.display = 'block'; se.textContent = 'Starting...';
             try {
-                const resp = await fetch(getApiBase() + '/api/v1/rag/reindex', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'local') }, body: JSON.stringify({ folder, clear }) });
+                const resp = await fetch(getApiBase() + '/api/v1/rag/reindex', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (settings.apiKey || 'local') }, body: JSON.stringify({ clear }) });
                 if (!resp.ok) throw new Error(await resp.text());
-                const data = await resp.json(); se.textContent = 'Started: ' + data.task_id; showToast('Indexing started'); pollIndexStatus(data.task_id);
-            } catch (err) { se.textContent = 'Error: ' + err.message; b.disabled = false; b.textContent = 'Retry'; showToast('Failed: ' + err.message); }
+                const data = await resp.json();
+                if (!data.task_id) throw new Error('No task id in response');
+                pollIndexStatus(data.task_id);
+            } catch (err) { se.textContent = 'Error: ' + err.message; b.disabled = false; b.textContent = 'Index Now'; showToast('Failed: ' + err.message); }
         }
         function pollIndexStatus(taskId) {
             if (indexPollInterval) clearInterval(indexPollInterval);
             const se = $('indexStatus'), b = $('indexStartBtn');
+            let pollUnknown = 0;
             indexPollInterval = setInterval(async () => {
                 try {
                     const resp = await fetch(getApiBase() + '/api/v1/rag/reindex/status/' + taskId, { headers: { 'Authorization': 'Bearer ' + (settings.apiKey || 'local') } });
                     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-                    const data = await resp.json(); se.textContent = JSON.stringify(data, null, 2);
+                    const data = await resp.json();
+                    // Guard: a task the server does not know (a restart
+                    // killed it, a stale id) must stop the poll instead
+                    // of hammering /status forever (drift #228 class).
+                    pollUnknown = data.status === 'unknown' ? pollUnknown + 1 : 0;
+                    if (pollUnknown >= 3) { clearInterval(indexPollInterval); indexPollInterval = null; b.disabled = false; b.textContent = 'Index Now'; se.textContent = 'Task not found — polling stopped.'; return; }
                     if (data.status === 'completed' || data.status === 'failed') {
-                        clearInterval(indexPollInterval); indexPollInterval = null; b.disabled = false; b.textContent = 'Start Indexing';
+                        clearInterval(indexPollInterval); indexPollInterval = null; b.disabled = false; b.textContent = 'Index Now';
+                        if (data.status === 'completed') {
+                            const r = data.result || {};
+                            const files = Object.values(r.results || {}).reduce((a, x) => a + (x.indexed || 0), 0);
+                            const chunks = Object.values(r.results || {}).reduce((a, x) => a + (x.chunks || 0), 0);
+                            const errs = (r.errors || []).length;
+                            se.textContent = errs
+                                ? 'Completed with ' + errs + ' error(s) — see app.log.'
+                                : (files
+                                    ? 'Completed — indexed ' + files + ' file(s), ' + chunks + ' chunk(s).'
+                                    : 'Completed — nothing to do: all files unchanged.');
+                        } else {
+                            se.textContent = 'Failed — see app.log (task ' + taskId + ').';
+                        }
                         showToast(data.status === 'completed' ? 'Indexing completed' : 'Indexing failed');
+                    } else {
+                        se.textContent = 'Running... (progress bar below the chat)';
                     }
                 } catch (err) { se.textContent = 'Poll error: ' + err.message; }
             }, 2000);
