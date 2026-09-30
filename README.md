@@ -9,7 +9,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **Bilingual refusals**: an unanswered question closes with `rag.refusal_phrase_local` in your language (empty = English-only) — same contract, empty sources, matched on both entry paths
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate; an `[all]` query fans the search out over every namespace at once
 - **Namespace picker in the chat UI**: a dropdown over the input field lists your yaml namespaces (with a filter box) and inserts the `[prefix]` for you — hundreds of namespaces stay two keystrokes away
-- **Live indexing status**: background indexing shows in the chat UI (namespace, done/total, pace-based ETA, green/red verdict) — no log digging; a clear button and an input-clear shortcut round out the input panel
+- **Live indexing status**: background indexing shows in the chat UI (namespace, done/total, pace-based ETA, green/red verdict) — no log digging; a clear button rounds out the input panel
 - **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" or "what did we discuss on July 5, 2026" — the search frame narrows to that month or day, in both retrieval legs, before ranking (a day needs an explicit year; language data lives in your yaml)
 - **Chat capture from any AI site**: a browser userscript (`scripts/chat_recorder.user.js`, Violentmonkey) exports chats as SaveAI JSON straight from the browser — one button, no per-site extensions; a second userscript (`scripts/chat_scout.user.js`) diagnoses sites whose format is unknown
 - **Measured quality**: the bench is 17 contract tests (must pass on any hardware) + 39 future-capability tests (quality scales with LLM size, 4 known limitations today); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
@@ -124,10 +124,6 @@ python -m pytest tests/ -x -q
 
 # RAG quality benchmark (needs the stack running)
 python scripts/check_rag.py
-
-# Live infra probe: API, UI page, static assets, index health
-# (needs the stack running; skips visibly when it is down)
-python scripts/check_ui.py
 ```
 
 ---
@@ -163,7 +159,7 @@ ai-assistant/
 ├── run_servers.yaml       ← server launch configuration
 ├── run_scripts.py         ← interactive script runner (check_rag, prepare_docs, …)
 ├── src/ai_assistant/      ← core/ (domain, ports, prompts, pipeline), adapters/, features/, api/, ui/
-├── tests/                 ← 1200+ tests (contracts, edge cases, integration, e2e)
+├── tests/                 ← 1300+ tests (contracts, edge cases, integration, e2e)
 ├── scripts/               ← check_all, check_rag, check_llm, prepare_docs, download_tokenizers, …
 ├── docs/                  ← ai_rules.md, architecture.md, drift.md
 ├── data/                  ← runtime, git-ignored: raw_documents/, documents/ (mirror), indices/, lexical_indices/, storage.db, tokenizers/, app.log
