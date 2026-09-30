@@ -9,6 +9,7 @@ Production-grade offline RAG framework for solo maintainers.
 - **Bilingual refusals**: an unanswered question closes with `rag.refusal_phrase_local` in your language (empty = English-only) — same contract, empty sources, matched on both entry paths
 - **Namespace isolation**: separate knowledge bases that never cross-contaminate; an `[all]` query fans the search out over every namespace at once
 - **Namespace picker in the chat UI**: a dropdown over the input field lists your yaml namespaces (with a filter box) and inserts the `[prefix]` for you — hundreds of namespaces stay two keystrokes away
+- **Live indexing status**: background indexing shows in the chat UI (namespace, done/total, pace-based ETA, green/red verdict) — no log digging; a clear button and an input-clear shortcut round out the input panel
 - **Date-scoped questions**: chat exports carry machine dates from split time; ask "what did I decide about X in March" or "what did we discuss on July 5, 2026" — the search frame narrows to that month or day, in both retrieval legs, before ranking (a day needs an explicit year; language data lives in your yaml)
 - **Chat capture from any AI site**: a browser userscript (`scripts/chat_recorder.user.js`, Violentmonkey) exports chats as SaveAI JSON straight from the browser — one button, no per-site extensions; a second userscript (`scripts/chat_scout.user.js`) diagnoses sites whose format is unknown
 - **Measured quality**: the bench is 17 contract tests (must pass on any hardware) + 39 future-capability tests (quality scales with LLM size, 4 known limitations today); exact scores are pair-specific — see `docs/architecture.md` §14 for the method and current results
@@ -63,7 +64,7 @@ Always start and stop the stack via `run_servers.py`: it pins the working direct
 
 **Queries**: `[prefix] question` routes to a namespace (`[default]`, `[work]` — full names, configured in `namespaces:`); `[all]` searches every namespace at once, candidates fused into one pool for the reranker. The chat UI's namespace picker inserts the prefix for you. Without a prefix the chat is plain conversation — RAG is strictly opt-in.
 
-Open http://localhost:8000/ui.
+Open http://127.0.0.1:8000/ui.
 
 For GPU support and build-from-source instructions, see the [llama.cpp documentation](https://github.com/ggml-org/llama.cpp#build).
 
@@ -121,8 +122,12 @@ python scripts/check_all.py
 # Tests only
 python -m pytest tests/ -x -q
 
-# RAG quality benchmark
+# RAG quality benchmark (needs the stack running)
 python scripts/check_rag.py
+
+# Live infra probe: API, UI page, static assets, index health
+# (needs the stack running; skips visibly when it is down)
+python scripts/check_ui.py
 ```
 
 ---

@@ -175,6 +175,7 @@ MYPY_TARGETS: tuple[str, ...] = (
     "scripts/open_shell.py",
     "scripts/prepare_docs.py",
     "scripts/structure.py",
+    "scripts/check_ui.py",
     "scripts/web_grab.py",
     "run_scripts.py",
     "run_servers.py",
