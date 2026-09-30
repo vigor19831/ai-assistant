@@ -14,6 +14,7 @@ __all__ = [
     "HealthResponse",
     "IndexRequest",
     "IndexResponse",
+    "IndexStatusResponse",
     "NamespaceListResponse",
     "PrefixEntry",
     "PrefixListResponse",
@@ -174,6 +175,23 @@ class PrefixListResponse(BaseModel):
     """Chat-addressable namespaces (GET /rag/prefixes)."""
 
     items: list[PrefixEntry]
+
+
+class IndexStatusResponse(BaseModel):
+    """Live indexing status (GET /rag/index-status).
+
+    Progress counted in DOCUMENTS, published by index_folder itself
+    (every door: watcher, reindex, modal). last_result is the
+    index_folder return dict; ETA is absent — the frontend derives
+    it from the pace.
+    """
+
+    running: bool
+    namespace: str | None = None
+    done: int = 0
+    total: int = 0
+    started_at: float | None = None
+    last_result: dict[str, Any] | None = None
 
 
 class SaveChatRequest(BaseModel):

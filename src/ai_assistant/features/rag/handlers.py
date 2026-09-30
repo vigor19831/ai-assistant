@@ -38,6 +38,7 @@ from ai_assistant.features.rag.schemas import (
     HealthResponse,
     IndexRequest,
     IndexResponse,
+    IndexStatusResponse,
     NamespaceListResponse,
     PrefixEntry,
     PrefixListResponse,
@@ -73,6 +74,46 @@ def _chunk_matches_document(meta: dict[str, Any], doc_ids: set[str]) -> bool:
         return True
     custom = meta.get("custom")
     return isinstance(custom, dict) and custom.get("source") in doc_ids
+
+
+# --- Live indexing status slot (read by GET /rag/index-status) ---
+# ONE in-process slot: one indexing path at a time (drift #62). Written
+# by index_folder through report_index_progress / report_index_result
+# (function-scoped imports on that side — the cycle cure), so EVERY
+# caller (watcher, reindex, modal) reports the same way. Plain dict:
+# single event loop, no locks.
+_INDEX_STATUS: dict[str, object] = {}
+
+
+def report_index_progress(namespace: str, done: int, total: int) -> None:
+    """Publish per-document progress (the index.progress sink)."""
+    if not _INDEX_STATUS.get("running"):
+        _INDEX_STATUS.clear()
+        _INDEX_STATUS["started_at"] = time.monotonic()
+    _INDEX_STATUS.update(
+        {
+            "running": True,
+            "namespace": namespace,
+            "done": done,
+            "total": total,
+            "last_result": None,
+        }
+    )
+
+
+def report_index_result(result: dict[str, Any]) -> None:
+    """Park the final index_folder result (indexing finished)."""
+    _INDEX_STATUS.clear()
+    _INDEX_STATUS.update(
+        {
+            "running": False,
+            "namespace": None,
+            "done": 0,
+            "total": 0,
+            "started_at": None,
+            "last_result": result,
+        }
+    )
 
 
 @router.post("/index", response_model=IndexResponse)
@@ -462,6 +503,21 @@ async def list_chat_prefixes(
         extra={"trace_id": uuid.uuid4().hex, "count": len(entries)},
     )
     return PrefixListResponse(items=entries)
+
+
+@router.get("/index-status", response_model=IndexStatusResponse)
+async def get_index_status(
+    _state: Annotated[InitializedAppState, Depends(get_state)],
+) -> IndexStatusResponse:
+    """Live indexing status: the slot index_folder writes."""
+    data = dict(_INDEX_STATUS)
+    data.setdefault("running", False)
+    data.setdefault("namespace", None)
+    data.setdefault("done", 0)
+    data.setdefault("total", 0)
+    data.setdefault("started_at", None)
+    data.setdefault("last_result", None)
+    return IndexStatusResponse(**data)  # type: ignore[arg-type]
 
 
 async def _index_chat_export(

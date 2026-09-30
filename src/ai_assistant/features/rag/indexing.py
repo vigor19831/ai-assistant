@@ -708,6 +708,15 @@ async def index_folder(
                     f"({round(100 * doc_pos / total_docs)}%) "
                     f"chunks={chunk_count}"
                 )
+                # Live-status wire (GET /rag/index-status): a plain
+                # dict update on the handlers side — must never break
+                # indexing. Function-scoped import is the standard
+                # cycle cure (handlers imports this module).
+                from ai_assistant.features.rag.handlers import (
+                    report_index_progress,
+                )
+
+                report_index_progress(namespace, doc_pos, total_docs)
         except Exception as exc:
             _logger.exception(f"Indexing failed for namespace {namespace}")
             all_errors.append(f"Indexing failed for {namespace}: {exc}")
@@ -722,12 +731,16 @@ async def index_folder(
     # Success means exactly "no errors" (#113) — the old substring
     # check ("failed" in error) let "Failed to chunk document ..."
     # (capital F) pass as a success.
-    return {
+    result = {
         "success": not all_errors,
         "results": all_results,
         "indexed_uris": all_indexed_uris,
         "errors": all_errors,
     }
+    from ai_assistant.features.rag.handlers import report_index_result
+
+    report_index_result(result)
+    return result
 
 
 async def backfill_lexical_index(

@@ -94,3 +94,45 @@ def test_prefixes_without_all_entry_omits_it(make_prefixes_client, tmp_path):
     resp = client.get("/api/v1/rag/prefixes")
     assert resp.status_code == 200
     assert [i["namespace"] for i in resp.json()["items"]] == ["default"]
+
+def test_index_status_lifecycle(client):
+    """Progress publishes running state; result parks the outcome."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    rag_handlers.report_index_progress("sber", 2, 5)
+    try:
+        resp = client.get("/api/v1/rag/index-status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["running"] is True
+        assert data["namespace"] == "sber"
+        assert data["done"] == 2 and data["total"] == 5
+        assert data["started_at"] is not None
+    finally:
+        rag_handlers._INDEX_STATUS.clear()
+    rag_handlers.report_index_result(
+        {
+            "success": True,
+            "results": {"sber": {"indexed": 5, "chunks": 40}},
+            "errors": [],
+        }
+    )
+    try:
+        resp = client.get("/api/v1/rag/index-status")
+        data = resp.json()
+        assert data["running"] is False
+        assert data["last_result"]["success"] is True
+    finally:
+        rag_handlers._INDEX_STATUS.clear()
+
+
+def test_index_status_idle_defaults(client):
+    """Empty slot: idle defaults, not an error."""
+    from ai_assistant.features.rag import handlers as rag_handlers
+
+    rag_handlers._INDEX_STATUS.clear()
+    resp = client.get("/api/v1/rag/index-status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["running"] is False
+    assert data["last_result"] is None
