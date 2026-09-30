@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Chat Export Recorder
 // @namespace    local.ai-chat-recorder
-// @version      2.22
+// @version      2.23
 // @description  Captures chat JSON responses; exports clean SaveAI-format chat files.
 // @match        *://*/*
 // @run-at       document-start
@@ -244,6 +244,19 @@
         return out;
     }
 
+    // Distinct chat ids among captured urls — the export is only
+    // trustworthy when this is 1. Mixed buffer (a chat switch
+    // without a reload in an SPA) shows here BEFORE an export.
+    function chatIds() {
+        var ids = {};
+        var re = /chat[_\/=]([a-z0-9_-]{4,})/i;
+        for (var i = 0; i < buffer.length; i++) {
+            var m = String(buffer[i].url).match(re);
+            if (m) ids[m[1]] = true;
+        }
+        return Object.keys(ids);
+    }
+
     function order(messages) {
         if (messages.length < 2) return messages;
         for (var i = 0; i < messages.length; i++) {
@@ -381,10 +394,17 @@
     function updateButton() {
         if (!button) return;
         button.textContent = "E";
+        var ids = chatIds();
+        var mixed = ids.length > 1
+            ? "\n⚠ " + ids.length + " DIFFERENT chats in the buffer "
+              + "— clear (right click) and scroll the current chat again!"
+            : "";
+        var idInfo = ids.length === 1 ? "\nChat: " + ids[0] : "";
         button.title = "Export — " + buffer.length + " response(s) captured.\n"
-            + "Click: save a clean chat file (SaveAI format).\n"
+            + idInfo + mixed
+            + "\nClick: save a clean chat file (the buffer clears after).\n"
             + "Shift+click: raw dump for diagnostics.\n"
-            + "Right click: clear the buffer (start the next chat).";
+            + "Right click: clear the buffer manually.";
     }
 
     function download(blob, name) {
@@ -489,6 +509,7 @@
                     download(blob, (slugify(title) || "chat") + stamp + ".json");
                 }
             });
+            buffer = [];   // same completion rule: exported = done
             updateButton();
             return;
         }
@@ -502,6 +523,8 @@
                 + "_" + pad2(day.getDate());
         }
         download(blob, (slugify(chosenTitle()) || "chat") + stamp + ".json");
+        buffer = [];   // export completes the capture: the next chat
+                       // starts clean, never glued onto this one
         updateButton();
     }
 
