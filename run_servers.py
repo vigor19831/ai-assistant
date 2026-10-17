@@ -44,6 +44,14 @@ LLAMA_LOG_MAX_BYTES = 10_485_760
 # Fail-safe when config omits n_gpu_layers: CPU (0) — a missing
 # field must not attempt full GPU offload (OOM on small-VRAM cards).
 _NGL_DEFAULT = 0
+# SIGKILL is POSIX-only in typeshed (no win32 variant — the Windows
+# force path is taskkill, drift #101). Both call sites below sit in
+# the POSIX else-branch of os.name == "nt" guards, so the SIGTERM
+# default never runs; it keeps mypy green on BOTH platforms without
+# platform ignores (3-arg getattr). If ever reached on Windows,
+# os.kill(pid, SIGTERM) is TerminateProcess — a force kill stays a
+# force kill, never a silent no-op.
+_SIGKILL: int = getattr(signal, "SIGKILL", signal.SIGTERM)
 
 # ── Auto-activate venv ───────────────────────────────────────────────────────
 _venv = Path(__file__).parent / VENV
@@ -105,9 +113,10 @@ def _run(
         # was dropped: a hidden-console child cannot receive console
         # control events, silently degrading stop() to a hard kill. A
         # console child inherits ours — no new window, output is in logs.
-        kw["creationflags"] = (
-            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        )
+        # 3-arg getattr: win32-only in typeshed, this branch IS
+        # Windows; default 0 ("no flags") is unreachable — it only
+        # keeps mypy green on both platforms without an ignore.
+        kw["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     else:
         kw["start_new_session"] = True
     if env is not None:
@@ -473,7 +482,10 @@ def stop(root: Path) -> int:
                     # CTRL_BREAK_EVENT reaches a child started with
                     # CREATE_NEW_PROCESS_GROUP in our console; uvicorn
                     # runs its graceful lifespan shutdown (index save).
-                    os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                    # Win32-only in typeshed: 3-arg getattr, no ignore —
+                    # mypy green on both platforms; the SIGTERM default
+                    # never runs (this branch IS Windows).
+                    os.kill(pid, getattr(signal, "CTRL_BREAK_EVENT", signal.SIGTERM))
                 else:
                     os.kill(pid, signal.SIGTERM)
             except OSError:
@@ -495,7 +507,7 @@ def stop(root: Path) -> int:
                     )
                 else:
                     with contextlib.suppress(OSError):
-                        os.kill(pid, signal.SIGKILL)
+                        os.kill(pid, _SIGKILL)
         else:
             print("  > Process already stopped (stale PID file)")
         pid_file.unlink(missing_ok=True)
@@ -555,7 +567,7 @@ def kill_main(root: Path) -> int:
                 if result.returncode == 0 and result.stdout.strip():
                     try:
                         pid = int(result.stdout.strip().split()[0])
-                        os.kill(pid, signal.SIGKILL)
+                        os.kill(pid, _SIGKILL)
                     except (ValueError, OSError):
                         continue
 

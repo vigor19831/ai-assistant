@@ -36,9 +36,17 @@ def main() -> int:
 
     import ctypes
 
+    # windll is win32-only (typeshed and runtime); the os.name guard
+    # at the top of main() already returned elsewhere. 3-arg getattr
+    # keeps mypy green on both platforms without ignores; the None
+    # check below is fail-loud, not a real path.
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        print("[FAIL] ctypes.windll unavailable (Windows only)")
+        return 1
+
     # If already admin — just open PowerShell directly
-    # windll is Windows-only; the script never runs elsewhere.
-    if ctypes.windll.shell32.IsUserAnAdmin():  # type: ignore[attr-defined]
+    if windll.shell32.IsUserAnAdmin():
         code = os.system(f'start powershell -NoExit -Command "{ps_script}"')
         if code != 0:
             print(f"[FAIL] start failed (exit {code})")
@@ -46,7 +54,7 @@ def main() -> int:
         return 0
 
     # Not admin — request elevation via UAC
-    ret = ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
+    ret = windll.shell32.ShellExecuteW(
         None,           # hwnd
         "runas",        # operation — triggers UAC dialog
         "powershell.exe",  # file to run

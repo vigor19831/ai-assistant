@@ -522,7 +522,7 @@ class FaissVectorStore(IVectorStore):
             os.close(fd)
             faiss.write_index(index, tmp)
             # fsync file before rename to ensure durability
-            fd_sync = os.open(tmp, os.O_RDONLY)
+            fd_sync = os.open(tmp, os.O_RDWR)
             try:
                 os.fsync(fd_sync)
             finally:

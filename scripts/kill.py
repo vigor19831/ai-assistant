@@ -23,6 +23,13 @@ except ImportError:
 # Process names to kill
 _KILL_NAMES = ("llama-server", "llama-server.exe", "uvicorn")
 
+# SIGKILL is POSIX-only in typeshed (no win32 variant): _kill_pid's
+# nt-branch (taskkill) returns first, so the SIGTERM default never
+# runs — it keeps mypy green on BOTH platforms without ignores. If
+# ever reached on Windows, os.kill(pid, SIGTERM) is TerminateProcess —
+# a force kill stays a force kill, never a silent no-op.
+_SIGKILL: int = getattr(signal, "SIGKILL", signal.SIGTERM)
+
 
 def _extract_port(url: str) -> int | None:
     """Extract port from URL like http://host:port/path or http://host/path."""
@@ -153,7 +160,7 @@ def _kill_pid(pid: int, force: bool = False) -> bool:
                 args = ["taskkill", "/PID", str(pid)]
             result = subprocess.run(args, capture_output=True, check=False)
             return result.returncode == 0
-        sig = signal.SIGKILL if force else signal.SIGTERM
+        sig = _SIGKILL if force else signal.SIGTERM
         os.kill(pid, sig)
         return True
     except (ProcessLookupError, PermissionError, OSError):
